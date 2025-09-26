@@ -6,6 +6,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
   - [[https://github.com/anthropics/claude-code][Claude Code]]
   - [[https://github.com/google-gemini/gemini-cli][Gemini CLI]]
   - [[https://github.com/openai/codex][OpenAI Codex]]
+  - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]]
 
 - I switch across different CLI based AI tool in emacs: Claude Code / Gemini CLI / Aider / OpenAI Codex. If you also use different AI tools inside emacs, but want to keep same user interface and experience, this package is for you.
 
@@ -45,6 +46,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
    - Claude Code IDE (`[[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide.el]]`)
    - Gemini CLI (`[[https://github.com/linchen2chris/gemini-cli.el][gemini-cli.el]]`)
    - [[https://github.com/openai/codex][OpenAI codex CLI]] (`[[./ai-code-codex-cli.el][ai-code-codex-cli.el]]`)
+   - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]] (`[[./ai-code-github-copilot-cli.el][ai-code-github-copilot-cli.el]]`)
 
    You can add other backends by customizing the `ai-code-backends` variable.
 
