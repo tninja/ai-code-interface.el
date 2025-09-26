@@ -42,7 +42,6 @@
   (interactive "sCodex> ")
   (claude-code-send-command line))
 
-
 ;;;###autoload
 (defun codex-cli-resume (&optional arg)
   "Resume a previous Codex CLI session."
@@ -53,6 +52,7 @@
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend
       (goto-char (point-min)))))
+
 (provide 'ai-code-codex-cli)
 
 ;;; ai-code-codex-cli.el ends here

@@ -24,6 +24,8 @@
 (require 'ai-code-git)
 (require 'ai-code-change)
 (require 'ai-code-discussion)
+(require 'ai-code-codex-cli)
+(require 'ai-code-github-copilot-cli)
 
 ;; Forward declarations for dynamically defined backend functions
 (declare-function ai-code-cli-start "ai-code-backends")

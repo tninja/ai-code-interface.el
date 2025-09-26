@@ -52,6 +52,15 @@
       :resume  nil
       :config  "~/.gemini/settings.json"
       :cli     "gemini")
+    (github-copilot-cli
+     :label "ai-code-github-copilot-cli.el"
+     :require ai-code-github-copilot-cli
+     :start   github-copilot-cli
+     :switch  github-copilot-cli-switch-to-buffer
+     :send    github-copilot-cli-send-command
+     :resume  nil
+     :config  "~/.config/mcp-config.json" ;; https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli
+     :cli     "copilot")
     (codex
      :label "ai-code-codex-cli.el"
      :require ai-code-codex-cli
