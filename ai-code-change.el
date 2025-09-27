@@ -73,13 +73,15 @@ Argument ARG is the prefix argument."
       (ai-code--insert-prompt final-prompt))))
 
 ;;;###autoload
-(defun ai-code-implement-todo ()
+(defun ai-code-implement-todo (arg)
   "Generate prompt to implement TODO comments in current context.
+With a prefix argument (universal-argument), implement code after the comment instead of replacing it in-place.
 If region is selected, implement that specific region.
 If cursor is on a comment line, implement that specific comment.
 If cursor is inside a function, implement comments for that function.
-Otherwise implement comments for the entire current file."
-  (interactive)
+Otherwise implement comments for the entire current file.
+Argument ARG is the prefix argument."
+  (interactive "P")
   (if (not buffer-file-name)
       (message "Error: buffer-file-name must be available")
     (let* ((current-line (string-trim (thing-at-point 'line t)))
@@ -98,19 +100,35 @@ Otherwise implement comments for the entire current file."
                                 (line-number-at-pos (region-beginning))))
            (files-context-string (ai-code--get-context-files-string))
            (initial-input
-            (cond
-             (region-text
-              (format "Please implement this requirement comment block starting on line %d in-place: '%s'. It is already inside current code. Please replace it with implementation. Keep the existing code structure and implement just this specific block.%s%s"
-                      region-start-line region-text function-context files-context-string))
-             (is-comment
-              (format "Please implement this requirement comment on line %d in-place: '%s'. It is already inside current code. Please replace it with implementation. Keep the existing code structure and implement just this specific comment.%s%s"
-                      current-line-number current-line function-context files-context-string))
-             (function-name
-              (format "Please implement all TODO in-place in function '%s'. The TODO are TODO comments. Keep the existing code structure and only implement these marked items.%s"
-                      function-name files-context-string))
-             (t
-              (format "Please implement all TODO in-place in file '%s'. The TODO are TODO comments. Keep the existing code structure and only implement these marked items.%s"
-                      (file-name-nondirectory buffer-file-name) files-context-string))))
+            (if arg
+                ;; With prefix argument: implement after comment, not in-place
+                (cond
+                 (region-text
+                  (format "Please implement code after this requirement comment block starting on line %d: '%s'. Leave the comment as-is and add the implementation code after it. Keep the existing code structure and add the implementation after this specific block.%s%s"
+                          region-start-line region-text function-context files-context-string))
+                 (is-comment
+                  (format "Please implement code after this requirement comment on line %d: '%s'. Leave the comment as-is and add the implementation code after it. Keep the existing code structure and add the implementation after this specific comment.%s%s"
+                          current-line-number current-line function-context files-context-string))
+                 (function-name
+                  (format "Please implement code after all TODO comments in function '%s'. The TODO are TODO comments. Leave the comments as-is and add implementation code after each comment. Keep the existing code structure and only add code after these marked items.%s"
+                          function-name files-context-string))
+                 (t
+                  (format "Please implement code after all TODO comments in file '%s'. The TODO are TODO comments. Leave the comments as-is and add implementation code after each comment. Keep the existing code structure and only add code after these marked items.%s"
+                          (file-name-nondirectory buffer-file-name) files-context-string)))
+              ;; Without prefix argument: replace in-place (original behavior)
+              (cond
+               (region-text
+                (format "Please implement this requirement comment block starting on line %d in-place: '%s'. It is already inside current code. Please replace it with implementation. Keep the existing code structure and implement just this specific block.%s%s"
+                        region-start-line region-text function-context files-context-string))
+               (is-comment
+                (format "Please implement this requirement comment on line %d in-place: '%s'. It is already inside current code. Please replace it with implementation. Keep the existing code structure and implement just this specific comment.%s%s"
+                        current-line-number current-line function-context files-context-string))
+               (function-name
+                (format "Please implement all TODO in-place in function '%s'. The TODO are TODO comments. Keep the existing code structure and only implement these marked items.%s"
+                        function-name files-context-string))
+               (t
+                (format "Please implement all TODO in-place in file '%s'. The TODO are TODO comments. Keep the existing code structure and only implement these marked items.%s"
+                        (file-name-nondirectory buffer-file-name) files-context-string)))))
            (prompt (ai-code-read-string "TODO implementation instruction: " initial-input)))
       (ai-code--insert-prompt prompt))))
 
