@@ -124,11 +124,17 @@ Maintains a dedicated history list for this command."
       (user-error "Current buffer is not visiting a file"))
     (unless default-command
       (user-error "Current file is not a .py or .sh file"))
-    (let ((command (read-string (format "Run command for %s: " file-name)
-                                default-command
-                                'ai-code-run-file-history)))
-      (let ((default-directory (file-name-directory current-file)))
-        (compile command)))))
+      (let ((command (read-string (format "Run command for %s: " file-name)
+                                  default-command
+                                  'ai-code-run-file-history)))
+        (let* ((default-directory (file-name-directory current-file))
+               (buffer-name (format "*ai-code-run-current-file: %s*"
+                                    (file-name-base file-name))))
+          (compilation-start
+           command
+           nil
+           (lambda (_mode)
+             (generate-new-buffer-name buffer-name)))))))
 
 ;;;###autoload
 (defun ai-code-apply-prompt-on-current-file ()
@@ -152,8 +158,14 @@ and runs it in a compilation buffer."
                           (shell-quote-argument file-name)
                           ai-code-cli)))
     (when file-name
-      (let ((default-directory (file-name-directory file-name)))
-        (compile command)))))
+      (let* ((default-directory (file-name-directory file-name))
+             (buffer-name (format "*ai-code-apply-prompt: %s*"
+                                  (file-name-base file-name))))
+        (compilation-start
+         command
+         nil
+         (lambda (_mode)
+           (generate-new-buffer-name buffer-name)))))))
 
 ;;;###autoload
 (defun ai-code-shell-cmd ()
@@ -183,7 +195,11 @@ the corresponding shell command, and call ai-code-shell-cmd with that command as
              (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
         (when (and command (not (string= command "")))
           (let ((default-directory current-dir))
-            (async-shell-command command buffer-name))))
+            (compilation-start
+             command
+             nil
+             (lambda (_mode)
+               (generate-new-buffer-name buffer-name))))))
     (user-error "Current buffer is not a dired buffer")))
 
 ;;;###autoload
