@@ -5,3 +5,4 @@
 
 - Feat: add resume functionality for CLI sessions across backends, by ileixe 
 - Feat: add support for OpenAI Codex CLI backend, by tninja
+- Feat: support run shell command / AI prompt shell command in dired buffer
