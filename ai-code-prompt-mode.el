@@ -101,7 +101,10 @@ If file doesn't exist, create it with sample prompt."
 
 (defun ai-code-call-gptel-sync (question)
   "Get an answer from gptel synchronously for a given QUESTION.
-This function blocks until a response is received or a timeout occurs."
+This function blocks until a response is received or a timeout occurs.
+Only works when gptel package is installed, otherwise shows error message."
+  (unless (featurep 'gptel)
+    (user-error "GPTel package is required for AI command generation. Please install gptel package"))
   (let ((answer nil)
         (done nil)
         (error-info nil)
