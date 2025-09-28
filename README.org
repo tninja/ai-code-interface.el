@@ -102,6 +102,8 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
 - `yasnippet`: For snippet support in the prompt file. A library of snippets is included.
 - `gptel`: For intelligent, AI-generated headlines in the prompt file.
 - `flycheck`: To enable the `ai-code-flycheck-fix-errors-in-scope` command.
+- `projectile`: For project root initialization.
+- `helm-gtags`: For tags creation.
 
 ** Related emacs packages
 - Claude Code (`[[https://github.com/stevemolitor/claude-code.el][claude-code.el]]`)

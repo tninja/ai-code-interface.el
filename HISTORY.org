@@ -7,4 +7,5 @@
 - Feat: add support for OpenAI Codex CLI backend
 - Chore: C-u on ai-code-implement-todo will keep the requirement
 - Feat: support run shell command / AI prompt shell command in dired buffer
+- Feat: add ai-code-init-project to init .projectile and create tags
 - Feat: add mcp inspector automatically runner

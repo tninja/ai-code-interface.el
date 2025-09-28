@@ -14,6 +14,17 @@
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
 
+(defcustom ai-code-init-project-gtags-label "pygments"
+  "Default label passed to Helm-Gtags when initializing a project.
+Candidate values:
+- 'default'
+- 'native'
+- 'ctags'
+- 'new-ctags'
+- 'pygments'"
+  :type 'string
+  :group 'ai-code)
+
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 
 ;;;###autoload
@@ -412,6 +423,55 @@ Call this function to register the AI Code commands with Magit."
 
 ;; Ensure the Magit transients are set up when this file is loaded.
 ;; (ai-code-magit-setup-transients)
+
+;;;###autoload
+(defun ai-code-init-project (prefix)
+  "Initialize project helpers for Projectile and Helm-Gtags.
+If either package is available, prompt for a project directory
+defaulting to the Magit repository root, initialize the project in
+Projectile, and configure Helm-Gtags with a pygments label. Show a
+summary message of performed actions."
+  (interactive "P")
+  (let* ((projectile-available (or (featurep 'projectile)
+                                   (require 'projectile nil t)))
+         (helm-gtags-available (or (featurep 'helm-gtags)
+                                   (require 'helm-gtags nil t))))
+    (cond
+     ((not (or projectile-available helm-gtags-available))
+      (message "Projectile and Helm-Gtags are not available; skipping project initialization."))
+     ((not (require 'magit nil t))
+      (message "Magit is not available; cannot determine project root."))
+     (t
+      (let* ((git-root (condition-case nil
+                           (magit-toplevel)
+                         (error nil)))
+             (initial-dir (or git-root default-directory))
+             (dir (expand-file-name
+                   (read-directory-name "Initialize project at: "
+                                        initial-dir nil t initial-dir))))
+        (let ((gtags-label (when (and helm-gtags-available
+                                      (fboundp 'helm-gtags--read-gtagslabel))
+                             (if prefix
+                                 (helm-gtags--read-gtagslabel)
+                               ai-code-init-project-gtags-label)))
+              actions)
+          (when (and projectile-available
+                     (fboundp 'projectile-init-project))
+            (projectile-init-project dir)
+            (push (format "initialized Projectile project at %s" dir) actions))
+          (cond
+           ((and helm-gtags-available
+                 (fboundp 'helm-gtags--read-gtagslabel)
+                 gtags-label)
+            (helm-gtags-create-tags dir gtags-label)
+            (push (format "set Helm-Gtags label to %s for %s" gtags-label dir)
+                  actions))
+           ((and helm-gtags-available prefix)
+            (push (format "skipped Helm-Gtags label for %s" dir) actions)))
+          (if actions
+              (message "ai-code-init-project: %s"
+                       (mapconcat #'identity (nreverse actions) "; "))
+            (message "ai-code-init-project: no actions performed for %s" dir))))))))
 
 (provide 'ai-code-git)
 
