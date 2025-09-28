@@ -16,7 +16,12 @@
 
 (defcustom ai-code-init-project-gtags-label "pygments"
   "Default label passed to Helm-Gtags when initializing a project.
-candidate value: 'default' 'native' 'ctags' 'new-ctags' 'pygments'"
+Candidate values:
+- 'default'
+- 'native'
+- 'ctags'
+- 'new-ctags'
+- 'pygments'"
   :type 'string
   :group 'ai-code)
 
