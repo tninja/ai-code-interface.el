@@ -175,9 +175,19 @@ then run it under the directory of dired buffer, in a buffer with name as *ai-co
 If the command starts with ':', it means it is a prompt. In this case, ask gptel to generate 
 the corresponding shell command, and call ai-code-shell-cmd with that command as candidate."
   (interactive)
-  (if (eq major-mode 'dired-mode)
-      (let* ((current-dir (dired-current-directory))
-             (initial-command (ai-code-read-string "Shell command: "))
+  (let* ((has-region (use-region-p))
+         (current-dir (cond
+                       ((eq major-mode 'dired-mode)
+                        (dired-current-directory))
+                       (has-region
+                        default-directory)
+                       (t nil))))
+    (unless current-dir
+      (user-error "Current buffer is not a dired buffer, and there is no selceted region"))
+    (let* ((initial-input (when has-region
+                            (string-trim (buffer-substring-no-properties (region-beginning)
+                                                                          (region-end)))))
+           (initial-command (ai-code-read-string "Shell command: " initial-input))
              (command 
               (if (string-prefix-p ":" initial-command)
                   ;; If command starts with :, treat as prompt for AI
@@ -192,23 +202,22 @@ the corresponding shell command, and call ai-code-shell-cmd with that command as
                        initial-command)))
                 ;; Regular command, use as-is
                 initial-command))
-             (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
-        (when (and command (not (string= command "")))
-          (let ((default-directory current-dir))
-            (compilation-start
-             command
-             nil
-             (lambda (_mode)
-               (generate-new-buffer-name buffer-name))))))
-    (user-error "Current buffer is not a dired buffer")))
+           (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
+      (when (and command (not (string= command "")))
+        (let ((default-directory current-dir))
+          (compilation-start
+           command
+           nil
+           (lambda (_mode)
+             (generate-new-buffer-name buffer-name))))))))
 
 ;;;###autoload
 (defun ai-code-run-current-file-or-shell-cmd ()
-  "Run current file or shell command based on buffer type.
-If current buffer is not dired buffer, call ai-code-run-current-file,
-otherwise, call ai-code-shell-cmd."
+  "Run current file or shell command based on buffer state.
+Call `ai-code-shell-cmd` when in dired mode or a region is active; otherwise run the current file."
   (interactive)
-  (if (eq major-mode 'dired-mode)
+  (if (or (eq major-mode 'dired-mode)
+          (use-region-p))
       (ai-code-shell-cmd)
     (ai-code-run-current-file)))
 
