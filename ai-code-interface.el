@@ -27,6 +27,7 @@
 (require 'ai-code-codex-cli)
 (require 'ai-code-github-copilot-cli)
 (require 'ai-code-file)
+(require 'ai-code-ai)
 
 ;; Forward declarations for dynamically defined backend functions
 (declare-function ai-code-cli-start "ai-code-backends")
@@ -139,6 +140,7 @@ Shows the current backend label to the right."
     ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
     ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
     ("j" "Init projectile and tags" ai-code-init-project)
+    ("m" "Run MCP Inspector" ai-code-mcp-inspector-run)
     ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
     ]
    ])
