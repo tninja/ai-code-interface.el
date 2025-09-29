@@ -214,7 +214,7 @@ INITIAL-INPUT is the initial text to populate the shell command prompt."
                           default-directory)
                          (t nil))))
       (unless current-dir
-        (user-error "Current buffer is not a dired buffer, or no initial-input provided"))
+        (user-error "Cannot determine working directory: requires either a dired buffer or initial input."))
       (let* ((command (ai-code--generate-shell-command initial-input))
              (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
         (when (and command (not (string= command "")))
