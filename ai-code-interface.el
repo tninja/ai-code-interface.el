@@ -140,7 +140,7 @@ Shows the current backend label to the right."
     ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
     ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
     ("j" "Init projectile and tags" ai-code-init-project)
-    ("m" "Run MCP Inspector" ai-code-mcp-inspector-run)
+    ("m" "Debug python MCP server" ai-code-debug-mcp)
     ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
     ]
    ])

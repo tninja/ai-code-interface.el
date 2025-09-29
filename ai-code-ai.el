@@ -14,6 +14,52 @@
 
 (declare-function ai-code-read-string "ai-code-input")
 
+;;;###autoload
+(defun ai-code-debug-mcp ()
+  "Debug MCP by choosing to run mcp or inspector.
+If current buffer is a python file, ask user to choose either 'Run mcp' or 'Run inspector',
+and call either ai-code-mcp-run or ai-code-mcp-inspector-run accordingly."
+  (interactive)
+  (let ((current-file (buffer-file-name)))
+    (if (and current-file (string= (file-name-extension current-file) "py"))
+        (let ((choice (completing-read "Choose MCP action: " 
+                                       '("Run mcp" "Run inspector") 
+                                       nil t)))
+          (cond
+           ((string= choice "Run mcp")
+            (ai-code-mcp-run))
+           ((string= choice "Run inspector")
+            (ai-code-mcp-inspector-run))))
+      (message "Current buffer is not a python file"))))
+
+;;;###autoload
+(defun ai-code-mcp-run ()
+  "Run python mcp with uv command.
+Run command: uv --directory <project-root-base-dir> run <relative-path-to-current-buffer file>.
+Execute in compilation buffer named *ai-code-mcp-run:<full-path-of-python-file>*.
+If current buffer is not a python file, message user and quit."
+  (interactive)
+  (let ((current-file (buffer-file-name)))
+    (if (and current-file (string= (file-name-extension current-file) "py"))
+        (let* ((project-root-base-dir (ai-code-mcp-inspector--find-project-root current-file))
+               (relative-path (when project-root-base-dir
+                                (file-relative-name current-file project-root-base-dir))))
+          (if project-root-base-dir
+              (let* ((default-command (format "uv --directory %s run %s"
+                                              (shell-quote-argument project-root-base-dir)
+                                              (shell-quote-argument relative-path)))
+                     (command (ai-code-read-string "MCP run command: " default-command))
+                     (buffer-name (format "*ai-code-mcp-run:%s*" current-file))
+                     (default-directory project-root-base-dir))
+                (when (and command (not (string= command "")))
+                  (compilation-start
+                   command
+                   nil
+                   (lambda (_mode) buffer-name))))
+            (message "Could not find project root with pyproject.toml")))
+      (message "Current buffer is not a python file"))))
+
+;;;###autoload
 (defun ai-code-mcp-inspector-run ()
   "Run MCP inspector for the current context.
 For Python buffers, locate the project root via pyproject.toml and run the
@@ -90,7 +136,8 @@ CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a fi
          (buffer-name (plist-get context :buffer-name))
          (client-port (plist-get context :client-port))
          (server-port (plist-get context :server-port))
-         (command (plist-get context :command))
+         (default-command (plist-get context :command))
+         (command (ai-code-read-string "MCP inspector command: " default-command))
          (display-entries (plist-get context :display-entries))
          (compilation-buffer-name-function (lambda (_mode) buffer-name))
          (default-directory base-dir)
@@ -100,7 +147,8 @@ CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a fi
             (setq default-directory base-dir)
             (when previous-setup
               (funcall previous-setup))))
-         (buffer (compilation-start command nil)))
+         (buffer (when (and command (not (string= command "")))
+                   (compilation-start command nil))))
     (when (and buffer (buffer-live-p buffer))
       (with-current-buffer buffer
         (let ((inhibit-read-only t))
@@ -113,7 +161,8 @@ CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a fi
           (insert (format "Command: %s\n\n" command))
           (insert "Starting inspector...\n\n")))
       (display-buffer buffer))
-    (message "MCP Inspector started, output in %s" buffer-name)))
+    (when (and command (not (string= command "")))
+      (message "MCP Inspector started, output in %s" buffer-name))))
 
 (defun ai-code-mcp-inspector--find-project-root (file-path)
   "Find project root by looking for pyproject.toml in parent directories starting from FILE-PATH."
