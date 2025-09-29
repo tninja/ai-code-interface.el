@@ -191,38 +191,49 @@ Return the final command string."
 
 ;;;###autoload
 (defun ai-code-shell-cmd (&optional initial-input)
-  "Run shell command in dired directory.
+  "Run shell command in dired directory or insert command in shell buffers.
 If current buffer is a dired buffer, get user input shell command with read-string,
 then run it under the directory of dired buffer, in a buffer with name as *ai-code-shell-cmd: <current-dir>*.
+If current buffer is shell-mode, eshell-mode or sh-mode, get input and insert command under cursor, do not run it.
 If the command starts with ':', it means it is a prompt. In this case, ask gptel to generate 
 the corresponding shell command, and call ai-code-shell-cmd with that command as candidate.
 INITIAL-INPUT is the initial text to populate the shell command prompt."
   (interactive)
-  (let* ((current-dir (cond
-                       ((eq major-mode 'dired-mode)
-                        (dired-current-directory))
-                       (initial-input
-                        default-directory)
-                       (t nil))))
-    (unless current-dir
-      (user-error "Current buffer is not a dired buffer, or no initial-input provided"))
-    (let* ((command (ai-code--generate-shell-command initial-input))
-           (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
+  (cond
+   ;; Handle shell modes: insert command without running
+   ((memq major-mode '(shell-mode eshell-mode sh-mode vterm-mode))
+    (let ((command (ai-code--generate-shell-command initial-input)))
       (when (and command (not (string= command "")))
-        (let ((default-directory current-dir))
-          (compilation-start
-           command
-           nil
-           (lambda (_mode)
-             (generate-new-buffer-name buffer-name))))))))
+        (insert command))))
+   ;; Handle other modes: run command in compilation buffer
+   (t
+    (let* ((current-dir (cond
+                         ((eq major-mode 'dired-mode)
+                          (dired-current-directory))
+                         (initial-input
+                          default-directory)
+                         (t nil))))
+      (unless current-dir
+        (user-error "Current buffer is not a dired buffer, or no initial-input provided"))
+      (let* ((command (ai-code--generate-shell-command initial-input))
+             (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
+        (when (and command (not (string= command "")))
+          (let ((default-directory current-dir))
+            (compilation-start
+             command
+             nil
+             (lambda (_mode)
+               (generate-new-buffer-name buffer-name))))))))))
 
 ;;;###autoload
 (defun ai-code-run-current-file-or-shell-cmd ()
   "Run current file or shell command based on buffer state.
-Call `ai-code-shell-cmd` when in dired mode or a region is active; otherwise run the current file."
+Call `ai-code-shell-cmd` when in dired mode, shell modes or a region is active; otherwise run the current file."
   (interactive)
   (cond
    ((eq major-mode 'dired-mode)
+    (ai-code-shell-cmd))
+   ((memq major-mode '(shell-mode eshell-mode sh-mode vterm-mode))
     (ai-code-shell-cmd))
    ((use-region-p)
     (let ((initial-input (string-trim (buffer-substring-no-properties (region-beginning)
