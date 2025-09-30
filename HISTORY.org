@@ -9,4 +9,7 @@
 - Feat: support run shell command / AI prompt shell command in dired buffer
 - Feat: add ai-code-init-project to init .projectile and create tags
 - Feat: add mcp inspector automatically runner
+- Chore: Enhance ai-code-shell-cmd to
+  - handle region and improve input
+  - be able to insert ai generated command to shell buffer
 - Feat: Add MCP debug command and customizable run options for Python files

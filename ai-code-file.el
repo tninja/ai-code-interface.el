@@ -167,31 +167,55 @@ and runs it in a compilation buffer."
          (lambda (_mode)
            (generate-new-buffer-name buffer-name)))))))
 
+(defun ai-code--generate-shell-command (&optional initial-input)
+  "Generate shell command from user input or AI assistance.
+Read initial command from user with INITIAL-INPUT as default.
+If command starts with ':', treat as prompt for AI to generate command.
+Return the final command string."
+  (let* ((initial-command (ai-code-read-string "Shell command: " initial-input))
+         (command 
+          (if (string-prefix-p ":" initial-command)
+              ;; If command starts with :, treat as prompt for AI
+              (let ((prompt (concat "Generate a shell command (pure command, no fense) for: " (substring initial-command 1))))
+                (condition-case err
+                    (let ((ai-generated (ai-code-call-gptel-sync prompt)))
+                      (when ai-generated
+                        ;; Ask user to confirm/edit the AI-generated command
+                        (read-string "Shell command (AI generated): " (string-trim ai-generated))))
+                  (error 
+                   (message "Failed to generate command with AI: %s" err)
+                   initial-command)))
+            ;; Regular command, use as-is
+            initial-command)))
+    command))
+
 ;;;###autoload
-(defun ai-code-shell-cmd ()
-  "Run shell command in dired directory.
+(defun ai-code-shell-cmd (&optional initial-input)
+  "Run shell command in dired directory or insert command in shell buffers.
 If current buffer is a dired buffer, get user input shell command with read-string,
 then run it under the directory of dired buffer, in a buffer with name as *ai-code-shell-cmd: <current-dir>*.
+If current buffer is shell-mode, eshell-mode or sh-mode, get input and insert command under cursor, do not run it.
 If the command starts with ':', it means it is a prompt. In this case, ask gptel to generate 
-the corresponding shell command, and call ai-code-shell-cmd with that command as candidate."
+the corresponding shell command, and call ai-code-shell-cmd with that command as candidate.
+INITIAL-INPUT is the initial text to populate the shell command prompt."
   (interactive)
-  (if (eq major-mode 'dired-mode)
-      (let* ((current-dir (dired-current-directory))
-             (initial-command (ai-code-read-string "Shell command: "))
-             (command 
-              (if (string-prefix-p ":" initial-command)
-                  ;; If command starts with :, treat as prompt for AI
-                  (let ((prompt (concat "Generate a shell command (pure command, no fense) for: " (substring initial-command 1))))
-                    (condition-case err
-                        (let ((ai-generated (ai-code-call-gptel-sync prompt)))
-                          (when ai-generated
-                            ;; Ask user to confirm/edit the AI-generated command
-                            (read-string "Shell command (AI generated): " (string-trim ai-generated))))
-                      (error 
-                       (message "Failed to generate command with AI: %s" err)
-                       initial-command)))
-                ;; Regular command, use as-is
-                initial-command))
+  (cond
+   ;; Handle shell modes: insert command without running
+   ((memq major-mode '(shell-mode eshell-mode sh-mode vterm-mode))
+    (let ((command (ai-code--generate-shell-command initial-input)))
+      (when (and command (not (string= command "")))
+        (insert command))))
+   ;; Handle other modes: run command in compilation buffer
+   (t
+    (let* ((current-dir (cond
+                         ((eq major-mode 'dired-mode)
+                          (dired-current-directory))
+                         (initial-input
+                          default-directory)
+                         (t nil))))
+      (unless current-dir
+        (user-error "Cannot determine working directory: requires either a dired buffer or initial input."))
+      (let* ((command (ai-code--generate-shell-command initial-input))
              (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
         (when (and command (not (string= command "")))
           (let ((default-directory current-dir))
@@ -199,18 +223,24 @@ the corresponding shell command, and call ai-code-shell-cmd with that command as
              command
              nil
              (lambda (_mode)
-               (generate-new-buffer-name buffer-name))))))
-    (user-error "Current buffer is not a dired buffer")))
+               (generate-new-buffer-name buffer-name))))))))))
 
 ;;;###autoload
 (defun ai-code-run-current-file-or-shell-cmd ()
-  "Run current file or shell command based on buffer type.
-If current buffer is not dired buffer, call ai-code-run-current-file,
-otherwise, call ai-code-shell-cmd."
+  "Run current file or shell command based on buffer state.
+Call `ai-code-shell-cmd` when in dired mode, shell modes or a region is active; otherwise run the current file."
   (interactive)
-  (if (eq major-mode 'dired-mode)
-      (ai-code-shell-cmd)
-    (ai-code-run-current-file)))
+  (cond
+   ((eq major-mode 'dired-mode)
+    (ai-code-shell-cmd))
+   ((memq major-mode '(shell-mode eshell-mode sh-mode vterm-mode))
+    (ai-code-shell-cmd))
+   ((use-region-p)
+    (let ((initial-input (string-trim (buffer-substring-no-properties (region-beginning)
+                                                                      (region-end)))))
+      (ai-code-shell-cmd initial-input)))
+   (t
+    (ai-code-run-current-file))))
 
 (provide 'ai-code-file)
 
