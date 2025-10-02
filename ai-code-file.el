@@ -173,6 +173,24 @@ Read initial command from user with INITIAL-INPUT as default.
 If command starts with ':', treat as prompt for AI to generate command.
 Return the final command string."
   (let* ((initial-command (ai-code-read-string "Shell command: " initial-input))
+         ;; if current buffer is dired buffer, replace the * character
+         ;; inside initial-command with file base name under cursor,
+         ;; or marked files, separate with space
+         (initial-command
+          (if (and (eq major-mode 'dired-mode)
+                   (string-match-p "\\*" initial-command))
+              (let* ((files (ignore-errors (dired-get-marked-files)))
+                     (file-names (when files
+                                   (mapcar #'file-name-nondirectory files))))
+                (if file-names
+                    (replace-regexp-in-string
+                     (regexp-quote "*")
+                     (mapconcat #'identity file-names " ")
+                     initial-command
+                     nil
+                     t)
+                  initial-command))
+            initial-command))
          (command 
           (if (string-prefix-p ":" initial-command)
               ;; If command starts with :, treat as prompt for AI
