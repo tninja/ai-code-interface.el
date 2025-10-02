@@ -13,3 +13,4 @@
   - handle region and improve input
   - be able to insert ai generated command to shell buffer
 - Feat: Add MCP debug command and customizable run options for Python files
+- Chore: Enhance AI shell command input to support file name expansion in dired mode
