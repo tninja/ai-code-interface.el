@@ -9,6 +9,7 @@
 ;;; Code:
 
 (require 'compile)
+(require 'eshell)
 
 (require 'ai-code-input)
 
@@ -138,31 +139,24 @@ CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a fi
          (server-port (plist-get context :server-port))
          (default-command (plist-get context :command))
          (command (ai-code-read-string "MCP inspector command: " default-command))
-         (display-entries (plist-get context :display-entries))
-         (compilation-buffer-name-function (lambda (_mode) buffer-name))
-         (default-directory base-dir)
-         (previous-setup compilation-process-setup-function)
-         (compilation-process-setup-function
-          (lambda ()
-            (setq default-directory base-dir)
-            (when previous-setup
-              (funcall previous-setup))))
-         (buffer (when (and command (not (string= command "")))
-                   (compilation-start command nil))))
-    (when (and buffer (buffer-live-p buffer))
-      (with-current-buffer buffer
-        (let ((inhibit-read-only t))
-          (goto-char (point-min))
-          (insert (format "Running MCP Inspector for %s\n" base-dir-name))
-          (dolist (entry display-entries)
-            (insert (format "%s: %s\n" (car entry) (cdr entry))))
-          (insert (format "Server port: %d\n" server-port))
-          (insert (format "Client port: %d\n" client-port))
-          (insert (format "Command: %s\n\n" command))
-          (insert "Starting inspector...\n\n")))
-      (display-buffer buffer))
+         (display-entries (plist-get context :display-entries)))
     (when (and command (not (string= command "")))
-      (message "MCP Inspector started, output in %s" buffer-name))))
+      (let* ((default-directory base-dir)
+             (buffer (get-buffer-create buffer-name)))
+        (with-current-buffer buffer
+          (eshell-mode)
+          (goto-char (point-max))
+          (insert (format "# Running MCP Inspector for %s\n" base-dir-name))
+          (dolist (entry display-entries)
+            (insert (format "# %s: %s\n" (car entry) (cdr entry))))
+          (insert (format "# Server port: %d\n" server-port))
+          (insert (format "# Client port: %d\n" client-port))
+          (insert (format "# Command: %s\n\n" command))
+          (insert "# Starting inspector...\n\n")
+          (insert command)
+          (eshell-send-input))
+        (display-buffer buffer)
+        (message "MCP Inspector started, output in %s" buffer-name)))))
 
 (defun ai-code-mcp-inspector--find-project-root (file-path)
   "Find project root by looking for pyproject.toml in parent directories starting from FILE-PATH."
