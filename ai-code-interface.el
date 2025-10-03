@@ -1,7 +1,7 @@
 ;;; ai-code-interface.el --- AI code interface for editing AI prompt files -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
-;; Version: 0.34
+;; Version: 0.35
 ;; Package-Requires: ((emacs "26.1") (transient "0.8.0") (magit "2.1.0"))
 
 ;; SPDX-License-Identifier: Apache-2.0
@@ -136,11 +136,11 @@ Shows the current backend label to the right."
     ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
     ]
    ["Other Tools"
+    ("." "Init projectile and tags" ai-code-init-project)
     ("e" "Debug exception (C-u: global)" ai-code-investigate-exception)
     ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
     ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
     ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
-    ("." "Init projectile and tags" ai-code-init-project)
     ("m" "Debug python MCP server" ai-code-debug-mcp)
     ]
    ])
