@@ -84,7 +84,7 @@ Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN 
                        (const :switch) (symbol :tag "Switch function")
                        (const :send) (symbol :tag "Send function")
                        (const :resume) (choice (symbol :tag "Resume function") (const :tag "Not supported" nil))
-                       (const :upgrade) (symbol :tag "Upgrade function")
+                       (const :upgrade) (choice (string :tag "Upgrade command") (const :tag "Not supported" nil))
                        (const :cli) (string :tag "CLI name")))
   :group 'ai-code)
 
