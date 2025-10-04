@@ -194,11 +194,6 @@ otherwise call `ai-code-cli-start'."
         (find-file-other-window file)
         (message "Opened %s config: %s" label file)))))
 
-;; add a function ai-code-upgrade interactive function. It will get
-;; :upgrade for the current ai-code-selected-backend. If it is not
-;; nil, run the corresponding command in compile buffer; otherwise,
-;; let user know that the upgrade command for current backend is not defined.
-
 ;;;###autoload
 (defun ai-code-upgrade-backend ()
   "Run the upgrade command for the currently selected backend."
