@@ -40,7 +40,7 @@ If current buffer is a python file, ask user to choose either 'Run mcp',
 ;;;###autoload
 (defun ai-code-mcp-generate-config ()
   "Generate an MCP config snippet tailored for the active backend.
-Claude-oriented backends receive JSON, while the Codex backend outputs YAML.
+Claude-oriented backends receive JSON, while the Codex backend outputs toml.
 The snippet is shown in *<base-dir-name>:mcp config*."
   (interactive)
   (let ((current-file (buffer-file-name)))
@@ -58,7 +58,7 @@ The snippet is shown in *<base-dir-name>:mcp config*."
                      (use-codex-format (eq ai-code-selected-backend 'codex))
                      (config-string
                       (if use-codex-format
-                          (ai-code--mcp-config-yaml buffer-label base-dir-path relative-path)
+                          (ai-code--mcp-config-toml buffer-label base-dir-path relative-path)
                         (ai-code--mcp-config-json buffer-label base-dir-path relative-path))))
                 (with-current-buffer (get-buffer-create buffer-name)
                   (let ((inhibit-read-only t))
@@ -70,8 +70,8 @@ The snippet is shown in *<base-dir-name>:mcp config*."
                       (insert "\n"))
                     (cond
                      (use-codex-format
-                      (when (fboundp 'yaml-mode)
-                        (yaml-mode)))
+                      (when (fboundp 'conf-toml-mode)
+                        (conf-toml-mode)))
                      ((fboundp 'json-mode)
                       (json-mode))))
                   (goto-char (point-min))
@@ -91,7 +91,7 @@ BASE-DIR-PATH and RELATIVE-PATH populate the uv command arguments."
                ("args" . ["--directory" ,base-dir-path "run" ,relative-path])
                ))))))))
 
-(defun ai-code--mcp-config-yaml (server-label base-dir-path relative-path)
+(defun ai-code--mcp-config-toml (server-label base-dir-path relative-path)
   "Return Codex TOML MCP config snippet for SERVER-LABEL.
 BASE-DIR-PATH and RELATIVE-PATH populate the uv command arguments."
   (let ((quote (lambda (value) (json-encode value))))

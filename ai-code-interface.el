@@ -136,11 +136,11 @@ Shows the current backend label to the right."
     ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
     ]
    ["Other Tools"
+    ("." "Init projectile and tags" ai-code-init-project)
     ("e" "Debug exception (C-u: global)" ai-code-investigate-exception)
     ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
     ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
     ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
-    ("." "Init projectile and tags" ai-code-init-project)
     ("m" "Debug python MCP server" ai-code-debug-mcp)
     ]
    ])
