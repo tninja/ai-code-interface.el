@@ -1,7 +1,7 @@
 ;;; ai-code-interface.el --- AI code interface for editing AI prompt files -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
-;; Version: 0.34
+;; Version: 0.41
 ;; Package-Requires: ((emacs "26.1") (transient "0.8.0") (magit "2.1.0"))
 
 ;; SPDX-License-Identifier: Apache-2.0
@@ -116,6 +116,7 @@ Shows the current backend label to the right."
     ("R" "Resume AI CLI" ai-code-cli-resume)
     ("z" "Switch to AI CLI" ai-code-cli-switch-to-buffer-or-hide)
     ("s" ai-code--select-backend-description ai-code-select-backend)
+    ("u" "Upgrade AI CLI" ai-code-upgrade-backend)
     ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
     ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
     ]

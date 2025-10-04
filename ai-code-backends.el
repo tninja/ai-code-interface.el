@@ -33,6 +33,7 @@
      :send    claude-code-send-command
      :resume  claude-code-resume
      :config  "~/.claude.json"
+     :upgrade nil
      :cli     "claude")
     (claude-code-ide
      :label "claude-code-ide.el"
@@ -42,16 +43,18 @@
      :send    claude-code-ide-send-prompt
      :resume  claude-code-ide-resume
      :config  "~/.claude.json"
+     :upgrade nil
      :cli     "claude")
     (gemini
-      :label "gemini-cli.el"
-      :require gemini-cli
-      :start   gemini-cli
-      :switch  gemini-cli-switch-to-buffer
-      :send    gemini-cli-send-command
-      :resume  nil
-      :config  "~/.gemini/settings.json"
-      :cli     "gemini")
+     :label "gemini-cli.el"
+     :require gemini-cli
+     :start   gemini-cli
+     :switch  gemini-cli-switch-to-buffer
+     :send    gemini-cli-send-command
+     :resume  nil
+     :config  "~/.gemini/settings.json"
+     :upgrade "npm install -g @google/gemini-cli"
+     :cli     "gemini")
     (github-copilot-cli
      :label "ai-code-github-copilot-cli.el"
      :require ai-code-github-copilot-cli
@@ -60,6 +63,7 @@
      :send    github-copilot-cli-send-command
      :resume  nil
      :config  "~/.config/mcp-config.json" ;; https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli
+     :upgrade "npm install -g @github/copilot"
      :cli     "copilot")
     (codex
      :label "ai-code-codex-cli.el"
@@ -69,6 +73,7 @@
      :send    codex-cli-send-command
      :resume  codex-cli-resume
      :config  "~/.codex/config.toml"
+     :upgrade "npm install -g @openai/codex@latest"
      :cli     "codex"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN :resume FN-or-nil :cli STRING)."
@@ -79,6 +84,7 @@ Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN 
                        (const :switch) (symbol :tag "Switch function")
                        (const :send) (symbol :tag "Send function")
                        (const :resume) (choice (symbol :tag "Resume function") (const :tag "Not supported" nil))
+                       (const :upgrade) (symbol :tag "Upgrade function")
                        (const :cli) (string :tag "CLI name")))
   :group 'ai-code)
 
@@ -148,6 +154,16 @@ Sets `ai-code-cli-*' defaliases and updates `ai-code-cli'."
       (message "AI Code backend switched to: %s" (plist-get plist :label)))))
 
 ;;;###autoload
+(defun ai-code-cli-start-or-resume (&optional arg)
+  "Start or resume the CLI depending on prefix argument.
+If called with `C-u' (raw prefix ARG '(4)), invoke `ai-code-cli-resume';
+otherwise call `ai-code-cli-start'."
+  (interactive "P")
+  (if arg
+      (call-interactively #'ai-code-cli-resume)
+    (call-interactively #'ai-code-cli-start)))
+
+;;;###autoload
 (defun ai-code-select-backend ()
   "Interactively select and apply an AI backend from `ai-code-backends'."
   (interactive)
@@ -176,6 +192,27 @@ Sets `ai-code-cli-*' defaliases and updates `ai-code-cli'."
       (let ((file (expand-file-name config)))
         (find-file-other-window file)
         (message "Opened %s config: %s" label file)))))
+
+;; add a function ai-code-upgrade interactive function. It will get
+;; :upgrade for the current ai-code-selected-backend. If it is not
+;; nil, run the corresponding command in compile buffer; otherwise,
+;; let user know that the upgrade command for current backend is not defined.
+
+;;;###autoload
+(defun ai-code-upgrade-backend ()
+  "Run the upgrade command for the currently selected backend."
+  (interactive)
+  (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
+    (unless spec
+      (user-error "No backend is currently selected."))
+    (let* ((plist   (cdr spec))
+           (upgrade (plist-get plist :upgrade))
+           (label   (ai-code-current-backend-label)))
+      (if upgrade
+          (progn
+            (compile upgrade)
+            (message "Running upgrade command for %s" label))
+        (user-error "Upgrade command for backend '%s' is not defined." label)))))
 
 (provide 'ai-code-backends)
 
