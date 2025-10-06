@@ -76,7 +76,8 @@
      :upgrade "npm install -g @openai/codex@latest"
      :cli     "codex"))
   "Available AI backends and how to integrate with them.
-Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN :resume FN-or-nil :cli STRING)."
+Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).
+The :upgrade property can be either a string shell command or nil."
   :type '(repeat (list (symbol :tag "Key")
                        (const :label) (string :tag "Label")
                        (const :require) (symbol :tag "Feature to require")
@@ -84,7 +85,7 @@ Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN 
                        (const :switch) (symbol :tag "Switch function")
                        (const :send) (symbol :tag "Send function")
                        (const :resume) (choice (symbol :tag "Resume function") (const :tag "Not supported" nil))
-                       (const :upgrade) (symbol :tag "Upgrade function")
+                       (const :upgrade) (choice (string :tag "Upgrade command") (const :tag "Not supported" nil))
                        (const :cli) (string :tag "CLI name")))
   :group 'ai-code)
 
@@ -192,11 +193,6 @@ otherwise call `ai-code-cli-start'."
       (let ((file (expand-file-name config)))
         (find-file-other-window file)
         (message "Opened %s config: %s" label file)))))
-
-;; add a function ai-code-upgrade interactive function. It will get
-;; :upgrade for the current ai-code-selected-backend. If it is not
-;; nil, run the corresponding command in compile buffer; otherwise,
-;; let user know that the upgrade command for current backend is not defined.
 
 ;;;###autoload
 (defun ai-code-upgrade-backend ()
