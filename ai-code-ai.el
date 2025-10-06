@@ -10,28 +10,102 @@
 
 (require 'compile)
 (require 'eshell)
+(require 'json)
 
 (require 'ai-code-input)
 
 (declare-function ai-code-read-string "ai-code-input")
+(defvar ai-code-selected-backend)
 
 ;;;###autoload
 (defun ai-code-debug-mcp ()
-  "Debug MCP by choosing to run mcp or inspector.
-If current buffer is a python file, ask user to choose either 'Run mcp' or 'Run inspector',
-and call either ai-code-mcp-run or ai-code-mcp-inspector-run accordingly."
+  "Debug MCP by choosing to run mcp, inspector, or generate a config.
+If current buffer is a python file, ask user to choose either 'Run mcp',
+'Run inspector', or 'Generate mcp config', and call the matching helper."
   (interactive)
   (let ((current-file (buffer-file-name)))
     (if (and current-file (string= (file-name-extension current-file) "py"))
-        (let ((choice (completing-read "Choose MCP action: " 
-                                       '("Run mcp" "Run inspector") 
+        (let ((choice (completing-read "Choose MCP action: "
+                                       '("Run mcp" "Run inspector" "Generate mcp config")
                                        nil t)))
           (cond
            ((string= choice "Run mcp")
             (ai-code-mcp-run))
            ((string= choice "Run inspector")
-            (ai-code-mcp-inspector-run))))
+            (ai-code-mcp-inspector-run))
+           ((string= choice "Generate mcp config")
+            (ai-code-mcp-generate-config))))
       (message "Current buffer is not a python file"))))
+
+;;;###autoload
+(defun ai-code-mcp-generate-config ()
+  "Generate an MCP config snippet tailored for the active backend.
+Claude-oriented backends receive JSON, while the Codex backend outputs toml.
+The snippet is shown in *<base-dir-name>:mcp config*."
+  (interactive)
+  (let ((current-file (buffer-file-name)))
+    (if (and current-file (string= (file-name-extension current-file) "py"))
+        (let ((project-root (ai-code-mcp-inspector--find-project-root current-file)))
+          (if project-root
+              (let* ((base-dir (file-name-as-directory project-root))
+                     (base-dir-path (directory-file-name base-dir))
+                     (base-dir-name (file-name-nondirectory base-dir-path))
+                     (buffer-label (if (> (length base-dir-name) 0)
+                                       base-dir-name
+                                     base-dir-path))
+                     (relative-path (file-relative-name current-file base-dir))
+                     (buffer-name (format "*%s:mcp config*" buffer-label))
+                     (use-codex-format (eq ai-code-selected-backend 'codex))
+                     (config-string
+                      (if use-codex-format
+                          (ai-code--mcp-config-toml buffer-label base-dir-path relative-path)
+                        (ai-code--mcp-config-json buffer-label base-dir-path relative-path))))
+                (with-current-buffer (get-buffer-create buffer-name)
+                  (let ((inhibit-read-only t))
+                    (erase-buffer)
+                    (insert config-string)
+                    (when (or (null config-string)
+                              (<= (length config-string) 0)
+                              (not (eq (aref config-string (1- (length config-string))) ?\n)))
+                      (insert "\n"))
+                    (cond
+                     (use-codex-format
+                      (when (fboundp 'conf-toml-mode)
+                        (conf-toml-mode)))
+                     ((fboundp 'json-mode)
+                      (json-mode))))
+                  (goto-char (point-min))
+                  (display-buffer (current-buffer))
+                  (message "Generated MCP config in %s" buffer-name)))
+            (message "Could not find project root with pyproject.toml")))
+      (message "Current buffer is not a python file"))))
+
+(defun ai-code--mcp-config-json (server-label base-dir-path relative-path)
+  "Return JSON MCP config string for SERVER-LABEL.
+BASE-DIR-PATH and RELATIVE-PATH populate the uv command arguments."
+  (let ((json-encoding-pretty-print t))
+    (json-encode
+     `(("mcpServers"
+        . ((,server-label
+            . (("command" . "uv")
+               ("args" . ["--directory" ,base-dir-path "run" ,relative-path])
+               ))))))))
+
+(defun ai-code--mcp-config-toml (server-label base-dir-path relative-path)
+  "Return Codex TOML MCP config snippet for SERVER-LABEL.
+BASE-DIR-PATH and RELATIVE-PATH populate the uv command arguments."
+  (let ((quote (lambda (value) (json-encode value))))
+    (mapconcat
+     #'identity
+     (list
+      (format "[mcp_servers.%s]" server-label)
+      (format "command = %s" (funcall quote "uv"))
+      (format "args = [\n    %s,\n    %s,\n    %s,\n    %s\n]"
+              (funcall quote "--directory")
+              (funcall quote base-dir-path)
+              (funcall quote "run")
+              (funcall quote relative-path)))
+     "\n")))
 
 ;;;###autoload
 (defun ai-code-mcp-run ()

@@ -471,7 +471,46 @@ summary message of performed actions."
           (if actions
               (message "ai-code-init-project: %s"
                        (mapconcat #'identity (nreverse actions) "; "))
-            (message "ai-code-init-project: no actions performed for %s" dir))))))))
+            (message "ai-code-init-project: no actions performed for %s" dir))
+          (ai-code-update-git-ignore)))))))
+
+;;;###autoload
+(defun ai-code-update-git-ignore ()
+  "Ensure repository .gitignore contains AI Code related entries.
+If not inside a Git repository, do nothing."
+  (interactive)
+  (let ((git-root (magit-toplevel)))
+    (if (not git-root)
+        (message "ai-code-update-git-ignore: not in a git repository, skipped")
+      (let* ((gitignore-path (expand-file-name ".gitignore" git-root))
+             (required-entries '(".ai.code.prompt.org" ".projectile" "GTAGS" "GRTAGS" "GPATH"))
+             (gitignore-content (when (file-exists-p gitignore-path)
+                                  (with-temp-buffer
+                                    (insert-file-contents gitignore-path)
+                                    (buffer-string))))
+             (missing-entries nil))
+        (dolist (entry required-entries)
+          (unless (and gitignore-content
+                       (string-match-p (concat "(?m)^\\s-*"
+                                              (regexp-quote entry)
+                                              "\\s-*$")
+                                       gitignore-content))
+            (unless (member entry missing-entries)
+              (push entry missing-entries))))
+        (if missing-entries
+            (let ((added (nreverse missing-entries)))
+              (with-temp-buffer
+                (when gitignore-content
+                  (insert gitignore-content)
+                  (unless (or (zerop (buffer-size))
+                              (eq (char-before) ?\n))
+                    (insert "\n")))
+                (dolist (entry added)
+                  (insert entry "\n"))
+                (write-region (point-min) (point-max) gitignore-path))
+              (message "ai-code-update-git-ignore: added %s"
+                       (mapconcat #'identity added ", ")))
+          (message "ai-code-update-git-ignore: no updates needed"))))))
 
 (provide 'ai-code-git)
 
