@@ -18,3 +18,4 @@
 - Feat: Add menu item to upgrade backend AI CLI tools
 - Chore: Update .gitignore with AI Code entries
 - Feat: generate python MCP config (json / toml)
+- Feat: add web browser support for git diffs 
