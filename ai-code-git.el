@@ -181,61 +181,76 @@ GIT-ROOT is the root directory of the Git repository."
     (ai-code--generate-staged-diff diff-file)
     diff-file))
 
-(defun ai-code--handle-base-vs-head-diff-generation (git-root)
+(defun ai-code--handle-base-vs-head-diff-generation (git-root &optional open-in-browser)
   "Handle generation of diff between a base branch and HEAD.
-GIT-ROOT is the root directory of the Git repository."
-  (let* ((base-branch (ai-code-read-string "Base branch name: " nil nil nil))
-         (feature-branch "HEAD")
-         (diff-file-name-part (concat (replace-regexp-in-string "/" "-" base-branch) ".HEAD"))
-         (diff-file (expand-file-name (concat diff-file-name-part ".diff") git-root))
-         (diff-params (list :type 'base-vs-head
-                             :base-branch base-branch
-                             :feature-branch feature-branch
-                             :diff-file-name-part diff-file-name-part)))
-    (ai-code--generate-branch-or-commit-diff diff-params diff-file)
-    diff-file))
-
-(defun ai-code--handle-branch-range-diff-generation (git-root)
-  "Handle generation of diff between a base branch and a feature branch.
-GIT-ROOT is the root directory of the Git repository."
+GIT-ROOT is the root directory of the Git repository.
+If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface without generating file."
   (let* ((base-branch (ai-code-read-string "Base branch name: "))
-         (feature-branch (ai-code-read-string "Feature branch name: "))
-         (branch-scope)
-         (scope-alist '(("Local" . local)
-                        ("Remote (will prefix with 'origin/')" . remote)))
-         (raw-scope-choice (completing-read "Are branches local or remote? "
-                                            scope-alist
-                                            nil t nil nil "Local")))
-    (setq branch-scope
-          (if (consp raw-scope-choice)
-              (cdr raw-scope-choice)
-            (cdr (assoc raw-scope-choice scope-alist))))
-    (let* ((diff-file-name-part (concat (replace-regexp-in-string "/" "-" base-branch)
-                                       "."
-                                       (replace-regexp-in-string "/" "-" feature-branch)))
-           (diff-file (expand-file-name (concat diff-file-name-part ".diff") git-root))
-           (diff-params (list :type 'branch-range
-                               :base-branch base-branch
-                               :feature-branch feature-branch
-                               :branch-scope branch-scope
-                               :diff-file-name-part diff-file-name-part)))
-      (ai-code--generate-branch-or-commit-diff diff-params diff-file)
-      diff-file)))
+         (current-branch (magit-get-current-branch)))
+    (if open-in-browser
+        (progn
+          (ai-code--open-git-web-compare base-branch (or current-branch "HEAD"))
+          nil)  ; Return nil since no file was generated
+      (let* ((diff-file-name-part (concat (replace-regexp-in-string "/" "-" base-branch) ".HEAD"))
+             (diff-file (expand-file-name (concat diff-file-name-part ".diff") git-root))
+             (diff-params (list :type 'base-vs-head
+                                :base-branch base-branch
+                                :feature-branch "HEAD"
+                                :diff-file-name-part diff-file-name-part)))
+        (ai-code--generate-branch-or-commit-diff diff-params diff-file)
+        diff-file))))
 
-(defun ai-code--handle-commit-diff-generation (git-root)
+(defun ai-code--handle-branch-range-diff-generation (git-root &optional open-in-browser)
+  "Handle generation of diff between a base branch and a feature branch.
+GIT-ROOT is the root directory of the Git repository.
+If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface without generating file."
+  (let* ((base-branch (ai-code-read-string "Base branch name: "))
+         (feature-branch (ai-code-read-string "Feature branch name: ")))
+    (if open-in-browser
+        (progn
+          (ai-code--open-git-web-compare base-branch feature-branch)
+          nil)  ; Return nil since no file was generated
+      (let* ((branch-scope)
+             (scope-alist '(("Local" . local)
+                            ("Remote (will prefix with 'origin/')" . remote)))
+             (raw-scope-choice (completing-read "Are branches local or remote? "
+                                                scope-alist
+                                                nil t nil nil "Local")))
+        (setq branch-scope
+              (if (consp raw-scope-choice)
+                  (cdr raw-scope-choice)
+                (cdr (assoc raw-scope-choice scope-alist))))
+        (let* ((diff-file-name-part (concat (replace-regexp-in-string "/" "-" base-branch)
+                                           "."
+                                           (replace-regexp-in-string "/" "-" feature-branch)))
+               (diff-file (expand-file-name (concat diff-file-name-part ".diff") git-root))
+               (diff-params (list :type 'branch-range
+                                   :base-branch base-branch
+                                   :feature-branch feature-branch
+                                   :branch-scope branch-scope
+                                   :diff-file-name-part diff-file-name-part)))
+          (ai-code--generate-branch-or-commit-diff diff-params diff-file)
+          diff-file)))))
+
+(defun ai-code--handle-commit-diff-generation (git-root &optional open-in-browser)
   "Handle generation of diff for a single commit.
-GIT-ROOT is the root directory of the Git repository."
-  (let* ((commit-hash (ai-code-read-string "Commit hash: "))
-         (base-branch (concat commit-hash "^")) ; Diff against parent
-         (feature-branch commit-hash)
-         (diff-file-name-part commit-hash)
-         (diff-file (expand-file-name (concat diff-file-name-part ".diff") git-root))
-         (diff-params (list :type 'commit
-                             :base-branch base-branch
-                             :feature-branch feature-branch
-                             :diff-file-name-part diff-file-name-part)))
-    (ai-code--generate-branch-or-commit-diff diff-params diff-file)
-    diff-file))
+GIT-ROOT is the root directory of the Git repository.
+If OPEN-IN-BROWSER is non-nil, only open the commit in GitHub web interface without generating file."
+  (let* ((commit-hash (ai-code-read-string "Commit hash: ")))
+    (if open-in-browser
+        (progn
+          (ai-code--open-git-web-commit commit-hash)
+          nil)  ; Return nil since no file was generated
+      (let* ((base-branch (concat commit-hash "^"))  ; Diff against parent
+             (feature-branch commit-hash)
+             (diff-file-name-part commit-hash)
+             (diff-file (expand-file-name (concat diff-file-name-part ".diff") git-root))
+             (diff-params (list :type 'commit
+                                :base-branch base-branch
+                                :feature-branch feature-branch
+                                :diff-file-name-part diff-file-name-part)))
+        (ai-code--generate-branch-or-commit-diff diff-params diff-file)
+        diff-file))))
 
 (defun ai-code--get-diff-type-choice ()
   "Get user's choice for diff type and return the corresponding value."
@@ -254,34 +269,81 @@ GIT-ROOT is the root directory of the Git repository."
       (cdr (assoc raw-diff-type-choice diff-type-alist)))))
 
 ;;; New helper for commit ranges
-(defun ai-code--handle-commit-range-diff-generation (git-root)
-  "Handle generation of diff between two commits (commit range)."
+(defun ai-code--handle-commit-range-diff-generation (git-root &optional open-in-browser)
+  "Handle generation of diff between two commits (commit range).
+If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface without generating file."
   (let* ((raw-start (ai-code-read-string "Start commit or branch: "))
          (raw-end   (ai-code-read-string "End commit or branch: "))
          ;; try to resolve remote branches or commits
          (start     (ai-code--get-full-branch-ref raw-start))
-         (end       (ai-code--get-full-branch-ref raw-end))
-         (name      (format "%s..%s" start end))
-         (file      (expand-file-name (concat name ".diff") git-root))
-         ;; reuse branch-range plumbing (it will fetch and verify)
-         (params    (list :type 'branch-range
-                          :base-branch start
-                          :feature-branch end
-                          :diff-file-name-part name)))
-    (ai-code--generate-branch-or-commit-diff params file)
-    file))
+         (end       (ai-code--get-full-branch-ref raw-end)))
+    (if open-in-browser
+        (progn
+          (ai-code--open-git-web-compare start end)
+          nil)  ; Return nil since no file was generated
+      (let* ((name      (format "%s..%s" start end))
+             (file      (expand-file-name (concat name ".diff") git-root))
+             ;; reuse branch-range plumbing (it will fetch and verify)
+             (params    (list :type 'branch-range
+                              :base-branch start
+                              :feature-branch end
+                              :diff-file-name-part name)))
+        (ai-code--generate-branch-or-commit-diff params file)
+        file))))
+
+(defun ai-code--get-git-web-repo-url ()
+  "Get Git repository web URL from git remote.
+Returns the HTTPS URL of the repository for web browsing.
+Supports GitHub, GitLab, Bitbucket, and other Git hosting services.
+Returns nil if unable to construct a web URL."
+  (let* ((remote-url (magit-git-string "config" "--get" "remote.origin.url")))
+    (when (and remote-url (stringp remote-url) (not (string-empty-p remote-url)))
+      (cond
+       ;; HTTPS URL: https://host.com/user/repo.git or https://host.com/user/repo
+       ((string-match "https://\\([^/]+\\)/\\(.+\\)" remote-url)
+        (let ((host (match-string 1 remote-url))
+              (path (match-string 2 remote-url)))
+          (format "https://%s/%s" host (replace-regexp-in-string "\\.git$" "" path))))
+       ;; SSH URL: git@host.com:user/repo.git or git@host.com:user/repo
+       ((string-match "git@\\([^:]+\\):\\(.+\\)" remote-url)
+        (let ((host (match-string 1 remote-url))
+              (path (match-string 2 remote-url)))
+          (format "https://%s/%s" host (replace-regexp-in-string "\\.git$" "" path))))
+       (t nil)))))
+
+(defun ai-code--open-git-web-compare (start end)
+  "Open Git web compare page for START..END in browser.
+Works with GitHub, GitLab, Bitbucket, and other Git hosting services."
+  (let ((repo-url (ai-code--get-git-web-repo-url)))
+    (if repo-url
+        (let ((compare-url (format "%s/compare/%s...%s" repo-url start end)))
+          (browse-url compare-url)
+          (message "Opened web compare: %s" compare-url))
+      (message "Unable to determine repository web URL"))))
+
+(defun ai-code--open-git-web-commit (commit)
+  "Open Git web commit page for COMMIT in browser.
+Works with GitHub, GitLab, Bitbucket, and other Git hosting services."
+  (let ((repo-url (ai-code--get-git-web-repo-url)))
+    (if repo-url
+        (let ((commit-url (format "%s/commit/%s" repo-url commit)))
+          (browse-url commit-url)
+          (message "Opened web commit: %s" commit-url))
+      (message "Unable to determine repository web URL"))))
 
 (defun ai-code--magit-generate-feature-branch-diff-file ()
-  "Generate a diff file based on user-selected type (staged, branches, commit)."
-  (interactive)
+  "Generate a diff file based on user-selected type (staged, branches, commit).
+For non-staged diffs, user is prompted whether to open in browser."
   (when-let ((git-root (ai-code--validate-git-repository)))
     (let* ((selected-diff-type-value (ai-code--get-diff-type-choice))
+           (open-in-browser (and (not (eq selected-diff-type-value 'staged))
+                                 (y-or-n-p "Open diff in browser? ")))
            (diff-file (pcase selected-diff-type-value
                         ('staged       (ai-code--handle-staged-diff-generation git-root))
-                        ('base-vs-head (ai-code--handle-base-vs-head-diff-generation git-root))
-                        ('branch-range (ai-code--handle-branch-range-diff-generation git-root))
-                        ('commit       (ai-code--handle-commit-diff-generation git-root))
-                        ('commit-range (ai-code--handle-commit-range-diff-generation git-root))
+                        ('base-vs-head (ai-code--handle-base-vs-head-diff-generation git-root open-in-browser))
+                        ('branch-range (ai-code--handle-branch-range-diff-generation git-root open-in-browser))
+                        ('commit       (ai-code--handle-commit-diff-generation git-root open-in-browser))
+                        ('commit-range (ai-code--handle-commit-range-diff-generation git-root open-in-browser))
                         (_ (user-error "Invalid diff type selected")))))
       (when diff-file
         (ai-code--open-diff-file diff-file)

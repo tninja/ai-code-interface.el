@@ -69,7 +69,12 @@ Argument ARG is the prefix argument."
 
 (defun ai-code--ask-question-file ()
   "Handle ask question for regular file buffer."
-  (let* ((function-name (which-function))
+  (let* ((file-extension (when buffer-file-name
+                          (file-name-extension buffer-file-name)))
+         (is-diff-or-patch (and file-extension
+                               (member file-extension '("diff" "patch"))))
+         (function-name (unless is-diff-or-patch
+                         (which-function)))
          (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))

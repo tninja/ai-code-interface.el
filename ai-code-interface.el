@@ -31,10 +31,14 @@
 
 ;; Forward declarations for dynamically defined backend functions
 (declare-function ai-code-cli-start "ai-code-backends")
+(declare-function ai-code-cli-resume "ai-code-backends")
 (declare-function ai-code-cli-switch-to-buffer "ai-code-backends")
 (declare-function ai-code-cli-send-command "ai-code-backends" (command))
 (declare-function ai-code-current-backend-label "ai-code-backends")
+(declare-function ai-code-set-backend "ai-code-backends")
+(declare-function ai-code-select-backend "ai-code-backends")
 (declare-function ai-code-open-backend-config "ai-code-backends")
+(declare-function ai-code-upgrade-backend "ai-code-backends")
 
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 

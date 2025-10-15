@@ -162,7 +162,7 @@ Returns the full prompt text with suffix for sending to AI."
 
 (defun ai-code--send-prompt (full-prompt)
   "Send FULL-PROMPT to AI."
-  (ignore-errors (ai-code-cli-send-command full-prompt))
+  (ai-code-cli-send-command full-prompt)
   (ai-code-cli-switch-to-buffer))
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
@@ -170,13 +170,15 @@ Returns the full prompt text with suffix for sending to AI."
   (let* ((full-prompt (concat (if (and ai-code-use-prompt-suffix ai-code-prompt-suffix)
                                   (concat prompt-text "\n" ai-code-prompt-suffix)
                                 prompt-text) "\n"))
-         (prompt-file (ai-code--get-ai-code-prompt-file-path)))
+         (prompt-file (ai-code--get-ai-code-prompt-file-path))
+         (original-default-directory default-directory))
     (if prompt-file
       (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
         (with-current-buffer buffer
           (ai-code--append-prompt-to-buffer prompt-text)
           (save-buffer)
-          (message "Prompt added to %s" prompt-file)
+          (message "Prompt added to %s" prompt-file))
+        (let ((default-directory original-default-directory))
           (ai-code--send-prompt full-prompt)))
       (ai-code--send-prompt full-prompt))))
 
