@@ -67,7 +67,9 @@ prompt for the project directory."
         (claude-code-program-switches nil)
         (extra-switches '("--resume")))
     (claude-code--start arg extra-switches nil t)
+    ;; Send empty string to trigger terminal processing and ensure CLI session picker appears
     (claude-code--term-send-string claude-code-terminal-backend "")
+    ;; Position cursor at beginning to show session list from the top
     (goto-char (point-min))))
 
 (provide 'ai-code-github-copilot-cli)
