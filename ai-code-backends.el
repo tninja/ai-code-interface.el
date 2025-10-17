@@ -74,7 +74,17 @@
      :resume  codex-cli-resume
      :config  "~/.codex/config.toml"
      :upgrade "npm install -g @openai/codex@latest"
-     :cli     "codex"))
+     :cli     "codex")
+    (opencode
+     :label "ai-code-opencode.el"
+     :require ai-code-opencode
+     :start   opencode
+     :switch  opencode-switch-to-buffer
+     :send    opencode-send-command
+     :resume  opencode-resume
+     :config  "~/.opencode/config.json"
+     :upgrade nil
+     :cli     "opencode"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).
 The :upgrade property can be either a string shell command or nil."
