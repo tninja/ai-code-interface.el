@@ -20,3 +20,4 @@
 - Feat: generate python MCP config (json / toml)
 - Feat: add web browser support for git diffs 
 - Feat: add copilot resume via cli select ui, by shroomist
+- Feat: MCP debug support and prioritize inspector.sh script
