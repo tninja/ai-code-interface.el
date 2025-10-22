@@ -189,6 +189,47 @@
                          :default-fn ai-code--refactoring--symbol-candidate)
                         (:placeholder "[NEW_NAME]"
                          :prompt-fn ai-code--refactoring--rename-new-name-prompt)))
+    (:name "Change Method Signature"
+           :scopes (region global)
+           :description "Update method [METHOD_NAME] signature to [NEW_SIGNATURE]. Adjust all call sites, documentation, and overloads to match the new contract."
+           :parameters ((:placeholder "[METHOD_NAME]"
+                         :prompt "Method to change signature: "
+                         :default-fn ai-code--refactoring--method-candidate)
+                        (:placeholder "[NEW_SIGNATURE]"
+                         :prompt "Describe the new signature (parameters, return type, etc.): ")))
+    (:name "Introduce Constant"
+           :scopes (region global)
+           :description "Introduce a named constant [CONSTANT_NAME] for the selected literal or expression, choose the proper scope, and replace relevant usages."
+           :parameters ((:placeholder "[CONSTANT_NAME]"
+                         :prompt "Constant name: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Introduce Field"
+           :scopes (region global)
+           :description "Promote the selected value to a class field named [FIELD_NAME], decide initialization timing, and replace repeated computations."
+           :parameters ((:placeholder "[FIELD_NAME]"
+                         :prompt "Introduced field name: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Introduce Property"
+           :scopes (region global)
+           :description "Wrap field [FIELD_NAME] with a property named [PROPERTY_NAME], generating accessor logic that follows project conventions."
+           :parameters ((:placeholder "[FIELD_NAME]"
+                         :prompt "Existing field to wrap: "
+                         :default-fn ai-code--refactoring--symbol-candidate)
+                        (:placeholder "[PROPERTY_NAME]"
+                         :prompt "Property name: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Safe Delete"
+           :scopes (region global)
+           :description "Remove [ELEMENT_NAME] only after verifying there are no remaining usages. Update dependent code or tests to keep the project consistent."
+           :parameters ((:placeholder "[ELEMENT_NAME]"
+                         :prompt "Element to delete safely: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Convert Anonymous Class to Lambda"
+           :scopes (region global)
+           :description "Convert the selected anonymous class implementing [INTERFACE_NAME] into an equivalent lambda expression or method reference if the language supports it."
+           :parameters ((:placeholder "[INTERFACE_NAME]"
+                         :prompt "Functional interface or delegate type: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
     (:name "Add Parameter"
            :scopes (region global)
            :description "Add a new parameter to a method to supply the data it actually needs, updating all callers.")
