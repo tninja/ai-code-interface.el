@@ -11,9 +11,341 @@
 
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
+(require 'thingatpt)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--get-context-files-string "ai-code-input")
+
+(defconst ai-code--refactoring-techniques-catalog
+  '((:name "Suggest Refactoring Strategy"
+           :scopes (region global)
+           :description "Let the LLM analyze the context and suggest the best refactoring technique.")
+    (:name "Extract Method"
+           :scopes (region global)
+           :description "Extract the selected code into a new method named [METHOD_NAME]. Identify parameters and return values needed, and place the new method in an appropriate location."
+           :parameters ((:placeholder "[METHOD_NAME]"
+                         :prompt "New method name: "
+                         :default-fn ai-code--refactoring--method-candidate)))
+    (:name "Extract Variable"
+           :scopes (region global)
+           :description "Replace this complex expression with a well-named variable [VARIABLE_NAME]. Choose a name that clearly explains the expression's purpose."
+           :parameters ((:placeholder "[VARIABLE_NAME]"
+                         :prompt "New variable name: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Extract Parameter"
+           :scopes (region global)
+           :description "Extract this expression into a new parameter named [PARAMETER_NAME] for the containing function. Update all call sites to pass this value as an argument."
+           :parameters ((:placeholder "[PARAMETER_NAME]"
+                         :prompt "New parameter name: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Extract Field"
+           :scopes (region global)
+           :description "Extract this expression into a class field named [FIELD_NAME]. Initialize the field appropriately and replace the expression with a reference to the field."
+           :parameters ((:placeholder "[FIELD_NAME]"
+                         :prompt "New field name: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Decompose Conditional"
+           :scopes (region global)
+           :description "Break down this complex conditional into smaller, more readable pieces. Extract conditions and branches into well-named methods that express the high-level logic.")
+    (:name "Replace Nested Conditional with Guard Clauses"
+           :scopes (region global)
+           :description "Simplify nested conditional logic by using guard clauses. Check for edge cases or simple conditions first and return early.")
+    (:name "Replace Magic Number with Symbolic Constant"
+           :scopes (region global)
+           :description "Replace the selected magic number or string literal with a well-named constant [CONSTANT_NAME]. Define the constant appropriately."
+           :parameters ((:placeholder "[CONSTANT_NAME]"
+                         :prompt "Constant name: ")))
+    (:name "Introduce Assertion"
+           :scopes (region global)
+           :description "Add an assertion to document an assumption about the program state. Specify the condition to assert [ASSERTION_CONDITION]."
+           :parameters ((:placeholder "[ASSERTION_CONDITION]"
+                         :prompt "Assertion condition: ")))
+    (:name "Consolidate Conditional Expression"
+           :scopes (region global)
+           :description "Combine multiple conditional checks that lead to the same result into a single, clearer conditional expression.")
+    (:name "Inline Method"
+           :scopes (region global)
+           :description "Replace calls to method [METHOD_NAME] with its body. Ensure the inlining doesn't change behavior or introduce bugs, and remove the original method if it's no longer needed."
+           :parameters ((:placeholder "[METHOD_NAME]"
+                         :prompt "Method to inline: "
+                         :default-fn ai-code--refactoring--method-candidate)))
+    (:name "Inline Variable"
+           :scopes (region global)
+           :description "Replace all references to variable [VARIABLE_NAME] with its value. Ensure the inlining doesn't change behavior or introduce bugs."
+           :parameters ((:placeholder "[VARIABLE_NAME]"
+                         :prompt "Variable to inline: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Inline Temp"
+           :scopes (region global)
+           :description "Replace a temporary variable that is assigned once with its expression to simplify the code.")
+    (:name "Replace Temp with Query"
+           :scopes (region global)
+           :description "Replace temporary variables that simply hold calculation results with self-explanatory query methods.")
+    (:name "Introduce Explaining Variable"
+           :scopes (region global)
+           :description "Introduce a well-named variable to clarify a complex expression and improve readability.")
+    (:name "Split Temporary Variable"
+           :scopes (region global)
+           :description "Split a temporary variable that is assigned multiple times into separate variables for each responsibility.")
+    (:name "Remove Assignments to Parameters"
+           :scopes (region global)
+           :description "Avoid reassigning parameters inside a method; instead, use local variables to preserve intent.")
+    (:name "Replace Method with Method Object"
+           :scopes (region global)
+           :description "Turn a complex method into its own object to break down temporary variables and simplify logic.")
+    (:name "Substitute Algorithm"
+           :scopes (region global)
+           :description "Replace an existing algorithm with a clearer or more efficient one while keeping behavior intact.")
+    (:name "Move Method"
+           :scopes (region global)
+           :description "Move method [METHOD_NAME] to class [TARGET_CLASS]. Update all references to use the new location and consider creating a delegation if needed."
+           :parameters ((:placeholder "[METHOD_NAME]"
+                         :prompt "Method to move: "
+                         :default-fn ai-code--refactoring--method-candidate)
+                        (:placeholder "[TARGET_CLASS]"
+                         :prompt "Target class: ")))
+    (:name "Move Field"
+           :scopes (region global)
+           :description "Relocate a field to the class that makes the most sense for ownership. Update access points and encapsulate if needed.")
+    (:name "Extract Class"
+           :scopes (region global)
+           :description "Extract related fields and methods into a new class named [NEW_CLASS_NAME]. Update the original class to use the new class."
+           :parameters ((:placeholder "[NEW_CLASS_NAME]"
+                         :prompt "New class name: ")))
+    (:name "Inline Class"
+           :scopes (region global)
+           :description "Merge a class whose responsibilities are too small back into its parent, updating all references.")
+    (:name "Hide Delegate"
+           :scopes (region global)
+           :description "Remove delegation leakage by adding wrapper methods so clients only talk to the main object.")
+    (:name "Remove Middle Man"
+           :scopes (region global)
+           :description "Eliminate unnecessary delegation wrappers and let clients access the related object directly.")
+    (:name "Introduce Foreign Method"
+           :scopes (region global)
+           :description "Add helper methods in client code when you cannot modify the server class to host the logic.")
+    (:name "Introduce Local Extension"
+           :scopes (region global)
+           :description "Extend third-party classes locally via wrappers or subclasses to add behavior safely.")
+    (:name "Encapsulate Field"
+           :scopes (region global)
+           :description "Make the field [FIELD_NAME] private and provide public getter and setter methods for access. Update all direct accesses to use these methods."
+           :parameters ((:placeholder "[FIELD_NAME]"
+                         :prompt "Field to encapsulate: "
+                         :default-fn ai-code--refactoring--symbol-candidate)))
+    (:name "Self Encapsulate Field"
+           :scopes (region global)
+           :description "Access a field through getter and setter methods even inside its own class to simplify future changes.")
+    (:name "Replace Data Value with Object"
+           :scopes (region global)
+           :description "Turn a simple data value into a dedicated object to better express behavior and constraints.")
+    (:name "Change Value to Reference"
+           :scopes (region global)
+           :description "Convert a value object into a shared reference when identity and shared state become important.")
+    (:name "Change Reference to Value"
+           :scopes (region global)
+           :description "Convert a reference object into an immutable value when sharing state is unnecessary.")
+    (:name "Replace Array with Object"
+           :scopes (region global)
+           :description "Replace arrays that mix different kinds of data with well-named objects and fields.")
+    (:name "Duplicate Observed Data"
+           :scopes (region global)
+           :description "Maintain local copies of observed data so domain logic can work without tight coupling to the observer.")
+    (:name "Change Unidirectional Association to Bidirectional"
+           :scopes (region global)
+           :description "Introduce links in both directions when objects need to navigate to each other.")
+    (:name "Change Bidirectional Association to Unidirectional"
+           :scopes (region global)
+           :description "Remove unnecessary reverse links when only one-way navigation is required.")
+    (:name "Encapsulate Collection"
+           :scopes (region global)
+           :description "Ensure collection fields return read-only views and expose modifier methods to protect invariants.")
+    (:name "Replace Type Code with Class"
+           :scopes (region global)
+           :description "Replace primitive type codes with dedicated classes to capture behavior and validation.")
+    (:name "Replace Type Code with Subclasses"
+           :scopes (region global)
+           :description "Substitute type codes with subclasses to leverage polymorphism for specialized behavior.")
+    (:name "Replace Type Code with State/Strategy"
+           :scopes (region global)
+           :description "Transform a type code into State or Strategy objects to vary behavior dynamically.")
+    (:name "Replace Subclass with Fields"
+           :scopes (region global)
+           :description "Flatten simple subclasses by replacing them with fields when inheritance no longer adds value.")
+    (:name "Consolidate Duplicate Conditional Fragments"
+           :scopes (region global)
+           :description "Move repeated code inside conditionals to a single location executed in all paths.")
+    (:name "Remove Control Flag"
+           :scopes (region global)
+           :description "Eliminate control flags by using `return`, `break`, or `continue` to control flow more directly.")
+    (:name "Introduce Null Object"
+           :scopes (region global)
+           :description "Introduce a null object that encapsulates the default do-nothing behavior instead of handling null checks.")
+    (:name "Rename Variable/Method"
+           :scopes (region global)
+           :description "Rename [CURRENT_NAME] to [NEW_NAME]. Ensure all references are updated consistently following naming conventions appropriate for this codebase."
+           :parameters ((:placeholder "[CURRENT_NAME]"
+                         :prompt "Current name: "
+                         :default-fn ai-code--refactoring--symbol-candidate)
+                        (:placeholder "[NEW_NAME]"
+                         :prompt-fn ai-code--refactoring--rename-new-name-prompt)))
+    (:name "Add Parameter"
+           :scopes (region global)
+           :description "Add a new parameter to a method to supply the data it actually needs, updating all callers.")
+    (:name "Remove Parameter"
+           :scopes (region global)
+           :description "Eliminate a parameter that is no longer used and update all callers accordingly.")
+    (:name "Separate Query from Modifier"
+           :scopes (region global)
+           :description "Split a method that both queries and alters state into two methods with single responsibilities.")
+    (:name "Parameterize Method"
+           :scopes (region global)
+           :description "Turn similar methods that differ only in values into a single method that accepts parameters for the variation.")
+    (:name "Replace Parameter with Explicit Methods"
+           :scopes (region global)
+           :description "Replace a parameter that selects different behaviors with explicitly named methods for each case.")
+    (:name "Preserve Whole Object"
+           :scopes (region global)
+           :description "Pass the entire object to a method instead of individual fields so related data travels together.")
+    (:name "Replace Parameter with Method"
+           :scopes (region global)
+           :description "Remove parameters that can be derived inside the method and call helper queries instead.")
+    (:name "Introduce Parameter Object"
+           :scopes (region global)
+           :description "Replace these related parameters with a single parameter object named [OBJECT_NAME]. Create an appropriate class for the parameter object."
+           :parameters ((:placeholder "[OBJECT_NAME]"
+                         :prompt "Parameter object name: ")))
+    (:name "Remove Setting Method"
+           :scopes (region global)
+           :description "Eliminate setter methods for fields that should be immutable after construction.")
+    (:name "Hide Method"
+           :scopes (region global)
+           :description "Reduce the visibility of methods that are only intended for internal use.")
+    (:name "Replace Constructor with Factory Method"
+           :scopes (region global)
+           :description "Wrap object creation in a factory method when more descriptive names or varied creation logic is required.")
+    (:name "Replace Error Code with Exception"
+           :scopes (region global)
+           :description "Throw an exception instead of returning an error code to signal failure states.")
+    (:name "Replace Exception with Test"
+           :scopes (region global)
+           :description "Perform explicit checks before performing work to avoid using exceptions for normal control flow.")
+    (:name "Pull Up Method"
+           :scopes (region global)
+           :description "Move method [METHOD_NAME] from the current class to its superclass [SUPERCLASS_NAME]. Ensure the method is applicable to the superclass context."
+           :parameters ((:placeholder "[METHOD_NAME]"
+                         :prompt "Method to pull up: "
+                         :default-fn ai-code--refactoring--method-candidate)
+                        (:placeholder "[SUPERCLASS_NAME]"
+                         :prompt "Superclass name: ")))
+    (:name "Pull Up Field"
+           :scopes (region global)
+           :description "Move common fields from subclasses into the superclass to centralize shared state.")
+    (:name "Pull Up Constructor Body"
+           :scopes (region global)
+           :description "Move duplicated constructor logic from subclasses into the superclass constructor.")
+    (:name "Push Down Method"
+           :scopes (region global)
+           :description "Move method [METHOD_NAME] from the current class to specific subclass(es) [SUBCLASS_NAMES] where it is actually used."
+           :parameters ((:placeholder "[METHOD_NAME]"
+                         :prompt "Method to push down: "
+                         :default-fn ai-code--refactoring--method-candidate)
+                        (:placeholder "[SUBCLASS_NAMES]"
+                         :prompt "Comma-separated subclass names: ")))
+    (:name "Push Down Field"
+           :scopes (region global)
+           :description "Move fields that are only used in some subclasses down into those specific subclasses.")
+    (:name "Extract Subclass"
+           :scopes (region global)
+           :description "Create a new subclass when a class has behavior or data used only in some instances.")
+    (:name "Extract Superclass"
+           :scopes (region global)
+           :description "Factor out common behavior or data into a new superclass shared by multiple classes.")
+    (:name "Extract Interface"
+           :scopes (region global)
+           :description "Introduce an interface to capture common protocol without sharing implementation.")
+    (:name "Collapse Hierarchy"
+           :scopes (region global)
+           :description "Flatten inheritance when subclass and superclass differ too little to justify separation.")
+    (:name "Form Template Method"
+           :scopes (region global)
+           :description "Create a template method in a superclass to outline an algorithm while subclasses fill in the steps.")
+    (:name "Replace Inheritance with Delegation"
+           :scopes (region global)
+           :description "Swap inheritance for delegation when only part of the behavior should be reused.")
+    (:name "Replace Delegation with Inheritance"
+           :scopes (region global)
+           :description "Simplify a delegation chain by adopting inheritance when the relationship is truly is-a.")
+    (:name "Tease Apart Inheritance"
+           :scopes (global)
+           :description "Separate intertwined inheritance hierarchies so each hierarchy represents a single responsibility.")
+    (:name "Convert Procedural Design to Objects"
+           :scopes (global)
+           :description "Restructure procedural code into cohesive objects that encapsulate data and behavior.")
+    (:name "Separate Domain from Presentation"
+           :scopes (global)
+           :description "Split domain logic from UI or presentation concerns to improve testability and reuse.")
+    (:name "Extract Hierarchy"
+           :scopes (global)
+           :description "Introduce a new hierarchy to clarify different responsibilities and support future extension."))
+  "Catalog of refactoring techniques curated from Martin Fowler's \"Refactoring\".")
+
+(defun ai-code--refactoring--ensure-string (value)
+  "Return VALUE coerced to a string when appropriate."
+  (cond
+   ((stringp value) value)
+   ((symbolp value) (symbol-name value))
+   ((null value) nil)
+   (t (format "%s" value))))
+
+(defun ai-code--refactoring--method-candidate (context _values)
+  "Suggest a method name based on CONTEXT or point."
+  (ai-code--refactoring--ensure-string
+   (or (plist-get context :current-function)
+       (thing-at-point 'symbol t))))
+
+(defun ai-code--refactoring--symbol-candidate (_context _values)
+  "Suggest a symbol name at point."
+  (ai-code--refactoring--ensure-string
+   (thing-at-point 'symbol t)))
+
+(defun ai-code--refactoring--find-technique (technique-name)
+  "Find technique entry in catalog by TECHNIQUE-NAME."
+  (catch 'found
+    (dolist (entry ai-code--refactoring-techniques-catalog nil)
+      (when (string= technique-name (plist-get entry :name))
+        (throw 'found entry)))))
+
+(defun ai-code--refactoring--get-placeholder (values placeholder)
+  "Retrieve previously captured placeholder value from VALUES."
+  (cdr (assoc placeholder values)))
+
+(defun ai-code--refactoring--rename-new-name-prompt (_context values _default)
+  "Build prompt for rename using VALUES."
+  (let ((current (ai-code--refactoring--get-placeholder values "[CURRENT_NAME]")))
+    (if current
+        (format "Rename '%s' to: " current)
+      "New name: ")))
+
+(defun ai-code--refactoring--resolve-parameter (spec context values)
+  "Resolve parameter value defined by SPEC using CONTEXT and VALUES."
+  (let* ((value-fn (plist-get spec :value-fn))
+         (value (if value-fn
+                    (funcall value-fn context values)
+                  (let* ((default (ai-code--refactoring--ensure-string
+                                   (let ((default-fn (plist-get spec :default-fn)))
+                                     (if default-fn
+                                         (funcall default-fn context values)
+                                       (plist-get spec :default)))))
+                         (prompt (let ((prompt-fn (plist-get spec :prompt-fn)))
+                                   (cond
+                                    (prompt-fn (funcall prompt-fn context values default))
+                                    ((plist-get spec :prompt) (plist-get spec :prompt))
+                                    (t nil)))))
+                    (if prompt
+                        (ai-code-read-string prompt default)
+                      default)))))
+    (ai-code--refactoring--ensure-string value)))
 
 (defun ai-code--get-refactoring-context ()
   "Get the current context for refactoring."
@@ -32,116 +364,30 @@
 
 (defun ai-code--get-refactoring-techniques (region-active)
   "Return appropriate refactoring techniques based on REGION-ACTIVE."
-  (if region-active
-      ;; Refactoring techniques for selected regions
-      '(("Suggest Refactoring Strategy" . "Let the LLM analyze the context and suggest the best refactoring technique.") ;; <-- Added
-        ("Extract Method" . "Extract the selected code into a new method named [METHOD_NAME]. Identify parameters and return values needed, and place the new method in an appropriate location.")
-        ("Extract Variable" . "Replace this complex expression with a well-named variable [VARIABLE_NAME]. Choose a name that clearly explains the expression's purpose.")
-        ("Extract Parameter" . "Extract this expression into a new parameter named [PARAMETER_NAME] for the containing function. Update all call sites to pass this value as an argument.")
-        ("Extract Field" . "Extract this expression into a class field named [FIELD_NAME]. Initialize the field appropriately and replace the expression with a reference to the field.")
-        ("Decompose Conditional" . "Break down this complex conditional into smaller, more readable pieces. Extract conditions and branches into well-named methods that express the high-level logic.")
-        ("Extract Class" . "Extract related fields and methods from the selected code or containing class into a new class named [NEW_CLASS_NAME]. Update the original class to use the new class.")
-        ("Replace Nested Conditional with Guard Clauses" . "Simplify the selected nested conditional logic by using guard clauses. Check for edge cases or simple conditions first and return early.")
-        ("Replace Magic Number with Symbolic Constant" . "Replace the selected magic number or string literal with a well-named constant [CONSTANT_NAME]. Define the constant appropriately.")
-        ("Introduce Assertion" . "Add an assertion to the selected location to document an assumption about the program state. Specify the condition to assert [ASSERTION_CONDITION].")
-        ("Consolidate Conditional Expression" . "Combine multiple conditional checks within the selection that lead to the same result into a single, clearer conditional expression."))
-    ;; Refactoring techniques for entire functions or files
-    '(("Suggest Refactoring Strategy" . "Let the LLM analyze the context and suggest the best refactoring technique.") ;; <-- Added
-      ("Rename Variable/Method" . "Rename [CURRENT_NAME] to [NEW_NAME]. Ensure all references are updated consistently following naming conventions appropriate for this codebase.")
-      ("Inline Method" . "Replace calls to method [METHOD_NAME] with its body. Ensure the inlining doesn't change behavior or introduce bugs, and remove the original method if it's no longer needed.")
-      ("Inline Variable" . "Replace all references to variable [VARIABLE_NAME] with its value. Ensure the inlining doesn't change behavior or introduce bugs.")
-      ("Move Method" . "Move method [METHOD_NAME] to class [TARGET_CLASS]. Update all references to use the new location and consider creating a delegation if needed.")
-      ("Replace Conditional with Polymorphism" . "Replace this conditional logic with polymorphic objects. Create appropriate class hierarchy and move conditional branches to overridden methods.")
-      ("Introduce Parameter Object" . "Replace these related parameters with a single parameter object named [OBJECT_NAME]. Create an appropriate class for the parameter object.")
-      ("Extract Class" . "Extract related fields and methods from the current class into a new class named [NEW_CLASS_NAME]. Update the original class to use the new class.")
-      ("Replace Nested Conditional with Guard Clauses" . "Simplify nested conditional logic within the current function/context by using guard clauses. Check for edge cases or simple conditions first and return early.")
-      ("Encapsulate Field" . "Make the field [FIELD_NAME] private and provide public getter and setter methods for access. Update all direct accesses to use these methods.")
-      ("Replace Magic Number with Symbolic Constant" . "Find magic numbers or string literals within the current function/context and replace them with a well-named constant [CONSTANT_NAME]. Define the constant appropriately.")
-      ("Pull Up Method" . "Move method [METHOD_NAME] from the current class to its superclass [SUPERCLASS_NAME]. Ensure the method is applicable to the superclass context.")
-      ("Push Down Method" . "Move method [METHOD_NAME] from the current class to specific subclass(es) [SUBCLASS_NAMES] where it is actually used.")
-      ("Introduce Assertion" . "Add an assertion within the current function/context to document an assumption about the program state. Specify the condition to assert [ASSERTION_CONDITION].")
-      ("Consolidate Conditional Expression" . "Combine multiple conditional checks within the current function/context that lead to the same result into a single, clearer conditional expression."))))
+  (let ((scope (if region-active 'region 'global))
+        (result nil))
+    (dolist (entry ai-code--refactoring-techniques-catalog (nreverse result))
+      (when (memq scope (plist-get entry :scopes))
+        (push (cons (plist-get entry :name)
+                    (plist-get entry :description))
+              result)))))
 
 (defun ai-code--process-refactoring-parameters (selected-technique technique-description context)
-  "Process parameters for SELECTED-TECHNIQUE with TECHNIQUE-DESCRIPTION.
-Uses CONTEXT."
-  (let ((current-function (plist-get context :current-function)))
-    (cond
-     ((string= selected-technique "Extract Method")
-      (let ((method-name (ai-code-read-string "New method name: ")))
-        (replace-regexp-in-string "\\[METHOD_NAME\\]" method-name technique-description t)))
-     ((string= selected-technique "Rename Variable/Method")
-      (let* ((current-name (or (thing-at-point 'symbol t)
-                              (ai-code-read-string "Current name: ")))
-             (new-name (ai-code-read-string (format "Rename '%s' to: " current-name))))
-        (replace-regexp-in-string
-         "\\[NEW_NAME\\]" new-name
-         (replace-regexp-in-string
-          "\\[CURRENT_NAME\\]" current-name technique-description t)
-         t)))
-     ((string= selected-technique "Inline Method")
-      (let ((method-name (or (thing-at-point 'symbol t)
-                            (ai-code-read-string "Method to inline: "))))
-        (replace-regexp-in-string "\\[METHOD_NAME\\]" method-name technique-description t)))
-     ((string= selected-technique "Inline Variable")
-      (let ((variable-name (or (thing-at-point 'symbol t)
-                              (ai-code-read-string "Variable to inline: "))))
-        (replace-regexp-in-string "\\[VARIABLE_NAME\\]" variable-name technique-description t)))
-     ((string= selected-technique "Move Method")
-      (let ((method-name (or current-function
-                            (ai-code-read-string "Method to move: ")))
-            (target-class (ai-code-read-string "Target class: ")))
-        (replace-regexp-in-string 
-         "\\[TARGET_CLASS\\]" target-class
-         (replace-regexp-in-string 
-          "\\[METHOD_NAME\\]" method-name technique-description t) 
-         t)))
-     ((string= selected-technique "Extract Variable")
-      (let ((var-name (ai-code-read-string "New variable name: ")))
-        (replace-regexp-in-string "\\[VARIABLE_NAME\\]" var-name technique-description t)))
-     ((string= selected-technique "Extract Parameter")
-      (let ((param-name (ai-code-read-string "New parameter name: ")))
-        (replace-regexp-in-string "\\[PARAMETER_NAME\\]" param-name technique-description t)))
-     ((string= selected-technique "Introduce Parameter Object")
-      (let ((object-name (ai-code-read-string "Parameter object name: ")))
-        (replace-regexp-in-string "\\[OBJECT_NAME\\]" object-name technique-description t)))
-     ((string= selected-technique "Extract Field")
-      (let ((field-name (ai-code-read-string "New field name: ")))
-        (replace-regexp-in-string "\\[FIELD_NAME\\]" field-name technique-description t)))
-     ((string= selected-technique "Extract Class")
-      (let ((new-class-name (ai-code-read-string "New class name: ")))
-        (replace-regexp-in-string "\\[NEW_CLASS_NAME\\]" new-class-name technique-description t)))
-     ((string= selected-technique "Replace Magic Number with Symbolic Constant")
-      (let ((constant-name (ai-code-read-string "Constant name: ")))
-        (replace-regexp-in-string "\\[CONSTANT_NAME\\]" constant-name technique-description t)))
-     ((string= selected-technique "Introduce Assertion")
-      (let ((assertion-condition (ai-code-read-string "Assertion condition: ")))
-        (replace-regexp-in-string "\\[ASSERTION_CONDITION\\]" assertion-condition technique-description t)))
-     ((string= selected-technique "Encapsulate Field")
-      (let ((field-name (or (thing-at-point 'symbol t)
-                           (ai-code-read-string "Field to encapsulate: "))))
-        (replace-regexp-in-string "\\[FIELD_NAME\\]" field-name technique-description t)))
-     ((string= selected-technique "Pull Up Method")
-      (let* ((method-name (or current-function
-                             (thing-at-point 'symbol t)
-                             (ai-code-read-string "Method to pull up: ")))
-             (superclass-name (ai-code-read-string "Superclass name: ")))
-        (replace-regexp-in-string
-         "\\[SUPERCLASS_NAME\\]" superclass-name
-         (replace-regexp-in-string
-          "\\[METHOD_NAME\\]" method-name technique-description t)
-         t)))
-     ((string= selected-technique "Push Down Method")
-      (let* ((method-name (or current-function
-                             (thing-at-point 'symbol t)
-                             (ai-code-read-string "Method to push down: ")))
-             (subclass-names (ai-code-read-string "Comma-separated subclass names: ")))
-        (replace-regexp-in-string
-         "\\[SUBCLASS_NAMES\\]" subclass-names
-         (replace-regexp-in-string
-          "\\[METHOD_NAME\\]" method-name technique-description t)
-         t)))
-     (t technique-description))))
+  "Process parameters for SELECTED-TECHNIQUE using CONTEXT.
+TECHNIQUE-DESCRIPTION is the base prompt text."
+  (let* ((entry (ai-code--refactoring--find-technique selected-technique))
+         (parameters (plist-get entry :parameters))
+         (resolved-description technique-description)
+         (values nil))
+    (dolist (spec parameters resolved-description)
+      (let* ((placeholder (plist-get spec :placeholder))
+             (value (and placeholder
+                         (ai-code--refactoring--resolve-parameter spec context values))))
+        (when (and placeholder value)
+          (push (cons placeholder value) values)
+          (setq resolved-description
+                (replace-regexp-in-string
+                 (regexp-quote placeholder) value resolved-description t t)))))))
 
 (defun ai-code--handle-specific-refactoring (selected-technique all-techniques context tdd-mode)
   "Handle the case where a specific refactoring technique is chosen.
@@ -192,7 +438,7 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
                          ""))
                 ;; Get the main instruction from the user
                 (user-instruction (ai-code-read-string "Edit suggestion request: "
-                                                      "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity). Suggest the most impactful refactoring technique and explain why.")) ;; Improved initial-input
+                                                      "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity). Do not change code logic. Suggest the most impactful refactoring technique and explain why.")) ;; Improved initial-input
                 ;; Add TDD constraint if in TDD mode
                 (tdd-constraint (if tdd-mode " Ensure all tests still pass after refactoring." ""))
                 ;; Add file information to context
