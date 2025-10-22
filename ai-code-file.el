@@ -219,7 +219,7 @@ INITIAL-INPUT is the initial text to populate the shell command prompt."
   (interactive)
   (cond
    ;; Handle shell modes: insert command without running
-   ((memq major-mode '(shell-mode eshell-mode sh-mode vterm-mode))
+   ((memq major-mode '(shell-mode eshell-mode vterm-mode))
     (let ((command (ai-code--generate-shell-command initial-input)))
       (when (and command (not (string= command "")))
         (insert command))))
@@ -251,7 +251,7 @@ Call `ai-code-shell-cmd` when in dired mode, shell modes or a region is active; 
   (cond
    ((eq major-mode 'dired-mode)
     (ai-code-shell-cmd))
-   ((memq major-mode '(shell-mode eshell-mode sh-mode vterm-mode))
+   ((memq major-mode '(shell-mode eshell-mode vterm-mode))
     (ai-code-shell-cmd))
    ((use-region-p)
     (let ((initial-input (string-trim (buffer-substring-no-properties (region-beginning)
