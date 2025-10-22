@@ -61,7 +61,7 @@
      :start   github-copilot-cli
      :switch  github-copilot-cli-switch-to-buffer
      :send    github-copilot-cli-send-command
-     :resume  nil
+     :resume  github-copilot-cli-resume
      :config  "~/.config/mcp-config.json" ;; https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli
      :upgrade "npm install -g @github/copilot"
      :cli     "copilot")

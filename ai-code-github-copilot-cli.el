@@ -11,10 +11,13 @@
 
 (defvar claude-code-program)
 (defvar claude-code-program-switches)
+(defvar claude-code-terminal-backend)
 (declare-function claude-code "claude-code" (&optional arg extra-switches force-prompt force-switch-to-buffer))
 (declare-function claude-code-resume "claude-code" (&optional arg))
 (declare-function claude-code-switch-to-buffer "claude-code" (&optional arg))
 (declare-function claude-code-send-command "claude-code" (line))
+(declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
+(declare-function claude-code--term-send-string "claude-code" (backend string))
 
 
 (defgroup ai-code-github-copilot-cli nil
@@ -44,6 +47,30 @@
 (defun github-copilot-cli-send-command (line)
   (interactive "sCopilot> ")
   (claude-code-send-command line))
+
+;;;###autoload
+(defun github-copilot-cli-resume (&optional arg)
+  "Resume a previous GitHub Copilot CLI session.
+
+This command starts GitHub Copilot CLI with the --resume flag to resume
+a specific past session. The CLI will present an interactive list of past
+sessions to choose from.
+
+If current buffer belongs to a project, start in the project's root
+directory. Otherwise start in the directory of the current buffer file,
+or the current value of `default-directory' if no project and no buffer file.
+
+With double prefix ARG (\\[universal-argument] \\[universal-argument]),
+prompt for the project directory."
+  (interactive "P")
+  (let ((claude-code-program github-copilot-cli-program)
+        (claude-code-program-switches nil)
+        (extra-switches '("--resume")))
+    (claude-code--start arg extra-switches nil t)
+    ;; Send empty string to trigger terminal processing and ensure CLI session picker appears
+    (claude-code--term-send-string claude-code-terminal-backend "")
+    ;; Position cursor at beginning to show session list from the top
+    (goto-char (point-min))))
 
 (provide 'ai-code-github-copilot-cli)
 
