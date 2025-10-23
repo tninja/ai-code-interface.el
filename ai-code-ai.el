@@ -21,21 +21,20 @@
 (defun ai-code-debug-mcp ()
   "Debug MCP by choosing to run mcp, inspector, or generate a config.
 If current buffer is a python file, ask user to choose either 'Run mcp',
-'Run inspector', or 'Generate mcp config', and call the matching helper."
+'Run inspector', 'Open inspector.sh', or 'Generate mcp config', and call the matching helper."
   (interactive)
-  (let ((current-file (buffer-file-name)))
-    (if (and current-file (string= (file-name-extension current-file) "py"))
-        (let ((choice (completing-read "Choose MCP action: "
-                                       '("Run mcp" "Run inspector" "Generate mcp config")
-                                       nil t)))
-          (cond
-           ((string= choice "Run mcp")
-            (ai-code-mcp-run))
-           ((string= choice "Run inspector")
-            (ai-code-mcp-inspector-run))
-           ((string= choice "Generate mcp config")
-            (ai-code-mcp-generate-config))))
-      (message "Current buffer is not a python file"))))
+  (let ((choice (completing-read "Choose MCP action: "
+                                 '("Run mcp" "Run inspector" "Open inspector.sh" "Generate mcp config")
+                                 nil t)))
+    (cond
+     ((string= choice "Run mcp")
+      (ai-code-mcp-run))
+     ((string= choice "Run inspector")
+      (ai-code-mcp-inspector-run))
+     ((string= choice "Open inspector.sh")
+      (ai-code-mcp-open-inspector-script))
+     ((string= choice "Generate mcp config")
+      (ai-code-mcp-generate-config)))))
 
 ;;;###autoload
 (defun ai-code-mcp-generate-config ()
@@ -43,42 +42,40 @@ If current buffer is a python file, ask user to choose either 'Run mcp',
 Claude-oriented backends receive JSON, while the Codex backend outputs toml.
 The snippet is shown in *<base-dir-name>:mcp config*."
   (interactive)
-  (let ((current-file (buffer-file-name)))
-    (if (and current-file (string= (file-name-extension current-file) "py"))
-        (let ((project-root (ai-code-mcp-inspector--find-project-root current-file)))
-          (if project-root
-              (let* ((base-dir (file-name-as-directory project-root))
-                     (base-dir-path (directory-file-name base-dir))
-                     (base-dir-name (file-name-nondirectory base-dir-path))
-                     (buffer-label (if (> (length base-dir-name) 0)
-                                       base-dir-name
-                                     base-dir-path))
-                     (relative-path (file-relative-name current-file base-dir))
-                     (buffer-name (format "*%s:mcp config*" buffer-label))
-                     (use-codex-format (eq ai-code-selected-backend 'codex))
-                     (config-string
-                      (if use-codex-format
-                          (ai-code--mcp-config-toml buffer-label base-dir-path relative-path)
-                        (ai-code--mcp-config-json buffer-label base-dir-path relative-path))))
-                (with-current-buffer (get-buffer-create buffer-name)
-                  (let ((inhibit-read-only t))
-                    (erase-buffer)
-                    (insert config-string)
-                    (when (or (null config-string)
-                              (<= (length config-string) 0)
-                              (not (eq (aref config-string (1- (length config-string))) ?\n)))
-                      (insert "\n"))
-                    (cond
-                     (use-codex-format
-                      (when (fboundp 'conf-toml-mode)
-                        (conf-toml-mode)))
-                     ((fboundp 'json-mode)
-                      (json-mode))))
-                  (goto-char (point-min))
-                  (display-buffer (current-buffer))
-                  (message "Generated MCP config in %s" buffer-name)))
-            (message "Could not find project root with pyproject.toml")))
-      (message "Current buffer is not a python file"))))
+  (let* ((current-file (buffer-file-name))
+         (project-root (ai-code-mcp-inspector--find-project-root current-file)))
+      (if project-root
+          (let* ((base-dir (file-name-as-directory project-root))
+                 (base-dir-path (directory-file-name base-dir))
+                 (base-dir-name (file-name-nondirectory base-dir-path))
+                 (buffer-label (if (> (length base-dir-name) 0)
+                                   base-dir-name
+                                 base-dir-path))
+                 (relative-path (file-relative-name current-file base-dir))
+                 (buffer-name (format "*%s:mcp config*" buffer-label))
+                 (use-codex-format (eq ai-code-selected-backend 'codex))
+                 (config-string
+                  (if use-codex-format
+                      (ai-code--mcp-config-toml buffer-label base-dir-path relative-path)
+                    (ai-code--mcp-config-json buffer-label base-dir-path relative-path))))
+            (with-current-buffer (get-buffer-create buffer-name)
+              (let ((inhibit-read-only t))
+                (erase-buffer)
+                (insert config-string)
+                (when (or (null config-string)
+                          (<= (length config-string) 0)
+                          (not (eq (aref config-string (1- (length config-string))) ?\n)))
+                  (insert "\n"))
+                (cond
+                 (use-codex-format
+                  (when (fboundp 'conf-toml-mode)
+                    (conf-toml-mode)))
+                 ((fboundp 'json-mode)
+                  (json-mode))))
+              (goto-char (point-min))
+              (display-buffer (current-buffer))
+              (message "Generated MCP config in %s" buffer-name)))
+        (message "Could not find project root with pyproject.toml"))))
 
 (defun ai-code--mcp-config-json (server-label base-dir-path relative-path)
   "Return JSON MCP config string for SERVER-LABEL.
@@ -135,16 +132,56 @@ If current buffer is not a python file, message user and quit."
       (message "Current buffer is not a python file"))))
 
 ;;;###autoload
+(defun ai-code-mcp-open-inspector-script ()
+  "Open inspector.sh file in other window.
+First find project root with `ai-code-mcp-inspector--find-project-root',
+then open inspector.sh in the project root.
+If the file does not exist, still open it and show message in minibuffer."
+  (interactive)
+  (let ((current-file (buffer-file-name)))
+    (if current-file
+        (let ((project-root (ai-code-mcp-inspector--find-project-root current-file)))
+          (if project-root
+              (let ((inspector-path (expand-file-name "inspector.sh" project-root)))
+                (find-file-other-window inspector-path)
+                (if (file-exists-p inspector-path)
+                    (message "Opened inspector.sh from project root: %s" project-root)
+                  (message "Created new inspector.sh in project root: %s" project-root)))
+            (message "Could not find project root with pyproject.toml")))
+      (message "Current buffer is not visiting a file"))))
+
+;;;###autoload
 (defun ai-code-mcp-inspector-run ()
   "Run MCP inspector for the current context.
-For Python buffers, locate the project root via pyproject.toml and run the
-inspector against the active file. For Dired buffers, prompt for an inspector
-command, prefix the required ports, and execute it inside the listed
+If inspector.sh is found in an ancestor directory, use that directory as
+working directory and run it with bash.
+Otherwise, for Python buffers, locate the project root via pyproject.toml and
+run the inspector against the active file. For Dired buffers, prompt for an
+inspector command, prefix the required ports, and execute it inside the listed
 directory."
   (interactive)
-  (let ((context (ai-code-mcp-inspector--build-context)))
-    (when context
-      (ai-code-mcp-inspector--start context))))
+  (let ((inspector-dir (ai-code-mcp-inspector--find-inspector-script)))
+    (if inspector-dir
+        ;; Found inspector.sh, use it directly
+        (ai-code-mcp-inspector--run-script inspector-dir)
+      ;; Fall back to original logic
+      (let ((context (ai-code-mcp-inspector--build-context)))
+        (when context
+          (ai-code-mcp-inspector--start context))))))
+
+(defun ai-code-mcp-inspector--run-script (inspector-dir)
+  "Run inspector.sh found in INSPECTOR-DIR."
+  (let* ((base-dir (file-name-as-directory inspector-dir))
+         (base-dir-name (file-name-nondirectory (directory-file-name base-dir)))
+         (default-command "bash inspector.sh")
+         (command (ai-code-read-string "MCP inspector command: " default-command))
+         (buffer-name (format "*ai-code-mcp-inspector:%s*" base-dir-name))
+         (default-directory base-dir))
+    (when (and command (not (string= command "")))
+      (compilation-start
+       command
+       nil
+       (lambda (_mode) buffer-name)))))
 
 (defun ai-code-mcp-inspector--build-context ()
   "Gather execution context for `mcp-inspector-run'.
@@ -231,6 +268,22 @@ CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a fi
           (eshell-send-input))
         (display-buffer buffer)
         (message "MCP Inspector started, output in %s" buffer-name)))))
+
+(defun ai-code-mcp-inspector--find-inspector-script ()
+  "Find inspector.sh by looking for it in parent directories.
+Starts from current buffer file or default directory."
+  (let* ((current-file (buffer-file-name))
+         (start-path (or current-file default-directory))
+         (dir (if (file-directory-p start-path)
+                  start-path
+                (file-name-directory start-path))))
+    (while (and dir
+                (not (string= dir "/"))
+                (not (file-exists-p (expand-file-name "inspector.sh" dir))))
+      (setq dir (file-name-directory (directory-file-name dir))))
+    (if (and dir (file-exists-p (expand-file-name "inspector.sh" dir)))
+        dir
+      nil)))
 
 (defun ai-code-mcp-inspector--find-project-root (file-path)
   "Find project root by looking for pyproject.toml in parent directories starting from FILE-PATH."
