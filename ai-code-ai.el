@@ -34,7 +34,7 @@ If current buffer is a python file, ask user to choose either 'Run mcp',
      ((string= choice "Open inspector.sh")
       (ai-code-mcp-open-inspector-script))
      ((string= choice "Generate mcp config")
-      (ai-code-mcp-generate-config))))
+      (ai-code-mcp-generate-config)))))
 
 ;;;###autoload
 (defun ai-code-mcp-generate-config ()
@@ -42,8 +42,8 @@ If current buffer is a python file, ask user to choose either 'Run mcp',
 Claude-oriented backends receive JSON, while the Codex backend outputs toml.
 The snippet is shown in *<base-dir-name>:mcp config*."
   (interactive)
-  (let ((current-file (buffer-file-name)))
-    (let ((project-root (ai-code-mcp-inspector--find-project-root current-file)))
+  (let* ((current-file (buffer-file-name))
+         (project-root (ai-code-mcp-inspector--find-project-root current-file)))
       (if project-root
           (let* ((base-dir (file-name-as-directory project-root))
                  (base-dir-path (directory-file-name base-dir))
@@ -75,8 +75,7 @@ The snippet is shown in *<base-dir-name>:mcp config*."
               (goto-char (point-min))
               (display-buffer (current-buffer))
               (message "Generated MCP config in %s" buffer-name)))
-        (message "Could not find project root with pyproject.toml")))
-    (message "Current buffer is not a python file")))
+        (message "Could not find project root with pyproject.toml"))))
 
 (defun ai-code--mcp-config-json (server-label base-dir-path relative-path)
   "Return JSON MCP config string for SERVER-LABEL.
