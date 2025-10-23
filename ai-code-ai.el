@@ -35,7 +35,6 @@ If current buffer is a python file, ask user to choose either 'Run mcp',
       (ai-code-mcp-open-inspector-script))
      ((string= choice "Generate mcp config")
       (ai-code-mcp-generate-config))))
-  (message "Current buffer is not a python file"))
 
 ;;;###autoload
 (defun ai-code-mcp-generate-config ()
