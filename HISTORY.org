@@ -3,6 +3,7 @@
 
 ** Main branch change
 
+- Fix: work around claude-code-send-command signature change that broke programmatic command sending
 - Feat: add resume functionality for CLI sessions across backends, by ileixe 
 - Feat: add support for OpenAI Codex CLI backend
 - Chore: C-u on ai-code-implement-todo will keep the requirement
