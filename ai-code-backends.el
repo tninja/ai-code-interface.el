@@ -12,6 +12,10 @@
 (require 'seq)
 
 (defvar ai-code-cli)
+(defvar claude-code-terminal-backend)
+
+(declare-function claude-code--do-send-command "claude-code" (cmd))
+(declare-function claude-code--term-send-string "claude-code" (backend string))
 
 (defun ai-code--unsupported-resume (&optional _arg)
   (interactive "P")
@@ -23,6 +27,35 @@
   (interactive "P")
   (ai-code--unsupported-resume arg))
 
+(defun ai-code--claude-code-send-command-impl (cmd)
+  "Send CMD to claude-code terminal backend programmatically.
+This function bypasses the interactive prompt in `claude-code-send-command'
+and directly sends the command to the terminal.  It first attempts to use
+`claude-code--do-send-command' if available, otherwise falls back to
+`claude-code--term-send-string'."
+  (cond
+   ;; Try the newer claude-code--do-send-command if available (returns selected-buffer)
+   ((and (fboundp 'claude-code--do-send-command)
+         (boundp 'claude-code-terminal-backend))
+    (claude-code--do-send-command cmd))
+   ;; Fall back to older claude-code--term-send-string
+   ((and (fboundp 'claude-code--term-send-string)
+         (boundp 'claude-code-terminal-backend))
+    (claude-code--term-send-string claude-code-terminal-backend
+                                   (concat cmd "\n")))
+   (t
+    (error "claude-code backend functions not available"))))
+
+;;;###autoload
+(defun ai-code-claude-code-send-command (cmd)
+  "Send CMD to claude-code programmatically or interactively.
+This wrapper function works around the signature change in `claude-code-send-command'
+which no longer accepts a command parameter.
+When called interactively, prompts for the command.
+When called from Lisp code, sends CMD directly without prompting."
+  (interactive "sClaude command: ")
+  (ai-code--claude-code-send-command-impl cmd))
+
 ;;;###autoload
 (defcustom ai-code-backends
   '((claude-code
@@ -30,7 +63,7 @@
      :require claude-code
      :start   claude-code
      :switch  claude-code-switch-to-buffer
-     :send    claude-code-send-command
+     :send    ai-code-claude-code-send-command
      :resume  claude-code-resume
      :config  "~/.claude.json"
      :upgrade nil

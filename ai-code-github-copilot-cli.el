@@ -8,6 +8,7 @@
 ;;; Code:
 
 (require 'claude-code)
+(require 'ai-code-backends)
 
 (defvar claude-code-program)
 (defvar claude-code-program-switches)
@@ -15,9 +16,9 @@
 (declare-function claude-code "claude-code" (&optional arg extra-switches force-prompt force-switch-to-buffer))
 (declare-function claude-code-resume "claude-code" (&optional arg))
 (declare-function claude-code-switch-to-buffer "claude-code" (&optional arg))
-(declare-function claude-code-send-command "claude-code" (line))
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
+(declare-function ai-code--claude-code-send-command-impl "ai-code-backends" (cmd))
 
 
 (defgroup ai-code-github-copilot-cli nil
@@ -45,8 +46,11 @@
 
 ;;;###autoload
 (defun github-copilot-cli-send-command (line)
+  "Send LINE to Github Copilot CLI programmatically or interactively.
+When called interactively, prompts for the command.
+When called from Lisp code, sends LINE directly without prompting."
   (interactive "sCopilot> ")
-  (claude-code-send-command line))
+  (ai-code--claude-code-send-command-impl line))
 
 ;;;###autoload
 (defun github-copilot-cli-resume (&optional arg)

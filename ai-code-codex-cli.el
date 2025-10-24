@@ -8,9 +8,11 @@
 ;;; Code:
 
 (require 'claude-code)
+(require 'ai-code-backends)
 
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
+(declare-function ai-code--claude-code-send-command-impl "ai-code-backends" (cmd))
 (defvar claude-code-terminal-backend)
 
 
@@ -39,8 +41,11 @@
 
 ;;;###autoload
 (defun codex-cli-send-command (line)
+  "Send LINE to Codex CLI programmatically or interactively.
+When called interactively, prompts for the command.
+When called from Lisp code, sends LINE directly without prompting."
   (interactive "sCodex> ")
-  (claude-code-send-command line))
+  (ai-code--claude-code-send-command-impl line))
 
 ;;;###autoload
 (defun codex-cli-resume (&optional arg)
