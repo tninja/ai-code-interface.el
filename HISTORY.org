@@ -3,23 +3,24 @@
 
 ** Main branch change
 
+- Chore: Refactor AI shell command prompt to include marked files in dired mode
 - Fix: work around claude-code-send-command signature change that broke programmatic command sending
-- Feat: add resume functionality for CLI sessions across backends, by ileixe 
-- Feat: add support for OpenAI Codex CLI backend
-- Chore: C-u on ai-code-implement-todo will keep the requirement
-- Feat: support run shell command / AI prompt shell command in dired buffer
-- Feat: add ai-code-init-project to init .projectile and create tags
-- Feat: add mcp inspector automatically runner
-- Chore: Enhance ai-code-shell-cmd to
-  - handle region and improve input
-  - be able to insert ai generated command to shell buffer
-- Feat: Add MCP debug command and customizable run options for Python files
-- Chore: Enhance AI shell command input to support file name expansion in dired mode
-- Chore (inspector): migrate to eshell for improved command handling
-- Feat: Add menu item to upgrade backend AI CLI tools
-- Chore: Update .gitignore with AI Code entries
-- Feat: generate python MCP config (json / toml)
-- Feat: add web browser support for git diffs 
-- Feat: add copilot resume via cli select ui, by shroomist
-- Feat: MCP debug support and prioritize inspector.sh script
 - Feat: Add comprehensive refactoring techniques catalog and parameter
+- Feat: MCP debug support and prioritize inspector.sh script
+- Feat: add copilot resume via cli select ui, by shroomist
+- Feat: add web browser support for git diffs 
+- Feat: generate python MCP config (json / toml)
+- Chore: Update .gitignore with AI Code entries
+- Feat: Add menu item to upgrade backend AI CLI tools
+- Chore (inspector): migrate to eshell for improved command handling
+- Chore: Enhance AI shell command input to support file name expansion in dired mode
+- Feat: Add MCP debug command and customizable run options for Python files
+  - be able to insert ai generated command to shell buffer
+  - handle region and improve input
+- Chore: Enhance ai-code-shell-cmd to
+- Feat: add mcp inspector automatically runner
+- Feat: add ai-code-init-project to init .projectile and create tags
+- Feat: support run shell command / AI prompt shell command in dired buffer
+- Chore: C-u on ai-code-implement-todo will keep the requirement
+- Feat: add support for OpenAI Codex CLI backend
+- Feat: add resume functionality for CLI sessions across backends, by ileixe 
