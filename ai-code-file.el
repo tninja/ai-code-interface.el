@@ -181,7 +181,7 @@ Return the final command string."
                    (string-match-p "\\*" initial-command))
               (let* ((files (ignore-errors (dired-get-marked-files)))
                      (file-names (when files
-                                   (mapcar #'file-name-nondirectory files))))
+                                   (delete-dups (mapcar #'file-name-nondirectory files)))))
                 (if file-names
                     (replace-regexp-in-string
                      (regexp-quote "*")
@@ -194,13 +194,21 @@ Return the final command string."
          (command 
           (if (string-prefix-p ":" initial-command)
               ;; If command starts with :, treat as prompt for AI
-              (let ((prompt (concat "Generate a shell command (pure command, no fense) for: " (substring initial-command 1))))
+              (let* ((base-prompt (concat "Generate a shell command (pure command, no fense) for: " (substring initial-command 1)))
+                     (prompt (if (eq major-mode 'dired-mode)
+                                 (let* ((files (ignore-errors (dired-get-marked-files)))
+                                        (file-names (when files (delete-dups (mapcar #'file-name-nondirectory files)))))
+                                   (if file-names
+                                       (concat (format "For these files %s, " (mapconcat #'identity file-names " "))
+                                               base-prompt)
+                                     base-prompt))
+                               base-prompt)))
                 (condition-case err
                     (let ((ai-generated (ai-code-call-gptel-sync prompt)))
                       (when ai-generated
                         ;; Ask user to confirm/edit the AI-generated command
                         (read-string "Shell command (AI generated): " (string-trim ai-generated))))
-                  (error 
+                  (error
                    (message "Failed to generate command with AI: %s" err)
                    initial-command)))
             ;; Regular command, use as-is
