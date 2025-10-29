@@ -3,6 +3,10 @@
 
 ** Main branch change
 
+- Feat: Add paste functionality for large text blocks in AI sessions
+  - New commands: ~ai-code-cli-paste-text~, ~codex-cli-paste-text~, ~github-copilot-cli-paste-text~
+  - Properly handles pasting large blocks of text (e.g., error messages) into vterm sessions
+  - Uses vterm's paste-p parameter to avoid bracketed paste mode issues
 - Chore: Refactor AI shell command prompt to include marked files in dired mode
 - Fix: work around claude-code-send-command signature change that broke programmatic command sending
 - Feat: Add comprehensive refactoring techniques catalog and parameter
