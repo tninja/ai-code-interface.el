@@ -63,6 +63,17 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
 *** The Prompt File
     Use `M-x ai-code-open-prompt-file` to open or create `.ai.code.prompt.org` at the root of your Git repository. This file is an Org-mode buffer where you can write, edit, and manage your prompts. Press `C-c C-c` (`ai-code-prompt-send-block`) on a block of text to send it directly to the AI.
 
+*** Pasting Large Text Blocks
+    When you need to paste large blocks of text (such as error messages or code snippets) into an AI session:
+    
+    - Copy the text to your clipboard or kill ring
+    - Use `M-x ai-code-cli-paste-text` to paste it properly into the AI session
+    - Or use the backend-specific commands:
+      - `M-x codex-cli-paste-text` for Codex
+      - `M-x github-copilot-cli-paste-text` for GitHub Copilot
+    
+    These commands handle large text blocks correctly by using the terminal's paste functionality, which avoids issues with bracketed paste mode in vterm.
+
 ** Key Features
 
 - *Interactive AI Chat*: Start an interactive session with an AI assistant in a dedicated Emacs buffer.

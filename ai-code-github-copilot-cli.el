@@ -18,7 +18,9 @@
 (declare-function claude-code-switch-to-buffer "claude-code" (&optional arg))
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
+(declare-function claude-code--get-or-prompt-for-buffer "claude-code" ())
 (declare-function ai-code--claude-code-send-command-impl "ai-code-backends" (cmd))
+(declare-function vterm-send-string "vterm" (string &optional paste-p))
 
 
 (defgroup ai-code-github-copilot-cli nil
@@ -75,6 +77,32 @@ prompt for the project directory."
     (claude-code--term-send-string claude-code-terminal-backend "")
     ;; Position cursor at beginning to show session list from the top
     (goto-char (point-min))))
+
+;;;###autoload
+(defun github-copilot-cli-paste-text (text)
+  "Paste TEXT into the GitHub Copilot CLI session properly.
+This function handles large text blocks correctly by using the terminal's
+paste functionality, which avoids issues with bracketed paste mode in vterm.
+When called interactively, pastes the contents of the kill ring (clipboard)."
+  (interactive (list (if (use-region-p)
+                         (buffer-substring-no-properties (region-beginning) (region-end))
+                       (current-kill 0))))
+  (let ((claude-buffer (claude-code--get-or-prompt-for-buffer)))
+    (if claude-buffer
+        (with-current-buffer claude-buffer
+          (cond
+           ;; For vterm backend, use vterm-send-string with paste-p=t
+           ((eq claude-code-terminal-backend 'vterm)
+            (require 'vterm)
+            (vterm-send-string text t))
+           ;; For eat backend, send normally
+           ((eq claude-code-terminal-backend 'eat)
+            (claude-code--term-send-string claude-code-terminal-backend text))
+           ;; Fallback for unknown backends
+           (t
+            (claude-code--term-send-string claude-code-terminal-backend text)))
+          (message "Text pasted to GitHub Copilot session"))
+      (message "No GitHub Copilot session found"))))
 
 (provide 'ai-code-github-copilot-cli)
 

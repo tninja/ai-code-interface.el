@@ -16,6 +16,8 @@
 
 (declare-function claude-code--do-send-command "claude-code" (cmd))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
+(declare-function claude-code--get-or-prompt-for-buffer "claude-code" ())
+(declare-function vterm-send-string "vterm" (string &optional paste-p))
 
 (defun ai-code--unsupported-resume (&optional _arg)
   (interactive "P")
@@ -196,6 +198,32 @@ otherwise call `ai-code-cli-start'."
   (if arg
       (call-interactively #'ai-code-cli-resume)
     (call-interactively #'ai-code-cli-start)))
+
+;;;###autoload
+(defun ai-code-cli-paste-text (text)
+  "Paste TEXT into the current AI CLI session properly.
+This function handles large text blocks correctly by using the terminal's
+paste functionality, which avoids issues with bracketed paste mode in vterm.
+When called interactively, pastes the contents of the kill ring (clipboard)."
+  (interactive (list (if (use-region-p)
+                         (buffer-substring-no-properties (region-beginning) (region-end))
+                       (current-kill 0))))
+  (let ((claude-buffer (claude-code--get-or-prompt-for-buffer)))
+    (if claude-buffer
+        (with-current-buffer claude-buffer
+          (cond
+           ;; For vterm backend, use vterm-send-string with paste-p=t
+           ((eq claude-code-terminal-backend 'vterm)
+            (require 'vterm)
+            (vterm-send-string text t))
+           ;; For eat backend, send normally
+           ((eq claude-code-terminal-backend 'eat)
+            (claude-code--term-send-string claude-code-terminal-backend text))
+           ;; Fallback for unknown backends
+           (t
+            (claude-code--term-send-string claude-code-terminal-backend text)))
+          (message "Text pasted to AI session"))
+      (message "No AI session found"))))
 
 ;;;###autoload
 (defun ai-code-select-backend ()
