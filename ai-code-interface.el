@@ -71,17 +71,41 @@ with a newline separator."
   :type 'string
   :group 'ai-code)
 
+(defun ai-code--get-clipboard-text ()
+  "Return the current clipboard contents as a plain string, or nil if unavailable."
+  (let ((selection (when (fboundp 'gui-get-selection)
+                     (or (gui-get-selection 'CLIPBOARD 'UTF8_STRING)
+                         (gui-get-selection 'CLIPBOARD 'STRING))))
+        (kill-text (condition-case nil
+                       (current-kill 0 t)
+                     (error nil))))
+    (let ((text (or selection kill-text)))
+      (when (stringp text)
+        (substring-no-properties text)))))
+
 ;;;###autoload
-(defun ai-code-send-command ()
-  "Read a prompt from the user and send it to the AI service."
-  (interactive)
-  (let ((initial-input (when (use-region-p)
-                         (string-trim-right
-                          (buffer-substring-no-properties (region-beginning)
-                                                          (region-end))
-                          "\n"))))
-    (when-let ((prompt (ai-code-read-string "Send to AI: " initial-input)))
-      (ai-code--insert-prompt prompt))))
+(defun ai-code-send-command (arg)
+  "Read a prompt from the user and send it to the AI service.
+With a prefix argument (\[universal-argument]), append the clipboard contents as context."
+  (interactive "P")
+  (let* ((initial-input (when (use-region-p)
+                          (string-trim-right
+                           (buffer-substring-no-properties (region-beginning)
+                                                           (region-end))
+                           "\n")))
+         (clipboard-context (when arg (ai-code--get-clipboard-text)))
+         (prompt-label (if (and clipboard-context
+                                (string-match-p "\\S-" clipboard-context))
+                           "Send to AI (clipboard context): "
+                         "Send to AI: ")))
+    (when-let ((prompt (ai-code-read-string prompt-label initial-input)))
+      (let ((final-prompt (if (and clipboard-context
+                                   (string-match-p "\\S-" clipboard-context))
+                              (concat prompt
+                                      "\n\nClipboard context:\n"
+                                      clipboard-context)
+                            prompt)))
+        (ai-code--insert-prompt final-prompt)))))
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer-or-hide ()
@@ -130,7 +154,7 @@ Shows the current backend label to the right."
     ("i" "Implement TODO (C-u: keep it)" ai-code-implement-todo)
     ("q" "Ask question (C-u: global)" ai-code-ask-question)
     ("x" "Explain code" ai-code-explain)
-    ("<SPC>" "Send command to AI" ai-code-send-command)
+    ("<SPC>" "Send command (C-u: clipboard)" ai-code-send-command)
     ]
    ["AI Agile Development"
     ("r" "Refactor Code"               ai-code-refactor-book-method)
