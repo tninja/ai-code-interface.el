@@ -3,6 +3,7 @@
 
 ** Main branch change
 
+- Chore: Add clipboard context option to ai-code-send-command function
 - Chore: add compilation buffer content as error context
 - Chore: Refactor AI shell command prompt to include marked files in dired mode
 - Fix: work around claude-code-send-command signature change that broke programmatic command sending
