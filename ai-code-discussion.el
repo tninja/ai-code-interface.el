@@ -130,15 +130,24 @@ Argument ARG is the prefix argument."
                                  (buffer-substring-no-properties (point-min) (point-max)))))
          (region-text (when (region-active-p)
                         (buffer-substring-no-properties (region-beginning) (region-end))))
-         (context-text (or compilation-content region-text))
+         (buffer-file buffer-file-name)
+         (full-buffer-context (when (and (not buffer-file) (not region-text))
+                                (buffer-substring-no-properties (point-min) (point-max))))
          (function-name (which-function))
-         (files-context-string (ai-code--get-context-files-string)))
+         (files-context-string (ai-code--get-context-files-string))
+         (context-section
+          (if full-buffer-context
+              (concat "\n\nContext:\n" full-buffer-context)
+            (concat
+             (when compilation-content
+               (concat "\n\nCompilation output:\n" compilation-content))
+             (when (and region-text (not compilation-content))
+               (concat "\n\nSelected code:\n" region-text)))))
+         (default-question "How to fix the error in this code? Please analyze the error, explain the root cause, and provide the corrected code to resolve the issue: "))
     (if (or arg (not (derived-mode-p 'prog-mode)))
-        (let* ((initial-prompt (if (and context-text (not (derived-mode-p 'prog-mode)))
-                                   (concat "Investigate the exception and fix the code:\n\n" context-text)
-                                 (or context-text "")))
-               (prompt (ai-code-read-string "Investigate exception (no context): " initial-prompt))
+        (let* ((prompt (ai-code-read-string "Investigate exception (no context): " default-question))
                (final-prompt (concat prompt
+                                     context-section
                                      (when function-name (format "\nFunction: %s" function-name))
                                      files-context-string)))
           (ai-code--insert-prompt final-prompt))
@@ -151,15 +160,12 @@ Argument ARG is the prefix argument."
                     (format "Investigate exception in function %s: " function-name)
                   "Investigate selected exception: "))
                (function-name
-                (format "Investigate exceptions in function %s: " function-name))
+                    (format "Investigate exceptions in function %s: " function-name))
                (t "Investigate exceptions in code: ")))
-             (initial-prompt (ai-code-read-string prompt-label
-                                                  (or context-text "How to fix the error in this code? Please analyze the error, explain the root cause, and provide the corrected code to resolve the issue: ")))
+             (initial-prompt (ai-code-read-string prompt-label default-question))
              (final-prompt
               (concat initial-prompt
-                      (when compilation-content (concat "\n\nCompilation output:\n" compilation-content))
-                      (when (and region-text (not compilation-content))
-                        (concat "\n\nSelected code:\n" region-text))
+                      context-section
                       (when function-name (format "\nFunction: %s" function-name))
                       files-context-string
                       (concat "\n\nNote: Please focus on how to fix the error. Your response should include:\n"
