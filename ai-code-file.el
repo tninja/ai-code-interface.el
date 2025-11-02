@@ -101,7 +101,7 @@ If the clipboard contains a directory path, open it directly in dired in another
 
 ;;;###autoload
 (defun ai-code-run-current-file ()
-  "Generate command to run current script file (.py or .sh).
+  "Generate command to run current script file (.py, .js, .ts, or .sh).
 Let user modify the command before running it in a compile buffer.
 Maintains a dedicated history list for this command."
   (interactive)
@@ -114,16 +114,20 @@ Maintains a dedicated history list for this command."
             ;; Check if current file is in the last run command
             ((and last-command file-name (string-match-p (regexp-quote file-name) last-command))
              last-command)
-            ;; Generate default command based on file extension
+           ;; Generate default command based on file extension
             ((string= file-ext "py")
              (format "python %s" file-name))
+            ((string= file-ext "js")
+             (format "node %s" file-name))
+            ((string= file-ext "ts")
+             (format "ts-node %s" file-name))
             ((string= file-ext "sh")
              (format "bash %s" file-name))
             (t nil))))
     (unless current-file
       (user-error "Current buffer is not visiting a file"))
     (unless default-command
-      (user-error "Current file is not a .py or .sh file"))
+      (user-error "Current file is not a .py, .js, .ts, or .sh file"))
       (let ((command (read-string (format "Run command for %s: " file-name)
                                   default-command
                                   'ai-code-run-file-history)))
@@ -267,6 +271,9 @@ Call `ai-code-shell-cmd` when in dired mode, shell modes or a region is active; 
       (ai-code-shell-cmd initial-input)))
    (t
     (ai-code-run-current-file))))
+
+;; add command to install dependency for pyproject.toml or
+;; package.json. Assume the file is at the same folder of .projectile
 
 (provide 'ai-code-file)
 
