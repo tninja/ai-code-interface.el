@@ -272,9 +272,6 @@ Call `ai-code-shell-cmd` when in dired mode, shell modes or a region is active; 
    (t
     (ai-code-run-current-file))))
 
-;; add command to install dependency for pyproject.toml or
-;; package.json. Assume the file is at the same folder of .projectile
-
 (provide 'ai-code-file)
 
 ;;; ai-code-file.el ends here 
