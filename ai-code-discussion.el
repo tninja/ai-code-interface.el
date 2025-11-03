@@ -143,36 +143,31 @@ Argument ARG is the prefix argument."
                (concat "\n\nCompilation output:\n" compilation-content))
              (when (and region-text (not compilation-content))
                (concat "\n\nSelected code:\n" region-text)))))
-         (default-question "How to fix the error in this code? Please analyze the error, explain the root cause, and provide the corrected code to resolve the issue: "))
-    (if (or arg (not (derived-mode-p 'prog-mode)))
-        (let* ((prompt (ai-code-read-string "Investigate exception (no context): " default-question))
-               (final-prompt (concat prompt
-                                     context-section
-                                     (when function-name (format "\nFunction: %s" function-name))
-                                     files-context-string)))
-          (ai-code--insert-prompt final-prompt))
-      (let* ((prompt-label
-              (cond
-               (compilation-content
-                "Investigate compilation error: ")
-               (region-text
-                (if function-name
-                    (format "Investigate exception in function %s: " function-name)
-                  "Investigate selected exception: "))
-               (function-name
-                    (format "Investigate exceptions in function %s: " function-name))
-               (t "Investigate exceptions in code: ")))
-             (initial-prompt (ai-code-read-string prompt-label default-question))
-             (final-prompt
-              (concat initial-prompt
-                      context-section
-                      (when function-name (format "\nFunction: %s" function-name))
-                      files-context-string
-                      (concat "\n\nNote: Please focus on how to fix the error. Your response should include:\n"
-                              "1. A brief explanation of the root cause of the error.\n"
-                              "2. A code snippet with the fix.\n"
-                              "3. An explanation of how the fix addresses the error."))))
-        (ai-code--insert-prompt final-prompt)))))
+         (default-question "How to fix the error in this code? Please analyze the error, explain the root cause, and provide the corrected code to resolve the issue: ")
+         (prompt-label
+          (cond
+           (compilation-content
+            "Investigate compilation error: ")
+           (full-buffer-context
+            "Investigate exception in current buffer: ")
+           (region-text
+            (if function-name
+                (format "Investigate exception in function %s: " function-name)
+              "Investigate selected exception: "))
+           (function-name
+            (format "Investigate exceptions in function %s: " function-name))
+           (t "Investigate exceptions in code: ")))
+         (initial-prompt (ai-code-read-string prompt-label default-question))
+         (final-prompt
+          (concat initial-prompt
+                  context-section
+                  (when function-name (format "\nFunction: %s" function-name))
+                  files-context-string
+                  (concat "\n\nNote: Please focus on how to fix the error. Your response should include:\n"
+                          "1. A brief explanation of the root cause of the error.\n"
+                          "2. A code snippet with the fix.\n"
+                          "3. An explanation of how the fix addresses the error.")))
+         (ai-code--insert-prompt final-prompt))))
 
 ;;;###autoload
 (defun ai-code-explain ()

@@ -11,6 +11,8 @@
 
 (require 'magit)
 (require 'dired)
+(require 'comint)
+(require 'subr-x)
 
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
@@ -99,10 +101,45 @@ If the clipboard contains a directory path, open it directly in dired in another
 (defvar ai-code-run-file-history nil
   "History list for ai-code-run-current-file commands.")
 
+(defun ai-code--run-command-in-comint (command run-directory display-name)
+  "Run COMMAND in a comint buffer using RUN-DIRECTORY and DISPLAY-NAME.
+COMMAND is parsed into a program and its SWITCHES using `split-string-and-unquote'.
+RUN-DIRECTORY is used as the default directory for the process.
+DISPLAY-NAME is the buffer name applied to the comint session."
+  (let* ((command-parts (split-string-and-unquote command))
+         (program (car command-parts))
+         (switches (cdr command-parts)))
+    (unless program
+      (user-error "Command cannot be empty"))
+    (let* ((origin-window (selected-window))
+           (origin-buffer (window-buffer origin-window))
+           (effective-directory (or run-directory default-directory))
+           (comint-buffer-name (format "*%s*" (file-name-nondirectory program))))
+      (when-let ((existing (get-buffer display-name)))
+        (unless (yes-or-no-p (format "Kill existing session %s? " display-name))
+          (user-error "Aborted running command: %s" command))
+        (when-let ((proc (get-buffer-process existing)))
+          (delete-process proc))
+        (kill-buffer existing))
+      (let ((default-directory effective-directory))
+        (comint-run program switches))
+      (when (window-live-p origin-window)
+        (set-window-buffer origin-window origin-buffer))
+      (when-let ((buffer (get-buffer comint-buffer-name)))
+        (with-current-buffer buffer
+          (rename-buffer display-name t)
+          (setq-local default-directory effective-directory))
+        (let ((session-window
+               (display-buffer buffer '((display-buffer-pop-up-window)
+                                        (inhibit-same-window . t)))))
+          (when (window-live-p session-window)
+            (select-window session-window))))
+      (get-buffer display-name))))
+
 ;;;###autoload
 (defun ai-code-run-current-file ()
   "Generate command to run current script file (.py, .js, .ts, or .sh).
-Let user modify the command before running it in a compile buffer.
+Let user modify the command before running it in a comint buffer.
 Maintains a dedicated history list for this command."
   (interactive)
   (let* ((current-file (buffer-file-name))
@@ -128,17 +165,13 @@ Maintains a dedicated history list for this command."
       (user-error "Current buffer is not visiting a file"))
     (unless default-command
       (user-error "Current file is not a .py, .js, .ts, or .sh file"))
-      (let ((command (read-string (format "Run command for %s: " file-name)
-                                  default-command
-                                  'ai-code-run-file-history)))
-        (let* ((default-directory (file-name-directory current-file))
-               (buffer-name (format "*ai-code-run-current-file: %s*"
-                                    (file-name-base file-name))))
-          (compilation-start
-           command
-           nil
-           (lambda (_mode)
-             (generate-new-buffer-name buffer-name)))))))
+    (let ((command (read-string (format "Run command for %s: " file-name)
+                                default-command
+                                'ai-code-run-file-history)))
+      (let* ((run-directory (file-name-directory current-file))
+             (display-name (format "*ai-code-run-current-file: %s*"
+                                   (file-name-base file-name))))
+        (ai-code--run-command-in-comint command run-directory display-name)))))
 
 ;;;###autoload
 (defun ai-code-apply-prompt-on-current-file ()
