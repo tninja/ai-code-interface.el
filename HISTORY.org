@@ -3,6 +3,7 @@
 
 ** Main branch change
 
+- Refactor: error investigation prompt, run command with comint buffer
 - Chore: Refactor error investigation prompts to improve context handling
 - Chore: Add clipboard context option to ai-code-send-command function
 - Chore: add compilation buffer content as error context
