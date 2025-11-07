@@ -31,6 +31,43 @@ ignoring leading whitespace."
                               "+")
                       (string-trim-left line)))))
 
+(defun ai-code--get-function-name-for-comment ()
+  "Get the appropriate function name when cursor is on a comment line.
+If the comment precedes a function definition or is inside a function body,
+returns that function's name. Otherwise returns the result of `which-function`."
+  (let ((current-func (which-function)))
+    (save-excursion
+      ;; Move to next non-comment, non-blank line
+      (forward-line 1)
+      (while (and (not (eobp))
+                  (or (looking-at-p "^[ \t]*$")
+                      (ai-code--is-comment-line
+                       (buffer-substring-no-properties
+                        (line-beginning-position)
+                        (line-end-position)))))
+        (forward-line 1))
+      ;; Get function name at this position
+      (unless (eobp)
+        (let ((next-func (which-function)))
+          ;; If we found a function name at the next code line,
+          ;; prefer it if it's more specific than current
+          (cond
+           ;; No current function, use next if available
+           ((not current-func) next-func)
+           ;; No next function, keep current
+           ((not next-func) current-func)
+           ;; Both exist: check if next is more specific
+           ;; More specific means it's longer and contains the current as a prefix
+           ;; (handling delimiters like . # or ::)
+           ((and (> (length next-func) (length current-func))
+                 (or (string-prefix-p (concat current-func ".") next-func)
+                     (string-prefix-p (concat current-func "#") next-func)
+                     (string-prefix-p (concat current-func "::") next-func)
+                     (string-prefix-p current-func next-func)))
+            next-func)
+           ;; Otherwise keep current
+           (t current-func)))))))
+
 ;;;###autoload
 (defun ai-code-code-change (arg)
   "Generate prompt to change code under cursor or in selected region.
@@ -87,7 +124,9 @@ Argument ARG is the prefix argument."
     (let* ((current-line (string-trim (thing-at-point 'line t)))
            (current-line-number (line-number-at-pos (point)))
            (is-comment (ai-code--is-comment-line current-line))
-           (function-name (which-function))
+           (function-name (if is-comment
+                              (ai-code--get-function-name-for-comment)
+                            (which-function)))
            (function-context (if function-name
                                  (format "\nFunction: %s" function-name)
                                ""))
