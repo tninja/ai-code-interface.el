@@ -62,8 +62,7 @@ returns that function's name. Otherwise returns the result of `which-function`."
            ((and (> (length next-func) (length current-func))
                  (or (string-prefix-p (concat current-func ".") next-func)
                      (string-prefix-p (concat current-func "#") next-func)
-                     (string-prefix-p (concat current-func "::") next-func)
-                     (string-prefix-p current-func next-func)))
+                     (string-prefix-p (concat current-func "::") next-func)))
             next-func)
            ;; Otherwise keep current
            (t current-func)))))))

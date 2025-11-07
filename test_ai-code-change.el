@@ -32,7 +32,7 @@ is between the function definition and its body."
     (insert "end\n")
     ;; Move cursor to the TODO comment line (line 6)
     (goto-char (point-min))
-    (forward-line 5)  ;; Move to line 6 (0-indexed, so line 5)
+    (forward-line 5)  ;; Move 5 lines forward from line 1 to reach line 6
     ;; Mock which-function to simulate the actual behavior
     ;; When on line 6, which-function might return "Bar" (class)
     ;; When on line 7 (def line), it should return "Bar#click_first_available"
@@ -91,7 +91,7 @@ is between the function definition and its body."
     (insert "      x = 1\n")  ;; Line 3
     (insert "    end\n")
     (goto-char (point-min))
-    (forward-line 1)  ;; Move to line 2 (the comment)
+    (forward-line 1)  ;; Move 1 line forward from line 1 to reach line 2 (the comment)
     ;; Mock which-function - both lines return same function
     (cl-letf (((symbol-function 'which-function) (lambda () "my_function")))
       (let ((result (ai-code--get-function-name-for-comment)))
