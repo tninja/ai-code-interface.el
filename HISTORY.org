@@ -3,6 +3,8 @@
 
 ** Main branch change
 
+- Fix function detection for TODO comments preceding method definitions 
+  - Addressing [[https://github.com/tninja/ai-code-interface.el/issues/40][Wrong function detection]], suggested by @Silex
 - Refactor: error investigation prompt, run command with comint buffer
 - Chore: Refactor error investigation prompts to improve context handling
 - Chore: Add clipboard context option to ai-code-send-command function
