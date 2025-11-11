@@ -41,8 +41,8 @@ is between the function definition and its body."
                  (save-excursion
                    (let ((line-num (line-number-at-pos (point))))
                      (cond
-                      ((= line-num 6) "Bar")  ;; On comment, returns class
-                      ((= line-num 7) "Bar#click_first_available")  ;; On def, returns method
+                      ((= line-num 6) "Bar")        ;; On comment, returns class
+                      ((= line-num 7) "Bar")        ;; On def, still returns class
                       ((>= line-num 8) "Bar#click_first_available")  ;; Inside method body
                       (t nil)))))))
       ;; Test that on the comment line, we get the correct function name

@@ -35,37 +35,48 @@ ignoring leading whitespace."
   "Get the appropriate function name when cursor is on a comment line.
 If the comment precedes a function definition or is inside a function body,
 returns that function's name. Otherwise returns the result of `which-function`."
-  (let ((current-func (which-function)))
-    (save-excursion
-      ;; Move to next non-comment, non-blank line
-      (forward-line 1)
-      (while (and (not (eobp))
-                  (or (looking-at-p "^[ \t]*$")
-                      (ai-code--is-comment-line
-                       (buffer-substring-no-properties
-                        (line-beginning-position)
-                        (line-end-position)))))
-        (forward-line 1))
-      ;; Get function name at this position
-      (unless (eobp)
-        (let ((next-func (which-function)))
-          ;; If we found a function name at the next code line,
-          ;; prefer it if it's more specific than current
-          (cond
-           ;; No current function, use next if available
-           ((not current-func) next-func)
-           ;; No next function, keep current
-           ((not next-func) current-func)
-           ;; Both exist: check if next is more specific
-           ;; More specific means it's longer and contains the current as a prefix
-           ;; (handling delimiters like . # or ::)
-           ((and (> (length next-func) (length current-func))
-                 (or (string-prefix-p (concat current-func ".") next-func)
-                     (string-prefix-p (concat current-func "#") next-func)
-                     (string-prefix-p (concat current-func "::") next-func)))
-            next-func)
-           ;; Otherwise keep current
-           (t current-func)))))))
+  (interactive)
+  (let* ((current-func (which-function))
+         (resolved-func
+          (save-excursion
+            ;; Move to next non-comment, non-blank line
+            (forward-line 1)
+            (while (and (not (eobp))
+                        (or (looking-at-p "^[ \t]*$")
+                            (ai-code--is-comment-line
+                             (buffer-substring-no-properties
+                              (line-beginning-position)
+                              (line-end-position)))))
+              (forward-line 1))
+            ;; Get function name at this position, trying a short lookahead inside
+            ;; the function body when `which-function` cannot resolve the def line.
+            (unless (eobp)
+              (let ((lookahead 5)
+                    (next-func (which-function)))
+                (while (and (> lookahead 0)
+                            (or (null next-func)
+                                (string= next-func current-func)))
+                  (forward-line 1)
+                  (setq lookahead (1- lookahead))
+                  (unless (or (eobp)
+                              (looking-at-p "^[ \t]*$")
+                              (ai-code--is-comment-line
+                               (buffer-substring-no-properties
+                                (line-beginning-position)
+                                (line-end-position))))
+                    (setq next-func (which-function))))
+                (cond
+                 ;; No current function, use the next if found.
+                 ((not current-func) next-func)
+                 ;; No next function, keep the current context.
+                 ((not next-func) current-func)
+                 ;; Prefer the forward definition when it differs from current.
+                 ((not (string= next-func current-func)) next-func)
+                 ;; Otherwise fall back to current.
+                 (t current-func)))))))
+    ;; (when resolved-func
+    ;;   (message "Identified function: %s" resolved-func))
+    resolved-func))
 
 ;;;###autoload
 (defun ai-code-code-change (arg)
