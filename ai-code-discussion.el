@@ -367,11 +367,12 @@ region as content of that section."
                      (file-name-nondirectory default-note-file)))
          (default-title (when ai-code-notes-use-gptel-headline
                           (condition-case err
-                              (ai-code-call-gptel-sync
-                               (format "Generate a concise headline (max 10 words) for this note content. Only return the headline text without quotes or extra formatting:\n\n%s"
-                                       (if (> (length region-text) 500)
-                                           (substring region-text 0 500)
-                                         region-text)))
+                              (string-trim
+                               (ai-code-call-gptel-sync
+                                (format "Generate a concise headline (max 10 words) for this note content. Only return the headline text without quotes or extra formatting:\n\n%s"
+                                        (if (> (length region-text) 500)
+                                            (substring region-text 0 500)
+                                          region-text))))
                             (error
                              (message "GPTel headline generation failed: %s" (error-message-string err))
                              ""))))
