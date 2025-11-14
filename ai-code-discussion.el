@@ -392,7 +392,8 @@ region as content of that section."
         ;; Insert headline
         (insert "* " section-title "\n")
         ;; Insert timestamp
-        (insert (format-time-string "<%Y-%m-%d %a %H:%M>\n\n"))
+        (org-insert-time-stamp (current-time) t nil)
+        (insert "\n\n")
         ;; Insert region content
         (insert region-text)
         (insert "\n"))
