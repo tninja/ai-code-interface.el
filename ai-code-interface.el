@@ -174,6 +174,7 @@ Shows the current backend label to the right."
     ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
     ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
     ("m" "Debug python MCP server" ai-code-debug-mcp)
+    ("n" "Take notes from AI session region" ai-code-take-notes)
     ]
    ])
 

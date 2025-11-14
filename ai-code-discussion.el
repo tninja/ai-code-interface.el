@@ -17,6 +17,7 @@
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
 (declare-function ai-code--get-clipboard-text "ai-code-interface")
+(declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 
 ;;;###autoload
 (defun ai-code-ask-question (arg)
@@ -324,7 +325,6 @@ Explain what this function does, its parameters, return value, algorithm, and it
       (when final-prompt
         (ai-code--insert-prompt final-prompt)))))
 
-
 (defun ai-code--explain-file ()
   "Explain the current file."
   (let ((file-name (or buffer-file-name "current buffer")))
@@ -333,6 +333,76 @@ Explain what this function does, its parameters, return value, algorithm, and it
            (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
       (when final-prompt
         (ai-code--insert-prompt final-prompt)))))
+
+;;;###autoload
+(defcustom ai-code-notes-use-gptel-headline nil
+  "Whether to use GPTel to generate headline for notes.
+If non-nil, call `ai-code-call-gptel-sync` to generate a smart default
+headline based on the selected content. Otherwise, prompt with empty default."
+  :type 'boolean
+  :group 'ai-code)
+
+;;;###autoload
+(defun ai-code-take-notes ()
+  "Take notes from selected region and save to a note file.
+When there is a selected region, ask for note file path (default is
+ai.code.notes.org in the git root) and section title.  Add the section
+title as a headline at the end of the note file, and put the selected
+region as content of that section."
+  (interactive)
+  (unless (region-active-p)
+    (user-error "No region selected. Please select the text you want to save as notes"))
+  (let* ((region-text (buffer-substring-no-properties (region-beginning) (region-end)))
+         (git-root (condition-case nil
+                       (magit-toplevel)
+                     (error nil)))
+         (default-note-file (if git-root
+                               (expand-file-name "ai.code.notes.org" git-root)
+                             (expand-file-name "ai.code.notes.org" default-directory)))
+         (note-file (read-file-name
+                     "Note file: "
+                     (file-name-directory default-note-file)
+                     default-note-file
+                     nil
+                     (file-name-nondirectory default-note-file)))
+         (default-title (when ai-code-notes-use-gptel-headline
+                          (condition-case err
+                              (ai-code-call-gptel-sync
+                               (format "Generate a concise headline (max 10 words) for this note content. Only return the headline text without quotes or extra formatting:\n\n%s"
+                                       (if (> (length region-text) 500)
+                                           (substring region-text 0 500)
+                                         region-text)))
+                            (error
+                             (message "GPTel headline generation failed: %s" (error-message-string err))
+                             ""))))
+         (section-title (ai-code-read-string "Section title: " (or default-title ""))))
+    (when (string-empty-p section-title)
+      (user-error "Section title cannot be empty"))
+    ;; Create note file directory if it doesn't exist
+    (let ((note-dir (file-name-directory note-file)))
+      (unless (file-exists-p note-dir)
+        (make-directory note-dir t)))
+    ;; Append section to note file
+    (with-current-buffer (find-file-noselect note-file)
+      (save-excursion
+        (goto-char (point-max))
+        ;; Add newline before new section if file is not empty
+        (unless (bobp)
+          (insert "\n\n"))
+        ;; Insert headline
+        (insert "* " section-title "\n")
+        ;; Insert timestamp
+        (insert (format-time-string "<%Y-%m-%d %a %H:%M>\n\n"))
+        ;; Insert region content
+        (insert region-text)
+        (insert "\n"))
+      (save-buffer))
+    ;; Open note file in other window and scroll to bottom
+    (let ((note-buffer (find-file-other-window note-file)))
+      (with-selected-window (get-buffer-window note-buffer)
+        (goto-char (point-max))
+        (recenter -1)))
+    (message "Notes added to %s under section: %s" note-file section-title)))
 
 (provide 'ai-code-discussion)
 
