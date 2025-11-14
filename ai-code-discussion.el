@@ -357,8 +357,8 @@ region as content of that section."
                        (magit-toplevel)
                      (error nil)))
          (default-note-file (if git-root
-                               (expand-file-name "ai.code.notes.org" git-root)
-                             (expand-file-name "ai.code.notes.org" default-directory)))
+                               (expand-file-name ".ai.code.notes.org" git-root)
+                             (expand-file-name ".ai.code.notes.org" default-directory)))
          (note-file (read-file-name
                      "Note file: "
                      (file-name-directory default-note-file)
