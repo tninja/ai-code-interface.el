@@ -545,7 +545,12 @@ If not inside a Git repository, do nothing."
     (if (not git-root)
         (message "ai-code-update-git-ignore: not in a git repository, skipped")
       (let* ((gitignore-path (expand-file-name ".gitignore" git-root))
-             (required-entries '(".ai.code.prompt.org" ".ai.code.notes.org" ".projectile" "GTAGS" "GRTAGS" "GPATH"))
+             (required-entries (list ai-code-prompt-file-name
+                                     ai-code-notes-file-name
+                                     ".projectile"
+                                     "GTAGS"
+                                     "GRTAGS"
+                                     "GPATH"))
              (gitignore-content (when (file-exists-p gitignore-path)
                                   (with-temp-buffer
                                     (insert-file-contents gitignore-path)

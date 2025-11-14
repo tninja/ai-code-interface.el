@@ -335,6 +335,13 @@ Explain what this function does, its parameters, return value, algorithm, and it
         (ai-code--insert-prompt final-prompt)))))
 
 ;;;###autoload
+(defcustom ai-code-notes-file-name ".ai.code.notes.org"
+  "Default note file name relative to the project root.
+This value is used by `ai-code-take-notes' when suggesting where to store notes."
+  :type 'string
+  :group 'ai-code)
+
+;;;###autoload
 (defcustom ai-code-notes-use-gptel-headline nil
   "Whether to use GPTel to generate headline for notes.
 If non-nil, call `ai-code-call-gptel-sync` to generate a smart default
@@ -346,7 +353,7 @@ headline based on the selected content. Otherwise, prompt with empty default."
 (defun ai-code-take-notes ()
   "Take notes from selected region and save to a note file.
 When there is a selected region, ask for note file path (default is
-ai.code.notes.org in the git root) and section title.  Add the section
+`ai-code-notes-file-name' in the git root) and section title.  Add the section
 title as a headline at the end of the note file, and put the selected
 region as content of that section."
   (interactive)
@@ -357,8 +364,8 @@ region as content of that section."
                        (magit-toplevel)
                      (error nil)))
          (default-note-file (if git-root
-                               (expand-file-name ".ai.code.notes.org" git-root)
-                             (expand-file-name ".ai.code.notes.org" default-directory)))
+                                (expand-file-name ai-code-notes-file-name git-root)
+                              (expand-file-name ai-code-notes-file-name default-directory)))
          (note-file (read-file-name
                      "Note file: "
                      (file-name-directory default-note-file)
