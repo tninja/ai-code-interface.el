@@ -3,6 +3,7 @@
 
 ** Main branch change
 
+- Feat: Add note taking functions, useful during discussing with AI
 - Fix function detection for TODO comments preceding method definitions 
   - Addressing [[https://github.com/tninja/ai-code-interface.el/issues/40][Wrong function detection]], suggested by @Silex
 - Refactor: error investigation prompt, run command with comint buffer
