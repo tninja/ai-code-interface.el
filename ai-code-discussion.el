@@ -91,6 +91,14 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
          (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
+         (region-start-line (when region-active
+                             (line-number-at-pos (region-beginning))))
+         (region-end-line (when region-active
+                           (line-number-at-pos (region-end))))
+         (git-relative-path (when (and region-active buffer-file-name)
+                             (car (ai-code--get-git-relative-paths (list buffer-file-name)))))
+         (region-location-info (when (and region-active git-relative-path region-start-line region-end-line)
+                                (format "%s#L%d-L%d" git-relative-path region-start-line region-end-line)))
          (prompt-label
           (cond
            ((and clipboard-context
@@ -119,14 +127,19 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
          (final-prompt
           (concat question
                   (when region-text
-                    (concat "\n" region-text))
+                    (concat "Selected region: \n"
+                            (when region-location-info
+                              (concat region-location-info "\n"))
+                            region-text))
                   (when function-name
                     (format "\nFunction: %s" function-name))
                   files-context-string
                   (when (and clipboard-context
                             (string-match-p "\\S-" clipboard-context))
                     (concat "\n\nClipboard context:\n" clipboard-context))
-                  "\nNote: This is a question only - please do not modify the code.")))
+                  (if region-text
+                      "\nNote: This is a question about the selected region - please do not modify the code."
+                    "\nNote: This is a question only - please do not modify the code."))))
     (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--get-git-relative-paths (file-paths)

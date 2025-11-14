@@ -20,6 +20,7 @@
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
 (declare-function ai-code--get-clipboard-text "ai-code-interface")
+(declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 
 (defun ai-code--is-comment-line (line)
   "Check if LINE is a comment line based on current buffer's comment syntax.
@@ -99,6 +100,12 @@ Argument ARG is the prefix argument."
                         (buffer-substring-no-properties (region-beginning) (region-end))))
          (region-start-line (when region-active
                               (line-number-at-pos (region-beginning))))
+         (region-end-line (when region-active
+                           (line-number-at-pos (region-end))))
+         (git-relative-path (when (and region-active buffer-file-name)
+                             (car (ai-code--get-git-relative-paths (list buffer-file-name)))))
+         (region-location-info (when (and region-active git-relative-path region-start-line region-end-line)
+                                (format "%s#L%d-L%d" git-relative-path region-start-line region-end-line)))
          (prompt-label
           (cond
            ((and clipboard-context
@@ -123,13 +130,18 @@ Argument ARG is the prefix argument."
          (final-prompt
           (concat initial-prompt
                   (when region-text
-                    (format "\nCode from line %d:\n%s" region-start-line region-text))
+                    (concat "Selected region: \n"
+                            (when region-location-info
+                              (concat region-location-info "\n"))
+                            region-text))
                   (when function-name (format "\nFunction: %s" function-name))
                   files-context-string
                   (when (and clipboard-context
                             (string-match-p "\\S-" clipboard-context))
                     (concat "\n\nClipboard context:\n" clipboard-context))
-                  "\nNote: Please make the code change described above.")))
+                  (if region-text
+                      "\nNote: Please apply the code change to the selected region specified above."
+                    "\nNote: Please make the code change described above."))))
     (ai-code--insert-prompt final-prompt)))
 
 ;;;###autoload
