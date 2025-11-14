@@ -346,7 +346,7 @@ headline based on the selected content. Otherwise, prompt with empty default."
 (defun ai-code-take-notes ()
   "Take notes from selected region and save to a note file.
 When there is a selected region, ask for note file path (default is
-ai.code.notes.org in the git root) and section title.  Add the section
+.ai.code.notes.org in the git root) and section title.  Add the section
 title as a headline at the end of the note file, and put the selected
 region as content of that section."
   (interactive)
