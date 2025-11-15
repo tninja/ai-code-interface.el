@@ -131,8 +131,11 @@ Argument ARG is the prefix argument."
           (concat initial-prompt
                   (when region-text
                     (concat "\nSelected region:\n"
-                            (when region-location-info
+                            (cond
+                             (region-location-info
                               (concat region-location-info "\n"))
+                             (region-start-line
+                              (format "Start line: %d\n" region-start-line)))
                             region-text))
                   (when function-name (format "\nFunction: %s" function-name))
                   files-context-string
