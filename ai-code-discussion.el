@@ -127,7 +127,7 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
          (final-prompt
           (concat question
                   (when region-text
-                    (concat "Selected region: \n"
+                    (concat "\nSelected region:\n"
                             (when region-location-info
                               (concat region-location-info "\n"))
                             region-text))
