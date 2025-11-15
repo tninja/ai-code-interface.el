@@ -130,7 +130,7 @@ Argument ARG is the prefix argument."
          (final-prompt
           (concat initial-prompt
                   (when region-text
-                    (concat "Selected region: \n"
+                    (concat "\nSelected region:\n"
                             (when region-location-info
                               (concat region-location-info "\n"))
                             region-text))
