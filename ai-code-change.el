@@ -21,6 +21,7 @@
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
 (declare-function ai-code--get-clipboard-text "ai-code-interface")
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
+(declare-function ai-code--get-region-location-info "ai-code-discussion")
 
 (defun ai-code--is-comment-line (line)
   "Check if LINE is a comment line based on current buffer's comment syntax.
@@ -100,12 +101,11 @@ Argument ARG is the prefix argument."
                         (buffer-substring-no-properties (region-beginning) (region-end))))
          (region-start-line (when region-active
                               (line-number-at-pos (region-beginning))))
-         (region-end-line (when region-active
-                           (line-number-at-pos (region-end))))
-         (git-relative-path (when (and region-active buffer-file-name)
-                             (car (ai-code--get-git-relative-paths (list buffer-file-name)))))
-         (region-location-info (when (and region-active git-relative-path region-start-line region-end-line)
-                                (format "%s#L%d-L%d" git-relative-path region-start-line region-end-line)))
+         (region-info (when region-active
+                       (ai-code--get-region-location-info (region-beginning) (region-end))))
+         (region-end-line (nth 0 region-info))
+         (git-relative-path (nth 1 region-info))
+         (region-location-info (nth 2 region-info))
          (prompt-label
           (cond
            ((and clipboard-context
