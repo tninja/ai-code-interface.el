@@ -91,13 +91,8 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
          (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
-         (region-start-line (when region-active
-                             (line-number-at-pos (region-beginning))))
-         (region-info (when region-active
-                       (ai-code--get-region-location-info (region-beginning) (region-end))))
-         (region-end-line (nth 0 region-info))
-         (git-relative-path (nth 1 region-info))
-         (region-location-info (nth 2 region-info))
+         (region-location-info (when region-active
+                                 (ai-code--get-region-location-info (region-beginning) (region-end))))
          (prompt-label
           (cond
            ((and clipboard-context
@@ -162,7 +157,7 @@ Returns nil if region is not active or required information is unavailable."
            (git-relative-path (car (ai-code--get-git-relative-paths (list buffer-file-name))))
            (region-location-info (when (and git-relative-path region-start-line region-end-line)
                                    (format "%s#L%d-L%d" git-relative-path region-start-line region-end-line))))
-      (list region-end-line git-relative-path region-location-info))))
+      region-location-info)))
 
 ;;;###autoload
 (defun ai-code-investigate-exception (arg)

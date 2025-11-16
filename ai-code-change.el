@@ -89,7 +89,6 @@ If a region is selected, change that specific region.
 Otherwise, change the function under cursor.
 If nothing is selected and no function context, prompts for general code change.
 Inserts the prompt into the AI prompt file and optionally sends to AI.
-
 Argument ARG is the prefix argument."
   (interactive "P")
   (unless buffer-file-name
@@ -99,13 +98,8 @@ Argument ARG is the prefix argument."
          (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
-         (region-start-line (when region-active
-                              (line-number-at-pos (region-beginning))))
-         (region-info (when region-active
-                       (ai-code--get-region-location-info (region-beginning) (region-end))))
-         (region-end-line (nth 0 region-info))
-         (git-relative-path (nth 1 region-info))
-         (region-location-info (nth 2 region-info))
+         (region-location-info (when region-active
+                                 (ai-code--get-region-location-info (region-beginning) (region-end))))
          (prompt-label
           (cond
            ((and clipboard-context
