@@ -148,7 +148,7 @@ Returns a list of relative paths from the git repository root."
 
 (defun ai-code--get-region-location-info (region-beginning region-end)
   "Compute region location information for the active region.
-Returns a list of (region-end-line git-relative-path region-location-info).
+Returns region-location-info
 REGION-BEGINNING and REGION-END are the region boundaries.
 Returns nil if region is not active or required information is unavailable."
   (when (and region-beginning region-end buffer-file-name)
