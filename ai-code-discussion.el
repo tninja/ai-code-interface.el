@@ -91,14 +91,8 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
          (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
-         (region-start-line (when region-active
-                             (line-number-at-pos (region-beginning))))
-         (region-end-line (when region-active
-                           (line-number-at-pos (region-end))))
-         (git-relative-path (when (and region-active buffer-file-name)
-                             (car (ai-code--get-git-relative-paths (list buffer-file-name)))))
-         (region-location-info (when (and region-active git-relative-path region-start-line region-end-line)
-                                (format "%s#L%d-L%d" git-relative-path region-start-line region-end-line)))
+         (region-location-info (when region-active
+                                 (ai-code--get-region-location-info (region-beginning) (region-end))))
          (prompt-label
           (cond
            ((and clipboard-context
@@ -151,6 +145,19 @@ Returns a list of relative paths from the git repository root."
         (mapcar (lambda (file-path)
                   (file-relative-name file-path git-root))
                 file-paths)))))
+
+(defun ai-code--get-region-location-info (region-beginning region-end)
+  "Compute region location information for the active region.
+Returns region-location-info
+REGION-BEGINNING and REGION-END are the region boundaries.
+Returns nil if region is not active or required information is unavailable."
+  (when (and region-beginning region-end buffer-file-name)
+    (let* ((region-end-line (line-number-at-pos region-end))
+           (region-start-line (line-number-at-pos region-beginning))
+           (git-relative-path (car (ai-code--get-git-relative-paths (list buffer-file-name))))
+           (region-location-info (when (and git-relative-path region-start-line region-end-line)
+                                   (format "%s#L%d-L%d" git-relative-path region-start-line region-end-line))))
+      region-location-info)))
 
 ;;;###autoload
 (defun ai-code-investigate-exception (arg)
