@@ -14,6 +14,80 @@
 (require 'ai-code-prompt-mode)
 (require 'ai-code-discussion)
 
+(ert-deftest test-ai-code-gitignore-regex-pattern ()
+  "Test that the regex pattern correctly matches entries in .gitignore.
+This is a unit test for the regex pattern used in ai-code-update-git-ignore."
+  (let ((gitignore-content "# Test .gitignore file
+.ai.code.prompt.org
+.ai.code.notes.org
+.projectile
+GTAGS
+GRTAGS
+GPATH
+# End of file
+"))
+    ;; Test that existing entries are found
+    (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                   (regexp-quote ".ai.code.prompt.org")
+                                   "\\s-*\\(?:\n\\|$\\)")
+                           gitignore-content))
+    (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                   (regexp-quote ".ai.code.notes.org")
+                                   "\\s-*\\(?:\n\\|$\\)")
+                           gitignore-content))
+    (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                   (regexp-quote ".projectile")
+                                   "\\s-*\\(?:\n\\|$\\)")
+                           gitignore-content))
+    (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                   (regexp-quote "GTAGS")
+                                   "\\s-*\\(?:\n\\|$\\)")
+                           gitignore-content))
+    (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                   (regexp-quote "GRTAGS")
+                                   "\\s-*\\(?:\n\\|$\\)")
+                           gitignore-content))
+    (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                   (regexp-quote "GPATH")
+                                   "\\s-*\\(?:\n\\|$\\)")
+                           gitignore-content))
+    
+    ;; Test that a missing entry is not found
+    (should-not (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                       (regexp-quote "MISSING_ENTRY")
+                                       "\\s-*\\(?:\n\\|$\\)")
+                               gitignore-content))
+    
+    ;; Test entries with whitespace
+    (let ((gitignore-with-whitespace "  .projectile  
+GTAGS
+"))
+      (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                     (regexp-quote ".projectile")
+                                     "\\s-*\\(?:\n\\|$\\)")
+                             gitignore-with-whitespace))
+      (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                     (regexp-quote "GTAGS")
+                                     "\\s-*\\(?:\n\\|$\\)")
+                             gitignore-with-whitespace)))
+    
+    ;; Test entry at beginning of file (no leading newline)
+    (let ((gitignore-start ".ai.code.prompt.org
+other-file"))
+      (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                     (regexp-quote ".ai.code.prompt.org")
+                                     "\\s-*\\(?:\n\\|$\\)")
+                             gitignore-start)))
+    
+    ;; Test entry at end of file (no trailing newline)
+    (let ((gitignore-end "other-file
+.ai.code.prompt.org"))
+      (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
+                                     (regexp-quote ".ai.code.prompt.org")
+                                     "\\s-*\\(?:\n\\|$\\)")
+                             gitignore-end)))))
+
+
 (ert-deftest test-ai-code-update-git-ignore-no-duplicates ()
   "Test that ai-code-update-git-ignore does not add duplicate entries.
 When .gitignore already contains the required entries, they should

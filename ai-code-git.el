@@ -558,9 +558,9 @@ If not inside a Git repository, do nothing."
              (missing-entries nil))
         (dolist (entry required-entries)
           (unless (and gitignore-content
-                       (string-match-p (concat "(?m)^\\s-*"
+                       (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
                                               (regexp-quote entry)
-                                              "\\s-*$")
+                                              "\\s-*\\(?:\n\\|$\\)")
                                        gitignore-content))
             (unless (member entry missing-entries)
               (push entry missing-entries))))
