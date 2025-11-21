@@ -382,10 +382,10 @@ headline based on the selected content. Otherwise, prompt with empty default."
 ;;;###autoload
 (defun ai-code-take-notes ()
   "Take notes from selected region and save to a note file.
-When there is a selected region, ask for note file path (default is
-.ai.code.notes.org in the git root) and section title.  Add the section
-title as a headline at the end of the note file, and put the selected
-region as content of that section."
+When there is a selected region, prompt to select from currently open org buffers
+or the default note file path (.ai.code.notes.org in the git root).
+Add the section title as a headline at the end of the note file, and put the
+selected region as content of that section."
   (interactive)
   (unless (region-active-p)
     (user-error "No region selected. Please select the text you want to save as notes"))
@@ -396,12 +396,20 @@ region as content of that section."
          (default-note-file (if git-root
                                 (expand-file-name ai-code-notes-file-name git-root)
                               (expand-file-name ai-code-notes-file-name default-directory)))
-         (note-file (read-file-name
-                     "Note file: "
-                     (file-name-directory default-note-file)
-                     default-note-file
-                     nil
-                     (file-name-nondirectory default-note-file)))
+         ;; Get all org-mode buffers with associated files
+         (org-buffers (seq-filter
+                       (lambda (buf)
+                         (with-current-buffer buf
+                           (and (eq major-mode 'org-mode)
+                                (buffer-file-name))))
+                       (buffer-list)))
+         (org-buffer-files (mapcar #'buffer-file-name org-buffers))
+         ;; Create candidates list with default file first, then existing org buffers
+         (candidates (delete-dups
+                      (cons default-note-file
+                            (append org-buffer-files nil))))
+         ;; Select note file from candidates
+         (note-file (completing-read "Note file: " candidates nil nil))
          (default-title (when ai-code-notes-use-gptel-headline
                           (condition-case err
                               (string-trim
