@@ -145,15 +145,14 @@ Argument ARG is the prefix argument."
     (ai-code--insert-prompt final-prompt)))
 
 ;;;###autoload
-(defun ai-code-implement-todo (arg)
+(defun ai-code-implement-todo ()
   "Generate prompt to implement TODO comments in current context.
-With a prefix argument (universal-argument), implement code after the comment instead of replacing it in-place.
+Implements code after TODO comments instead of replacing them in-place.
 If region is selected, implement that specific region.
 If cursor is on a comment line, implement that specific comment.
 If cursor is inside a function, implement comments for that function.
-Otherwise implement comments for the entire current file.
-Argument ARG is the prefix argument."
-  (interactive "P")
+Otherwise implement comments for the entire current file."
+  (interactive)
   (if (not buffer-file-name)
       (message "Error: buffer-file-name must be available")
     (let* ((current-line (string-trim (thing-at-point 'line t)))
@@ -185,41 +184,22 @@ Argument ARG is the prefix argument."
                                                   region-start-line)))))
            (files-context-string (ai-code--get-context-files-string))
            (initial-input
-            (if arg
-                ;; With prefix argument: implement after comment, not in-place
-                (cond
-                 (region-text
-                  (format (concat
-                           "Please implement code after this requirement comment block in the selected region. "
-                           "Leave the comment as-is and add the implementation code after it. "
-                           "Keep the existing code structure and add the implementation after this specific block.\n%s\n%s%s%s")
-                          region-location-line region-text function-context files-context-string))
-                 (is-comment
-                  (format "Please implement code after this requirement comment on line %d: '%s'. Leave the comment as-is and add the implementation code after it. Keep the existing code structure and add the implementation after this specific comment.%s%s"
-                          current-line-number current-line function-context files-context-string))
-                 (function-name
-                  (format "Please implement code after all TODO comments in function '%s'. The TODO are TODO comments. Leave the comments as-is and add implementation code after each comment. Keep the existing code structure and only add code after these marked items.%s"
-                          function-name files-context-string))
-                 (t
-                  (format "Please implement code after all TODO comments in file '%s'. The TODO are TODO comments. Leave the comments as-is and add implementation code after each comment. Keep the existing code structure and only add code after these marked items.%s"
-                          (file-name-nondirectory buffer-file-name) files-context-string)))
-              ;; Without prefix argument: replace in-place (original behavior)
-              (cond
-               (region-text
-                (format (concat
-                         "Please implement this requirement comment block in-place within the selected region. "
-                         "It is already inside current code. Please replace it with implementation. "
-                         "Keep the existing code structure and implement just this specific block.\n%s\n%s%s%s")
-                        region-location-line region-text function-context files-context-string))
-               (is-comment
-                (format "Please implement this requirement comment on line %d in-place: '%s'. It is already inside current code. Please replace it with implementation. Keep the existing code structure and implement just this specific comment.%s%s"
-                        current-line-number current-line function-context files-context-string))
-               (function-name
-                (format "Please implement all TODO in-place in function '%s'. The TODO are TODO comments. Keep the existing code structure and only implement these marked items.%s"
-                        function-name files-context-string))
-               (t
-                (format "Please implement all TODO in-place in file '%s'. The TODO are TODO comments. Keep the existing code structure and only implement these marked items.%s"
-                        (file-name-nondirectory buffer-file-name) files-context-string)))))
+            (cond
+             (region-text
+              (format (concat
+                       "Please implement code after this requirement comment block in the selected region. "
+                       "Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix) before adding the implementation code after it. "
+                       "Keep the existing code structure and add the implementation after this specific block.\n%s\n%s%s%s")
+                      region-location-line region-text function-context files-context-string))
+             (is-comment
+              (format "Please implement code after this requirement comment on line %d: '%s'. Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding the implementation code after it. Keep the existing code structure and add the implementation after this specific comment.%s%s"
+                      current-line-number current-line function-context files-context-string))
+             (function-name
+              (format "Please implement code after all TODO comments in function '%s'. The TODO are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
+                      function-name files-context-string))
+             (t
+              (format "Please implement code after all TODO comments in file '%s'. The TODO are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
+                      (file-name-nondirectory buffer-file-name) files-context-string))))
            (prompt (ai-code-read-string "TODO implementation instruction: " initial-input)))
       (ai-code--insert-prompt prompt))))
 
