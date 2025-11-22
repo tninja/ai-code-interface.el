@@ -72,7 +72,7 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
                  completion-list
                  :must-match nil
                  :name "Helm Read String, Use C-c C-y to edit selected command. C-b and C-f to move cursor during editing"
-                 :fuzzy t
+                 :fuzzy nil
                  :initial-input initial-input)))
     ;; Add to history if non-empty, single-line and save
     (unless (or (string-empty-p input) (string-match "\n" input))
