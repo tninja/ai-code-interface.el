@@ -409,7 +409,7 @@ selected region as content of that section."
                       (cons default-note-file
                             org-buffer-files)))
          ;; Select note file from candidates
-         (note-file (completing-read "Note file: " candidates nil nil))
+         (note-file (completing-read "Note file: " candidates nil nil default-note-file))
          (default-title (when ai-code-notes-use-gptel-headline
                           (condition-case err
                               (string-trim
