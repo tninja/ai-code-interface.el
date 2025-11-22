@@ -85,6 +85,8 @@ returns that function's name. Otherwise returns the result of `which-function`."
 ;;;###autoload
 (defun ai-code-code-change (arg)
   "Generate prompt to change code under cursor or in selected region.
+If the cursor is on a TODO comment or a region with a TODO comment is selected,
+it will generate a prompt to implement the TODO in-place.
 With a prefix argument (C-u), append the clipboard contents as context.
 If a region is selected, change that specific region.
 Otherwise, change the function under cursor.
@@ -94,55 +96,92 @@ Argument ARG is the prefix argument."
   (interactive "P")
   (unless buffer-file-name
     (user-error "Error: buffer-file-name must be available"))
-  (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
-         (function-name (which-function))
-         (region-active (region-active-p))
-         (region-text (when region-active
-                        (buffer-substring-no-properties (region-beginning) (region-end))))
-         (region-location-info (when region-active
-                                 (ai-code--get-region-location-info (region-beginning) (region-end))))
-         (prompt-label
-          (cond
-           ((and clipboard-context
-                 (string-match-p "\\S-" clipboard-context))
-            (cond
-             (region-active
-              (if function-name
-                  (format "Change code in function %s (clipboard context): " function-name)
-                "Change selected code (clipboard context): "))
-             (function-name
-              (format "Change function %s (clipboard context): " function-name))
-             (t "Change code (clipboard context): ")))
-           (region-active
-            (if function-name
-                (format "Change code in function %s: " function-name)
-              "Change selected code: "))
-           (function-name
-            (format "Change function %s: " function-name))
-           (t "Change code: ")))
-         (initial-prompt (ai-code-read-string prompt-label ""))
-         (files-context-string (ai-code--get-context-files-string))
-         (repo-context-string (ai-code--format-repo-context-info))
-         (final-prompt
-          (concat initial-prompt
-                  (when region-text
-                    (concat "\nSelected region:\n"
-                            (cond
-                             (region-location-info
-                              (concat region-location-info "\n"))
-                             (region-start-line
-                              (format "Start line: %d\n" region-start-line)))
-                            region-text))
-                  (when function-name (format "\nFunction: %s" function-name))
-                  files-context-string
-                  repo-context-string
-                  (when (and clipboard-context
-                            (string-match-p "\\S-" clipboard-context))
-                    (concat "\n\nClipboard context:\n" clipboard-context))
-                  (if region-text
-                      "\nNote: Please apply the code change to the selected region specified above."
-                    "\nNote: Please make the code change described above."))))
-    (ai-code--insert-prompt final-prompt)))
+  (let* ((region-active (region-active-p))
+         (todo-info
+          (let ((text (if region-active
+                          (buffer-substring-no-properties (region-beginning) (region-end))
+                        (thing-at-point 'line t))))
+            (when (and text comment-start)
+              (let* ((first-line (car (split-string text "\n")))
+                     (comment-prefix-re (concat "^[ \t]*" (regexp-quote (string-trim-right comment-start)) "+[ \t]*")))
+                (when (string-match comment-prefix-re first-line)
+                  (let ((rest (string-trim-left (substring first-line (match-end 0)))))
+                    (when (string-prefix-p "TODO" rest)
+                      (list text
+                            (if region-active (region-beginning) (line-beginning-position))
+                            (if region-active (region-end) (line-end-position)))))))))))
+    (if todo-info
+        (let* ((todo-content (nth 0 todo-info))
+               (todo-region-beg (nth 1 todo-info))
+               (todo-region-end (nth 2 todo-info))
+               (region-location-info (ai-code--get-region-location-info todo-region-beg todo-region-end))
+               (files-context-string (ai-code--get-context-files-string))
+               (function-name (which-function))
+               (function-context (if function-name
+                                     (format "\nFunction: %s" function-name)
+                                   ""))
+               (initial-prompt
+                (format (concat "Please implement the requirement from the following TODO comment. "
+                                "After implementation, mark the original TODO comment as 'DONE'. "
+                                "For example, a comment `;; TODO: new feature` could become `;; DONE: new feature`.\n"
+                                "The TODO comment to implement is inside file %s.\n\n"
+                                "Context about the location:\n%s\n\n"
+                                "The TODO comment content:\n```\n%s\n```\n%s%s")
+                        (file-name-nondirectory buffer-file-name)
+                        region-location-info
+                        todo-content
+                        function-context
+                        files-context-string))
+               (prompt (ai-code-read-string "Implement TODO in place: " initial-prompt)))
+          (ai-code--insert-prompt prompt))
+      (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
+             (function-name (which-function))
+             (region-text (when region-active
+                            (buffer-substring-no-properties (region-beginning) (region-end))))
+             (region-location-info (when region-active
+                                     (ai-code--get-region-location-info (region-beginning) (region-end))))
+             (prompt-label
+              (cond
+               ((and clipboard-context
+                     (string-match-p "\\S-" clipboard-context))
+                (cond
+                 (region-active
+                  (if function-name
+                      (format "Change code in function %s (clipboard context): " function-name)
+                    "Change selected code (clipboard context): "))
+                 (function-name
+                  (format "Change function %s (clipboard context): " function-name))
+                 (t "Change code (clipboard context): ")))
+               (region-active
+                (if function-name
+                    (format "Change code in function %s: " function-name)
+                  "Change selected code: "))
+               (function-name
+                (format "Change function %s: " function-name))
+               (t "Change code: ")))
+             (initial-prompt (ai-code-read-string prompt-label ""))
+             (files-context-string (ai-code--get-context-files-string))
+             (repo-context-string (ai-code--format-repo-context-info))
+             (final-prompt
+              (concat initial-prompt
+                      (when region-text
+                        (concat "\nSelected region:\n"
+                                (cond
+                                 (region-location-info
+                                  (concat region-location-info "\n"))
+                                 (region-start-line
+                                  (format "Start line: %d\n" region-start-line)))
+                                region-text))
+                      (when function-name (format "\nFunction: %s" function-name))
+                      files-context-string
+                      repo-context-string
+                      (when (and clipboard-context
+                                (string-match-p "\\S-" clipboard-context))
+                        (concat "\n\nClipboard context:\n" clipboard-context))
+                      (if region-text
+                          "\nNote: Please apply the code change to the selected region specified above."
+                        "\nNote: Please make the code change described above."))))
+        (ai-code--insert-prompt final-prompt)))))
 
 ;;;###autoload
 (defun ai-code-implement-todo ()
