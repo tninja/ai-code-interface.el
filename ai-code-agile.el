@@ -432,7 +432,8 @@ TECHNIQUE-DESCRIPTION is the base prompt text."
     (dolist (spec parameters)
       (let* ((placeholder (plist-get spec :placeholder))
              (value (ai-code--refactoring--resolve-parameter spec context values)))
-        (push (cons placeholder value) values)))
+        (when placeholder
+          (push (cons placeholder value) values))))
 
     ;; Second, iterate through the resolved values and perform substitutions.
     ;; Process in reverse order of parameter definition to ensure consistent handling
