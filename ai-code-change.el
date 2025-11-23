@@ -35,6 +35,14 @@ ignoring leading whitespace."
                               "+")
                       (string-trim-left line)))))
 
+(defun ai-code--is-comment-block (text)
+  "Check if TEXT is a block of comments (ignoring blank lines)."
+  (let ((lines (split-string text "\n")))
+    (cl-every (lambda (line)
+                (or (string-blank-p line)
+                    (ai-code--is-comment-line line)))
+              lines)))
+
 (defun ai-code--get-function-name-for-comment ()
   "Get the appropriate function name when cursor is on a comment line.
 If the comment precedes a function definition or is inside a function body,
@@ -217,78 +225,98 @@ Implements code after TODO comments instead of replacing them in-place.
 With a prefix argument (C-u), append the clipboard contents as context.
 If region is selected, implement that specific region.
 If cursor is on a comment line, implement that specific comment.
+If the current line is blank, ask user to input TODO comment.
+The input string will be prefixed with TODO: and insert to the current line,
+with proper indentation.
 If cursor is inside a function, implement comments for that function.
 Otherwise implement comments for the entire current file.
 Argument ARG is the prefix argument."
   (interactive "P")
   (if (not buffer-file-name)
       (message "Error: buffer-file-name must be available")
-    (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
-           (current-line (string-trim (thing-at-point 'line t)))
-           (current-line-number (line-number-at-pos (point)))
-           (is-comment (ai-code--is-comment-line current-line))
-           (function-name (if is-comment
-                              (ai-code--get-function-name-for-comment)
-                            (which-function)))
-           (function-context (if function-name
-                                 (format "\nFunction: %s" function-name)
-                               ""))
-           (region-active (region-active-p))
-           (region-text (when region-active
-                          (buffer-substring-no-properties
-                           (region-beginning)
-                           (region-end))))
-           (region-start-line (when region-active
-                                (line-number-at-pos (region-beginning))))
-           (region-location-info (when region-active
-                                   (ai-code--get-region-location-info
-                                    (region-beginning)
-                                    (region-end))))
-           (region-location-line (when region-text
-                                    (or (and region-location-info
-                                             (format "Selected region: %s"
-                                                     region-location-info))
-                                        (when region-start-line
-                                          (format "Selected region starting on line %d"
-                                                  region-start-line)))))
-           (files-context-string (ai-code--get-context-files-string))
-           (prompt-label
-            (cond
-             ((and clipboard-context
-                   (string-match-p "\\S-" clipboard-context))
+    (if (and (not (region-active-p))
+               (string-blank-p (thing-at-point 'line t))
+               comment-start)
+      (let ((todo-text (ai-code-read-string "Enter TODO comment: ")))
+        (unless (string-blank-p todo-text)
+          (delete-region (line-beginning-position) (line-end-position))
+          (indent-according-to-mode)
+          (insert (concat (string-trim-right comment-start)
+                          " TODO: "
+                          todo-text
+                          (if (and comment-end (not (string-blank-p comment-end)))
+                              (concat " " (string-trim-left comment-end))
+                            "")))
+          (indent-according-to-mode)))
+      (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
+             (current-line (string-trim (thing-at-point 'line t)))
+             (current-line-number (line-number-at-pos (point)))
+             (is-comment (ai-code--is-comment-line current-line))
+             (function-name (if is-comment
+                                (ai-code--get-function-name-for-comment)
+                              (which-function)))
+             (function-context (if function-name
+                                   (format "\nFunction: %s" function-name)
+                                 ""))
+             (region-active (region-active-p))
+             (region-text (when region-active
+                            (buffer-substring-no-properties
+                             (region-beginning)
+                             (region-end))))
+             (region-start-line (when region-active
+                                  (line-number-at-pos (region-beginning))))
+             (region-location-info (when region-active
+                                     (ai-code--get-region-location-info
+                                      (region-beginning)
+                                      (region-end))))
+             (region-location-line (when region-text
+                                     (or (and region-location-info
+                                              (format "Selected region: %s"
+                                                      region-location-info))
+                                         (when region-start-line
+                                           (format "Selected region starting on line %d"
+                                                   region-start-line)))))
+             (files-context-string (ai-code--get-context-files-string))
+             (prompt-label
               (cond
-               (region-text "TODO implementation instruction (clipboard context): ")
-               (is-comment "TODO implementation instruction (clipboard context): ")
-               (function-name (format "TODO implementation instruction for function %s (clipboard context): " function-name))
-               (t "TODO implementation instruction (clipboard context): ")))
-             (region-text "TODO implementation instruction: ")
-             (is-comment "TODO implementation instruction: ")
-             (function-name (format "TODO implementation instruction for function %s: " function-name))
-             (t "TODO implementation instruction: ")))
-           (initial-input
-            (cond
-             (region-text
-              (format (concat
-                       "Please implement code after this requirement comment block in the selected region. "
-                       "Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix) before adding the implementation code after it. "
-                       "Keep the existing code structure and add the implementation after this specific block.\n%s\n%s%s%s")
-                      region-location-line region-text function-context files-context-string))
-             (is-comment
-              (format "Please implement code after this requirement comment on line %d: '%s'. Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding the implementation code after it. Keep the existing code structure and add the implementation after this specific comment.%s%s"
-                      current-line-number current-line function-context files-context-string))
-             (function-name
-              (format "Please implement code after all TODO comments in function '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
-                      function-name files-context-string))
-             (t
-              (format "Please implement code after all TODO comments in file '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
-                      (file-name-nondirectory buffer-file-name) files-context-string))))
-           (prompt (ai-code-read-string prompt-label initial-input))
-           (final-prompt
-            (concat prompt
-                    (when (and clipboard-context
-                              (string-match-p "\\S-" clipboard-context))
-                      (concat "\n\nClipboard context:\n" clipboard-context)))))
-      (ai-code--insert-prompt final-prompt))))
+               ((and clipboard-context
+                     (string-match-p "\\S-" clipboard-context))
+                (cond
+                 (region-text "TODO implementation instruction (clipboard context): ")
+                 (is-comment "TODO implementation instruction (clipboard context): ")
+                 (function-name (format "TODO implementation instruction for function %s (clipboard context): " function-name))
+                 (t "TODO implementation instruction (clipboard context): ")))
+               (region-text "TODO implementation instruction: ")
+               (is-comment "TODO implementation instruction: ")
+               (function-name (format "TODO implementation instruction for function %s: " function-name))
+               (t "TODO implementation instruction: ")))
+             (initial-input
+              (cond
+               (region-text
+                (unless (ai-code--is-comment-block region-text)
+                  (user-error "Selected region must be a comment block"))
+                (format (concat
+                         "Please implement code after this requirement comment block in the selected region. "
+                         "Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix) before adding the implementation code after it. "
+                         "Keep the existing code structure and add the implementation after this specific block.\n%s\n%s%s%s")
+                        region-location-line region-text function-context files-context-string))
+               (is-comment
+                (format "Please implement code after this requirement comment on line %d: '%s'. Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding the implementation code after it. Keep the existing code structure and add the implementation after this specific comment.%s%s"
+                        current-line-number current-line function-context files-context-string))
+               ;; (function-name
+               ;;  (format "Please implement code after all TODO comments in function '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
+               ;;          function-name files-context-string))
+               ;; (t
+               ;;  (format "Please implement code after all TODO comments in file '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
+               ;;          (file-name-nondirectory buffer-file-name) files-context-string))
+               ))
+             (prompt (ai-code-read-string prompt-label initial-input))
+             (final-prompt
+              (concat prompt
+                      (when (and clipboard-context
+                                 (string-match-p "\\S-" clipboard-context))
+                        (concat "\n\nClipboard context:\n" clipboard-context)))))
+        (ai-code--insert-prompt final-prompt)))))
 
 ;;; Flycheck integration
 (defun ai-code-flycheck--get-errors-in-scope (start end)

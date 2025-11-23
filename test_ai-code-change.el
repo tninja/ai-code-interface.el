@@ -117,6 +117,86 @@ is between the function definition and its body."
     (should (ai-code--is-comment-line "  // This is an indented comment"))
     (should-not (ai-code--is-comment-line "This is not a comment"))))
 
+(ert-deftest test-ai-code--is-comment-block ()
+  "Test comment block detection using `ai-code--is-comment-block`."
+  (with-temp-buffer
+    (setq-local comment-start ";")
+    (setq-local comment-end "")
+    ;; Mock ai-code--is-comment-line for this test
+    (cl-letf (((symbol-function 'ai-code--is-comment-line)
+               (lambda (line) (string-match-p "^[ \t]*;" line))))
+      
+      ;; Test with all commented lines
+      (should (ai-code--is-comment-block "; line 1\n; line 2"))
+      
+      ;; Test with commented lines and blank lines
+      (should (ai-code--is-comment-block "; line 1\n\n; line 3"))
+      
+      ;; Test with mixed lines (should fail)
+      (should-not (ai-code--is-comment-block "; line 1\ncode line"))
+      
+      ;; Test with all code lines (should fail)
+      (should-not (ai-code--is-comment-block "code 1\ncode 2"))
+
+      ;; Test with empty string (should pass as technically all (0) lines satisfy condition)
+      (should (ai-code--is-comment-block ""))
+
+      ;; Test with only newlines (should pass as blank lines are allowed)
+      (should (ai-code--is-comment-block "\n\n")))))
+
+(ert-deftest test-ai-code-implement-todo-region-validation ()
+  "Test ai-code-implement-todo raises error for non-comment region."
+  (with-temp-buffer
+    (setq buffer-file-name "test.el")
+    (setq-local comment-start ";")
+    (insert "code line 1\ncode line 2")
+    (goto-char (point-min))
+    (set-mark (point))
+    (goto-char (point-max))
+    
+    ;; Mock external functions
+    (cl-letf (((symbol-function 'region-active-p) (lambda () t))
+              ((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+              ((symbol-function 'ai-code--get-region-location-info) (lambda (&rest _) "loc info"))
+              ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+              ((symbol-function 'which-function) (lambda () nil))
+              ;; Mock ai-code--is-comment-line to fail for our code lines
+              ((symbol-function 'ai-code--is-comment-line) (lambda (_) nil)))
+      
+      ;; Should signal user-error
+      (should-error (ai-code-implement-todo nil) :type 'user-error))))
+
+(ert-deftest test-ai-code-implement-todo-blank-line ()
+  "Test ai-code-implement-todo on a blank line inserts TODO."
+  (with-temp-buffer
+    ;; Set up environment
+    (setq buffer-file-name "test.el")
+    (setq-local comment-start ";")
+    (setq-local comment-end "")
+    (insert "Line 1\n\nLine 3")
+    (goto-char (point-min))
+    (forward-line 1) ;; On the blank line
+    
+    ;; Mock interactive functions and external dependencies
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "my task"))
+              ((symbol-function 'ai-code--insert-prompt) (lambda (&rest _) t))
+              ((symbol-function 'ai-code-read-string) (lambda (&rest _) "some prompt"))
+              ((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+              ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+              ((symbol-function 'ai-code--format-repo-context-info) (lambda () ""))
+              ((symbol-function 'ai-code--get-function-name-for-comment) (lambda () nil))
+              ((symbol-function 'which-function) (lambda () nil))
+              ;; Ensure region-active-p returns nil as expected
+              ((symbol-function 'region-active-p) (lambda () nil)))
+      
+      (ai-code-implement-todo nil)
+      
+      ;; Check the line content
+      (beginning-of-line)
+      ;; It should look like "; TODO: my task" potentially with indentation
+      ;; Since we are in temp buffer with no major mode, indentation might be 0.
+      (should (looking-at-p "; TODO: my task")))))
+
 (provide 'test_ai-code-change)
 
 ;;; test_ai-code-change.el ends here
