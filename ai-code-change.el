@@ -266,10 +266,10 @@ Argument ARG is the prefix argument."
               (format "Please implement code after this requirement comment on line %d: '%s'. Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding the implementation code after it. Keep the existing code structure and add the implementation after this specific comment.%s%s"
                       current-line-number current-line function-context files-context-string))
              (function-name
-              (format "Please implement code after all TODO comments in function '%s'. The TODO are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
+              (format "Please implement code after all TODO comments in function '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
                       function-name files-context-string))
              (t
-              (format "Please implement code after all TODO comments in file '%s'. The TODO are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
+              (format "Please implement code after all TODO comments in file '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
                       (file-name-nondirectory buffer-file-name) files-context-string))))
            (prompt (ai-code-read-string prompt-label initial-input))
            (final-prompt
