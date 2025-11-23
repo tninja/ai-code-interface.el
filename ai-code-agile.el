@@ -392,7 +392,7 @@
                     (if (or (null user-input)
                             (string= "" user-input)
                             (string= "default" user-input))
-                        nil
+                        ""
                       user-input)))))
     (ai-code--refactoring--ensure-string value)))
 
