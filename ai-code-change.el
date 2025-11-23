@@ -98,9 +98,11 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
                     (if region-active (region-beginning) (line-beginning-position))
                     (if region-active (region-end) (line-end-position))))))))))
 
-(defun ai-code--handle-todo-implementation (todo-info)
-  "Handle TODO implementation with given TODO-INFO."
-  (let* ((todo-content (nth 0 todo-info))
+(defun ai-code--handle-todo-implementation (todo-info arg)
+  "Handle TODO implementation with given TODO-INFO.
+ARG is the prefix argument for clipboard context."
+  (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
+         (todo-content (nth 0 todo-info))
          (todo-region-beg (nth 1 todo-info))
          (todo-region-end (nth 2 todo-info))
          (region-location-info (ai-code--get-region-location-info todo-region-beg todo-region-end))
@@ -109,6 +111,10 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
          (function-context (if function-name
                                (format "\nFunction: %s" function-name)
                              ""))
+         (prompt-label (if (and clipboard-context
+                               (string-match-p "\\S-" clipboard-context))
+                          "Implement TODO in place (clipboard context): "
+                        "Implement TODO in place: "))
          (initial-prompt
           (format (concat "Please implement the requirement from the following TODO comment. "
                           "After implementation, mark the original TODO comment as 'DONE'. "
@@ -121,8 +127,13 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
                   todo-content
                   function-context
                   files-context-string))
-         (prompt (ai-code-read-string "Implement TODO in place: " initial-prompt)))
-    (ai-code--insert-prompt prompt)))
+         (prompt (ai-code-read-string prompt-label initial-prompt))
+         (final-prompt
+          (concat prompt
+                  (when (and clipboard-context
+                            (string-match-p "\\S-" clipboard-context))
+                    (concat "\n\nClipboard context:\n" clipboard-context)))))
+    (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--generate-prompt-label (clipboard-context region-active function-name)
   "Generate appropriate prompt label based on context."
@@ -196,7 +207,7 @@ Argument ARG is the prefix argument."
   (let* ((region-active (region-active-p))
          (todo-info (ai-code--detect-todo-info region-active)))
     (if todo-info
-        (ai-code--handle-todo-implementation todo-info)
+        (ai-code--handle-todo-implementation todo-info arg)
       (ai-code--handle-regular-code-change arg region-active))))
 
 ;;;###autoload
