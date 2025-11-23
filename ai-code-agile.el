@@ -334,9 +334,9 @@
 (defun ai-code--refactoring--ensure-string (value)
   "Return VALUE coerced to a string when appropriate."
   (cond
+   ((null value) "")
    ((stringp value) value)
    ((symbolp value) (symbol-name value))
-   ((null value) nil)
    (t (format "%s" value))))
 
 (defun ai-code--refactoring--method-candidate (context _values)
@@ -378,14 +378,22 @@
                                      (if default-fn
                                          (funcall default-fn context values)
                                        (plist-get spec :default)))))
-                         (prompt (let ((prompt-fn (plist-get spec :prompt-fn)))
-                                   (cond
-                                    (prompt-fn (funcall prompt-fn context values default))
-                                    ((plist-get spec :prompt) (plist-get spec :prompt))
-                                    (t nil)))))
-                    (if prompt
-                        (ai-code-read-string prompt default)
-                      default)))))
+                         (raw-prompt (let ((prompt-fn (plist-get spec :prompt-fn)))
+                                       (cond
+                                        (prompt-fn (funcall prompt-fn context values default))
+                                        ((plist-get spec :prompt) (plist-get spec :prompt))
+                                        (t nil))))
+                         (prompt (if raw-prompt
+                                     (concat raw-prompt "(leave empty or type 'default' for AI to decide) ")
+                                   nil))
+                         (user-input (if prompt
+                                         (ai-code-read-string prompt "default")
+                                       "default")))
+                    (if (or (null user-input)
+                            (string= "" user-input)
+                            (string= "default" user-input))
+                        nil
+                      user-input)))))
     (ai-code--refactoring--ensure-string value)))
 
 (defun ai-code--get-refactoring-context ()
@@ -418,17 +426,39 @@
 TECHNIQUE-DESCRIPTION is the base prompt text."
   (let* ((entry (ai-code--refactoring--find-technique selected-technique))
          (parameters (plist-get entry :parameters))
-         (resolved-description technique-description)
+         (final-description technique-description)
          (values nil))
-    (dolist (spec parameters resolved-description)
+    ;; First, resolve all parameter values and store them.
+    (dolist (spec parameters)
       (let* ((placeholder (plist-get spec :placeholder))
-             (value (and placeholder
-                         (ai-code--refactoring--resolve-parameter spec context values))))
-        (when (and placeholder value)
-          (push (cons placeholder value) values)
-          (setq resolved-description
-                (replace-regexp-in-string
-                 (regexp-quote placeholder) value resolved-description t t)))))))
+             (value (ai-code--refactoring--resolve-parameter spec context values)))
+        (push (cons placeholder value) values)))
+
+    ;; Second, iterate through the resolved values and perform substitutions.
+    ;; Process in reverse order of parameter definition to ensure consistent handling
+    ;; of text that might be part of an "optional clause" related to an empty placeholder.
+    (dolist (param-pair (nreverse values) final-description)
+      (let* ((placeholder (car param-pair))
+             (resolved-value (cdr param-pair)))
+        (if (string= "" resolved-value)
+            ;; If resolved value is empty, remove the placeholder and potentially
+            ;; any preceding descriptive text like " to ", " named ", " with ".
+            ;; The regex accounts for optional whitespace and common prepositions/conjunctions.
+            (setq final-description (replace-regexp-in-string
+                                     (concat "\\s-*\\(?:to\\|named\\|with\\|for\\|in\\)?\\s-*\\(" (regexp-quote placeholder) "\\)")
+                                     ""
+                                     final-description
+                                     t t))
+          ;; If resolved value is not empty, replace the placeholder with its value.
+          (setq final-description (replace-regexp-in-string
+                                   (regexp-quote placeholder)
+                                   resolved-value
+                                   final-description
+                                   t t)))))
+    ;; Finally, clean up any multiple spaces that might have been introduced
+    ;; and trim leading/trailing spaces.
+    (setq final-description (replace-regexp-in-string "  +" " " final-description t t))
+    (string-trim final-description)))
 
 (defun ai-code--handle-specific-refactoring (selected-technique all-techniques context tdd-mode)
   "Handle the case where a specific refactoring technique is chosen.
