@@ -436,8 +436,20 @@ TECHNIQUE-DESCRIPTION is the base prompt text."
           (push (cons placeholder value) values))))
 
     ;; Second, iterate through the resolved values and perform substitutions.
-    ;; Process in reverse order of parameter definition to ensure consistent handling
-    ;; of text that might be part of an "optional clause" related to an empty placeholder.
+    ;; Process in reverse order of parameter definition.
+    ;; Rationale: If a placeholder is a substring of another, or if the prompt contains
+    ;; optional clauses (e.g., "to <target> with <modifier>"), substituting in forward order
+    ;; can cause incorrect replacements or leave behind awkward text when a placeholder is empty.
+    ;; For example, given the prompt "Rename <entity> to <target> with <modifier>", if <target>
+    ;; is empty and we process <entity> first, we might replace <entity> and then be left with
+    ;; "Rename foo to  with <modifier>", making it harder to cleanly remove "to ".
+    ;; By processing in reverse order, we remove or replace the later placeholders first,
+    ;; ensuring that any optional text (like "to", "with") associated with an empty placeholder
+    ;; is also removed, resulting in a more natural prompt.
+    ;; Example:
+    ;;   Prompt: "Rename <entity> to <target> with <modifier>"
+    ;;   Parameters: <entity>="foo", <target>="", <modifier>="logging"
+    ;;   Result: "Rename foo with logging"
     (dolist (param-pair (nreverse values) final-description)
       (let* ((placeholder (car param-pair))
              (resolved-value (cdr param-pair)))
