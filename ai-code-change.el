@@ -242,11 +242,17 @@ Argument ARG is the prefix argument."
     (if (and (not (region-active-p))
                (string-blank-p (thing-at-point 'line t))
                comment-start)
-      (let ((todo-text (ai-code-read-string "Enter TODO comment: ")))
+      (let ((todo-text (ai-code-read-string "Enter TODO comment: "))
+            (comment-prefix (if (eq major-mode 'emacs-lisp-mode)
+                                (let* ((trimmed (string-trim-right comment-start)))
+                                  (if (= (length trimmed) 1)
+                                      (make-string 2 (string-to-char trimmed))
+                                    trimmed))
+                              (string-trim-right comment-start))))
         (unless (string-blank-p todo-text)
           (delete-region (line-beginning-position) (line-end-position))
           (indent-according-to-mode)
-          (insert (concat (string-trim-right comment-start)
+          (insert (concat comment-prefix
                           " TODO: "
                           todo-text
                           (if (and comment-end (not (string-blank-p comment-end)))
