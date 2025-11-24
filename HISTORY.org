@@ -3,6 +3,16 @@
 
 ** Main branch change
 
+- Feat: Improve Implement TODO feature
+  - ai-code-implement-todo (C-a i) on blank line will ask user and insert TODO comment.
+  - After ai-code-implement-todo (C-a i) finishing code generation, mark TODO as DONE, instead of delete it
+  - ai-code-implement-todo support use clipboard content as context when C-u prefix is pressed
+  - ai-code-code-change (C-a c) on TODO comment line will use comment as code change instruction
+- Feat: Add OpenCode backend support, requested and validated by gkzhb
+- Feat: Introduce ai-code-sed-command, by sandinmyjoints
+- Chore: Let AI to automatically determine the placeholder variable name during refactoring
+- Chore: Improve ai-code-take-notes to prompt from open org buffers
+- Fix duplicate .gitignore entries in ai-code-update-git-ignore
 - Feat: Add context collection list management functions
 - Feat: Add note taking functions, useful during discussing with AI
 - Fix function detection for TODO comments preceding method definitions 
