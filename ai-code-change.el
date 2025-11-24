@@ -56,41 +56,40 @@ returns that function's name. Otherwise returns the result of `which-function`."
   (let* ((current-func (which-function))
          (resolved-func
           (save-excursion
-            ;; Move to next non-comment, non-blank line
-            (forward-line 1)
-            (while (and (not (eobp))
-                        (or (looking-at-p "^[ \t]*$")
-                            (ai-code--is-comment-line
-                             (buffer-substring-no-properties
-                              (line-beginning-position)
-                              (line-end-position)))))
-              (forward-line 1))
-            ;; Get function name at this position, trying a short lookahead inside
-            ;; the function body when `which-function` cannot resolve the def line.
-            (unless (eobp)
-              (let ((lookahead 5)
-                    (next-func (which-function)))
-                (while (and (> lookahead 0)
-                            (or (null next-func)
-                                (string= next-func current-func)))
-                  (forward-line 1)
-                  (setq lookahead (1- lookahead))
-                  (unless (or (eobp)
-                              (looking-at-p "^[ \t]*$")
-                              (ai-code--is-comment-line
-                               (buffer-substring-no-properties
-                                (line-beginning-position)
-                                (line-end-position))))
-                    (setq next-func (which-function))))
-                (cond
-                 ;; No current function, use the next if found.
-                 ((not current-func) next-func)
-                 ;; No next function, keep the current context.
-                 ((not next-func) current-func)
-                 ;; Prefer the forward definition when it differs from current.
-                 ((not (string= next-func current-func)) next-func)
-                 ;; Otherwise fall back to current.
-                 (t current-func)))))))
+            (cl-labels ((line-text ()
+                          (buffer-substring-no-properties
+                           (line-beginning-position)
+                           (line-end-position))))
+              (forward-line 1)
+              (cl-block resolve
+                (let ((text (line-text)))
+                  ;; Stop immediately if the next line is blank or buffer ended.
+                  (when (or (eobp) (string-blank-p text))
+                    (cl-return-from resolve nil))
+                  ;; Skip leading comment lines, aborting on blank lines.
+                  (while (ai-code--is-comment-line text)
+                    (forward-line 1)
+                    (setq text (line-text))
+                    (when (or (eobp) (string-blank-p text))
+                      (cl-return-from resolve nil)))
+                  ;; Resolve with a short lookahead; stop on blank lines.
+                  (let ((next-func (which-function)))
+                    (cl-loop with lookahead = 5
+                             while (and (> lookahead 0)
+                                        (or (null next-func)
+                                            (string= next-func current-func)))
+                             do (forward-line 1)
+                                (setq lookahead (1- lookahead))
+                                (setq text (line-text))
+                                (when (string-blank-p text)
+                                  (cl-return-from resolve nil))
+                                (unless (ai-code--is-comment-line text)
+                                  (setq next-func (which-function)))
+                             finally return (cond
+                                             ((not current-func) next-func)
+                                             ((not next-func) current-func)
+                                             ((not (string= next-func current-func)) next-func)
+                                             (t current-func))))))))))
     ;; (when resolved-func
     ;;   (message "Identified function: %s" resolved-func))
     resolved-func))
@@ -120,7 +119,7 @@ ARG is the prefix argument for clipboard context."
          (todo-region-end (nth 2 todo-info))
          (region-location-info (ai-code--get-region-location-info todo-region-beg todo-region-end))
          (files-context-string (ai-code--get-context-files-string))
-         (function-name (which-function))
+         (function-name (ai-code--get-function-name-for-comment))
          (function-context (if function-name
                                (format "\nFunction: %s" function-name)
                              ""))
