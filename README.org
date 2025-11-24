@@ -10,6 +10,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
   - [[https://github.com/openai/codex][OpenAI Codex]]
   - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]]
   - [[https://opencode.ai/][Opencode]]
+  - [[https://github.com/xai-org/grok-cli][Grok CLI]]
 
 - I switch across different CLI based AI tool in emacs: Claude Code / Gemini CLI / Aider / OpenAI Codex. If you also use different AI tools inside emacs, but want to keep same user interface and experience, this package is for you.
 
@@ -69,6 +70,14 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
    - [[https://github.com/openai/codex][OpenAI codex CLI]] (`[[./ai-code-codex-cli.el][ai-code-codex-cli.el]]`)
    - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]] (`[[./ai-code-github-copilot-cli.el][ai-code-github-copilot-cli.el]]`)
    - [[https://opencode.ai/][Opencode]] (`[[./ai-code-opencode.el][ai-code-opencode.el]]`)
+   - [[https://github.com/xai-org/grok-cli][Grok CLI]] (`[[./ai-code-grok-cli.el][ai-code-grok-cli.el]]`)
+
+**** Grok CLI setup
+     Install [[https://github.com/xai-org/grok-cli][grok-cli]] and ensure the `grok` executable is on your PATH.
+     Customize `grok-cli-program` or `grok-cli-program-switches` if you want to
+     point at a different binary or pass additional flags (for example,
+     selecting a profile). After that, select the backend through
+     `ai-code-select-backend` or bind a helper in your config.
 
    You can add other backends by customizing the `ai-code-backends` variable.
 
@@ -88,9 +97,9 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
     - *Implementing a TODO*: Write a comment in your code, like `;; TODO: Implement caching for this function`. Place your cursor on that line and press `C-c a`, then `i` (`ai-code-implement-todo`). The AI will generate the implementation based on the comment.
     - *Asking a Question*: Place your cursor within a function, press `C-c a`, then `q` (`ai-code-ask-question`), type your question, and press Enter. The question, along with context, will be sent to the AI.
     - *Refactoring a Function*: With the cursor in a function, press `C-c a`, then `r` (`ai-code-refactor-book-method`). Select a refactoring technique from the list, provide any required input (e.g., a new method name), and the prompt will be generated.
-    - *Reviewing a Pull Request*: Press `C-c a`, then `v` (`ai-code-pull-or-review-diff-file`). Choose to generate a diff between two branches. The diff will be created in a new buffer, and you'll be prompted to start a review. 
+    - *Reviewing a Pull Request*: Press `C-c a`, then `v` (`ai-code-pull-or-review-diff-file`). Choose to generate a diff between two branches. The diff will be created in a new buffer, and you'll be prompted to start a review.
 
-** Add a new AI coding CLI backend 
+** Add a new AI coding CLI backend
 
 - [[https://github.com/tninja/ai-code-interface.el/pull/2][This PR]] add the github-copilot-cli (require claude-code.el). It can be an example to add basic support for other AI coding CLI.
 
@@ -106,7 +115,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
 {
   "$schema": "https://opencode.ai/config.json",
   "theme": "system"
-} 
+}
 #+end_src
 
 ** Related emacs packages

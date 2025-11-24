@@ -27,6 +27,7 @@
 (require 'ai-code-codex-cli)
 (require 'ai-code-github-copilot-cli)
 (require 'ai-code-opencode)
+(require 'ai-code-grok-cli)
 (require 'ai-code-file)
 (require 'ai-code-ai)
 

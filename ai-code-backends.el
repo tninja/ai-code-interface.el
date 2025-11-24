@@ -98,7 +98,17 @@ When called from Lisp code, sends CMD directly without prompting."
      :resume  opencode-resume
      :config  "~/.opencode/config.json"
      :upgrade nil
-     :cli     "opencode"))
+     :cli     "opencode")
+    (grok
+     :label "Grok CLI"
+     :require ai-code-grok-cli
+     :start   grok-cli
+     :switch  grok-cli-switch-to-buffer
+     :send    grok-cli-send-command
+     :resume  grok-cli-resume
+     :config  "~/.config/grok/config.json"
+     :upgrade nil
+     :cli     "grok"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).
 The :upgrade property can be either a string shell command or nil."
