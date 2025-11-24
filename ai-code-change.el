@@ -27,13 +27,18 @@
 (defun ai-code--is-comment-line (line)
   "Check if LINE is a comment line based on current buffer's comment syntax.
 Returns non-nil if LINE starts with one or more comment characters,
-ignoring leading whitespace."
+ignoring leading whitespace. Returns nil when the comment content
+begins with a DONE: prefix."
   (when comment-start
-    (let ((comment-str (string-trim-right comment-start)))
-      (string-match-p (concat "^[ 	]*"
-                              (regexp-quote comment-str)
-                              "+")
-                      (string-trim-left line)))))
+    (let* ((comment-str (string-trim-right comment-start))
+           (trimmed-line (string-trim-left line))
+           (comment-re (concat "^[ 	]*"
+                               (regexp-quote comment-str)
+                               "+[ 	]*")))
+      (when (string-match comment-re trimmed-line)
+        (let ((content (string-trim-left (substring trimmed-line (match-end 0)))))
+          (unless (string-prefix-p "DONE:" content)
+            t))))))
 
 (defun ai-code--is-comment-block (text)
   "Check if TEXT is a block of comments (ignoring blank lines)."
@@ -309,7 +314,9 @@ Argument ARG is the prefix argument."
                ;; (t
                ;;  (format "Please implement code after all TODO comments in file '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
                ;;          (file-name-nondirectory buffer-file-name) files-context-string))
-               ))
+               ;; DONE: otherwise, let user know the current line is not a comment and cannot proceed
+               (t
+                (user-error "Current line is not a comment and cannot proceed with `ai-code-implement-todo`. Please select a comment, a region of comments, or activate on a blank line."))))
              (prompt (ai-code-read-string prompt-label initial-input))
              (final-prompt
               (concat prompt
