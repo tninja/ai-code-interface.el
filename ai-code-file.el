@@ -237,7 +237,7 @@ Return the final command string."
          (command 
           (if (string-prefix-p ":" initial-command)
               ;; If command starts with :, treat as prompt for AI
-              (let* ((base-prompt (concat "Generate a shell command (pure command, no fense) for: " (substring initial-command 1)))
+              (let* ((base-prompt (concat "Generate a shell command (pure command, no fense, no duplicate) for: " (substring initial-command 1)))
                      (prompt (if (eq major-mode 'dired-mode)
                                  (let* ((files (ignore-errors (dired-get-marked-files)))
                                         (file-names (when files (delete-dups (mapcar #'file-name-nondirectory files)))))
