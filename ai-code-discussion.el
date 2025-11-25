@@ -406,8 +406,8 @@ selected region as content of that section."
          (org-buffer-files (mapcar #'buffer-file-name org-buffers))
          ;; Create candidates list with default file first, then existing org buffers
          (candidates (delete-dups
-                      (cons default-note-file
-                            org-buffer-files)))
+                      (mapcar #'file-truename
+                              (cons default-note-file org-buffer-files))))
          ;; Select note file from candidates
          (note-file (completing-read "Note file: " candidates nil nil default-note-file))
          (default-title (when ai-code-notes-use-gptel-headline

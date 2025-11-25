@@ -54,7 +54,7 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
                         (car history)))
          ;; Remove the first item to add it back later
          (rest-history (when (and history (not (null history)))
-                         (cdr history)))
+                         (cl-remove-duplicates (cdr history) :test #'equal)))
          ;; Combine completion list: most recent + candidates + separator + rest of history
          (completion-list
           (append
