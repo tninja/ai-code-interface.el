@@ -81,62 +81,77 @@ class HumanPlayer(Player):
                 print("Please enter a valid number.")
 
 class ComputerPlayer(Player):
+
+    # DONE: do your best to make this AI more intelligent and powerful.
         
     def get_move(self, board: Board) -> int:
         valid_cols = [col for col in range(board.cols) if board.is_valid_move(col)]
-        opponent = 1 if self.number == 2 else 2
-        
-        # 评估每个可能的移动
-        moves = []  # 存储(列号,分数)对
-        
-        for col in valid_cols:
-            board_copy = self._copy_board(board)
-            row = self._simulate_move(board_copy, col, self.number)
-            if row == -1:
-                continue
-                
-            score = self._evaluate_move(board_copy, row, col, self.number)
-            
-            # 如果这步棋能赢，直接返回
-            if board_copy.check_win(row, col, self.number):
-                return col
-                
-            # 检查对手在这个位置是否能赢
-            board_copy2 = self._copy_board(board)
-            row2 = self._simulate_move(board_copy2, col, opponent)
-            if row2 != -1 and board_copy2.check_win(row2, col, opponent):
-                score += 100  # 高优先级阻止对手获胜
-                
-            # 检查这步棋是否会给对手创造获胜机会
-            if row > 0:  # 如果上面还有空间
-                board_copy.board[row-1][col] = opponent
-                if board_copy.check_win(row-1, col, opponent):
-                    score -= 80  # 避免给对手创造获胜机会
-                board_copy.board[row-1][col] = 0
-                
-            # 优先选择中间列
-            if col == board.cols // 2:
-                score += 3
-            elif col in [board.cols//2-1, board.cols//2+1]:
-                score += 2
-                
-            # 添加一些随机性
-            score += random.uniform(-1, 1)
-            
-            moves.append((col, score))
-            
-        # 选择最高分的移动
-        if not moves:
-            return valid_cols[0]
-            
-        # 找出得分最高的移动
-        max_score = max(score for _, score in moves)
-        best_moves = [col for col, score in moves if score >= max_score - 2]  # 允许差距2分以内的移动
-        
-        return random.choice(best_moves)
+        if not valid_cols:
+            return 0
+
+        # Deepen the search when the board is open, shorten it when close to full to keep speed reasonable.
+        remaining_slots = sum(1 for row in board.board for cell in row if cell == 0)
+        depth = 4 if remaining_slots > 20 else 5
+
+        score, best_col = self._minimax(self._copy_board(board), depth, float("-inf"), float("inf"), True)
+        if best_col is None:
+            return random.choice(valid_cols)
+        return best_col
+    
+    def _minimax(self, board: Board, depth: int, alpha: float, beta: float, maximizing: bool) -> Tuple[float, Optional[int]]:
+        valid_cols = [col for col in range(board.cols) if board.is_valid_move(col)]
+        winner = self._detect_winner(board)
+
+        if depth == 0 or winner != 0 or not valid_cols:
+            return self._score_board(board, winner, depth), None
+
+        if maximizing:
+            value = float("-inf")
+            best_col = None
+            for col in self._order_moves(valid_cols, board.cols):
+                board_copy = self._copy_board(board)
+                row = self._simulate_move(board_copy, col, self.number)
+                winner_after = self._detect_winner(board_copy) if row != -1 else 0
+                new_score, _ = self._minimax(board_copy, depth - 1, alpha, beta, False)
+                # Incentivize immediate win and center control
+                if winner_after == self.number:
+                    new_score += 1000
+                if col == board.cols // 2:
+                    new_score += 5
+
+                if new_score > value:
+                    value = new_score
+                    best_col = col
+                alpha = max(alpha, value)
+                if alpha >= beta:
+                    break
+            return value, best_col
+        else:
+            value = float("inf")
+            best_col = None
+            opponent = 1 if self.number == 2 else 2
+            for col in self._order_moves(valid_cols, board.cols):
+                board_copy = self._copy_board(board)
+                row = self._simulate_move(board_copy, col, opponent)
+                winner_after = self._detect_winner(board_copy) if row != -1 else 0
+                new_score, _ = self._minimax(board_copy, depth - 1, alpha, beta, True)
+                if winner_after == opponent:
+                    new_score -= 1000
+
+                if new_score < value:
+                    value = new_score
+                    best_col = col
+                beta = min(beta, value)
+                if alpha >= beta:
+                    break
+            return value, best_col
+    
+    def _order_moves(self, valid_cols: List[int], total_cols: int) -> List[int]:
+        center = total_cols // 2
+        return sorted(valid_cols, key=lambda c: abs(center - c))
         
     def _copy_board(self, board: Board) -> Board:
-        """创建棋盘的深拷贝"""
+        """Create a deep copy of the board"""
         new_board = Board(board.rows, board.cols)
         for i in range(board.rows):
             for j in range(board.cols):
@@ -144,7 +159,7 @@ class ComputerPlayer(Player):
         return new_board
         
     def _simulate_move(self, board: Board, col: int, player: int) -> int:
-        """模拟在指定列放置棋子，返回行号"""
+        """Drop a token on a copied board and return the row used"""
         for row in range(board.rows-1, -1, -1):
             if board.board[row][col] == 0:
                 board.board[row][col] = player
@@ -152,19 +167,16 @@ class ComputerPlayer(Player):
         return -1
         
     def _evaluate_move(self, board: Board, row: int, col: int, player: int) -> float:
-        """评估一个位置的分数"""
+        """Evaluate a single move in isolation"""
         score = 0
         opponent = 1 if player == 2 else 2
         directions = [(0,1), (1,0), (1,1), (1,-1)]
         
-        # 评估所有方向
         for dr, dc in directions:
-            # 计算我方连续子数
             my_count = 1
             space_after = 0
             space_before = 0
             
-            # 正向检查
             r, c = row + dr, col + dc
             while 0 <= r < board.rows and 0 <= c < board.cols:
                 if board.board[r][c] == player:
@@ -176,7 +188,6 @@ class ComputerPlayer(Player):
                     break
                 r, c = r + dr, c + dc
             
-            # 反向检查
             r, c = row - dr, col - dc
             while 0 <= r < board.rows and 0 <= c < board.cols:
                 if board.board[r][c] == player:
@@ -188,7 +199,6 @@ class ComputerPlayer(Player):
                     break
                 r, c = r - dr, c - dc
             
-            # 根据连续子数和空间评分
             if my_count >= 4:
                 score += 1000
             elif my_count == 3 and (space_before > 0 or space_after > 0):
@@ -196,7 +206,6 @@ class ComputerPlayer(Player):
             elif my_count == 2 and space_before > 0 and space_after > 0:
                 score += 10
                 
-            # 检查对手在这个方向的威胁
             opp_count = 1
             r, c = row + dr, col + dc
             while 0 <= r < board.rows and 0 <= c < board.cols and board.board[r][c] == opponent:
@@ -209,8 +218,81 @@ class ComputerPlayer(Player):
                 r, c = r - dr, c - dc
                 
             if opp_count >= 3:
-                score += 60  # 高优先级阻止对手
+                score += 60
         
+        return score
+
+    def _detect_winner(self, board: Board) -> int:
+        """Return winning player number or 0 if no winner"""
+        for r in range(board.rows):
+            for c in range(board.cols):
+                player = board.board[r][c]
+                if player != 0 and board.check_win(r, c, player):
+                    return player
+        return 0
+
+    def _score_window(self, window: List[int], player: int) -> int:
+        opponent = 1 if player == 2 else 2
+        player_count = window.count(player)
+        opp_count = window.count(opponent)
+        empty = window.count(0)
+
+        if player_count == 4:
+            return 100
+        if player_count == 3 and empty == 1:
+            return 10
+        if player_count == 2 and empty == 2:
+            return 5
+        if opp_count == 3 and empty == 1:
+            return -12
+        if opp_count == 4:
+            return -120
+        return 0
+
+    def _score_board(self, board: Board, winner: int, depth: int) -> float:
+        if winner == self.number:
+            return 100000 + depth
+        if winner != 0:
+            return -100000 - depth
+
+        score = 0
+        player = self.number
+        rows, cols = board.rows, board.cols
+
+        # Center control
+        center_col = cols // 2
+        center_column = [board.board[r][center_col] for r in range(rows)]
+        score += center_column.count(player) * 6
+
+        # Horizontal
+        for r in range(rows):
+            row_array = board.board[r]
+            for c in range(cols - 3):
+                window = row_array[c:c+4]
+                score += self._score_window(window, player)
+
+        # Vertical
+        for c in range(cols):
+            col_array = [board.board[r][c] for r in range(rows)]
+            for r in range(rows - 3):
+                window = col_array[r:r+4]
+                score += self._score_window(window, player)
+
+        # Positive diagonal
+        for r in range(rows - 3):
+            for c in range(cols - 3):
+                window = [board.board[r+i][c+i] for i in range(4)]
+                score += self._score_window(window, player)
+
+        # Negative diagonal
+        for r in range(3, rows):
+            for c in range(cols - 3):
+                window = [board.board[r-i][c+i] for i in range(4)]
+                score += self._score_window(window, player)
+
+        # Slight penalty for near-full board to encourage faster wins
+        empty_cells = sum(1 for row in board.board for cell in row if cell == 0)
+        score -= (42 - empty_cells) * 0.1
         return score
 
 class Game:
