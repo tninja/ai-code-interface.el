@@ -239,7 +239,7 @@ class ComputerPlayer(Player):
                         for y in range(board_size[1])
                         if (x,y,True) not in hit_history and (x,y,False) not in hit_history]
         
-        # 优先选择间隔为2的点位(因为最小的船是2格)
+        # Prioritize points with interval of 2 (because the smallest ship is 2 squares)
         priority_hits = [(x,y) for x,y in possible_hits if (x+y)%2 == 0]
         
         if priority_hits:
