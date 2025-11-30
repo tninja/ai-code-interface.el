@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from io import StringIO
-from game import Board, Player, HumanPlayer, ComputerPlayer, Game
+from game import Board, HumanPlayer, ComputerPlayer, Game
 
 class TestBoard(unittest.TestCase):
     def setUp(self):
