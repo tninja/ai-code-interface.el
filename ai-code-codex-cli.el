@@ -12,6 +12,7 @@
 
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
+(declare-function claude-code--do-send-command "claude-code" (cmd))
 (defvar claude-code-terminal-backend)
 
 
