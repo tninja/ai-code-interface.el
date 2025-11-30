@@ -314,7 +314,7 @@ class HardComputerPlayer(ComputerPlayer):
         if candidates:
             x, y = random.choice(candidates)
         else:
-            # 如果没有候选,退回到父类的随机策略
+            # If no candidates, fall back to parent class's random strategy
             x, y = self._random_shot(board_size, hit_history)
 
         hit_result = self.hit(player, x, y)
