@@ -429,6 +429,28 @@ Includes stored context entries for the current Git repository if available."
                                (reverse entries)
                                "\n"))))))))
 
+;;;###autoload
+(defun ai-code-toggle-current-buffer-dedicated (arg)
+  "Toggle the dedicated state of the current buffer's window.
+When a window is dedicated, Emacs will not automatically reuse it for displaying other buffers.
+With prefix ARG (C-u), toggle dedication for every window in the current frame."
+  ;; DONE: if C-u pressed, toggle dedicate to all buffers inside current window
+  (interactive "P")
+  (let* ((targets (if arg
+                      (window-list nil 'no-minibuf)
+                    (list (selected-window))))
+         (results '()))
+    (dolist (window targets)
+      (let ((buffer (window-buffer window)))
+        (when (buffer-file-name buffer)
+          (let ((new-status (not (window-dedicated-p window))))
+            (set-window-dedicated-p window new-status)
+            (push (format "%s: %s" (buffer-name buffer) (if new-status "dedicated" "free")) results)))))
+    ;; DONE: show each affected buffer name and dedicate status
+    (if results
+        (message "Window dedication updated: %s" (mapconcat #'identity (nreverse results) ", "))
+      (message "No file buffers found in target windows"))))
+
 (provide 'ai-code-file)
 
 ;;; ai-code-file.el ends here 

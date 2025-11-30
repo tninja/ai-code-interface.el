@@ -110,43 +110,6 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
                     (if region-active (region-beginning) (line-beginning-position))
                     (if region-active (region-end) (line-end-position))))))))))
 
-(defun ai-code--handle-todo-implementation (todo-info arg)
-  "Handle TODO implementation with given TODO-INFO.
-ARG is the prefix argument for clipboard context."
-  (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
-         (todo-content (nth 0 todo-info))
-         (todo-region-beg (nth 1 todo-info))
-         (todo-region-end (nth 2 todo-info))
-         (region-location-info (ai-code--get-region-location-info todo-region-beg todo-region-end))
-         (files-context-string (ai-code--get-context-files-string))
-         (function-name (ai-code--get-function-name-for-comment))
-         (function-context (if function-name
-                               (format "\nFunction: %s" function-name)
-                             ""))
-         (prompt-label (if (and clipboard-context
-                               (string-match-p "\\S-" clipboard-context))
-                          "Implement TODO in place (clipboard context): "
-                        "Implement TODO in place: "))
-         (initial-prompt
-          (format (concat "Please implement the requirement from the following TODO comment. "
-                          "After implementation, mark the original TODO comment as 'DONE'. "
-                          "For example, a comment `;; TODO: new feature` could become `;; DONE: new feature`.\n"
-                          "The TODO comment to implement is inside file %s.\n\n"
-                          "Context about the location:\n%s\n\n"
-                          "The TODO comment content:\n```\n%s\n```\n%s%s")
-                  (file-name-nondirectory buffer-file-name)
-                  region-location-info
-                  todo-content
-                  function-context
-                  files-context-string))
-         (prompt (ai-code-read-string prompt-label initial-prompt))
-         (final-prompt
-          (concat prompt
-                  (when (and clipboard-context
-                            (string-match-p "\\S-" clipboard-context))
-                    (concat "\n\nClipboard context:\n" clipboard-context)))))
-    (ai-code--insert-prompt final-prompt)))
-
 (defun ai-code--generate-prompt-label (clipboard-context region-active function-name)
   "Generate appropriate prompt label based on context."
   (cond
@@ -219,7 +182,7 @@ Argument ARG is the prefix argument."
   (let* ((region-active (region-active-p))
          (todo-info (ai-code--detect-todo-info region-active)))
     (if todo-info
-        (ai-code--handle-todo-implementation todo-info arg)
+        (ai-code-implement-todo arg)
       (ai-code--handle-regular-code-change arg region-active))))
 
 ;;;###autoload
@@ -356,13 +319,13 @@ ARG is the prefix argument for clipboard context."
            (region-text
             (unless (ai-code--is-comment-block region-text)
               (user-error "Selected region must be a comment block"))
-            (format (concat
-                     "Please implement code after this requirement comment block in the selected region. "
-                     "Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix) before adding the implementation code after it. "
-                     "Keep the existing code structure and add the implementation after this specific block.\n%s\n%s%s%s")
+           (format (concat
+                     "Please implement code for this requirement comment block in the selected region. "
+                     "Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix). "
+                     "If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.\n%s\n%s%s%s")
                     region-location-line region-text function-context files-context-string))
            (is-comment
-            (format "Please implement code after this requirement comment on line %d: '%s'. Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding the implementation code after it. Keep the existing code structure and add the implementation after this specific comment.%s%s"
+            (format "Please implement code for this requirement comment on line %d: '%s'. Keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.%s%s"
                     current-line-number current-line function-context files-context-string))
            ;; (function-name
            ;;  (format "Please implement code after all TODO comments in function '%s'. The TODOs are TODO comments. Keep each comment in place and ensure each begins with a DONE prefix (change TODO to DONE or prepend DONE if needed) before adding implementation code after it. Keep the existing code structure and only add code after these marked items.%s"
