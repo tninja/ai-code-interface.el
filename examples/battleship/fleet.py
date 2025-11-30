@@ -17,7 +17,7 @@ class Fleet:
     def hit(self, x, y):
         if (x, y) in self.coordinates and (x, y) not in self.hits:
             self.hits.append((x, y))
-            print(f"The {self.name} has been hitted, total life is {self.size}, rest life is {self.size - len(self.hits)}.")
+            print(f"The {self.name} has been hit, total life is {self.size}, rest life is {self.size - len(self.hits)}.")
             if self.is_sunk():
                 print(f"The {self.name} is destroyed.")
             return True
