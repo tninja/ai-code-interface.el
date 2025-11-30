@@ -1,7 +1,7 @@
 
 import unittest
 
-from game import Player, Game, ComputerPlayer, HardComputerPlayer
+from game import Player, Game
 
 
 class TestPlayer(unittest.TestCase):
