@@ -1,7 +1,7 @@
 
 import unittest
 
-from fleet import FleetGroup, Fleet
+from fleet import Fleet
 
 
 class TestFleetGroup(unittest.TestCase):
