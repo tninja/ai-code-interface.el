@@ -150,7 +150,6 @@ class HumanPlayer(Player):
                     break
                 except:
                     print("Invalid location, please try again")
-                    pass
         hit_result = self.hit(player, x, y)
         self.log_hit(x, y, hit_result)
         self.print_board()
