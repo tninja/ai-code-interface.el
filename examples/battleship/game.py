@@ -234,7 +234,7 @@ class ComputerPlayer(Player):
 
     def _random_shot(self, board_size, hit_history):
         import random
-        # 创建所有可能的坐标
+        # Create all possible coordinates
         possible_hits = [(x, y) for x in range(board_size[0]) 
                         for y in range(board_size[1])
                         if (x,y,True) not in hit_history and (x,y,False) not in hit_history]
