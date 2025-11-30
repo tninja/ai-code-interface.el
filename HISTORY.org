@@ -3,6 +3,8 @@
 
 ** Main branch change
 
+- Feat: Add toggle buffer window dedication command
+- Chore: Make ai-code-implement-todo flexible to modify code in the context. When it is a pure new code block, place it after the comment.
 - Feat: Improve Implement TODO feature
   - ai-code-implement-todo (C-a i) on blank line will ask user and insert TODO comment.
   - After ai-code-implement-todo (C-a i) finishing code generation, mark TODO as DONE, instead of delete it
