@@ -7,7 +7,7 @@ from game import Player, Game, ComputerPlayer, HardComputerPlayer
 class TestPlayer(unittest.TestCase):
 
     def test_player_random_init(self):
-        player = Player("Play Kang")
+        player = Player("Play Kang", ['carrier', 'battleship', 'cruiser', 'submarine', 'destroyer'])
         player.random_init()
         player.show_myself()
         print()
