@@ -267,7 +267,7 @@ class HardComputerPlayer(ComputerPlayer):
         # record shot coordinates; elements in hit_history are tuples (x, y, bool)
         shot_cells = {(x, y): True for x, y, _ in hit_history}
 
-        # 对于每个剩余舰船的长度，尝试水平和垂直的放置，并累加概率分值
+        # For each remaining ship length, try horizontal and vertical placement, and accumulate probability score
         for size in remaining_ships:
             for x in range(board_size[0]):
                 for y in range(board_size[1]):
