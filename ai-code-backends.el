@@ -168,9 +168,13 @@ Sets `ai-code-cli-*' defaliases and updates `ai-code-cli'."
       (when (and feature (not (featurep feature)))
         (user-error "Backend '%s' is not available. Please install the package providing '%s' and try again."
                     label (symbol-name feature)))
-      (unless (and (fboundp start) (fboundp switch) (fboundp send))
-        (user-error "Backend '%s' is not available (missing functions). Please install the package providing '%s'."
-                    label (symbol-name feature)))
+      (let ((missing-fns (seq-filter (lambda (fn) (not (fboundp fn)))
+                                      (list start switch send))))
+        (when missing-fns
+          (user-error "Backend '%s' is not available (missing functions: %s). Please install the package providing '%s'."
+                      label
+                      (mapconcat #'symbol-name missing-fns ", ")
+                      (symbol-name feature))))
       (defalias 'ai-code-cli-start start)
       (defalias 'ai-code-cli-switch-to-buffer switch)
       (defalias 'ai-code-cli-send-command send)
