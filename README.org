@@ -48,7 +48,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
 - `org`: Org-mode support
 - `magit`: Git integration
 - `transient`: For the menu system
-- Claude Code (`[[https://github.com/stevemolitor/claude-code.el][claude-code.el]]`)
+- Claude Code (`[[https://github.com/stevemolitor/claude-code.el][claude-code.el]]`), (use straight to install, NOT MELPA version)
   - eat / vterm need to be installed to support various AI coding CLI backends.
 
 *** Optional Dependencies
