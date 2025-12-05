@@ -387,75 +387,70 @@ or the default note file path (.ai.code.notes.org in the git root).
 Add the section title as a headline at the end of the note file, and put the
 selected region as content of that section."
   (interactive)
-  (if (not (region-active-p))
-      (let* ((git-root (condition-case nil
-                           (magit-toplevel)
-                         (error nil)))
-             (default-note-file (if git-root
-                                    (expand-file-name ai-code-notes-file-name git-root)
-                                  (expand-file-name ai-code-notes-file-name default-directory))))
-        (find-file-other-window default-note-file))
-    (let* ((region-text (filter-buffer-substring (region-beginning) (region-end) nil))
-           (git-root (condition-case nil
-                         (magit-toplevel)
-                       (error nil)))
-           (default-note-file (file-truename (if git-root
-                                                 (expand-file-name ai-code-notes-file-name git-root)
-                                               (expand-file-name ai-code-notes-file-name default-directory))))
-           ;; Get all org-mode buffers with associated files
-           (org-buffers (seq-filter
-                         (lambda (buf)
-                           (with-current-buffer buf
-                             (and (eq major-mode 'org-mode)
-                                  (buffer-file-name))))
-                         (buffer-list)))
-           (org-buffer-files (mapcar #'buffer-file-name org-buffers))
-           ;; Create candidates list with default file first, then existing org buffers
-           (candidates (delete-dups
-                        (mapcar #'file-truename
-                                (cons default-note-file org-buffer-files))))
-           ;; Select note file from candidates
-           (note-file (completing-read "Note file: " candidates))
-           (default-title (when ai-code-notes-use-gptel-headline
-                            (condition-case err
-                                (string-trim
-                                 (ai-code-call-gptel-sync
-                                  (format "Generate a concise headline (max 10 words) for this note content. Only return the headline text without quotes or extra formatting:\n\n%s"
-                                          (if (> (length region-text) 500)
-                                              (substring region-text 0 500)
-                                            region-text))))
-                              (error
-                               (message "GPTel headline generation failed: %s" (error-message-string err))
-                               ""))))
-           (section-title (ai-code-read-string "Section title: " (or default-title ""))))
-      (when (string-empty-p section-title)
-        (user-error "Section title cannot be empty"))
-      ;; Create note file directory if it doesn't exist
-      (let ((note-dir (file-name-directory note-file)))
-        (unless (file-exists-p note-dir)
-          (make-directory note-dir t)))
-      ;; Append section to note file
-      (with-current-buffer (find-file-noselect note-file)
-        (save-excursion
-          (goto-char (point-max))
-          ;; Add newline before new section if file is not empty
-          (unless (bobp)
-            (insert "\n\n"))
-          ;; Insert headline
-          (insert "* " section-title "\n")
-          ;; Insert timestamp
-          (org-insert-time-stamp (current-time) t nil)
-          (insert "\n\n")
-          ;; Insert region content
-          (insert region-text)
-          (insert "\n"))
-        (save-buffer))
-      ;; Open note file in other window and scroll to bottom
-      (let ((note-buffer (find-file-other-window note-file)))
-        (with-selected-window (get-buffer-window note-buffer)
-          (goto-char (point-max))
-          (recenter -1)))
-      (message "Notes added to %s under section: %s" note-file section-title))))
+  (let* ((git-root (condition-case nil
+                       (magit-toplevel)
+                     (error nil)))
+         (default-note-file (if git-root
+                                (expand-file-name ai-code-notes-file-name git-root)
+                              (expand-file-name ai-code-notes-file-name default-directory))))
+    (if (not (region-active-p))
+        (find-file-other-window default-note-file)
+      (let* ((region-text (filter-buffer-substring (region-beginning) (region-end) nil))
+             (default-note-file-truename (file-truename default-note-file))
+             ;; Get all org-mode buffers with associated files
+             (org-buffers (seq-filter
+                           (lambda (buf)
+                             (with-current-buffer buf
+                               (and (eq major-mode 'org-mode)
+                                    (buffer-file-name))))
+                           (buffer-list)))
+             (org-buffer-files (mapcar #'buffer-file-name org-buffers))
+             ;; Create candidates list with default file first, then existing org buffers
+             (candidates (delete-dups
+                          (mapcar #'file-truename
+                                  (cons default-note-file-truename org-buffer-files))))
+             ;; Select note file from candidates
+             (note-file (completing-read "Note file: " candidates))
+             (default-title (when ai-code-notes-use-gptel-headline
+                              (condition-case err
+                                  (string-trim
+                                   (ai-code-call-gptel-sync
+                                    (format "Generate a concise headline (max 10 words) for this note content. Only return the headline text without quotes or extra formatting:\n\n%s"
+                                            (if (> (length region-text) 500)
+                                                (substring region-text 0 500)
+                                              region-text))))
+                                (error
+                                 (message "GPTel headline generation failed: %s" (error-message-string err))
+                                 ""))))
+             (section-title (ai-code-read-string "Section title: " (or default-title ""))))
+        (when (string-empty-p section-title)
+          (user-error "Section title cannot be empty"))
+        ;; Create note file directory if it doesn't exist
+        (let ((note-dir (file-name-directory note-file)))
+          (unless (file-exists-p note-dir)
+            (make-directory note-dir t)))
+        ;; Append section to note file
+        (with-current-buffer (find-file-noselect note-file)
+          (save-excursion
+            (goto-char (point-max))
+            ;; Add newline before new section if file is not empty
+            (unless (bobp)
+              (insert "\n\n"))
+            ;; Insert headline
+            (insert "* " section-title "\n")
+            ;; Insert timestamp
+            (org-insert-time-stamp (current-time) t nil)
+            (insert "\n\n")
+            ;; Insert region content
+            (insert region-text)
+            (insert "\n"))
+          (save-buffer))
+        ;; Open note file in other window and scroll to bottom
+        (let ((note-buffer (find-file-other-window note-file)))
+          (with-selected-window (get-buffer-window note-buffer)
+            (goto-char (point-max))
+            (recenter -1)))
+        (message "Notes added to %s under section: %s" note-file section-title)))))
 
 (provide 'ai-code-discussion)
 
