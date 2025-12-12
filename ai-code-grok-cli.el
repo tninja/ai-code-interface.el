@@ -10,9 +10,9 @@
 (defvar claude-code-program)
 (defvar claude-code-program-switches)
 (defvar claude-code-terminal-backend)
-(declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
-(declare-function claude-code--term-send-string "claude-code" (backend string))
-(declare-function claude-code--do-send-command "claude-code" (cmd))
+(declare-function claude-code--start "claude" (arg extra-switches &optional force-prompt force-switch-to-buffer))
+(declare-function claude-code--term-send-string "claude" (backend string))
+(declare-function claude-code--do-send-command "claude" (cmd))
 (defconst ai-code-grok-cli--missing-claude-code-msg
   "claude-code.el is required for Grok CLI integration. Install it from https://github.com/stevemolitor/claude-code.el.")
 
