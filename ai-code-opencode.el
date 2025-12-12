@@ -13,11 +13,14 @@
 
 ;; Package-Requires: ((emacs "26.1") (claude-code "0.1"))
 
-(require 'claude-code)
-
+(defvar claude-code-program)
+(defvar claude-code-program-switches)
+(defvar claude-code-terminal-backend)
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
-(defvar claude-code-terminal-backend)
+(declare-function claude-code-send-command "claude-code" (cmd))
+(defconst ai-code-opencode--missing-claude-code-msg
+  "claude-code.el is required for Opencode integration. Install it from https://github.com/stevemolitor/claude-code.el.")
 
 
 (defgroup ai-code-opencode nil
@@ -35,10 +38,15 @@
   :type '(repeat string)
   :group 'ai-code-opencode)
 
+(defun ai-code-opencode--ensure-claude-code ()
+  (unless (require 'claude-code nil t)
+    (user-error "%s" ai-code-opencode--missing-claude-code-msg)))
+
 ;;;###autoload
 (defun opencode (&optional arg)
   "Start Opencode (reuses `claude-code' startup logic)."
   (interactive "P")
+  (ai-code-opencode--ensure-claude-code)
   (let ((claude-code-program opencode-program) ; override dynamically
         (claude-code-program-switches opencode-program-switches))
     (claude-code arg)))
@@ -46,11 +54,13 @@
 ;;;###autoload
 (defun opencode-switch-to-buffer ()
   (interactive)
+  (ai-code-opencode--ensure-claude-code)
   (claude-code-switch-to-buffer))
 
 ;;;###autoload
 (defun opencode-send-command (line)
   (interactive "sOpencode> ")
+  (ai-code-opencode--ensure-claude-code)
   (claude-code-send-command line))
 
 ;;;###autoload
@@ -68,6 +78,7 @@ or the current value of `default-directory' if no project and no buffer file.
 With double prefix ARG (\\[universal-argument] \\[universal-argument]),
 prompt for the project directory."
   (interactive "P")
+  (ai-code-opencode--ensure-claude-code)
   (let ((claude-code-program opencode-program)
         (claude-code-program-switches opencode-program-switches))
     (claude-code--start arg '("resume") nil t)

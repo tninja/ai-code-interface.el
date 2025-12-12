@@ -9,9 +9,8 @@
 
 ;; Package-Requires: ((emacs "26.1") (claude-code "0.1") (ai-code-backends "0.1"))
 
-(require 'claude-code)
-(require 'ai-code-backends)
-
+(defconst ai-code-github-copilot-cli--missing-claude-code-msg
+  "claude-code.el is required for GitHub Copilot CLI integration. Install it from https://github.com/stevemolitor/claude-code.el.")
 (defvar claude-code-program)
 (defvar claude-code-program-switches)
 (defvar claude-code-terminal-backend)
@@ -38,10 +37,15 @@
   :type '(repeat string)
   :group 'ai-code-github-copilot-cli)
 
+(defun ai-code-github-copilot-cli--ensure-claude-code ()
+  (unless (require 'claude-code nil t)
+    (user-error "%s" ai-code-github-copilot-cli--missing-claude-code-msg)))
+
 ;;;###autoload
 (defun github-copilot-cli (&optional arg)
   "Start GitHub Copilot CLI (reuses `claude-code' startup logic)."
   (interactive "P")
+  (ai-code-github-copilot-cli--ensure-claude-code)
   (let ((claude-code-program github-copilot-cli-program) ; override dynamically
         (claude-code-program-switches github-copilot-cli-program-switches))
     (claude-code arg)))
@@ -49,6 +53,7 @@
 ;;;###autoload
 (defun github-copilot-cli-switch-to-buffer ()
   (interactive)
+  (ai-code-github-copilot-cli--ensure-claude-code)
   (claude-code-switch-to-buffer))
 
 ;;;###autoload
@@ -57,6 +62,7 @@
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
   (interactive "sCopilot> ")
+  (ai-code-github-copilot-cli--ensure-claude-code)
   (claude-code--do-send-command line))
 
 ;;;###autoload
@@ -74,6 +80,7 @@ or the current value of `default-directory' if no project and no buffer file.
 With double prefix ARG (\\[universal-argument] \\[universal-argument]),
 prompt for the project directory."
   (interactive "P")
+  (ai-code-github-copilot-cli--ensure-claude-code)
   (let ((claude-code-program github-copilot-cli-program)
         (claude-code-program-switches github-copilot-cli-program-switches)
         (extra-switches '("--resume")))
