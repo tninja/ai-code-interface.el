@@ -70,7 +70,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :upgrade "npm install -g @google/gemini-cli"
      :cli     "gemini")
     (github-copilot-cli
-     :label "Github Copilot CLI"
+     :label "GitHub Copilot CLI"
      :require ai-code-github-copilot-cli
      :start   github-copilot-cli
      :switch  github-copilot-cli-switch-to-buffer
