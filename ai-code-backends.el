@@ -1,6 +1,7 @@
 ;;; ai-code-backends.el --- Backend selection support for ai-code -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
+;; Package-Requires: ((emacs "26.1") (seq "2.24"))
 
 ;; SPDX-License-Identifier: Apache-2.0
 

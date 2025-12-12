@@ -3,6 +3,7 @@
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; Keywords: convenience, tools
 ;; URL: https://github.com/tninja/ai-code-interface.el
+;; Package-Requires: ((emacs "26.1") (cl-lib "0.6"))
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:

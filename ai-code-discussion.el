@@ -1,6 +1,7 @@
 ;;; ai-code-discussion.el --- AI code discussion operations -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
+;; Package-Requires: ((emacs "26.1") (magit "2.1.0") (ai-code-input "0.1") (ai-code-prompt-mode "0.1") (ai-code-file "0.1"))
 
 ;; SPDX-License-Identifier: Apache-2.0
 

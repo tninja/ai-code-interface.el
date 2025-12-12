@@ -5,6 +5,8 @@
 
 ;;; Code:
 
+;; Package-Requires: ((emacs "26.1") (claude-code "0.1") (ai-code-backends "0.1"))
+
 (require 'claude-code)
 (require 'ai-code-backends)
 

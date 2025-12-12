@@ -2,6 +2,7 @@
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; SPDX-License-Identifier: Apache-2.0
+;; Package-Requires: ((emacs "26.1") (ai-code-input "0.1") (ai-code-prompt-mode "0.1"))
 
 ;;; Commentary:
 ;; This file provides agile practice operations such as refactoring and TDD cycle
