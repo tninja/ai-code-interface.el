@@ -1,6 +1,7 @@
 ;;; test_ai-code-git.el --- Tests for ai-code-git.el -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
+;; Package-Requires: ((emacs "26.1") (ert "0") (ai-code-git "0.1") (ai-code-prompt-mode "0.1") (ai-code-discussion "0.1"))
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:

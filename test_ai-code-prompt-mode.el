@@ -1,4 +1,6 @@
 
+;; Package-Requires: ((emacs "26.1") (ert "0") (cl-lib "0.6") (magit "2.1.0") (ai-code-prompt-mode "0.1"))
+
 (require 'ert)
 (require 'ai-code-prompt-mode)
 (require 'magit)

@@ -1,6 +1,7 @@
 ;;; test_ai-code-change.el --- Tests for ai-code-change.el -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
+;; Package-Requires: ((emacs "26.1") (ert "0") (ai-code-change "0.1"))
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:

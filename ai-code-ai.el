@@ -1,6 +1,7 @@
 ;;; ai-code-ai.el --- AI-specific helper utilities for AI Code Interface -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
+;; Package-Requires: ((emacs "26.1") (ai-code-input "0.1"))
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:

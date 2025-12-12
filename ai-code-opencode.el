@@ -11,6 +11,8 @@
 ;;
 ;;; Code:
 
+;; Package-Requires: ((emacs "26.1") (claude-code "0.1"))
+
 (require 'claude-code)
 
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))

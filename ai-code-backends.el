@@ -1,6 +1,7 @@
 ;;; ai-code-backends.el --- Backend selection support for ai-code -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
+;; Package-Requires: ((emacs "26.1") (seq "2.24"))
 
 ;; SPDX-License-Identifier: Apache-2.0
 
@@ -70,7 +71,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :upgrade "npm install -g @google/gemini-cli"
      :cli     "gemini")
     (github-copilot-cli
-     :label "Github Copilot CLI"
+     :label "GitHub Copilot CLI"
      :require ai-code-github-copilot-cli
      :start   github-copilot-cli
      :switch  github-copilot-cli-switch-to-buffer

@@ -1,6 +1,7 @@
 ;;; ai-code-prompt-mode.el --- AI code prompt mode for editing AI prompt files -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
+;; Package-Requires: ((emacs "26.1") (org "9.1") (magit "2.1.0"))
 
 ;; SPDX-License-Identifier: Apache-2.0
 

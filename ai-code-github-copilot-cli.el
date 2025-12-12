@@ -1,11 +1,13 @@
-;;; ai-code-github-copilot-cli.el --- Thin wrapper for Github Copilot CLI  -*- lexical-binding: t; -*-
+;;; ai-code-github-copilot-cli.el --- Thin wrapper for GitHub Copilot CLI  -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;;
-;; Thin wrapper that reuses `claude-code' to run Github Copilot CLI.
+;; Thin wrapper that reuses `claude-code' to run GitHub Copilot CLI.
 ;; Provides interactive commands and aliases for the AI Code suite.
 ;;
 ;;; Code:
+
+;; Package-Requires: ((emacs "26.1") (claude-code "0.1") (ai-code-backends "0.1"))
 
 (require 'claude-code)
 (require 'ai-code-backends)
@@ -22,12 +24,12 @@
 
 
 (defgroup ai-code-github-copilot-cli nil
-  "Github Copilot CLI integration via `claude-code'."
+  "GitHub Copilot CLI integration via `claude-code'."
   :group 'tools
   :prefix "github-copilot-cli-")
 
 (defcustom github-copilot-cli-program "copilot"
-  "Path to the Github Copilot CLI executable."
+  "Path to the GitHub Copilot CLI executable."
   :type 'string
   :group 'ai-code-github-copilot-cli)
 
@@ -38,7 +40,7 @@
 
 ;;;###autoload
 (defun github-copilot-cli (&optional arg)
-  "Start Github Copilot CLI (reuses `claude-code' startup logic)."
+  "Start GitHub Copilot CLI (reuses `claude-code' startup logic)."
   (interactive "P")
   (let ((claude-code-program github-copilot-cli-program) ; override dynamically
         (claude-code-program-switches github-copilot-cli-program-switches))
@@ -51,7 +53,7 @@
 
 ;;;###autoload
 (defun github-copilot-cli-send-command (line)
-  "Send LINE to Github Copilot CLI programmatically or interactively.
+  "Send LINE to GitHub Copilot CLI programmatically or interactively.
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
   (interactive "sCopilot> ")
