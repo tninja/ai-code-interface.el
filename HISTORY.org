@@ -3,6 +3,9 @@
 
 ** Main branch change
 
+** 0.71
+- Feat: Add Dired support for code change operation prompts
+
 ** 0.70
 - Feat: Add Grok CLI backend support, by @richard134
 
