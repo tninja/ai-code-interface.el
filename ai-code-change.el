@@ -164,6 +164,26 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
                     "\nNote: Please make the code change described above."))))
     (ai-code--insert-prompt final-prompt)))
 
+(defun ai-code--handle-dired-code-change (arg)
+  "Handle code change operation in dired mode."
+  (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
+         (files (dired-get-marked-files))
+         (files-str (mapconcat #'identity files "\n"))
+         (prompt-label (if (and clipboard-context (string-match-p "\\S-" clipboard-context))
+                           "Change code in files (clipboard context): "
+                         "Change code in files: "))
+         (initial-prompt (ai-code-read-string prompt-label ""))
+         (repo-context-string (ai-code--format-repo-context-info))
+         (final-prompt
+          (concat initial-prompt
+                  "\nSelected files/directories:\n" files-str
+                  repo-context-string
+                  (when (and clipboard-context
+                             (string-match-p "\\S-" clipboard-context))
+                    (concat "\n\nClipboard context:\n" clipboard-context))
+                  "\nNote: Please make the code change described above for the selected files/directories.")))
+    (ai-code--insert-prompt final-prompt)))
+
 ;;;###autoload
 (defun ai-code-code-change (arg)
   "Generate prompt to change code under cursor or in selected region.
@@ -176,14 +196,22 @@ If nothing is selected and no function context, prompts for general code change.
 Inserts the prompt into the AI prompt file and optionally sends to AI.
 Argument ARG is the prefix argument."
   (interactive "P")
-  (unless buffer-file-name
-    (user-error "Error: buffer-file-name must be available"))
-    ;; DONE: this function is getting long, consider refactoring into smaller helpers
-  (let* ((region-active (region-active-p))
-         (todo-info (ai-code--detect-todo-info region-active)))
-    (if todo-info
-        (ai-code-implement-todo arg)
-      (ai-code--handle-regular-code-change arg region-active))))
+  ;; DONE: when current file is dired buffer: 1. when there is marked
+  ;; file / dir, use them as context; 2. otherwise, use file / dir
+  ;; under cursor as context. After that, build up full prompt using
+  ;; above context and other context such as repository context, and
+  ;; send the full prompt to LLM. Otherwise, using current code path.
+  (cond
+   ((derived-mode-p 'dired-mode)
+    (ai-code--handle-dired-code-change arg))
+   (t
+    (unless buffer-file-name
+      (user-error "Error: buffer-file-name must be available"))
+    (let* ((region-active (region-active-p))
+           (todo-info (ai-code--detect-todo-info region-active)))
+      (if todo-info
+          (ai-code-implement-todo arg)
+        (ai-code--handle-regular-code-change arg region-active))))))
 
 ;;;###autoload
 (defun ai-code-implement-todo (arg)
