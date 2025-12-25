@@ -169,9 +169,13 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
          (files (dired-get-marked-files))
          (files-str (mapconcat #'identity files "\n"))
+         (single-file (when (= (length files) 1) (car files)))
+         (prompt-prefix (if single-file
+                            (format "Change code in %s" (file-name-nondirectory single-file))
+                          "Change code in files"))
          (prompt-label (if (and clipboard-context (string-match-p "\\S-" clipboard-context))
-                           "Change code in files (clipboard context): "
-                         "Change code in files: "))
+                           (format "%s (clipboard context): " prompt-prefix)
+                         (format "%s: " prompt-prefix)))
          (initial-prompt (ai-code-read-string prompt-label ""))
          (repo-context-string (ai-code--format-repo-context-info))
          (final-prompt
