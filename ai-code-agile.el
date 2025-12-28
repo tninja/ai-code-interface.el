@@ -594,7 +594,6 @@ TDD refactor stage."
               (format "%s%s%s" feature-desc function-info file-info))))
       (ai-code--insert-prompt tdd-instructions))))
 
-
 (defun ai-code--tdd-green-stage (function-name)
   "Handle the Green stage of TDD for FUNCTION-NAME: Make the test pass.
 If current file is a test file (contains 'test' in name), provide prompt to fix code."
