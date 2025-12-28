@@ -253,7 +253,7 @@ Return the final command string."
                         (read-string "Shell command (AI generated): " (string-trim ai-generated))))
                   (error
                    (message "Failed to generate command with AI: %s" err)
-                   initial-command)))
+                   "")))
             ;; Regular command, use as-is
             initial-command)))
     command))
