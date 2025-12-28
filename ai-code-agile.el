@@ -624,7 +624,7 @@ Checks for specific test runners (python-pytest, jest) and runs them if availabl
    ((derived-mode-p 'python-mode)
     (if (fboundp 'python-pytest-popup)
         (python-pytest-popup)
-      (message "emacs-python-pytest package is required for run python test.")))
+      (message "emacs-python-pytest package is required to run python test.")))
    ((or (derived-mode-p 'js-mode)
         (derived-mode-p 'js-ts-mode)
         (derived-mode-p 'typescript-mode)
@@ -632,7 +632,7 @@ Checks for specific test runners (python-pytest, jest) and runs them if availabl
         (derived-mode-p 'rjsx-mode))
     (if (fboundp 'jest-popup)
         (jest-popup)
-      (message "jest package is required for run js/ts test.")))
+      (message "jest package is required to run js/ts test.")))
    (t
     (message "Test runner not supported for current mode: %s" major-mode))))
 
@@ -642,8 +642,6 @@ Checks for specific test runners (python-pytest, jest) and runs them if availabl
 Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
-  ;; DONE: add stage 0: Run unit-tests, it will trigger
-  ;; ai-code-run-test function
   (let* ((function-name (which-function))
          (cycle-stage (completing-read
                        "Select TDD stage: "
