@@ -212,8 +212,9 @@ current buffer is unsupported or user input is missing."
              (server-port (+ 9001 hash-offset))
              (client-port (+ 8081 hash-offset))
              (buffer-name (format "*%s:client=%d:server=%s*" base-dir-name client-port server-port))
-             (command (ai-code-mcp-inspector--build-command is-dired base-dir base-dir-name
-                                                            client-port server-port relative-path)))
+             (command (ai-code-mcp-inspector--build-command
+                       is-dired base-dir base-dir-name
+                       client-port server-port relative-path)))
         (when command
           (list :base-dir base-dir
                 :base-dir-name base-dir-name
@@ -238,7 +239,8 @@ CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a fi
                   client-port server-port user-command)))
     (when relative-path
       (format
-       "CLIENT_PORT=%d SERVER_PORT=%d npx @modelcontextprotocol/inspector -e VERIFY_SSL=true -e FASTMCP_LOG_LEVEL=INFO uv run --directory %s %s "
+       (concat "CLIENT_PORT=%d SERVER_PORT=%d npx @modelcontextprotocol/inspector "
+               "-e VERIFY_SSL=true -e FASTMCP_LOG_LEVEL=INFO uv run --directory %s %s ")
        client-port server-port base-dir base-dir-name))))
 
 (defun ai-code-mcp-inspector--start (context)

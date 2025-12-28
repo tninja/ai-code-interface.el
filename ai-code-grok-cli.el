@@ -1,5 +1,9 @@
 ;;; ai-code-grok-cli.el --- Thin wrapper for Grok CLI -*- lexical-binding: t; -*-
 
+;; Author: richard134
+
+;; SPDX-License-Identifier: Apache-2.0
+
 ;;; Commentary:
 ;; Provide Grok CLI integration by reusing `claude-code'.
 

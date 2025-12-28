@@ -1,5 +1,8 @@
 ;;; ai-code-opencode.el --- Thin wrapper for Opencode  -*- lexical-binding: t; -*-
 
+;; Author: Kang Tu <tninja@gmail.com>
+;; SPDX-License-Identifier: Apache-2.0
+
 ;;; Commentary:
 ;;
 ;; Thin wrapper that reuses `claude-code' to run Opencode.

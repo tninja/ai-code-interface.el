@@ -358,7 +358,7 @@
         (throw 'found entry)))))
 
 (defun ai-code--refactoring--get-placeholder (values placeholder)
-  "Retrieve previously captured placeholder value from VALUES."
+  "Retrieve previously captured PLACEHOLDER value from VALUES."
   (cdr (assoc placeholder values)))
 
 (defun ai-code--refactoring--rename-new-name-prompt (_context values _default)
@@ -622,8 +622,7 @@ If current file is a test file (contains 'test' in name), provide prompt to fix 
          (tdd-instructions
           (format "%s%s\nFollow TDD principles - implement the code needed to make the test pass."
                   implementation-desc file-info)))
-    (ai-code--insert-prompt tdd-instructions)
-    ))
+    (ai-code--insert-prompt tdd-instructions)))
 
 ;;;###autoload
 (defun ai-code-run-test ()

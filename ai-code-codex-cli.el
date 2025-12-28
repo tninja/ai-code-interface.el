@@ -1,5 +1,8 @@
 ;;; ai-code-codex-cli.el --- Thin wrapper for Codex CLI  -*- lexical-binding: t; -*-
 
+;; Author: Kang Tu <tninja@gmail.com>
+;; SPDX-License-Identifier: Apache-2.0
+
 ;;; Commentary:
 ;;
 ;; Thin wrapper that reuses `claude-code' to run Codex CLI.

@@ -1,3 +1,12 @@
+;;; test_ai-code-prompt-mode.el --- Tests for ai-code-prompt-mode -*- lexical-binding: t; -*-
+
+;; Author: Kang Tu <tninja@gmail.com>
+;; SPDX-License-Identifier: Apache-2.0
+
+;;; Commentary:
+;; Tests for ai-code-prompt-mode.
+
+;;; Code:
 
 (require 'ert)
 (require 'ai-code-prompt-mode)
@@ -69,3 +78,6 @@ and ensures everything is cleaned up afterward."
     (let ((prompt "check file /some/file.txt"))
       (should (string= (ai-code--preprocess-prompt-text prompt)
                        prompt)))))
+
+(provide 'test-ai-code-prompt-mode)
+;;; test_ai-code-prompt-mode.el ends here

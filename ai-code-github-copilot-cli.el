@@ -1,5 +1,8 @@
 ;;; ai-code-github-copilot-cli.el --- Thin wrapper for GitHub Copilot CLI  -*- lexical-binding: t; -*-
 
+;; Author: Kang Tu <tninja@gmail.com>
+;; SPDX-License-Identifier: Apache-2.0
+
 ;;; Commentary:
 ;;
 ;; Thin wrapper that reuses `claude-code' to run GitHub Copilot CLI.

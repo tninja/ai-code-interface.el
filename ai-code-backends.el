@@ -18,12 +18,16 @@
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 
 (defun ai-code--unsupported-resume (&optional _arg)
+  "Signal that the current backend does not support resume.
+Argument _ARG is ignored."
   (interactive "P")
-  (user-error "Backend '%s' does not support resume" (ai-code-current-backend-label)))
+  (user-error "Backend '%s' does not support resume"
+              (ai-code-current-backend-label)))
 
 ;;;###autoload
 (defun ai-code-cli-resume (&optional arg)
-  "Resume the current backend's CLI session when supported."
+  "Resume the current backend's CLI session when supported.
+Argument ARG is passed to the backend's resume function."
   (interactive "P")
   (ai-code--unsupported-resume arg))
 
@@ -110,7 +114,8 @@ When called from Lisp code, sends CMD directly without prompting."
      :upgrade nil
      :cli     "grok"))
   "Available AI backends and how to integrate with them.
-Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).
+Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
+:send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).
 The :upgrade property can be either a string shell command or nil."
   :type '(repeat (list (symbol :tag "Key")
                        (const :label) (string :tag "Label")
@@ -118,8 +123,10 @@ The :upgrade property can be either a string shell command or nil."
                        (const :start) (symbol :tag "Start function")
                        (const :switch) (symbol :tag "Switch function")
                        (const :send) (symbol :tag "Send function")
-                       (const :resume) (choice (symbol :tag "Resume function") (const :tag "Not supported" nil))
-                       (const :upgrade) (choice (string :tag "Upgrade command") (const :tag "Not supported" nil))
+                       (const :resume) (choice (symbol :tag "Resume function")
+                                               (const :tag "Not supported" nil))
+                       (const :upgrade) (choice (string :tag "Upgrade command")
+                                                (const :tag "Not supported" nil))
                        (const :cli) (string :tag "CLI name")))
   :group 'ai-code)
 
@@ -141,7 +148,8 @@ The :upgrade property can be either a string shell command or nil."
 Falls back to symbol name when label is unavailable."
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend))
          (label (when spec (plist-get (cdr spec) :label))))
-    (or label (and ai-code-selected-backend (symbol-name ai-code-selected-backend)) "<none>")))
+    (or label (and ai-code-selected-backend
+                   (symbol-name ai-code-selected-backend)) "<none>")))
 
 (defun ai-code--ensure-backend-loaded (spec)
   "Ensure FEATURE for backend SPEC is loaded, if any."
@@ -164,23 +172,27 @@ Sets `ai-code-cli-*' defaliases and updates `ai-code-cli'."
            (send   (plist-get plist :send))
            (resume (plist-get plist :resume))
            (cli    (plist-get plist :cli)))
-      ;; If the declared feature is not available after require, inform user to install it.
+      ;; If the declared feature is not available after require,
+      ;; inform user to install it.
       (when (and feature (not (featurep feature)))
-        (user-error "Backend '%s' is not available. Please install the package providing '%s' and try again."
-                    label (symbol-name feature)))
+        (user-error
+         "Backend '%s' is not available. Please install the package providing '%s' and try again"
+         label (symbol-name feature)))
       (let ((missing-fns (seq-filter (lambda (fn) (not (fboundp fn)))
-                                      (list start switch send))))
+                                     (list start switch send))))
         (when missing-fns
-          (user-error "Backend '%s' is not available (missing functions: %s). Please install the package providing '%s'."
-                      label
-                      (mapconcat #'symbol-name missing-fns ", ")
-                      (symbol-name feature))))
+          (user-error
+           "Backend '%s' is not available (missing functions: %s). Please install the package providing '%s'"
+           label
+           (mapconcat #'symbol-name missing-fns ", ")
+           (symbol-name feature))))
       (defalias 'ai-code-cli-start start)
       (defalias 'ai-code-cli-switch-to-buffer switch)
       (defalias 'ai-code-cli-send-command send)
       (when (and resume (not (fboundp resume)))
-        (user-error "Backend '%s' declares resume function '%s' but it is not callable."
-                    label (symbol-name resume)))
+        (user-error
+         "Backend '%s' declares resume function '%s' but it is not callable"
+         label (symbol-name resume)))
       (if resume
           (fset 'ai-code-cli-resume
                 (lambda (&optional arg)
@@ -211,7 +223,8 @@ otherwise call `ai-code-cli-start'."
                                    (label (plist-get (cdr it) :label)))
                               (cons (format "%s" label) key)))
                           ai-code-backends))
-         (choice (completing-read "Select backend: " (mapcar #'car choices) nil t))
+         (choice (completing-read "Select backend: "
+                                  (mapcar #'car choices) nil t))
          (key (cdr (assoc choice choices))))
     (ai-code-set-backend key)))
 
@@ -220,33 +233,34 @@ otherwise call `ai-code-cli-start'."
   "Open the current backend's configuration file in another window."
   (interactive)
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
-    (unless spec
-      (user-error "No backend is currently selected."))
-    (let* ((plist  (cdr spec))
-           (label  (or (plist-get plist :label)
-                       (symbol-name ai-code-selected-backend)))
-           (config (plist-get plist :config)))
-      (unless config
-        (user-error "Backend '%s' does not declare a config file." label))
-      (let ((file (expand-file-name config)))
-        (find-file-other-window file)
-        (message "Opened %s config: %s" label file)))))
+    (if (not spec)
+        (user-error "No backend is currently selected")
+      (let* ((plist  (cdr spec))
+             (label  (or (plist-get plist :label)
+                         (symbol-name ai-code-selected-backend)))
+             (config (plist-get plist :config)))
+        (if (not config)
+            (user-error "Backend '%s' does not declare a config file" label)
+          (let ((file (expand-file-name config)))
+            (find-file-other-window file)
+            (message "Opened %s config: %s" label file)))))))
 
 ;;;###autoload
 (defun ai-code-upgrade-backend ()
   "Run the upgrade command for the currently selected backend."
   (interactive)
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
-    (unless spec
-      (user-error "No backend is currently selected."))
-    (let* ((plist   (cdr spec))
-           (upgrade (plist-get plist :upgrade))
-           (label   (ai-code-current-backend-label)))
-      (if upgrade
-          (progn
-            (compile upgrade)
-            (message "Running upgrade command for %s" label))
-        (user-error "Upgrade command for backend '%s' is not defined." label)))))
+    (if (not spec)
+        (user-error "No backend is currently selected")
+      (let* ((plist   (cdr spec))
+             (upgrade (plist-get plist :upgrade))
+             (label   (ai-code-current-backend-label)))
+        (if upgrade
+            (progn
+              (compile upgrade)
+              (message "Running upgrade command for %s" label))
+          (user-error "Upgrade command for backend '%s' is not defined"
+                      label))))))
 
 (provide 'ai-code-backends)
 
