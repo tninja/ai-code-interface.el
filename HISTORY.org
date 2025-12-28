@@ -5,6 +5,7 @@
 
 ** 0.72
 - Feat: Add unit-test running support for TDD cycle
+- Chore: Improve TDD flow, red and green stage
 
 ** 0.71
 - Feat: Add Dired support for code change operation prompts
