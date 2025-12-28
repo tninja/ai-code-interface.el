@@ -574,6 +574,8 @@ If no such buffer is found, report a user-error."
     (dolist (win (window-list))
       (when (string-match-p "test" (buffer-name (window-buffer win)))
         (setq has-test-buffer t)))
+    ;; test buffer is must need. non-test buffer is not a must need.
+    ;; since test buffer is sufficient for bootstrapping
     (unless has-test-buffer
       (user-error "No test file found in current windows. Please open a test file first"))))
 
