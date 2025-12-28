@@ -565,6 +565,18 @@ TDD refactor stage."
         (ai-code--handle-ask-llm-suggestion context tdd-mode)
       (ai-code--handle-specific-refactoring selected-technique all-techniques context tdd-mode))))
 
+(defun ai-code--ensure-test-buffer-visible ()
+  "Ensure that at least one buffer in the current windows is a test file.
+A test file is identified by having 'test' in its name (case insensitive).
+If no such buffer is found, report a user-error."
+  (let ((has-test-buffer nil)
+        (case-fold-search t))
+    (dolist (win (window-list))
+      (when (string-match-p "test" (buffer-name (window-buffer win)))
+        (setq has-test-buffer t)))
+    (unless has-test-buffer
+      (user-error "No test file found in current windows. Please open a test file first"))))
+
 (defun ai-code--tdd-red-stage (function-name)
   "Handle the Red stage of TDD for FUNCTION-NAME: Write a failing test."
   (if (and (region-active-p) (not (derived-mode-p 'prog-mode)))
@@ -577,26 +589,23 @@ TDD refactor stage."
              (tdd-instructions (format "Fix the code to resolve the following error:\n%s%s" prompt file-info)))
         (ai-code--insert-prompt tdd-instructions))
     ;; Original path: write a failing test
-    (let* ((current-buffer-name (buffer-name))
-           (is-test-buffer (string-match-p "test" current-buffer-name))
-           (initial-input
-            (if function-name
-                (format "Write test for function '%s' in corresponding test code file: " function-name)
-              "Write a failing test for this feature: "))
-           (feature-desc (ai-code-read-string "Describe the feature to test: " nil (list initial-input)))
-           (function-info (format "\nCurrent function: %s" (or function-name "unknown function")))
+    ;; DONE: at least one buffer in current window should be a test
+    ;; file (contains 'test' in name, case insensitive), otherwise
+    ;; report error and exit this function
+    (ai-code--ensure-test-buffer-visible)
+    (let* ((feature-desc (ai-code-read-string
+                          (if function-name
+                              (format "Describe the feature to test for '%s': " function-name)
+                            "Describe the feature to test: ") "Implement test functions using test cases described in the comments."))
            (file-info (ai-code--get-context-files-string))
            (tdd-instructions
-            (if is-test-buffer
-                ;; Keep TDD instructions for test buffers
-                (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code." feature-desc file-info)
-              ;; For non-test buffers, just use feature-desc
-              (format "%s%s%s" feature-desc function-info file-info))))
+            (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code." feature-desc file-info)))
       (ai-code--insert-prompt tdd-instructions))))
 
 (defun ai-code--tdd-green-stage (function-name)
   "Handle the Green stage of TDD for FUNCTION-NAME: Make the test pass.
 If current file is a test file (contains 'test' in name), provide prompt to fix code."
+  (ai-code--ensure-test-buffer-visible)
   (let* ((is-test-buffer (and (buffer-file-name) (string-match-p "test" (buffer-file-name))))
          (initial-input
           (if is-test-buffer
@@ -606,12 +615,11 @@ If current file is a test file (contains 'test' in name), provide prompt to fix 
             (if function-name
                 (format "Implement function '%s' to make tests pass: " function-name)
               "Implement the minimal code needed to make the failing test pass: ")))
-         (implementation-desc (ai-code-read-string "Implementation instruction: " nil (list initial-input)))
-         (function-info (format "\nCurrent function: %s" (or function-name "unknown function")))
+         (implementation-desc (ai-code-read-string "Implementation instruction: " initial-input))
          (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s%s\nFollow TDD principles - implement the code needed to make the test pass."
-                  implementation-desc function-info file-info)))
+          (format "%s%s\nFollow TDD principles - implement the code needed to make the test pass."
+                  implementation-desc file-info)))
     (ai-code--insert-prompt tdd-instructions)
     ))
 
