@@ -616,6 +616,7 @@ If current file is a test file (contains 'test' in name), provide prompt to fix 
     (ai-code--insert-prompt tdd-instructions)
     ))
 
+;;;###autoload
 (defun ai-code-run-test ()
   "Run tests based on the current buffer's mode.
 Checks for specific test runners (python-pytest, jest) and runs them if available."
