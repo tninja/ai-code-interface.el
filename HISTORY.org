@@ -3,6 +3,9 @@
 
 ** Main branch change
 
+** 0.72
+- Feat: Add unit-test running support for TDD cycle
+
 ** 0.71
 - Feat: Add Dired support for code change operation prompts
 

@@ -58,6 +58,8 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
 - `flycheck`: To enable the `ai-code-flycheck-fix-errors-in-scope` command.
 - `projectile`: For project root initialization.
 - `helm-gtags`: For tags creation.
+- `python-pytest`: For running python tests in the TDD workflow.
+- `jest`: For running JavaScript / TypeScript tests in the TDD workflow.
 
 ** Usage
 
