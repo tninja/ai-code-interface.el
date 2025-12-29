@@ -567,7 +567,7 @@ TDD refactor stage."
 
 (defun ai-code--ensure-test-buffer-visible ()
   "Ensure that at least one buffer in the current windows is a test file.
-A test file is identified by having 'test' in its name (case insensitive).
+A test file is identified by having \\='test\\=' in its name (case insensitive).
 If no such buffer is found, report a user-error."
   (let ((has-test-buffer nil)
         (case-fold-search t))
@@ -606,7 +606,8 @@ If no such buffer is found, report a user-error."
 
 (defun ai-code--tdd-green-stage (function-name)
   "Handle the Green stage of TDD for FUNCTION-NAME: Make the test pass.
-If current file is a test file (contains 'test' in name), provide prompt to fix code."
+If current file is a test file (contains \\='test\\=' in name), provide prompt
+to fix code."
   (ai-code--ensure-test-buffer-visible)
   (let* ((is-test-buffer (and (buffer-file-name) (string-match-p "test" (buffer-file-name))))
          (initial-input

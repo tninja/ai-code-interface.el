@@ -35,14 +35,17 @@
 
 ;;;###autoload
 (defun ai-code-codex-cli (&optional arg)
-  "Start Codex (reuses `claude-code' startup logic)."
+  "Start Codex (reuses `claude-code' startup logic).
+ARG is passed to `claude-code'."
   (interactive "P")
-  (let ((claude-code-program ai-code-codex-cli-program) ; override dynamically
+  (let ((claude-code-program ai-code-codex-cli-program)
         (claude-code-program-switches ai-code-codex-cli-program-switches))
+    (ignore claude-code-program claude-code-program-switches)
     (claude-code arg)))
 
 ;;;###autoload
 (defun ai-code-codex-cli-switch-to-buffer ()
+  "Switch to the Codex CLI buffer."
   (interactive)
   (claude-code-switch-to-buffer))
 
@@ -60,6 +63,7 @@ When called from Lisp code, sends LINE directly without prompting."
   (interactive "P")
   (let ((claude-code-program ai-code-codex-cli-program)
         (claude-code-program-switches ai-code-codex-cli-program-switches))
+    (ignore claude-code-program claude-code-program-switches)
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend

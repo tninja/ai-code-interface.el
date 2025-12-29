@@ -96,6 +96,7 @@ returns that function's name. Otherwise returns the result of `which-function`."
 
 (defun ai-code--detect-todo-info (region-active)
   "Detect TODO comment information at cursor or in selected region.
+REGION-ACTIVE indicates whether a region is selected.
 Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
   (let ((text (if region-active
                   (buffer-substring-no-properties (region-beginning) (region-end))
@@ -111,7 +112,10 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
                     (if region-active (region-end) (line-end-position))))))))))
 
 (defun ai-code--generate-prompt-label (clipboard-context region-active function-name)
-  "Generate appropriate prompt label based on context."
+  "Generate appropriate prompt label based on context.
+CLIPBOARD-CONTEXT is text from clipboard if any.
+REGION-ACTIVE indicates if a region is selected.
+FUNCTION-NAME is the name of the function at point if any."
   (cond
    ((and clipboard-context
          (string-match-p "\\S-" clipboard-context))
@@ -132,7 +136,9 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
    (t "Change code: ")))
 
 (defun ai-code--handle-regular-code-change (arg region-active)
-  "Handle regular code change operation."
+  "Handle regular code change operation.
+ARG is the prefix argument.
+REGION-ACTIVE indicates whether a region is selected."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
          (function-name (which-function))
          (region-text (when region-active
@@ -165,7 +171,8 @@ Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
     (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--handle-dired-code-change (arg)
-  "Handle code change operation in dired mode."
+  "Handle code change operation in Dired mode.
+ARG is the prefix argument."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
          (files (dired-get-marked-files))
          (files-str (mapconcat #'identity files "\n"))

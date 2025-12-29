@@ -17,7 +17,7 @@
 (defcustom ai-code-init-project-gtags-label "pygments"
   "Default label passed to Helm-Gtags when initializing a project.
 Candidate values:
-- 'default'
+- \\='default\\='
 - 'native'
 - 'ctags'
 - 'new-ctags'
@@ -271,7 +271,9 @@ If OPEN-IN-BROWSER is non-nil, only open the commit in GitHub web interface with
 ;;; New helper for commit ranges
 (defun ai-code--handle-commit-range-diff-generation (git-root &optional open-in-browser)
   "Handle generation of diff between two commits (commit range).
-If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface without generating file."
+GIT-ROOT is the repository root directory.
+If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface
+without generating file."
   (let* ((raw-start (ai-code-read-string "Start commit or branch: "))
          (raw-end   (ai-code-read-string "End commit or branch: "))
          ;; try to resolve remote branches or commits
@@ -353,8 +355,8 @@ For non-staged diffs, user is prompted whether to open in browser."
 ;;;###autoload
 (defun ai-code-magit-blame-analyze ()
   "Analyze current file or region Git history with AI for deeper insights.
-If region is active, analyze just that region. Otherwise analyze entire file.
-Combines magit-blame history tracking with AI analysis to help understand
+If region is active, analyze just that region.  Otherwise analyze entire file.
+Combines `magit-blame' history tracking with AI analysis to help understand
 code evolution and the reasoning behind changes."
   (interactive)
   (when (ai-code--validate-buffer-file)
@@ -448,7 +450,6 @@ generate the log, save it to 'PROJECT_ROOT/git.log', open this file, and then an
   (let* ((git-root (ai-code--validate-git-repository))
          (repo-name (file-name-nondirectory (directory-file-name git-root)))
          (keyword (ai-code-read-string "Optional: Keyword to filter commits (leave empty for no filter): "))
-         (log-file (ai-code--ensure-git-log git-root repo-name keyword))
          (default-analysis (ai-code--default-log-analysis-instructions keyword))
          (analysis-instructions (ai-code-read-string "Analysis instructions for repository log: " default-analysis))
          (prompt (ai-code--build-log-prompt repo-name analysis-instructions)))
@@ -456,7 +457,9 @@ generate the log, save it to 'PROJECT_ROOT/git.log', open this file, and then an
 
 ;;;###autoload
 (defun ai-code-magit-blame-or-log-analyze (&optional arg)
-  "If current buffer is git.log, run log analysis; else if prefix ARG, run log analysis; otherwise run blame analysis."
+  "If current buffer is git.log, run log analysis.
+Otherwise if prefix ARG, run log analysis; else run blame analysis.
+ARG is the prefix argument."
   (interactive "P")
   (cond ((and buffer-file-name
               (string-equal (file-name-nondirectory buffer-file-name) "git.log"))
@@ -492,8 +495,9 @@ Call this function to register the AI Code commands with Magit."
   "Initialize project helpers for Projectile and Helm-Gtags.
 If either package is available, prompt for a project directory
 defaulting to the Magit repository root, initialize the project in
-Projectile, and configure Helm-Gtags with a pygments label. Show a
-summary message of performed actions."
+Projectile, and configure Helm-Gtags with a pygments label.  Show a
+summary message of performed actions.
+PREFIX is the prefix argument."
   (interactive "P")
   (let* ((projectile-available (or (featurep 'projectile)
                                    (require 'projectile nil t)))

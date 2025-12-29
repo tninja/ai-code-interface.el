@@ -37,19 +37,24 @@
 
 ;;;###autoload
 (defun ai-code-opencode (&optional arg)
-  "Start Opencode (reuses `claude-code' startup logic)."
+  "Start Opencode (reuses `claude-code' startup logic).
+ARG is passed to `claude-code'."
   (interactive "P")
-  (let ((claude-code-program ai-code-opencode-program) ; override dynamically
+  (let ((claude-code-program ai-code-opencode-program)
         (claude-code-program-switches ai-code-opencode-program-switches))
+    (ignore claude-code-program claude-code-program-switches)
     (claude-code arg)))
 
 ;;;###autoload
 (defun ai-code-opencode-switch-to-buffer ()
+  "Switch to the Opencode buffer."
   (interactive)
   (claude-code-switch-to-buffer))
 
 ;;;###autoload
 (defun ai-code-opencode-send-command (line)
+  "Send LINE to Opencode.
+When called interactively, prompts for the command."
   (interactive "sOpencode> ")
   (claude-code-send-command line))
 
@@ -70,6 +75,7 @@ prompt for the project directory."
   (interactive "P")
   (let ((claude-code-program ai-code-opencode-program)
         (claude-code-program-switches ai-code-opencode-program-switches))
+    (ignore claude-code-program claude-code-program-switches)
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend

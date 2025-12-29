@@ -134,6 +134,7 @@ The :upgrade property can be either a string shell command or nil."
   "Currently selected backend key from `ai-code-backends'.")
 
 (defun ai-code-set-backend (new-backend)
+  "Set the AI backend to NEW-BACKEND."
   (unless (ai-code--backend-spec new-backend)
     (user-error "Unknown backend: %s" new-backend))
   (setq ai-code-selected-backend new-backend)
@@ -207,8 +208,8 @@ Sets `ai-code-cli-*' defaliases and updates `ai-code-cli'."
 ;;;###autoload
 (defun ai-code-cli-start-or-resume (&optional arg)
   "Start or resume the CLI depending on prefix argument.
-If called with `C-u' (raw prefix ARG '(4)), invoke `ai-code-cli-resume';
-otherwise call `ai-code-cli-start'."
+If called with \\[universal-argument] (raw prefix ARG \\='(4)),
+invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
   (interactive "P")
   (if arg
       (call-interactively #'ai-code-cli-resume)

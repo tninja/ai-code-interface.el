@@ -33,10 +33,12 @@
 
 ;;;###autoload
 (defun ai-code-grok-cli (&optional arg)
-  "Start Grok CLI by leveraging `claude-code'."
+  "Start Grok CLI by leveraging `claude-code'.
+ARG is passed to `claude-code'."
   (interactive "P")
   (let ((claude-code-program ai-code-grok-cli-program)
         (claude-code-program-switches ai-code-grok-cli-program-switches))
+    (ignore claude-code-program claude-code-program-switches)
     (claude-code arg)))
 
 ;;;###autoload
@@ -59,6 +61,7 @@ When called from Lisp code, sends LINE directly without prompting."
   (interactive "P")
   (let ((claude-code-program ai-code-grok-cli-program)
         (claude-code-program-switches ai-code-grok-cli-program-switches))
+    (ignore claude-code-program claude-code-program-switches)
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend

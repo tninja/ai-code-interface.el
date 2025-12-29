@@ -88,7 +88,9 @@ with a newline separator."
 ;;;###autoload
 (defun ai-code-send-command (arg)
   "Read a prompt from the user and send it to the AI service.
-With a prefix argument (\[universal-argument]), append the clipboard contents as context."
+With a prefix argument (\\[universal-argument]), append the clipboard
+contents as context.
+ARG is the prefix argument."
   (interactive "P")
   (let* ((initial-input (when (use-region-p)
                           (string-trim-right

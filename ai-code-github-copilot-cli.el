@@ -40,14 +40,17 @@
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli (&optional arg)
-  "Start GitHub Copilot CLI (reuses `claude-code' startup logic)."
+  "Start GitHub Copilot CLI (reuses `claude-code' startup logic).
+ARG is passed to `claude-code'."
   (interactive "P")
-  (let ((claude-code-program ai-code-github-copilot-cli-program) ; override dynamically
+  (let ((claude-code-program ai-code-github-copilot-cli-program)
         (claude-code-program-switches ai-code-github-copilot-cli-program-switches))
+    (ignore claude-code-program claude-code-program-switches)
     (claude-code arg)))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-switch-to-buffer ()
+  "Switch to the GitHub Copilot CLI buffer."
   (interactive)
   (claude-code-switch-to-buffer))
 

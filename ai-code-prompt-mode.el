@@ -183,7 +183,10 @@ Returns the full prompt text with suffix for sending to AI."
       (ai-code--send-prompt full-prompt))))
 
 (defun ai-code--process-word-for-filepath (word git-root-truename)
-  "Process a single WORD, converting it to relative path with @ prefix if it's a file path."
+  "Process a single WORD, converting it to relative path with @ prefix.
+WORD is the text to process.
+GIT-ROOT-TRUENAME is the true name of the git repository root.
+If WORD is a file path, it's converted to a relative path."
   (if (or (string= word ".") (string= word ".."))
       word
     (let* ((expanded-word (expand-file-name word))
@@ -194,9 +197,10 @@ Returns the full prompt text with suffix for sending to AI."
         word))))
 
 (defun ai-code--preprocess-prompt-text (prompt-text)
-  "Preprocess PROMPT-TEXT to replace file paths with relative paths prefixed with @.
+  "Preprocess PROMPT-TEXT to replace file paths with relative paths.
 The function splits the prompt by whitespace, checks if each part is a file
-path within the current git repository, and if so, replaces it.
+path within the current git repository, and if so, replaces it with a
+relative path prefixed with @.
 NOTE: This does not handle file paths containing spaces."
   (if-let ((git-root (magit-toplevel)))
       (let ((git-root-truename (file-truename git-root)))
@@ -208,7 +212,8 @@ NOTE: This does not handle file paths containing spaces."
     prompt-text))
 
 (defun ai-code--insert-prompt (prompt-text)
-  "Preprocess and insert PROMPT-TEXT into the AI prompt file, or execute if it's a command."
+  "Preprocess and insert PROMPT-TEXT into the AI prompt file.
+If PROMPT-TEXT is a command (starts with /), execute it directly instead."
   (let ((processed-prompt (if ai-code-prompt-preprocess-filepaths
                               (ai-code--preprocess-prompt-text prompt-text)
                             prompt-text)))
@@ -236,7 +241,8 @@ Special commands:
 ;;;###autoload
 (defun ai-code-prompt-send-block ()
   "Send the current text block (paragraph) to the AI service.
-The block is the text separated by blank lines. It trims leading/trailing whitespace."
+The block is the text separated by blank lines.
+It trims leading/trailing whitespace."
   (interactive)
   (let* ((block-text (thing-at-point 'paragraph))
          (trimmed-text (when block-text (string-trim block-text))))

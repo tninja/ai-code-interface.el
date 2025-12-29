@@ -145,7 +145,7 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
     (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--get-git-relative-paths (file-paths)
-  "Convert absolute file paths to git repository relative paths.
+  "Convert absolute FILE-PATHS to git repository relative paths.
 Returns a list of relative paths from the git repository root."
   (when file-paths
     (let ((git-root (magit-toplevel)))
