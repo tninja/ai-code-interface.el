@@ -105,7 +105,7 @@ contains a directory path, open it directly in Dired in another window."
       (message "Clipboard does not contain a valid file or directory path"))))
 
 (defvar ai-code-run-file-history nil
-  "History list for ai-code-run-current-file commands.")
+  "History list for `ai-code-run-current-file' commands.")
 
 (defun ai-code--run-command-in-comint (command run-directory display-name)
   "Run COMMAND in a comint buffer using RUN-DIRECTORY and DISPLAY-NAME.
@@ -268,7 +268,7 @@ Return the final command string."
 If current buffer is a Dired buffer, get user input shell command with
 `read-string', then run it under the directory of Dired buffer, in a
 buffer with name as *ai-code-shell-cmd: <current-dir>*.  If current
-buffer is shell-mode, eshell-mode or sh-mode, get input and insert
+buffer is `shell-mode', eshell-mode or sh-mode, get input and insert
 command under cursor, do not run it.  If the command starts with
 \\=':\\=', it means it is a prompt.  In this case, ask gptel to generate
 the corresponding shell command, and call `ai-code-shell-cmd' with that
@@ -290,7 +290,7 @@ shell command prompt."
                           default-directory)
                          (t nil))))
       (unless current-dir
-        (user-error "Cannot determine working directory: requires either a dired buffer or initial input"))
+        (user-error "Cannot determine working directory: requires either a Dired buffer or initial input"))
       (let* ((command (ai-code--generate-shell-command initial-input))
              (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
         (when (and command (not (string= command "")))

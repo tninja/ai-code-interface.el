@@ -15,6 +15,7 @@
 (require 'ai-code-input)
 
 (declare-function ai-code-read-string "ai-code-input")
+(declare-function eshell-send-input "esh-mode")
 (defvar ai-code-selected-backend)
 
 ;;;###autoload
@@ -228,11 +229,11 @@ current buffer is unsupported or user input is missing."
                                        display-entries)))))))
 
 (defun ai-code-mcp-inspector--build-command (is-dired base-dir base-dir-name
-                                                     client-port server-port
+                                                     client-port svr-port
                                                      relative-path)
   "Construct the inspector command string for the current context.
 IS-DIRED selects interactive input, BASE-DIR and BASE-DIR-NAME describe
-the project, CLIENT-PORT and SERVER-PORT configure networking, and
+the project, CLIENT-PORT and SVR-PORT configure networking, and
 RELATIVE-PATH targets a file."
   (if is-dired
       (let ((user-command (ai-code-read-string (format "Inspector command for %s: " base-dir-name))))
@@ -241,17 +242,15 @@ RELATIVE-PATH targets a file."
               (message "Inspector command is required")
               nil)
           (format "CLIENT_PORT=%d SERVER_PORT=%d %s"
-                  client-port server-port user-command)))
+                  client-port svr-port user-command)))
     (when relative-path
       (format
-       (concat "CLIENT_PORT=%d SERVER_PORT=%d "
-               "npx @modelcontextprotocol/inspector "
-               "-e VERIFY_SSL=true -e FASTMCP_LOG_LEVEL=INFO "
-               "uv run --directory %s %s ")
-       client-port server-port base-dir base-dir-name))))
+       "CLIENT_PORT=%d SERVER_PORT=%d npx @modelcontextprotocol/inspector -e VERIFY_SSL=true -e FASTMCP_LOG_LEVEL=INFO uv run --directory %s %s "
+       client-port svr-port base-dir base-dir-name))))
 
 (defun ai-code-mcp-inspector--start (context)
-  "Launch the inspector using CONTEXT plist produced by `ai-code-mcp-inspector--build-context'."
+  "Launch the inspector using CONTEXT plist.
+Produced by `ai-code-mcp-inspector--build-context'."
   (let* ((base-dir (plist-get context :base-dir))
          (base-dir-name (plist-get context :base-dir-name))
          (buffer-name (plist-get context :buffer-name))
@@ -295,7 +294,8 @@ Starts from current buffer file or default directory."
       nil)))
 
 (defun ai-code-mcp-inspector--find-project-root (file-path)
-  "Find project root by looking for pyproject.toml in parent directories starting from FILE-PATH."
+  "Find project root by looking for pyproject.toml in parent directories.
+Starting from FILE-PATH."
   (let ((dir (file-name-directory file-path)))
     (while (and dir
                 (not (string= dir "/"))

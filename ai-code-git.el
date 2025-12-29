@@ -14,6 +14,8 @@
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
 
+(declare-function helm-gtags-create-tags "helm-gtags" (dir &optional label))
+
 (defcustom ai-code-init-project-gtags-label "pygments"
   "Default label passed to Helm-Gtags when initializing a project.
 Candidate values:

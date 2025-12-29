@@ -16,6 +16,7 @@
 
 (declare-function claude-code--do-send-command "claude-code" (cmd))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
+(declare-function ai-code-cli-start "ai-code-interface")
 
 (defun ai-code--unsupported-resume (&optional _arg)
   "Signal that the current backend does not support resume.

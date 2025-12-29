@@ -367,17 +367,9 @@ ARG is the prefix argument for clipboard context."
            (region-text
             (unless (ai-code--is-comment-block region-text)
               (user-error "Selected region must be a comment block"))
-            (format (concat
-                     "Please implement code for this requirement comment "
-                     "block in the selected region first. "
-                     "After implementing, keep the comment in place and "
-                     "ensure it begins with a DONE prefix (change TODO to "
-                     "DONE or prepend DONE if no prefix). "
-                     "If this is a pure new code block, place it after "
-                     "the comment; otherwise keep the existing structure "
-                     "and make corresponding change for the context.\n%s\n%s"
-                     "%s%s")
-                    region-location-line region-text function-context
+            (format
+             "Please implement code for this requirement comment block in the selected region first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.\n%s\n%s%s%s"
+             region-location-line region-text function-context
                     files-context-string))
            (is-comment
             (format "Please implement code for this requirement comment on line %d: '%s' first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.%s%s"
@@ -514,16 +506,10 @@ or whole file.  Requires the `flycheck` package to be installed and available."
                                                          rel-file))
                    (prompt
                     (if (string-equal "the entire file" scope-description)
-                        (format (concat "Please fix the following Flycheck "
-                                        "errors in file %s:\n\n%s\n%s\n"
-                                        "Note: Please make the code change "
-                                        "described above.")
+                        (format "Please fix the following Flycheck errors in file %s:\n\n%s\n%s\nNote: Please make the code change described above."
                                 rel-file error-list-string
                                 files-context-string)
-                      (format (concat "Please fix the following Flycheck "
-                                      "errors in %s of file %s:\n\n%s\n%s\n"
-                                      "Note: Please make the code "
-                                      "change described above.")
+                      (format "Please fix the following Flycheck errors in %s of file %s:\n\n%s\n%s\nNote: Please make the code change described above."
                               scope-description
                               rel-file
                               error-list-string

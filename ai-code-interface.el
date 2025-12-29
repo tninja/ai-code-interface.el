@@ -113,7 +113,8 @@ ARG is the prefix argument."
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer-or-hide ()
-  "Hide current buffer if its name starts and ends with '*', otherwise switch to AI CLI buffer."
+  "Hide current buffer if its name starts and ends with '*'.
+Otherwise switch to AI CLI buffer."
   (interactive)
   (if (and (string-prefix-p "*" (buffer-name))
            (string-suffix-p "*" (buffer-name)))

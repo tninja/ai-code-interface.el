@@ -51,7 +51,7 @@ This is the file name without path."
             (unless (boundp 'yas-snippet-dirs)
               (setq yas-snippet-dirs nil))
             (add-to-list 'yas-snippet-dirs snippet-dir t)
-            (ignore-errors (yas-load-directory snippet-dir))))
+            (ignore-errors (yas-load-directory snippet-dir)))))
     (error nil)))) ;; Suppress all errors
 
 ;;;###autoload
