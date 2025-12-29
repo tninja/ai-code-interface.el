@@ -52,7 +52,7 @@ This is the file name without path."
               (setq yas-snippet-dirs nil))
             (add-to-list 'yas-snippet-dirs snippet-dir t)
             (ignore-errors (yas-load-directory snippet-dir)))))
-    (error nil)))) ;; Suppress all errors
+    (error nil))) ;; Suppress all errors
 
 ;;;###autoload
 (defun ai-code-open-prompt-file ()
