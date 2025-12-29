@@ -26,11 +26,13 @@
 ;;;###autoload
 (defun ai-code-ask-question (arg)
   "Generate prompt to ask questions about specific code.
-With a prefix argument (C-u), append the clipboard contents as context.
-If current buffer is a file, keep existing logic.
-If current buffer is a dired buffer:
-  - If there are files or directories marked, use them as context (use git repo relative path, start with @ character)
-  - If there are no files or dirs marked, but under cursor there is file or dir, use it as context of prompt
+With a prefix argument \[universal-argument], append the clipboard
+contents as context.  If current buffer is a file, keep existing logic.
+If current buffer is a Dired buffer:
+  - If there are files or directories marked, use them as context
+    \(use git repo relative path, start with @ character)
+  - If there are no files or dirs marked, but under cursor there is
+    file or dir, use it as context of prompt
 If a region is selected, ask about that specific region.
 If cursor is in a function, ask about that function.
 Otherwise, ask a general question about the file.
@@ -41,13 +43,13 @@ Argument ARG is the prefix argument."
   (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
     (cond
      ;; Handle dired buffer
-     ((eq major-mode 'dired-mode)
+     ((derived-mode-p 'dired-mode)
       (ai-code--ask-question-dired clipboard-context))
      ;; Handle regular file buffer
      (t (ai-code--ask-question-file clipboard-context)))))
 
 (defun ai-code--ask-question-dired (clipboard-context)
-  "Handle ask question for dired buffer.
+  "Handle ask question for Dired buffer.
 CLIPBOARD-CONTEXT is optional clipboard text to append as context."
   (let* ((all-marked (dired-get-marked-files))
          (file-at-point (dired-get-filename nil t))
@@ -170,12 +172,13 @@ Returns nil if region is not active or required information is unavailable."
 ;;;###autoload
 (defun ai-code-investigate-exception (arg)
   "Generate prompt to investigate exceptions or errors in code.
-With a prefix argument (C-u), use context from clipboard as the error to investigate.
-If a *compilation* buffer is visible in the current window, use its full content as context.
-If a region is selected, investigate that specific error or exception.
-If cursor is in a function, investigate exceptions in that function.
-Otherwise, investigate general exception handling in the file.
-Inserts the prompt into the AI prompt file and optionally sends to AI.
+With a prefix argument \[universal-argument], use context from clipboard
+as the error to investigate.  If a *compilation* buffer is visible in
+the current window, use its full content as context.  If a region is
+selected, investigate that specific error or exception.  If cursor is
+in a function, investigate exceptions in that function.  Otherwise,
+investigate general exception handling in the file.  Inserts the prompt
+into the AI prompt file and optionally sends to AI.
 Argument ARG is the prefix argument."
   (interactive "P")
   (let* ((clipboard-content (when arg
@@ -244,14 +247,16 @@ Argument ARG is the prefix argument."
 ;;;###autoload
 (defun ai-code-explain ()
   "Generate prompt to explain code at different levels.
-If current buffer is a dired buffer and under cursor is a directory or file, explain that directory or file using relative path as context (start with @ character).
-If a region is selected, explain that specific region using function/file as context.
-Otherwise, prompt user to select scope: symbol, line, function, or file.
-Inserts the prompt into the AI prompt file and optionally sends to AI."
+If current buffer is a Dired buffer and under cursor is a directory or
+file, explain that directory or file using relative path as context
+\(start with @ character).  If a region is selected, explain that
+specific region using function/file as context.  Otherwise, prompt user
+to select scope: symbol, line, function, or file.  Inserts the prompt
+into the AI prompt file and optionally sends to AI."
   (interactive)
   (cond
    ;; Handle dired buffer
-   ((eq major-mode 'dired-mode)
+   ((derived-mode-p 'dired-mode)
     (ai-code--explain-dired))
    ;; Handle region selection
    ((region-active-p)
@@ -260,7 +265,7 @@ Inserts the prompt into the AI prompt file and optionally sends to AI."
    (t (ai-code--explain-with-scope-selection))))
 
 (defun ai-code--explain-dired ()
-  "Handle explain for dired buffer."
+  "Handle explain for Dired buffer."
   (let* ((file-at-point (dired-get-filename nil t))
          (git-relative-path (when file-at-point
                              (car (ai-code--get-git-relative-paths (list file-at-point)))))
@@ -382,10 +387,10 @@ headline based on the selected content. Otherwise, prompt with empty default."
 ;;;###autoload
 (defun ai-code-take-notes ()
   "Take notes from selected region and save to a note file.
-When there is a selected region, prompt to select from currently open org buffers
-or the default note file path (.ai.code.notes.org in the git root).
-Add the section title as a headline at the end of the note file, and put the
-selected region as content of that section."
+When there is a selected region, prompt to select from currently open
+org buffers or the default note file path \(.ai.code.notes.org in the
+git root).  Add the section title as a headline at the end of the note
+file, and put the selected region as content of that section."
   (interactive)
   (let* ((git-root (condition-case nil
                        (magit-toplevel)
@@ -401,7 +406,7 @@ selected region as content of that section."
              (org-buffers (seq-filter
                            (lambda (buf)
                              (with-current-buffer buf
-                               (and (eq major-mode 'org-mode)
+                               (and (derived-mode-p 'org-mode)
                                     (buffer-file-name))))
                            (buffer-list)))
              (org-buffer-files (mapcar #'buffer-file-name org-buffers))

@@ -17,11 +17,11 @@
 (defcustom ai-code-init-project-gtags-label "pygments"
   "Default label passed to Helm-Gtags when initializing a project.
 Candidate values:
-- \\='default\\='
-- 'native'
-- 'ctags'
-- 'new-ctags'
-- 'pygments'"
+- \\='default
+- \\='native
+- \\='ctags
+- \\='new-ctags
+- \\='pygments"
   :type 'string
   :group 'ai-code)
 
@@ -123,7 +123,7 @@ Returns a cons cell (RESOLVED-BASE . RESOLVED-FEATURE)."
                 (if (string-prefix-p "origin/" input-base-branch)
                     input-base-branch
                   (concat "origin/" input-base-branch)))
-          (setq resolved-feature-branch 
+          (setq resolved-feature-branch
                 (if (string-prefix-p "origin/" input-feature-branch)
                     input-feature-branch
                   (concat "origin/" input-feature-branch))))
@@ -181,10 +181,13 @@ GIT-ROOT is the root directory of the Git repository."
     (ai-code--generate-staged-diff diff-file)
     diff-file))
 
-(defun ai-code--handle-base-vs-head-diff-generation (git-root &optional open-in-browser)
+(defun ai-code--handle-base-vs-head-diff-generation (git-root
+                                                      &optional
+                                                      open-in-browser)
   "Handle generation of diff between a base branch and HEAD.
 GIT-ROOT is the root directory of the Git repository.
-If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface without generating file."
+If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web
+interface without generating file."
   (let* ((base-branch (ai-code-read-string "Base branch name: "))
          (current-branch (magit-get-current-branch)))
     (if open-in-browser
@@ -200,10 +203,13 @@ If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface withou
         (ai-code--generate-branch-or-commit-diff diff-params diff-file)
         diff-file))))
 
-(defun ai-code--handle-branch-range-diff-generation (git-root &optional open-in-browser)
-  "Handle generation of diff between a base branch and a feature branch.
+(defun ai-code--handle-branch-range-diff-generation (git-root
+                                                      &optional
+                                                      open-in-browser)
+  "Handle generation of diff between a base and a feature branch.
 GIT-ROOT is the root directory of the Git repository.
-If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface without generating file."
+If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web
+interface without generating file."
   (let* ((base-branch (ai-code-read-string "Base branch name: "))
          (feature-branch (ai-code-read-string "Feature branch name: ")))
     (if open-in-browser
@@ -232,10 +238,12 @@ If OPEN-IN-BROWSER is non-nil, only open the diff in GitHub web interface withou
           (ai-code--generate-branch-or-commit-diff diff-params diff-file)
           diff-file)))))
 
-(defun ai-code--handle-commit-diff-generation (git-root &optional open-in-browser)
+(defun ai-code--handle-commit-diff-generation (git-root
+                                                &optional open-in-browser)
   "Handle generation of diff for a single commit.
 GIT-ROOT is the root directory of the Git repository.
-If OPEN-IN-BROWSER is non-nil, only open the commit in GitHub web interface without generating file."
+If OPEN-IN-BROWSER is non-nil, only open the commit in GitHub web
+interface without generating file."
   (let* ((commit-hash (ai-code-read-string "Commit hash: ")))
     (if open-in-browser
         (progn
@@ -369,16 +377,16 @@ code evolution and the reasoning behind changes."
                        (line-number-at-pos (region-end))
                      (line-number-at-pos (point-max))))
          (region-text (if has-region
-                          (buffer-substring-no-properties 
+                          (buffer-substring-no-properties
                            (region-beginning) (region-end))
                         nil))
-         (blame-args (list "blame" "-l" 
+         (blame-args (list "blame" "-l"
                            (format "-L%d,%d" line-start line-end)
                            file-path))
          (blame-output (with-temp-buffer
                          (apply #'process-file "git" nil t nil blame-args)
                          (buffer-string)))
-         (context (format "File: %s\nLines: %d-%d\n\n" 
+         (context (format "File: %s\nLines: %d-%d\n\n"
                           file-path line-start line-end))
          (files-context-string (ai-code--get-context-files-string))
          (code-sample (if has-region
@@ -391,7 +399,8 @@ code evolution and the reasoning behind changes."
     (ai-code--insert-prompt prompt))))
 
 (defun ai-code--ensure-git-log (git-root repo-name keyword)
-  "Fetch commits from the last X months as git.log under GIT-ROOT for REPO-NAME, filtered by KEYWORD.
+  "Fetch commits from the last X months under GIT-ROOT for REPO-NAME.
+KEYWORD is used to filter commits.
 Returns the path to the git.log file."
   (let* ((project-log-file-path (expand-file-name "git.log" git-root))
          (date-str (ai-code-read-string (format "Start date for history of %s (YYYY-MM-DD, e.g. 2025-01-01): " repo-name)))
@@ -443,9 +452,10 @@ Returns the path to the git.log file."
 
 (defun ai-code-magit-log-analyze ()
   "Analyze Git log with AI.
-If current buffer is visiting a file named 'git.log', analyze its content.
-Otherwise, prompt for number of commits (default 100) and optionally a keyword,
-generate the log, save it to 'PROJECT_ROOT/git.log', open this file, and then analyze its content."
+If current buffer is visiting a file named \\='git.log\\=', analyze its
+content.  Otherwise, prompt for number of commits (default 100) and
+optionally a keyword, generate the log, save it to
+\\='PROJECT_ROOT/git.log\\=', open this file, and then analyze its content."
   (interactive)
   (let* ((git-root (ai-code--validate-git-repository))
          (repo-name (file-name-nondirectory (directory-file-name git-root)))

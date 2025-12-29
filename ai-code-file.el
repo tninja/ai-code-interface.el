@@ -35,16 +35,17 @@
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
   "Copy the current buffer's file path or selected text to clipboard.
 If in a magit status buffer, copy the current branch name.
-If in a dired buffer, copy the file at point or directory path.
+If in a Dired buffer, copy the file at point or directory path.
 If in a regular file buffer with selected text, copy text with file path.
 Otherwise, copy the file path of the current buffer.
-With prefix argument ARG (C-u), always return full path instead of processed path.
-File paths are processed to relative paths with @ prefix if within git repo."
+With prefix argument ARG \[universal-argument], always return full path
+instead of processed path.  File paths are processed to relative paths
+with @ prefix if within git repo."
   (interactive "P")
   (let ((path-to-copy
          (cond
           ;; If current buffer is a magit status buffer
-          ((eq major-mode 'magit-status-mode)
+          ((derived-mode-p 'magit-status-mode)
            (magit-get-current-branch))
           ;; If current buffer is a file, use existing logic
           ((buffer-file-name)
@@ -61,7 +62,7 @@ File paths are processed to relative paths with @ prefix if within git repo."
                    (ai-code--process-word-for-filepath (buffer-file-name) git-root-truename)
                  (buffer-file-name)))))
           ;; If current buffer is a dired buffer
-          ((eq major-mode 'dired-mode)
+          ((derived-mode-p 'dired-mode)
            (let* ((file-at-point (ignore-errors (dired-get-file-for-visit)))
                   (git-root (magit-toplevel))
                   (git-root-truename (when git-root (file-truename git-root))))
@@ -85,10 +86,10 @@ File paths are processed to relative paths with @ prefix if within git repo."
 
 ;;;###autoload
 (defun ai-code-open-clipboard-file-path-as-dired ()
-  "Open the file or directory path from clipboard in dired.
-If the clipboard contains a valid file path, open its directory in dired in another window
-and move the cursor to that file.
-If the clipboard contains a directory path, open it directly in dired in another window."
+  "Open the file or directory path from clipboard in Dired.
+If the clipboard contains a valid file path, open its directory in Dired
+in another window and move the cursor to that file.  If the clipboard
+contains a directory path, open it directly in Dired in another window."
   (interactive)
   (let ((path (current-kill 0)))
     (if (and path (file-exists-p path))
@@ -108,9 +109,11 @@ If the clipboard contains a directory path, open it directly in dired in another
 
 (defun ai-code--run-command-in-comint (command run-directory display-name)
   "Run COMMAND in a comint buffer using RUN-DIRECTORY and DISPLAY-NAME.
-COMMAND is parsed into a program and its SWITCHES using `split-string-and-unquote'.
-RUN-DIRECTORY is used as the default directory for the process.
-DISPLAY-NAME is the buffer name applied to the comint session."
+COMMAND is parsed into a program and its SWITCHES using
+`split-string-and-unquote'.  RUN-DIRECTORY is used as the default
+directory for the process.  DISPLAY-NAME is the buffer name applied to
+the comint session.  This function is a programmatic wrapper around
+`comint-run'."
   (let* ((command-parts (split-string-and-unquote command))
          (program (car command-parts))
          (switches (cdr command-parts)))
@@ -127,7 +130,7 @@ DISPLAY-NAME is the buffer name applied to the comint session."
           (delete-process proc))
         (kill-buffer existing))
       (let ((default-directory effective-directory))
-        (comint-run program switches))
+        (apply #'make-comint "Run" program nil switches))
       (when (window-live-p origin-window)
         (set-window-buffer origin-window origin-buffer))
       (when-let ((buffer (get-buffer comint-buffer-name)))
@@ -181,8 +184,9 @@ Maintains a dedicated history list for this command."
 ;;;###autoload
 (defun ai-code-apply-prompt-on-current-file ()
   "Apply a user prompt to the current file and send to an AI CLI tool.
-The file can be the one in the current buffer or the one at point in a dired buffer.
-It constructs a shell command: sed \"1i <prompt>: \" <file> | <ai-code-cli>
+The file can be the one in the current buffer or at point in a Dired
+buffer.  It constructs a shell command:
+sed \"1i <prompt>: \" <file> | <ai-code-cli>
 and runs it in a compilation buffer."
   (interactive)
   (let* ((prompt (ai-code-read-string "Prompt: "))
@@ -190,7 +194,7 @@ and runs it in a compilation buffer."
                                  (concat prompt ", " ai-code-prompt-suffix)
                                  prompt))
          (file-name (cond
-                     ((eq major-mode 'dired-mode)
+                     ((derived-mode-p 'dired-mode)
                       (dired-get-filename))
                      ((buffer-file-name)
                       (buffer-file-name))
@@ -216,11 +220,11 @@ Read initial command from user with INITIAL-INPUT as default.
 If command starts with ':', treat as prompt for AI to generate command.
 Return the final command string."
   (let* ((initial-command (ai-code-read-string "Shell command: " initial-input))
-         ;; if current buffer is dired buffer, replace the * character
+         ;; if current buffer is Dired buffer, replace the * character
          ;; inside initial-command with file base name under cursor,
          ;; or marked files, separate with space
          (initial-command
-          (if (and (eq major-mode 'dired-mode)
+          (if (and (derived-mode-p 'dired-mode)
                    (string-match-p "\\*" initial-command))
               (let* ((files (ignore-errors (dired-get-marked-files)))
                      (file-names (when files
@@ -238,7 +242,7 @@ Return the final command string."
           (if (string-prefix-p ":" initial-command)
               ;; If command starts with :, treat as prompt for AI
               (let* ((base-prompt (concat "Generate a shell command (pure command, no fense, no duplicate) for: " (substring initial-command 1)))
-                     (prompt (if (eq major-mode 'dired-mode)
+                     (prompt (if (derived-mode-p 'dired-mode)
                                  (let* ((files (ignore-errors (dired-get-marked-files)))
                                         (file-names (when files (delete-dups (mapcar #'file-name-nondirectory files)))))
                                    (if file-names
@@ -260,13 +264,16 @@ Return the final command string."
 
 ;;;###autoload
 (defun ai-code-shell-cmd (&optional initial-input)
-  "Run shell command in dired directory or insert command in shell buffers.
-If current buffer is a dired buffer, get user input shell command with read-string,
-then run it under the directory of dired buffer, in a buffer with name as *ai-code-shell-cmd: <current-dir>*.
-If current buffer is shell-mode, eshell-mode or sh-mode, get input and insert command under cursor, do not run it.
-If the command starts with ':', it means it is a prompt. In this case, ask gptel to generate 
-the corresponding shell command, and call ai-code-shell-cmd with that command as candidate.
-INITIAL-INPUT is the initial text to populate the shell command prompt."
+  "Run shell command in Dired directory or insert command in shell buffers.
+If current buffer is a Dired buffer, get user input shell command with
+`read-string', then run it under the directory of Dired buffer, in a
+buffer with name as *ai-code-shell-cmd: <current-dir>*.  If current
+buffer is shell-mode, eshell-mode or sh-mode, get input and insert
+command under cursor, do not run it.  If the command starts with
+\\=':\\=', it means it is a prompt.  In this case, ask gptel to generate
+the corresponding shell command, and call `ai-code-shell-cmd' with that
+command as candidate.  INITIAL-INPUT is the initial text to populate the
+shell command prompt."
   (interactive)
   (cond
    ;; Handle shell modes: insert command without running
@@ -277,7 +284,7 @@ INITIAL-INPUT is the initial text to populate the shell command prompt."
    ;; Handle other modes: run command in compilation buffer
    (t
     (let* ((current-dir (cond
-                         ((eq major-mode 'dired-mode)
+                         ((derived-mode-p 'dired-mode)
                           (dired-current-directory))
                          (initial-input
                           default-directory)
@@ -297,10 +304,11 @@ INITIAL-INPUT is the initial text to populate the shell command prompt."
 ;;;###autoload
 (defun ai-code-run-current-file-or-shell-cmd ()
   "Run current file or shell command based on buffer state.
-Call `ai-code-shell-cmd` when in dired mode, shell modes or a region is active; otherwise run the current file."
+Call `ai-code-shell-cmd` when in Dired mode, shell modes or a region
+is active; otherwise run the current file."
   (interactive)
   (cond
-   ((eq major-mode 'dired-mode)
+   ((derived-mode-p 'dired-mode)
     (ai-code-shell-cmd))
    ((memq major-mode '(shell-mode eshell-mode))
     (ai-code-shell-cmd))
@@ -324,12 +332,13 @@ Call `ai-code-shell-cmd` when in dired mode, shell modes or a region is active; 
 ;;;###autoload
 (defun ai-code-add-context ()
   "Capture current buffer context and store it per Git repository.
-When no region is selected, use the full file path and current function (if any).
-When a region is active, use the file path with line range in the form filepath#Lstart-Lend."
+When no region is selected, use the full file path and current function
+\(if any).  When a region is active, use the file path with line range
+in the form filepath#Lstart-Lend."
   (interactive)
   (let ((repo-root (or (magit-toplevel)
                        (user-error "Not inside a Git repository"))))
-    (if (eq major-mode 'dired-mode)
+    (if (derived-mode-p 'dired-mode)
         (let* ((all-marked (dired-get-marked-files))
                (file-at-point (dired-get-filename nil t))
                (has-marks (and all-marked
@@ -404,8 +413,8 @@ With prefix ARG, clear all repositories."
 (defun ai-code-context-action (arg)
   "Add or clear context entries depending on ARG.
 Without prefix ARG, add context and immediately list all stored entries.
-With prefix ARG (C-u), clear context; clearing the current repo or all repos
-is delegated to `ai-code-clear-context'."
+With prefix ARG \[universal-argument], clear context; clearing the
+current repo or all repos is delegated to `ai-code-clear-context'."
   (interactive "P")
   (if arg
       (call-interactively #'ai-code-clear-context)
@@ -432,8 +441,9 @@ Includes stored context entries for the current Git repository if available."
 ;;;###autoload
 (defun ai-code-toggle-current-buffer-dedicated (arg)
   "Toggle the dedicated state of the current buffer's window.
-When a window is dedicated, Emacs will not automatically reuse it for displaying other buffers.
-With prefix ARG (C-u), toggle dedication for every window in the current frame."
+When a window is dedicated, Emacs will not automatically reuse it for
+displaying other buffers.  With prefix ARG \[universal-argument],
+toggle dedication for every window in the current frame."
   ;; DONE: if C-u pressed, toggle dedicate to all buffers inside current window
   (interactive "P")
   (let* ((targets (if arg
@@ -453,4 +463,4 @@ With prefix ARG (C-u), toggle dedication for every window in the current frame."
 
 (provide 'ai-code-file)
 
-;;; ai-code-file.el ends here 
+;;; ai-code-file.el ends here

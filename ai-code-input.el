@@ -50,10 +50,10 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
          ;; Use only Helm history, no CLI history
          (history helm-history)
          ;; Extract the most recent item from history (if exists)
-         (most-recent (when (and history (not (null history)))
+         (most-recent (when history
                         (car history)))
          ;; Remove the first item to add it back later
-         (rest-history (when (and history (not (null history)))
+         (rest-history (when history
                          (cl-remove-duplicates (cdr history) :test #'equal)))
          ;; Combine completion list: most recent + candidates + separator + rest of history
          (completion-list

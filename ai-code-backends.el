@@ -34,8 +34,8 @@ Argument ARG is passed to the backend's resume function."
 ;;;###autoload
 (defun ai-code-claude-code-send-command (cmd)
   "Send CMD to claude-code programmatically or interactively.
-This wrapper function works around the signature change in `claude-code-send-command'
-which no longer accepts a command parameter.
+This wrapper function works around the signature change in
+`claude-code-send-command' which no longer accepts a command parameter.
 When called interactively, prompts for the command.
 When called from Lisp code, sends CMD directly without prompting."
   (interactive "sClaude command: ")

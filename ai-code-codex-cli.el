@@ -12,9 +12,11 @@
 
 (require 'ai-code-backends)
 
+(declare-function claude-code "claude-code" (&optional arg))
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 (declare-function claude-code--do-send-command "claude-code" (cmd))
+(declare-function claude-code-switch-to-buffer "claude-code")
 (defvar claude-code-terminal-backend)
 
 
@@ -59,7 +61,8 @@ When called from Lisp code, sends LINE directly without prompting."
 
 ;;;###autoload
 (defun ai-code-codex-cli-resume (&optional arg)
-  "Resume a previous Codex CLI session."
+  "Resume a previous Codex CLI session.
+ARG is passed to the underlying start function."
   (interactive "P")
   (let ((claude-code-program ai-code-codex-cli-program)
         (claude-code-program-switches ai-code-codex-cli-program-switches))

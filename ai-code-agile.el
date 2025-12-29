@@ -628,7 +628,8 @@ to fix code."
 ;;;###autoload
 (defun ai-code-run-test ()
   "Run tests based on the current buffer's mode.
-Checks for specific test runners (python-pytest, jest, ert) and runs them if available."
+Checks for specific test runners \(python-pytest, jest, ert) and runs
+them if available."
   (interactive)
   (cond
    ((derived-mode-p 'python-mode)

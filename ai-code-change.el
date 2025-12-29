@@ -23,6 +23,13 @@
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
 (declare-function ai-code--format-repo-context-info "ai-code-file")
+(declare-function flycheck-error-pos "flycheck")
+(declare-function flycheck-error-line "flycheck")
+(declare-function flycheck-error-column "flycheck")
+(declare-function flycheck-error-message "flycheck")
+
+(defvar flycheck-current-errors)
+(defvar region-start-line)
 
 (defun ai-code--is-comment-line (line)
   "Check if LINE is a comment line based on current buffer's comment syntax.
@@ -198,12 +205,12 @@ ARG is the prefix argument."
 ;;;###autoload
 (defun ai-code-code-change (arg)
   "Generate prompt to change code under cursor or in selected region.
-If the cursor is on a TODO comment or a region with a TODO comment is selected,
-it will generate a prompt to implement the TODO in-place.
-With a prefix argument (C-u), append the clipboard contents as context.
-If a region is selected, change that specific region.
-Otherwise, change the function under cursor.
-If nothing is selected and no function context, prompts for general code change.
+If the cursor is on a TODO comment or a region with a TODO comment is
+selected, it will generate a prompt to implement the TODO in-place.
+With a prefix argument \[universal-argument], append the clipboard
+contents as context.  If a region is selected, change that specific
+region.  Otherwise, change the function under cursor.  If nothing is
+selected and no function context, prompts for general code change.
 Inserts the prompt into the AI prompt file and optionally sends to AI.
 Argument ARG is the prefix argument."
   (interactive "P")
@@ -228,13 +235,13 @@ Argument ARG is the prefix argument."
 (defun ai-code-implement-todo (arg)
   "Generate prompt to implement TODO comments in current context.
 Implements code after TODO comments instead of replacing them in-place.
-With a prefix argument (C-u), append the clipboard contents as context.
-If region is selected, implement that specific region.
-If cursor is on a comment line, implement that specific comment.
+With a prefix argument \\[universal-argument], append the clipboard
+contents as context.  If region is selected, implement that specific
+region.  If cursor is on a comment line, implement that specific comment.
 If the current line is blank, ask user to input TODO comment.
-The input string will be prefixed with TODO: and insert to the current line,
-with proper indentation.
-If cursor is inside a function, implement comments for that function.
+The input string will be prefixed with TODO: and insert to the current
+line, with proper indentation.  If cursor is inside a function, implement
+comments for that function.
 Otherwise implement comments for the entire current file.
 Argument ARG is the prefix argument."
   ;; DONE: if the current line under cursor is a comment prefix with DONE: ,
@@ -300,12 +307,12 @@ Returns non-nil if handled and the caller should exit."
       (unless (string-blank-p todo-text)
         (delete-region (line-beginning-position) (line-end-position))
         (indent-according-to-mode)
-        (insert (concat comment-prefix
-                        " TODO: "
-                        todo-text
-                        (if (and comment-end (not (string-blank-p comment-end)))
-                            (concat " " (string-trim-left comment-end))
-                          "")))
+        (insert comment-prefix
+                " TODO: "
+                todo-text
+                (if (and comment-end (not (string-blank-p comment-end)))
+                    (concat " " (string-trim-left comment-end))
+                  ""))
         (indent-according-to-mode)))
     t))
 
@@ -361,10 +368,17 @@ ARG is the prefix argument for clipboard context."
             (unless (ai-code--is-comment-block region-text)
               (user-error "Selected region must be a comment block"))
             (format (concat
-                     "Please implement code for this requirement comment block in the selected region first. "
-                     "After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix). "
-                     "If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.\n%s\n%s%s%s")
-                    region-location-line region-text function-context files-context-string))
+                     "Please implement code for this requirement comment "
+                     "block in the selected region first. "
+                     "After implementing, keep the comment in place and "
+                     "ensure it begins with a DONE prefix (change TODO to "
+                     "DONE or prepend DONE if no prefix). "
+                     "If this is a pure new code block, place it after "
+                     "the comment; otherwise keep the existing structure "
+                     "and make corresponding change for the context.\n%s\n%s"
+                     "%s%s")
+                    region-location-line region-text function-context
+                    files-context-string))
            (is-comment
             (format "Please implement code for this requirement comment on line %d: '%s' first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.%s%s"
                     current-line-number current-line function-context files-context-string))
@@ -388,7 +402,7 @@ ARG is the prefix argument for clipboard context."
 
 ;;; Flycheck integration
 (defun ai-code-flycheck--get-errors-in-scope (start end)
-  "Return a list of Flycheck errors within the given START and END buffer positions."
+  "Return Flycheck errors within given START and END buffer positions."
   (when (and (bound-and-true-p flycheck-mode) flycheck-current-errors)
     (cl-remove-if-not
      (lambda (err)
@@ -504,7 +518,8 @@ or whole file.  Requires the `flycheck` package to be installed and available."
                                         "errors in file %s:\n\n%s\n%s\n"
                                         "Note: Please make the code change "
                                         "described above.")
-                                rel-file error-list-string files-context-string)
+                                rel-file error-list-string
+                                files-context-string)
                       (format (concat "Please fix the following Flycheck "
                                       "errors in %s of file %s:\n\n%s\n%s\n"
                                       "Note: Please make the code "

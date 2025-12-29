@@ -20,8 +20,9 @@
 ;;;###autoload
 (defun ai-code-debug-mcp ()
   "Debug MCP by choosing to run mcp, inspector, or generate a config.
-If current buffer is a python file, ask user to choose either 'Run mcp',
-'Run inspector', 'Open inspector.sh', or 'Generate mcp config', and call the matching helper."
+If current buffer is a python file, ask user to choose either
+\\='Run mcp\\=', \\='Run inspector\\=', \\='Open inspector.sh\\=',
+or \\='Generate mcp config\\=', and call the matching helper."
   (interactive)
   (let ((choice (completing-read "Choose MCP action: "
                                  '("Run mcp" "Run inspector" "Open inspector.sh" "Generate mcp config")
@@ -106,8 +107,10 @@ BASE-DIR-PATH and RELATIVE-PATH populate the uv command arguments."
 ;;;###autoload
 (defun ai-code-mcp-run ()
   "Run python mcp with uv command.
-Run command: uv --directory <project-root-base-dir> run <relative-path-to-current-buffer file>.
-Execute in compilation buffer named *ai-code-mcp-run:<full-path-of-python-file>*.
+Run command: uv --directory PROJECT-ROOT-BASE-DIR run
+RELATIVE-PATH-TO-CURRENT-BUFFER-FILE.
+Execute in compilation buffer named
+*ai-code-mcp-run:FULL-PATH-OF-PYTHON-FILE*.
 If current buffer is not a python file, message user and quit."
   (interactive)
   (let ((current-file (buffer-file-name)))
@@ -224,10 +227,13 @@ current buffer is unsupported or user input is missing."
                 :display-entries (cons (cons "Base directory" base-dir)
                                        display-entries)))))))
 
-(defun ai-code-mcp-inspector--build-command (is-dired base-dir base-dir-name client-port server-port relative-path)
+(defun ai-code-mcp-inspector--build-command (is-dired base-dir base-dir-name
+                                                     client-port server-port
+                                                     relative-path)
   "Construct the inspector command string for the current context.
-IS-DIRED selects interactive input, BASE-DIR and BASE-DIR-NAME describe the project,
-CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a file."
+IS-DIRED selects interactive input, BASE-DIR and BASE-DIR-NAME describe
+the project, CLIENT-PORT and SERVER-PORT configure networking, and
+RELATIVE-PATH targets a file."
   (if is-dired
       (let ((user-command (ai-code-read-string (format "Inspector command for %s: " base-dir-name))))
         (if (string-match-p "\\`[ \t\n\r]*\\'" user-command)
@@ -238,8 +244,10 @@ CLIENT-PORT and SERVER-PORT configure networking, and RELATIVE-PATH targets a fi
                   client-port server-port user-command)))
     (when relative-path
       (format
-       (concat "CLIENT_PORT=%d SERVER_PORT=%d npx @modelcontextprotocol/inspector "
-               "-e VERIFY_SSL=true -e FASTMCP_LOG_LEVEL=INFO uv run --directory %s %s ")
+       (concat "CLIENT_PORT=%d SERVER_PORT=%d "
+               "npx @modelcontextprotocol/inspector "
+               "-e VERIFY_SSL=true -e FASTMCP_LOG_LEVEL=INFO "
+               "uv run --directory %s %s ")
        client-port server-port base-dir base-dir-name))))
 
 (defun ai-code-mcp-inspector--start (context)

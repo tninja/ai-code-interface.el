@@ -11,9 +11,11 @@
 
 (require 'ai-code-backends)
 
+(declare-function claude-code "claude-code" (&optional arg))
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 (declare-function claude-code--do-send-command "claude-code" (cmd))
+(declare-function claude-code-switch-to-buffer "claude-code")
 (defvar claude-code-terminal-backend)
 
 (defgroup ai-code-grok-cli nil
@@ -57,7 +59,8 @@ When called from Lisp code, sends LINE directly without prompting."
 
 ;;;###autoload
 (defun ai-code-grok-cli-resume (&optional arg)
-  "Resume the previous Grok CLI session, when supported."
+  "Resume the previous Grok CLI session, when supported.
+ARG is passed to the underlying start function."
   (interactive "P")
   (let ((claude-code-program ai-code-grok-cli-program)
         (claude-code-program-switches ai-code-grok-cli-program-switches))
