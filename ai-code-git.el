@@ -388,7 +388,6 @@ code evolution and the reasoning behind changes."
                          context files-context-string code-sample blame-output analysis-instructions)))
     (ai-code--insert-prompt prompt))))
 
-;;;###autoload
 (defun ai-code--ensure-git-log (git-root repo-name keyword)
   "Fetch commits from the last X months as git.log under GIT-ROOT for REPO-NAME, filtered by KEYWORD.
 Returns the path to the git.log file."
@@ -472,6 +471,8 @@ This function uses `with-eval-after-load` to ensure that the
 Magit transients are modified only after Magit itself has been loaded.
 Call this function to register the AI Code commands with Magit."
   (interactive)
+  ;; Integration with magit: This with-eval-after-load is intentional
+  ;; to provide optional Magit integration without breaking when Magit is absent
   (with-eval-after-load 'magit
     ;; For magit-diff-popup (usually 'd' in status buffer)
     (transient-append-suffix 'magit-diff "r" ; "Extra" group

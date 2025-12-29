@@ -27,33 +27,33 @@
 (defgroup ai-code-github-copilot-cli nil
   "GitHub Copilot CLI integration via `claude-code'."
   :group 'tools
-  :prefix "github-copilot-cli-")
+  :prefix "ai-code-github-copilot-cli-")
 
-(defcustom github-copilot-cli-program "copilot"
+(defcustom ai-code-github-copilot-cli-program "copilot"
   "Path to the GitHub Copilot CLI executable."
   :type 'string
   :group 'ai-code-github-copilot-cli)
 
-(defcustom github-copilot-cli-program-switches nil
+(defcustom ai-code-github-copilot-cli-program-switches nil
   "Command line switches to pass to GitHub Copilot CLI on startup."
   :type '(repeat string)
   :group 'ai-code-github-copilot-cli)
 
 ;;;###autoload
-(defun github-copilot-cli (&optional arg)
+(defun ai-code-github-copilot-cli (&optional arg)
   "Start GitHub Copilot CLI (reuses `claude-code' startup logic)."
   (interactive "P")
-  (let ((claude-code-program github-copilot-cli-program) ; override dynamically
-        (claude-code-program-switches github-copilot-cli-program-switches))
+  (let ((claude-code-program ai-code-github-copilot-cli-program) ; override dynamically
+        (claude-code-program-switches ai-code-github-copilot-cli-program-switches))
     (claude-code arg)))
 
 ;;;###autoload
-(defun github-copilot-cli-switch-to-buffer ()
+(defun ai-code-github-copilot-cli-switch-to-buffer ()
   (interactive)
   (claude-code-switch-to-buffer))
 
 ;;;###autoload
-(defun github-copilot-cli-send-command (line)
+(defun ai-code-github-copilot-cli-send-command (line)
   "Send LINE to GitHub Copilot CLI programmatically or interactively.
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
@@ -61,7 +61,7 @@ When called from Lisp code, sends LINE directly without prompting."
   (claude-code--do-send-command line))
 
 ;;;###autoload
-(defun github-copilot-cli-resume (&optional arg)
+(defun ai-code-github-copilot-cli-resume (&optional arg)
   "Resume a previous GitHub Copilot CLI session.
 
 This command starts GitHub Copilot CLI with the --resume flag to resume
@@ -75,8 +75,8 @@ or the current value of `default-directory' if no project and no buffer file.
 With double prefix ARG (\\[universal-argument] \\[universal-argument]),
 prompt for the project directory."
   (interactive "P")
-  (let ((claude-code-program github-copilot-cli-program)
-        (claude-code-program-switches github-copilot-cli-program-switches)
+  (let ((claude-code-program ai-code-github-copilot-cli-program)
+        (claude-code-program-switches ai-code-github-copilot-cli-program-switches)
         (extra-switches '("--resume")))
     (claude-code--start arg extra-switches nil t)
     ;; Send empty string to trigger terminal processing and ensure CLI session picker appears

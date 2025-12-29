@@ -197,6 +197,8 @@ Otherwise, run the original command for SPC."
     (when ai-code--original-spc-command-in-evil-normal-state
       (call-interactively ai-code--original-spc-command-in-evil-normal-state))))
 
+;; Integration with evil-mode: This with-eval-after-load is intentional
+;; to provide optional Evil integration without requiring Evil as a dependency
 (with-eval-after-load 'evil
   (when (boundp 'evil-normal-state-map)
     (unless ai-code--original-spc-command-in-evil-normal-state

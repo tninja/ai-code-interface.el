@@ -22,33 +22,33 @@
 (defgroup ai-code-codex-cli nil
   "Codex CLI integration via `claude-code'."
   :group 'tools
-  :prefix "codex-cli-")
+  :prefix "ai-code-codex-cli-")
 
-(defcustom codex-cli-program "codex"
+(defcustom ai-code-codex-cli-program "codex"
   "Path to the Codex CLI executable."
   :type 'string
   :group 'ai-code-codex-cli)
 
-(defcustom codex-cli-program-switches nil
+(defcustom ai-code-codex-cli-program-switches nil
   "Command line switches to pass to Codex CLI on startup."
   :type '(repeat string)
   :group 'ai-code-codex-cli)
 
 ;;;###autoload
-(defun codex-cli (&optional arg)
+(defun ai-code-codex-cli (&optional arg)
   "Start Codex (reuses `claude-code' startup logic)."
   (interactive "P")
-  (let ((claude-code-program codex-cli-program) ; override dynamically
-        (claude-code-program-switches codex-cli-program-switches))
+  (let ((claude-code-program ai-code-codex-cli-program) ; override dynamically
+        (claude-code-program-switches ai-code-codex-cli-program-switches))
     (claude-code arg)))
 
 ;;;###autoload
-(defun codex-cli-switch-to-buffer ()
+(defun ai-code-codex-cli-switch-to-buffer ()
   (interactive)
   (claude-code-switch-to-buffer))
 
 ;;;###autoload
-(defun codex-cli-send-command (line)
+(defun ai-code-codex-cli-send-command (line)
   "Send LINE to Codex CLI programmatically or interactively.
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
@@ -56,11 +56,11 @@ When called from Lisp code, sends LINE directly without prompting."
   (claude-code--do-send-command line))
 
 ;;;###autoload
-(defun codex-cli-resume (&optional arg)
+(defun ai-code-codex-cli-resume (&optional arg)
   "Resume a previous Codex CLI session."
   (interactive "P")
-  (let ((claude-code-program codex-cli-program)
-        (claude-code-program-switches codex-cli-program-switches))
+  (let ((claude-code-program ai-code-codex-cli-program)
+        (claude-code-program-switches ai-code-codex-cli-program-switches))
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend

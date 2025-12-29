@@ -24,38 +24,38 @@
 (defgroup ai-code-opencode nil
   "Opencode integration via `claude-code'."
   :group 'tools
-  :prefix "opencode-")
+  :prefix "ai-code-opencode-")
 
-(defcustom opencode-program "opencode"
+(defcustom ai-code-opencode-program "opencode"
   "Path to the Opencode executable."
   :type 'string
   :group 'ai-code-opencode)
 
-(defcustom opencode-program-switches nil
+(defcustom ai-code-opencode-program-switches nil
   "Command line switches to pass to Opencode on startup."
   :type '(repeat string)
   :group 'ai-code-opencode)
 
 ;;;###autoload
-(defun opencode (&optional arg)
+(defun ai-code-opencode (&optional arg)
   "Start Opencode (reuses `claude-code' startup logic)."
   (interactive "P")
-  (let ((claude-code-program opencode-program) ; override dynamically
-        (claude-code-program-switches opencode-program-switches))
+  (let ((claude-code-program ai-code-opencode-program) ; override dynamically
+        (claude-code-program-switches ai-code-opencode-program-switches))
     (claude-code arg)))
 
 ;;;###autoload
-(defun opencode-switch-to-buffer ()
+(defun ai-code-opencode-switch-to-buffer ()
   (interactive)
   (claude-code-switch-to-buffer))
 
 ;;;###autoload
-(defun opencode-send-command (line)
+(defun ai-code-opencode-send-command (line)
   (interactive "sOpencode> ")
   (claude-code-send-command line))
 
 ;;;###autoload
-(defun opencode-resume (&optional arg)
+(defun ai-code-opencode-resume (&optional arg)
   "Resume a previous Opencode session.
 
 This command starts Opencode with the --resume flag to resume
@@ -69,8 +69,8 @@ or the current value of `default-directory' if no project and no buffer file.
 With double prefix ARG (\\[universal-argument] \\[universal-argument]),
 prompt for the project directory."
   (interactive "P")
-  (let ((claude-code-program opencode-program)
-        (claude-code-program-switches opencode-program-switches))
+  (let ((claude-code-program ai-code-opencode-program)
+        (claude-code-program-switches ai-code-opencode-program-switches))
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend

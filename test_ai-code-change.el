@@ -12,7 +12,7 @@
 (require 'ert)
 (require 'ai-code-change)
 
-(ert-deftest test-ai-code--get-function-name-for-comment-basic ()
+(ert-deftest ai-code-test-ai-code--get-function-name-for-comment-basic ()
   "Test function name detection when on a comment line before function body.
 This simulates the Ruby example from the issue where a TODO comment
 is between the function definition and its body."
@@ -49,7 +49,7 @@ is between the function definition and its body."
       (let ((result (ai-code--get-function-name-for-comment)))
         (should (string= result "Bar#click_first_available"))))))
 
-(ert-deftest test-ai-code--get-function-name-for-comment-no-function ()
+(ert-deftest ai-code-test-ai-code--get-function-name-for-comment-no-function ()
   "Test function name detection when comment is not followed by a function."
   (with-temp-buffer
     (setq-local comment-start "# ")
@@ -60,7 +60,7 @@ is between the function definition and its body."
       (let ((result (ai-code--get-function-name-for-comment)))
         (should (null result))))))
 
-(ert-deftest test-ai-code--get-function-name-for-comment-multiple-comments ()
+(ert-deftest ai-code-test-ai-code--get-function-name-for-comment-multiple-comments ()
   "Test function name detection with multiple comment lines before function."
   (with-temp-buffer
     (setq-local comment-start "# ")
@@ -82,7 +82,7 @@ is between the function definition and its body."
       (let ((result (ai-code--get-function-name-for-comment)))
         (should (string= result "my_function"))))))
 
-(ert-deftest test-ai-code--get-function-name-for-comment-same-function ()
+(ert-deftest ai-code-test-ai-code--get-function-name-for-comment-same-function ()
   "Test that when comment and next line are in same function, we get that function."
   (with-temp-buffer
     (setq-local comment-start "# ")
@@ -97,7 +97,7 @@ is between the function definition and its body."
       (let ((result (ai-code--get-function-name-for-comment)))
         (should (string= result "my_function"))))))
 
-(ert-deftest test-ai-code--is-comment-line ()
+(ert-deftest ai-code-test-ai-code--is-comment-line ()
   "Test comment line detection."
   ;; Test with hash comment
   (let ((comment-start "# "))
@@ -117,7 +117,7 @@ is between the function definition and its body."
     (should (ai-code--is-comment-line "  // This is an indented comment"))
     (should-not (ai-code--is-comment-line "This is not a comment"))))
 
-(ert-deftest test-ai-code--is-comment-block ()
+(ert-deftest ai-code-test-ai-code--is-comment-block ()
   "Test comment block detection using `ai-code--is-comment-block`."
   (with-temp-buffer
     (setq-local comment-start ";")
@@ -144,7 +144,7 @@ is between the function definition and its body."
       ;; Test with only newlines (should pass as blank lines are allowed)
       (should (ai-code--is-comment-block "\n\n")))))
 
-(ert-deftest test-ai-code-implement-todo-region-validation ()
+(ert-deftest ai-code-test-ai-code-implement-todo-region-validation ()
   "Test ai-code-implement-todo raises error for non-comment region."
   (with-temp-buffer
     (setq buffer-file-name "test.el")
@@ -166,7 +166,7 @@ is between the function definition and its body."
       ;; Should signal user-error
       (should-error (ai-code-implement-todo nil) :type 'user-error))))
 
-(ert-deftest test-ai-code-implement-todo-blank-line ()
+(ert-deftest ai-code-test-ai-code-implement-todo-blank-line ()
   "Test ai-code-implement-todo on a blank line inserts TODO."
   (with-temp-buffer
     ;; Set up environment
@@ -197,7 +197,7 @@ is between the function definition and its body."
       ;; Since we are in temp buffer with no major mode, indentation might be 0.
       (should (looking-at-p "; TODO: my task")))))
 
-(ert-deftest test-ai-code-implement-todo-done-line-toggle ()
+(ert-deftest ai-code-test-ai-code-implement-todo-done-line-toggle ()
   "Test ai-code-implement-todo toggles DONE to TODO when toggle action is selected."
   (with-temp-buffer
     (setq buffer-file-name "test.el")
@@ -219,7 +219,7 @@ is between the function definition and its body."
         (forward-line 1)
         (should (looking-at-p ";; TODO: completed task"))))))
 
-(ert-deftest test-ai-code-implement-todo-done-line-delete ()
+(ert-deftest ai-code-test-ai-code-implement-todo-done-line-delete ()
   "Test ai-code-implement-todo deletes DONE line when delete action is selected."
   (with-temp-buffer
     (setq buffer-file-name "test.el")
@@ -240,7 +240,7 @@ is between the function definition and its body."
         (goto-char (point-min))
         (should (looking-at-p "Line 1\nLine 3"))))))
 
-(ert-deftest test-ai-code-implement-todo-done-line-keep ()
+(ert-deftest ai-code-test-ai-code-implement-todo-done-line-keep ()
   "Test ai-code-implement-todo keeps DONE line when keep action is selected."
   (with-temp-buffer
     (setq buffer-file-name "test.el")
@@ -262,7 +262,7 @@ is between the function definition and its body."
         (forward-line 1)
         (should (looking-at-p ";; DONE: completed task"))))))
 
-(ert-deftest test-ai-code-implement-todo-done-line-not-detected-on-non-done ()
+(ert-deftest ai-code-test-ai-code-implement-todo-done-line-not-detected-on-non-done ()
   "Test ai-code--implement-todo--handle-done-line returns nil for non-DONE lines."
   (with-temp-buffer
     (setq-local comment-start ";")
@@ -275,7 +275,7 @@ is between the function definition and its body."
         ;; Should return nil as the line is not a DONE line
         (should-not result)))))
 
-(ert-deftest test-ai-code-implement-todo-done-line-not-detected-with-region ()
+(ert-deftest ai-code-test-ai-code-implement-todo-done-line-not-detected-with-region ()
   "Test ai-code--implement-todo--handle-done-line returns nil when region is active."
   (with-temp-buffer
     (setq-local comment-start ";")
@@ -289,7 +289,7 @@ is between the function definition and its body."
         ;; Should return nil as region is active
         (should-not result)))))
 
-(ert-deftest test-ai-code-implement-todo-done-line-with-different-comment-styles ()
+(ert-deftest ai-code-test-ai-code-implement-todo-done-line-with-different-comment-styles ()
   "Test DONE line detection works with different comment styles."
   ;; Test with hash comment (Python/Ruby style)
   (with-temp-buffer
@@ -319,7 +319,7 @@ is between the function definition and its body."
         (goto-char (point-min))
         (should (looking-at-p "// TODO: java task"))))))
 
-(ert-deftest test-ai-code-implement-todo-done-line-with-indentation ()
+(ert-deftest ai-code-test-ai-code-implement-todo-done-line-with-indentation ()
   "Test DONE line detection works with indented comments."
   (with-temp-buffer
     (setq-local comment-start ";")

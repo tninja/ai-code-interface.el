@@ -20,34 +20,34 @@
 (defgroup ai-code-grok-cli nil
   "Grok CLI integration via `claude-code'."
   :group 'tools
-  :prefix "grok-cli-")
+  :prefix "ai-code-grok-cli-")
 
-(defcustom grok-cli-program "grok"
+(defcustom ai-code-grok-cli-program "grok"
   "Path to the Grok CLI executable."
   :type 'string
   :group 'ai-code-grok-cli)
 
-(defcustom grok-cli-program-switches nil
+(defcustom ai-code-grok-cli-program-switches nil
   "Command line switches to pass to Grok CLI on startup."
   :type '(repeat string)
   :group 'ai-code-grok-cli)
 
 ;;;###autoload
-(defun grok-cli (&optional arg)
+(defun ai-code-grok-cli (&optional arg)
   "Start Grok CLI by leveraging `claude-code'."
   (interactive "P")
-  (let ((claude-code-program grok-cli-program)
-        (claude-code-program-switches grok-cli-program-switches))
+  (let ((claude-code-program ai-code-grok-cli-program)
+        (claude-code-program-switches ai-code-grok-cli-program-switches))
     (claude-code arg)))
 
 ;;;###autoload
-(defun grok-cli-switch-to-buffer ()
+(defun ai-code-grok-cli-switch-to-buffer ()
   "Switch to the Grok CLI buffer."
   (interactive)
   (claude-code-switch-to-buffer))
 
 ;;;###autoload
-(defun grok-cli-send-command (line)
+(defun ai-code-grok-cli-send-command (line)
   "Send LINE to Grok CLI programmatically or interactively.
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
@@ -55,11 +55,11 @@ When called from Lisp code, sends LINE directly without prompting."
   (claude-code--do-send-command line))
 
 ;;;###autoload
-(defun grok-cli-resume (&optional arg)
+(defun ai-code-grok-cli-resume (&optional arg)
   "Resume the previous Grok CLI session, when supported."
   (interactive "P")
-  (let ((claude-code-program grok-cli-program)
-        (claude-code-program-switches grok-cli-program-switches))
+  (let ((claude-code-program ai-code-grok-cli-program)
+        (claude-code-program-switches ai-code-grok-cli-program-switches))
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend

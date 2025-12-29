@@ -14,7 +14,7 @@
 (require 'ai-code-prompt-mode)
 (require 'ai-code-discussion)
 
-(ert-deftest test-ai-code-gitignore-regex-pattern ()
+(ert-deftest ai-code-test-ai-code-gitignore-regex-pattern ()
   "Test that the regex pattern correctly matches entries in .gitignore.
 This is a unit test for the regex pattern used in ai-code-update-git-ignore."
   (let ((gitignore-content "# Test .gitignore file
@@ -88,7 +88,7 @@ other-file"))
                              gitignore-end)))))
 
 
-(ert-deftest test-ai-code-update-git-ignore-no-duplicates ()
+(ert-deftest ai-code-test-ai-code-update-git-ignore-no-duplicates ()
   "Test that ai-code-update-git-ignore does not add duplicate entries.
 When .gitignore already contains the required entries, they should
 not be added again."
@@ -143,7 +143,7 @@ not be added again."
       ;; Cleanup
       (delete-directory temp-dir t))))
 
-(ert-deftest test-ai-code-update-git-ignore-adds-missing ()
+(ert-deftest ai-code-test-ai-code-update-git-ignore-adds-missing ()
   "Test that ai-code-update-git-ignore adds missing entries.
 When .gitignore is missing some entries, they should be added."
   (let* ((temp-dir (make-temp-file "ai-code-test-" t))
