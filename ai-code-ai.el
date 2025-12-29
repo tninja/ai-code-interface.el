@@ -85,7 +85,7 @@ BASE-DIR-PATH and RELATIVE-PATH populate the uv command arguments."
      `(("mcpServers"
         . ((,server-label
             . (("command" . "uv")
-               ("args" . ["--directory" ,base-dir-path "run" ,relative-path]))))))))
+               ("args" . ["--directory" ,base-dir-path "run" ,relative-path])))))))))
 
 (defun ai-code--mcp-config-toml (server-label base-dir-path relative-path)
   "Return Codex TOML MCP config snippet for SERVER-LABEL.
