@@ -369,7 +369,7 @@ ARG is the prefix argument for clipboard context."
            ;;          (file-name-nondirectory buffer-file-name) files-context-string))
            ;; DONE: otherwise, let user know the current line is not a comment and cannot proceed
            (t
-            (user-error "Current line is not a TODO comment and cannot proceed with `ai-code-implement-todo`. Please select a TODO comment (not DONE), a region of comments, or activate on a blank line."))))
+            (user-error "Current line is not a TODO comment and cannot proceed with `ai-code-implement-todo'.  Please select a TODO comment (not DONE), a region of comments, or activate on a blank line"))))
          (prompt (ai-code-read-string prompt-label initial-input))
          (final-prompt
           (concat prompt

@@ -611,7 +611,7 @@ If current file is a test file (contains 'test' in name), provide prompt to fix 
   (let* ((is-test-buffer (and (buffer-file-name) (string-match-p "test" (buffer-file-name))))
          (initial-input
           (if is-test-buffer
-              (format "Current test file: %s\ntest function: %s\n is failing. Please fix the code to make the test pass.\nTest failure details: " 
+              (format "Current test file: %s\ntest function: %s\n is failing. Please fix the code to make the test pass.\nTest failure details: "
                       (file-name-nondirectory (buffer-file-name))
                       (or function-name "some test functions"))
             (if function-name

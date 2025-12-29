@@ -271,8 +271,8 @@ Inserts the prompt into the AI prompt file and optionally sends to AI."
                      "file"))
          (initial-prompt (if git-relative-path
                             (format "Please explain the %s at path @%s.\n\nProvide a clear explanation of what this %s contains, its purpose, and its role in the project structure.%s"
-                                   file-type 
-                                   git-relative-path 
+                                   file-type
+                                   git-relative-path
                                    file-type
                                    (or files-context-string ""))
                           "No file or directory found at cursor point."))

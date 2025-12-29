@@ -43,7 +43,7 @@ This is the file name without path."
 
 (defun ai-code--setup-snippets ()
   "Setup YASnippet directories for `ai-code-prompt-mode`."
-  (condition-case nil
+  (condition-case err
       (when (require 'yasnippet nil t)
         (let ((snippet-dir (expand-file-name "snippets"
                                              (file-name-directory (file-truename (locate-library "ai-code-interface"))))))

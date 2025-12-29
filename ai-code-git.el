@@ -119,7 +119,7 @@ Returns a cons cell (RESOLVED-BASE . RESOLVED-FEATURE)."
          ('remote
           ;; For remote scope, explicitly try to use origin/ prefixed branches
           ;; Add origin/ prefix if not already present
-          (setq resolved-base-branch 
+          (setq resolved-base-branch
                 (if (string-prefix-p "origin/" input-base-branch)
                     input-base-branch
                   (concat "origin/" input-base-branch)))

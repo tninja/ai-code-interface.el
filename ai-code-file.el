@@ -80,7 +80,7 @@ File paths are processed to relative paths with @ prefix if within git repo."
     (if path-to-copy
         (progn
           (kill-new path-to-copy)
-          (message (format "copied %s to clipboard" path-to-copy)))
+          (message "copied %s to clipboard" path-to-copy))
       (message "No file path available to copy"))))
 
 ;;;###autoload
@@ -234,7 +234,7 @@ Return the final command string."
                      t)
                   initial-command))
             initial-command))
-         (command 
+         (command
           (if (string-prefix-p ":" initial-command)
               ;; If command starts with :, treat as prompt for AI
               (let* ((base-prompt (concat "Generate a shell command (pure command, no fense, no duplicate) for: " (substring initial-command 1)))
@@ -283,7 +283,7 @@ INITIAL-INPUT is the initial text to populate the shell command prompt."
                           default-directory)
                          (t nil))))
       (unless current-dir
-        (user-error "Cannot determine working directory: requires either a dired buffer or initial input."))
+        (user-error "Cannot determine working directory: requires either a dired buffer or initial input"))
       (let* ((command (ai-code--generate-shell-command initial-input))
              (buffer-name (format "*ai-code-shell-cmd: %s*" (directory-file-name current-dir))))
         (when (and command (not (string= command "")))
