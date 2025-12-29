@@ -10,7 +10,6 @@
 ;;
 ;;; Code:
 
-(require 'claude-code)
 (require 'ai-code-backends)
 
 (defvar claude-code-program)

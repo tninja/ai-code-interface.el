@@ -10,7 +10,6 @@
 ;;
 ;;; Code:
 
-(require 'claude-code)
 (require 'ai-code-backends)
 
 (declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))

@@ -2,7 +2,7 @@
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; Version: 0.72
-;; Package-Requires: ((emacs "26.1") (transient "0.8.0") (magit "2.1.0") (claude-code "0.4.5"))
+;; Package-Requires: ((emacs "26.1") (transient "0.8.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
 ;; SPDX-License-Identifier: Apache-2.0
