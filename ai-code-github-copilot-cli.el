@@ -87,3 +87,4 @@ prompt for the project directory."
 (provide 'ai-code-github-copilot-cli)
 
 ;;; ai-code-github-copilot-cli.el ends here
+
