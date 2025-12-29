@@ -268,7 +268,7 @@ Return the final command string."
 If current buffer is a Dired buffer, get user input shell command with
 `read-string', then run it under the directory of Dired buffer, in a
 buffer with name as *ai-code-shell-cmd: <current-dir>*.  If current
-buffer is `shell-mode', eshell-mode or sh-mode, get input and insert
+buffer is `shell-mode', `eshell-mode' or sh-mode, get input and insert
 command under cursor, do not run it.  If the command starts with
 \\=':\\=', it means it is a prompt.  In this case, ask gptel to generate
 the corresponding shell command, and call `ai-code-shell-cmd' with that

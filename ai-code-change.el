@@ -298,7 +298,7 @@ Returns non-nil if handled and the caller should exit."
              (or (not (thing-at-point 'line t)) (string-blank-p (thing-at-point 'line t)))
              comment-start)
     (let ((todo-text (ai-code-read-string "Enter TODO comment: "))
-          (comment-prefix (if (eq major-mode 'emacs-lisp-mode)
+          (comment-prefix (if (derived-mode-p 'emacs-lisp-mode)
                               (let* ((trimmed (string-trim-right comment-start)))
                                 (if (= (length trimmed) 1)
                                     (make-string 2 (string-to-char trimmed))
