@@ -2,7 +2,7 @@
 
 ;; Author: Kang Tu <tninja@gmail.com>
 
-;; Package-Requires: ((emacs "26.1") (org "9.0") (magit "3.0.0") (transient "0.3.7"))
+;; Package-Requires: ((emacs "26.1") (transient "0.8.0") (magit "2.1.0"))
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
