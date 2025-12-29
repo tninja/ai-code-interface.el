@@ -77,40 +77,40 @@ When called from Lisp code, sends CMD directly without prompting."
     (github-copilot-cli
      :label "GitHub Copilot CLI"
      :require ai-code-github-copilot-cli
-     :start   github-copilot-cli
-     :switch  github-copilot-cli-switch-to-buffer
-     :send    github-copilot-cli-send-command
-     :resume  github-copilot-cli-resume
+     :start   ai-code-github-copilot-cli
+     :switch  ai-code-github-copilot-cli-switch-to-buffer
+     :send    ai-code-github-copilot-cli-send-command
+     :resume  ai-code-github-copilot-cli-resume
      :config  "~/.copilot/mcp-config.json"
      :upgrade "npm install -g @github/copilot"
      :cli     "copilot")
     (codex
      :label "OpenAI Codex CLI"
      :require ai-code-codex-cli
-     :start   codex-cli
-     :switch  codex-cli-switch-to-buffer
-     :send    codex-cli-send-command
-     :resume  codex-cli-resume
+     :start   ai-code-codex-cli
+     :switch  ai-code-codex-cli-switch-to-buffer
+     :send    ai-code-codex-cli-send-command
+     :resume  ai-code-codex-cli-resume
      :config  "~/.codex/config.toml"
      :upgrade "npm install -g @openai/codex@latest"
      :cli     "codex")
     (opencode
      :label "Opencode"
      :require ai-code-opencode
-     :start   opencode
-     :switch  opencode-switch-to-buffer
-     :send    opencode-send-command
-     :resume  opencode-resume
+     :start   ai-code-opencode
+     :switch  ai-code-opencode-switch-to-buffer
+     :send    ai-code-opencode-send-command
+     :resume  ai-code-opencode-resume
      :config  "~/.opencode.json"
      :upgrade "npm i -g opencode-ai@latest"
      :cli     "opencode")
     (grok
      :label "Grok CLI"
      :require ai-code-grok-cli
-     :start   grok-cli
-     :switch  grok-cli-switch-to-buffer
-     :send    grok-cli-send-command
-     :resume  grok-cli-resume
+     :start   ai-code-grok-cli
+     :switch  ai-code-grok-cli-switch-to-buffer
+     :send    ai-code-grok-cli-send-command
+     :resume  ai-code-grok-cli-resume
      :config  "~/.config/grok/config.json"
      :upgrade nil
      :cli     "grok"))
