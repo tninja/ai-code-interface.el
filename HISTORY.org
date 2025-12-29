@@ -3,6 +3,9 @@
 
 ** Main branch change
 
+** 0.73
+- Fix: Fix errors and warnings reported by melpazoid workflow
+
 ** 0.72
 - Feat: Add unit-test running support for TDD cycle
 - Chore: Improve TDD flow, red and green stage
