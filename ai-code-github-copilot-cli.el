@@ -45,7 +45,6 @@ ARG is passed to `claude-code'."
   (interactive "P")
   (let ((claude-code-program ai-code-github-copilot-cli-program)
         (claude-code-program-switches ai-code-github-copilot-cli-program-switches))
-    (ignore claude-code-program claude-code-program-switches)
     (claude-code arg)))
 
 ;;;###autoload

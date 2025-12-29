@@ -44,7 +44,6 @@ ARG is passed to `claude-code'."
   (interactive "P")
   (let ((claude-code-program ai-code-opencode-program)
         (claude-code-program-switches ai-code-opencode-program-switches))
-    (ignore claude-code-program claude-code-program-switches)
     (claude-code arg)))
 
 ;;;###autoload
@@ -77,7 +76,6 @@ prompt for the project directory."
   (interactive "P")
   (let ((claude-code-program ai-code-opencode-program)
         (claude-code-program-switches ai-code-opencode-program-switches))
-    (ignore claude-code-program claude-code-program-switches)
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend

@@ -40,7 +40,6 @@ ARG is passed to `claude-code'."
   (interactive "P")
   (let ((claude-code-program ai-code-grok-cli-program)
         (claude-code-program-switches ai-code-grok-cli-program-switches))
-    (ignore claude-code-program claude-code-program-switches)
     (claude-code arg)))
 
 ;;;###autoload
@@ -64,7 +63,6 @@ ARG is passed to the underlying start function."
   (interactive "P")
   (let ((claude-code-program ai-code-grok-cli-program)
         (claude-code-program-switches ai-code-grok-cli-program-switches))
-    (ignore claude-code-program claude-code-program-switches)
     (claude-code--start arg '("resume") nil t)
     (claude-code--term-send-string claude-code-terminal-backend "")
     (with-current-buffer claude-code-terminal-backend
