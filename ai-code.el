@@ -14,3 +14,5 @@
 (require 'ai-code-interface)
 
 (provide 'ai-code)
+
+;;; ai-code.el ends here
