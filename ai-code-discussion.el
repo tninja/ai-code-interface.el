@@ -306,13 +306,21 @@ into the AI prompt file and optionally sends to AI."
 
 (defun ai-code--explain-with-scope-selection ()
   "Prompt user to select explanation scope and explain accordingly."
-  (let* ((choices '("symbol" "line" "function" "file"))
+  (let* ((choices '("symbol" "line" "function" "file" "files visible" "git repository"))
          (scope (completing-read "Select scope to explain: " choices nil t)))
+    ;; DONE: Add support for explain files visible. files visible
+    ;; should came from ai-code--get-context-files-string. Detail
+    ;; implementation for this should be in separate function,
+    ;; following exist code pattern
+    ;; DONE: Add support for explain current git repo when there is.
+    ;; Ask AI to check through the repo before explaining, following exist code pattern
     (pcase scope
       ("symbol" (ai-code--explain-symbol))
       ("line" (ai-code--explain-line))
       ("function" (ai-code--explain-function))
-      ("file" (ai-code--explain-file)))))
+      ("file" (ai-code--explain-file))
+      ("files visible" (ai-code--explain-files-visible))
+      ("git repository" (ai-code--explain-git-repo)))))
 
 (defun ai-code--explain-symbol ()
   "Explain the symbol at point."
@@ -368,6 +376,29 @@ Explain what this function does, its parameters, return value, algorithm, and it
            (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
       (when final-prompt
         (ai-code--insert-prompt final-prompt)))))
+
+(defun ai-code--explain-files-visible ()
+  "Explain all files visible in the current window."
+  (let ((files-context (ai-code--get-context-files-string)))
+    (if (string-empty-p files-context)
+        (user-error "No visible files with names found")
+      (let* ((initial-prompt (format "Please explain the following files:%s\n\nProvide an overview of these files, their relationships, and how they collectively contribute to the project's functionality."
+                                   files-context))
+             (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
+        (when final-prompt
+          (ai-code--insert-prompt final-prompt))))))
+
+(defun ai-code--explain-git-repo ()
+  "Explain the current git repository."
+  (let ((git-root (magit-toplevel)))
+    (if (not git-root)
+        (user-error "Not in a git repository")
+      (let* ((repo-name (file-name-nondirectory (directory-file-name git-root)))
+             (initial-prompt (format "Please explain the current git repository: %s\nPath: %s\n\nProvide a comprehensive overview of this repository, its architecture, main technologies used, key modules, and how the different parts of the system interact."
+                                   repo-name git-root))
+             (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
+        (when final-prompt
+          (ai-code--insert-prompt final-prompt))))))
 
 ;;;###autoload
 (defcustom ai-code-notes-file-name ".ai.code.notes.org"

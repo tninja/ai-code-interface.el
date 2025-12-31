@@ -162,7 +162,7 @@ Shows the current backend label to the right."
     ("c" "Code change (C-u: clipboard)" ai-code-code-change)
     ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
     ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
-    ("x" "Explain code" ai-code-explain)
+    ("x" "Explain code in scope" ai-code-explain)
     ("<SPC>" "Send command (C-u: clipboard)" ai-code-send-command)
     ("@" "Add context (C-u: clear)" ai-code-context-action)
     ]
