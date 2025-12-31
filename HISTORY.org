@@ -5,6 +5,7 @@
 
 ** 0.74
 - Feat: Add ai-code-insert-function-at-point, it is useful during writing TODO comment, to implement a feature referring to an existing function, from visible buffers
+- Feat: Explain code in scope feature added choices: A. files visible; B. git repository
 
 ** 0.73
 - Fix: Fix errors and warnings reported by melpazoid workflow
