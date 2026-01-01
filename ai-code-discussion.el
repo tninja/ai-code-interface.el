@@ -308,12 +308,6 @@ into the AI prompt file and optionally sends to AI."
   "Prompt user to select explanation scope and explain accordingly."
   (let* ((choices '("symbol" "line" "function" "file" "files visible" "git repository"))
          (scope (completing-read "Select scope to explain: " choices nil t)))
-    ;; DONE: Add support for explain files visible. files visible
-    ;; should came from ai-code--get-context-files-string. Detail
-    ;; implementation for this should be in separate function,
-    ;; following exist code pattern
-    ;; DONE: Add support for explain current git repo when there is.
-    ;; Ask AI to check through the repo before explaining, following exist code pattern
     (pcase scope
       ("symbol" (ai-code--explain-symbol))
       ("line" (ai-code--explain-line))
