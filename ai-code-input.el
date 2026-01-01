@@ -120,13 +120,6 @@ The current buffer's file is always first."
           (concat "\nFiles:\n" (mapconcat #'identity sorted-files "\n"))
         ""))))
 
-;; DONE: add an interactive function:
-;; ai-code-insert-function-at-point. It will check all prog-mode
-;; derived buffer in current window, get all function names in these
-;; buffers, sort them by alphabet, and ask user to select one. User
-;; can also input different function name. After that, it will insert
-;; the function name at current point.
-
 (defun ai-code--flatten-imenu-index (index)
   "Flatten imenu INDEX alist into a list of strings."
   (let (result)
