@@ -351,7 +351,7 @@ in the form filepath#Lstart-Lend."
                        nil 'current-frame)
                       (nreverse roots)))
          (ordered-roots (if (and current-root (member current-root all-roots))
-                            (cons current-root (delete current-root all-roots))
+                            (cons current-root (remove current-root all-roots))
                           all-roots))
          (repo-root (cond
                      ((null ordered-roots)
