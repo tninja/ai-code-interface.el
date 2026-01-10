@@ -18,6 +18,7 @@
 (require 'ai-code-prompt-mode)
 
 (declare-function ai-code-read-string "ai-code-input")
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (prompt))
 
@@ -322,6 +323,29 @@ is active; otherwise run the current file."
       (ai-code-shell-cmd initial-input)))
    (t
     (ai-code-run-current-file))))
+
+;;;###autoload
+(defun ai-code-build-project ()
+  "Build the current project.
+Check for build.sh in the git root and run it if found.
+Otherwise, ask AI to generate a build command."
+  (interactive)
+  ;; DONE: add interactive function ai-code-build. It will firstly check
+  ;; if build.sh exist in current git repo root dir. If found, run it.
+  ;; Otherwise, ask AI to build current project given git repo root dir
+  ;; as context.
+  (let* ((git-root (magit-toplevel))
+         (build-script (when git-root (expand-file-name "build.sh" git-root))))
+    (if (and build-script (file-exists-p build-script))
+        (let ((default-directory git-root)
+              (buffer-name (format "*ai-code-build: %s*" (file-name-nondirectory (directory-file-name git-root)))))
+          (compilation-start "bash build.sh" nil (lambda (_mode) (generate-new-buffer-name buffer-name))))
+      (let* ((repo-context (ai-code--format-repo-context-info))
+             (initial-input (concat "Build the current project. Provide the build command and execute it if possible. "
+                             (when git-root (format "\nGit root: %s" git-root))
+                             (when repo-context (concat "\n" repo-context))))
+             (prompt (ai-code-read-string "Send to AI: " initial-input)))
+        (ai-code--insert-prompt prompt)))))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
   "Hash table storing context info lists per Git repository root.")

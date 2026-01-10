@@ -212,6 +212,7 @@ Shows the current backend label to the right."
     ("p" "Open prompt file" ai-code-open-prompt-file)
     ("b" "Send prompt block to AI" ai-code-prompt-send-block)
     ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
+    ("B" "Build project"               ai-code-build-project)
     ("I" "Insert function name at point" ai-code-insert-function-at-point)
     ]
    ["Other Tools"
