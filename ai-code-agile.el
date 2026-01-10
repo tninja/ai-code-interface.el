@@ -12,6 +12,7 @@
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
 (require 'thingatpt)
+(require 'which-func)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--get-context-files-string "ai-code-input")
@@ -625,6 +626,17 @@ to fix code."
                   implementation-desc file-info)))
     (ai-code--insert-prompt tdd-instructions)))
 
+(defun ai-code--run-test-ai-assisted ()
+  "Run tests by sending a prompt to AI with current context."
+  (let* ((function-name (which-function))
+         (file-info (ai-code--get-context-files-string))
+         (prompt (format "Run the tests for the current %s using appropriate @test/** runner.%s"
+                         (if function-name
+                             (format "function '%s'" function-name)
+                           "file")
+                         file-info)))
+    (ai-code--insert-prompt prompt)))
+
 ;;;###autoload
 (defun ai-code-run-test ()
   "Run tests based on the current buffer's mode.
@@ -635,7 +647,9 @@ them if available."
    ((derived-mode-p 'python-mode)
     (if (fboundp 'python-pytest-popup)
         (python-pytest-popup)
-      (message "emacs-python-pytest package is required to run python test.")))
+      (progn
+        (message "emacs-python-pytest package is required to run python test.")
+        (ai-code--run-test-ai-assisted))))
    ((or (derived-mode-p 'js-mode)
         (derived-mode-p 'js-ts-mode)
         (derived-mode-p 'typescript-mode)
@@ -643,12 +657,14 @@ them if available."
         (derived-mode-p 'rjsx-mode))
     (if (fboundp 'jest-popup)
         (jest-popup)
-      (message "jest package is required to run js/ts test.")))
+      (progn
+        (message "jest package is required to run js/ts test.")
+        (ai-code--run-test-ai-assisted))))
    ((derived-mode-p 'emacs-lisp-mode)
     (require 'ert)
     (ert t))
    (t
-    (message "Test runner not supported for current mode: %s" major-mode))))
+    (ai-code--run-test-ai-assisted))))
 
 ;;;###autoload
 (defun ai-code-tdd-cycle ()
