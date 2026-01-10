@@ -630,7 +630,7 @@ to fix code."
   "Run tests by sending a prompt to AI with current context."
   (let* ((function-name (which-function))
          (file-info (ai-code--get-context-files-string))
-         (initial-input (format "Run the tests for the current %s using appropriate @test/** runner.%s"
+         (initial-input (format "Run the tests for the current %s using appropriate test_runner.%s"
                          (if function-name
                              (format "function '%s'" function-name)
                            "file")
