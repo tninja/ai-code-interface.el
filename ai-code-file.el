@@ -340,7 +340,6 @@ When no region is selected, use the full file path and current function
 \(if any).  When a region is active, use the file path with line range
 in the form filepath#Lstart-Lend."
   (interactive)
-  ;; DONE: When there is multiple different git repo root corresponding to buffer files opened in current window, ask which one to add to, order is: current buffer git repo first, then other buffer git repo
   (let* ((current-root (magit-toplevel))
          (all-roots (let ((roots '()))
                       (walk-windows
