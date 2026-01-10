@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Add AI-assisted test run fallback for running tests
 - Feat: Support cross git repo context adding 
 - Chore: Add __pycache__ to default gitignore file patterns
 
