@@ -470,8 +470,6 @@ org buffers or the default note file path \(.ai.code.notes.org in the
 git root).  Add the section title as a headline at the end of the note
 file, and put the selected region as content of that section."
   (interactive)
-  ;; DONE: If there are opened org buffer file in current window, put
-  ;; it before ai-code-notes-file-name in candidates list
   (let* ((git-root (condition-case nil
                        (magit-toplevel)
                      (error nil)))
