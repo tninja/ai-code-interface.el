@@ -339,7 +339,7 @@ Otherwise, ask AI to generate a build command."
     (if (and build-script (file-exists-p build-script))
         (let ((default-directory git-root)
               (buffer-name (format "*ai-code-build: %s*" (file-name-nondirectory (directory-file-name git-root)))))
-          (compilation-start "bash build.sh" nil (lambda (_mode) (generate-new-buffer-name buffer-name))))
+          (compilation-start "bash build.sh" nil (lambda (_mode) buffer-name)))
       (let* ((repo-context (ai-code--format-repo-context-info))
              (initial-input (concat "Build the current project. Provide the build command and execute it if possible. "
                              (when git-root (format "\nGit root: %s" git-root))
