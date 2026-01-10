@@ -4,6 +4,10 @@
 ** Main branch change
 - Feat: Add ai-code-build-project, let AI build the project
 - Chore: Add AI-assisted test run fallback for running tests
+
+** 0.82
+- Chore: ai-code-take-notes prioritize to put note to visible org buffers in current frame
+  - Refactor ai-code-take-notes to smaller functions
 - Feat: Support cross git repo context adding 
 - Chore: Add __pycache__ to default gitignore file patterns
 
