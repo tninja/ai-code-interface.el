@@ -566,7 +566,8 @@ If not inside a Git repository, do nothing."
                                      ".projectile"
                                      "GTAGS"
                                      "GRTAGS"
-                                     "GPATH"))
+                                     "GPATH"
+                                     "__pycache__/"))
              (gitignore-content (when (file-exists-p gitignore-path)
                                   (with-temp-buffer
                                     (insert-file-contents gitignore-path)

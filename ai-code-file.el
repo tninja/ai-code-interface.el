@@ -340,8 +340,28 @@ When no region is selected, use the full file path and current function
 \(if any).  When a region is active, use the file path with line range
 in the form filepath#Lstart-Lend."
   (interactive)
-  (let ((repo-root (or (magit-toplevel)
-                       (user-error "Not inside a Git repository"))))
+  (let* ((current-root (magit-toplevel))
+         (all-roots (let ((roots '()))
+                      (walk-windows
+                       (lambda (w)
+                         (with-current-buffer (window-buffer w)
+                           (let ((root (magit-toplevel)))
+                             (when (and root (not (member root roots)))
+                               (push root roots)))))
+                       nil 'current-frame)
+                      (nreverse roots)))
+         (ordered-roots (if (and current-root (member current-root all-roots))
+                            (cons current-root (remove current-root all-roots))
+                          all-roots))
+         (repo-root (cond
+                     ((null ordered-roots)
+                      (user-error "Not inside a Git repository"))
+                     ((= (length ordered-roots) 1)
+                      (car ordered-roots))
+                     (t
+                      (completing-read "Select Git repository for context: "
+                                       ordered-roots
+                                       nil t nil nil (car ordered-roots))))))
     (if (derived-mode-p 'dired-mode)
         (let* ((all-marked (dired-get-marked-files))
                (file-at-point (dired-get-filename nil t))
