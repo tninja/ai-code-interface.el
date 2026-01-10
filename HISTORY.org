@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Chore: ai-code-take-notes prioritize to put note to org buffers in current window
+  - Refactor ai-code-take-notes to smaller functions
 
 ** 0.81
 - Fix: a couple of opencode related config / command
