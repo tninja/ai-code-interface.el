@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Feat: Support cross git repo context adding 
+- Chore: Add __pycache__ to default gitignore file patterns
 
 ** 0.81
 - Fix: a couple of opencode related config / command
