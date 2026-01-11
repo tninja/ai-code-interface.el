@@ -1,4 +1,4 @@
-;;; claude-code-ide-infra.el --- Infrastructure for AI Code Terminals  -*- lexical-binding: t; -*-
+;;; ai-code-backends-infra.el --- Infrastructure for AI Code Terminals  -*- lexical-binding: t; -*-
 
 ;; Author: Yoav Orot, Kang Tu, AI Agent
 ;; SPDX-License-Identifier: Apache-2.0
@@ -19,87 +19,87 @@
 
 ;;; Customization
 
-(defgroup claude-code-ide-infra nil
+(defgroup ai-code-backends-infra nil
   "Infrastructure for AI Code terminals."
   :group 'tools)
 
-(defcustom claude-code-ide-infra-terminal-backend 'vterm
+(defcustom ai-code-backends-infra-terminal-backend 'vterm
   "Terminal backend to use for sessions.
 Can be either `vterm' or `eat'."
   :type '(choice (const :tag "vterm" vterm)
                  (const :tag "eat" eat))
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-window-side 'right
+(defcustom ai-code-backends-infra-window-side 'right
   "Side of the frame where the window should appear."
   :type '(choice (const :tag "Left" left)
                  (const :tag "Right" right)
                  (const :tag "Top" top)
                  (const :tag "Bottom" bottom))
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-window-width 80
+(defcustom ai-code-backends-infra-window-width 80
   "Width of the side window when opened on left or right."
   :type 'integer
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-window-height 20
+(defcustom ai-code-backends-infra-window-height 20
   "Height of the side window when opened on top or bottom."
   :type 'integer
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-use-side-window t
+(defcustom ai-code-backends-infra-use-side-window t
   "Whether to display the terminal in a side window."
   :type 'boolean
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-focus-on-open t
+(defcustom ai-code-backends-infra-focus-on-open t
   "Whether to focus the terminal window when it opens."
   :type 'boolean
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-vterm-anti-flicker t
+(defcustom ai-code-backends-infra-vterm-anti-flicker t
   "Enable intelligent flicker reduction for vterm display."
   :type 'boolean
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-vterm-render-delay 0.005
+(defcustom ai-code-backends-infra-vterm-render-delay 0.005
   "Rendering optimization delay for batched terminal updates."
   :type 'number
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-terminal-initialization-delay 0.1
+(defcustom ai-code-backends-infra-terminal-initialization-delay 0.1
   "Initialization delay for terminal stability."
   :type 'number
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-prevent-reflow-glitch t
+(defcustom ai-code-backends-infra-prevent-reflow-glitch t
   "Workaround for terminal scrolling bug #1422."
   :type 'boolean
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
-(defcustom claude-code-ide-infra-eat-preserve-position t
+(defcustom ai-code-backends-infra-eat-preserve-position t
   "Maintain terminal scroll position when switching windows in eat."
   :type 'boolean
-  :group 'claude-code-ide-infra)
+  :group 'ai-code-backends-infra)
 
 ;;; Variables
 
-(defvar claude-code-ide-infra--processes (make-hash-table :test 'equal)
+(defvar ai-code-backends-infra--processes (make-hash-table :test 'equal)
   "Hash table mapping directory roots to their processes.")
 
-(defvar claude-code-ide-infra--last-accessed-buffer nil
+(defvar ai-code-backends-infra--last-accessed-buffer nil
   "The most recently accessed AI Code buffer.")
 
 ;;; Vterm Rendering Optimization
 
-(defvar-local claude-code-ide-infra--vterm-render-queue nil)
-(defvar-local claude-code-ide-infra--vterm-render-timer nil)
+(defvar-local ai-code-backends-infra--vterm-render-queue nil)
+(defvar-local ai-code-backends-infra--vterm-render-timer nil)
 
-(defun claude-code-ide-infra--vterm-smart-renderer (orig-fun process input)
+(defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates."
-  (if (or (not claude-code-ide-infra-vterm-anti-flicker)
-          (not (claude-code-ide-infra--session-buffer-p (process-buffer process))))
+  (if (or (not ai-code-backends-infra-vterm-anti-flicker)
+          (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
       (let* ((complex-redraw-detected
@@ -111,27 +111,27 @@ Can be either `vterm' or `eat'."
              (escape-density (if (> input-length 0) (/ (float escape-count) input-length) 0)))
         (if (or complex-redraw-detected
                 (and (> escape-density 0.3) (>= clear-count 2))
-                claude-code-ide-infra--vterm-render-queue)
+                ai-code-backends-infra--vterm-render-queue)
             (progn
-              (setq claude-code-ide-infra--vterm-render-queue
-                    (concat claude-code-ide-infra--vterm-render-queue input))
-              (when claude-code-ide-infra--vterm-render-timer
-                (cancel-timer claude-code-ide-infra--vterm-render-timer))
-              (setq claude-code-ide-infra--vterm-render-timer
-                    (run-at-time claude-code-ide-infra-vterm-render-delay nil
+              (setq ai-code-backends-infra--vterm-render-queue
+                    (concat ai-code-backends-infra--vterm-render-queue input))
+              (when ai-code-backends-infra--vterm-render-timer
+                (cancel-timer ai-code-backends-infra--vterm-render-timer))
+              (setq ai-code-backends-infra--vterm-render-timer
+                    (run-at-time ai-code-backends-infra-vterm-render-delay nil
                                  (lambda (buf)
                                    (when (buffer-live-p buf)
                                      (with-current-buffer buf
-                                       (when claude-code-ide-infra--vterm-render-queue
+                                       (when ai-code-backends-infra--vterm-render-queue
                                          (let ((inhibit-redisplay t)
-                                               (data claude-code-ide-infra--vterm-render-queue))
-                                           (setq claude-code-ide-infra--vterm-render-queue nil
-                                                 claude-code-ide-infra--vterm-render-timer nil)
+                                               (data ai-code-backends-infra--vterm-render-queue))
+                                           (setq ai-code-backends-infra--vterm-render-queue nil
+                                                 ai-code-backends-infra--vterm-render-timer nil)
                                            (funcall orig-fun (get-buffer-process buf) data))))))
                                  (current-buffer))))
           (funcall orig-fun process input))))))
 
-(defun claude-code-ide-infra--configure-vterm-buffer ()
+(defun ai-code-backends-infra--configure-vterm-buffer ()
   "Configure vterm for enhanced performance."
   (setq-local vterm-scroll-to-bottom-on-output nil)
   (when (boundp 'vterm--redraw-immididately)
@@ -143,127 +143,127 @@ Can be either `vterm' or `eat'."
     (set-process-query-on-exit-flag proc nil)
     (when (fboundp 'process-put)
       (process-put proc 'read-output-max 4096)))
-  (when claude-code-ide-infra-vterm-anti-flicker
-    (advice-add 'vterm--filter :around #'claude-code-ide-infra--vterm-smart-renderer)))
+  (when ai-code-backends-infra-vterm-anti-flicker
+    (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer)))
 
 ;;; Terminal Backend Abstraction
 
-(defun claude-code-ide-infra--terminal-ensure-backend ()
+(defun ai-code-backends-infra--terminal-ensure-backend ()
   "Ensure the selected terminal backend is available."
   (cond
-   ((eq claude-code-ide-infra-terminal-backend 'vterm)
+   ((eq ai-code-backends-infra-terminal-backend 'vterm)
     (unless (featurep 'vterm) (require 'vterm nil t))
     (unless (featurep 'vterm)
       (user-error "The package vterm is not installed")))
-   ((eq claude-code-ide-infra-terminal-backend 'eat)
+   ((eq ai-code-backends-infra-terminal-backend 'eat)
     (unless (featurep 'eat) (require 'eat nil t))
     (unless (featurep 'eat)
       (user-error "The package eat is not installed")))
-   (t (user-error "Invalid terminal backend: %s" claude-code-ide-infra-terminal-backend))))
+   (t (user-error "Invalid terminal backend: %s" ai-code-backends-infra-terminal-backend))))
 
-(defun claude-code-ide-infra--terminal-send-string (string)
+(defun ai-code-backends-infra--terminal-send-string (string)
   "Send STRING to the terminal in the current buffer."
   (cond
-   ((eq claude-code-ide-infra-terminal-backend 'vterm)
+   ((eq ai-code-backends-infra-terminal-backend 'vterm)
     (vterm-send-string string))
-   ((eq claude-code-ide-infra-terminal-backend 'eat)
+   ((eq ai-code-backends-infra-terminal-backend 'eat)
     (when (bound-and-true-p eat-terminal)
       (eat-term-send-string eat-terminal string)))
-   (t (error "Unknown terminal backend: %s" claude-code-ide-infra-terminal-backend))))
+   (t (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
 
-(defun claude-code-ide-infra--terminal-send-escape ()
+(defun ai-code-backends-infra--terminal-send-escape ()
   "Send escape key to the terminal in the current buffer."
   (cond
-   ((eq claude-code-ide-infra-terminal-backend 'vterm) (vterm-send-escape))
-   ((eq claude-code-ide-infra-terminal-backend 'eat)
+   ((eq ai-code-backends-infra-terminal-backend 'vterm) (vterm-send-escape))
+   ((eq ai-code-backends-infra-terminal-backend 'eat)
     (when (bound-and-true-p eat-terminal)
       (eat-term-send-string eat-terminal "\e")))
-   (t (error "Unknown terminal backend: %s" claude-code-ide-infra-terminal-backend))))
+   (t (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
 
-(defun claude-code-ide-infra--terminal-send-return ()
+(defun ai-code-backends-infra--terminal-send-return ()
   "Send return key to the terminal in the current buffer."
   (cond
-   ((eq claude-code-ide-infra-terminal-backend 'vterm) (vterm-send-return))
-   ((eq claude-code-ide-infra-terminal-backend 'eat)
+   ((eq ai-code-backends-infra-terminal-backend 'vterm) (vterm-send-return))
+   ((eq ai-code-backends-infra-terminal-backend 'eat)
     (when (bound-and-true-p eat-terminal)
       (eat-term-send-string eat-terminal "\r")))
-   (t (error "Unknown terminal backend: %s" claude-code-ide-infra-terminal-backend))))
+   (t (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
 
 ;;; Reflow and Window Management
 
-(defun claude-code-ide-infra--terminal-resize-handler ()
+(defun ai-code-backends-infra--terminal-resize-handler ()
   "Retrieve the terminal's resize handling function based on backend."
-  (pcase claude-code-ide-infra-terminal-backend
+  (pcase ai-code-backends-infra-terminal-backend
     ('vterm #'vterm--window-adjust-process-window-size)
     ('eat #'eat--adjust-process-window-size)
     (_ (error "Unsupported terminal backend"))))
 
-(defun claude-code-ide-infra--session-buffer-p (buffer)
+(defun ai-code-backends-infra--session-buffer-p (buffer)
   "Check if BUFFER belongs to an AI session."
   (when-let ((name (if (stringp buffer) buffer (buffer-name buffer))))
     (or (string-prefix-p "*claude-code[" name)
         (string-prefix-p "*codex[" name))))
 
-(defun claude-code-ide-infra--terminal-reflow-filter (original-fn &rest args)
+(defun ai-code-backends-infra--terminal-reflow-filter (original-fn &rest args)
   "Filter terminal reflows to prevent height-only resize triggers."
   (let* ((base-result (apply original-fn args))
          (dimensions-stable t))
     (dolist (win (window-list))
       (when-let* ((buf (window-buffer win))
-                  ((claude-code-ide-infra--session-buffer-p buf)))
+                  ((ai-code-backends-infra--session-buffer-p buf)))
         (let* ((new-width (window-width win))
-               (cached-width (window-parameter win 'claude-code-ide-infra-cached-width)))
+               (cached-width (window-parameter win 'ai-code-backends-infra-cached-width)))
           (unless (eql new-width cached-width)
             (setq dimensions-stable nil)
-            (set-window-parameter win 'claude-code-ide-infra-cached-width new-width)))))
-    (if (and claude-code-ide-infra-prevent-reflow-glitch dimensions-stable)
+            (set-window-parameter win 'ai-code-backends-infra-cached-width new-width)))))
+    (if (and ai-code-backends-infra-prevent-reflow-glitch dimensions-stable)
         nil
       base-result)))
 
-(defun claude-code-ide-infra--display-buffer-in-side-window (buffer)
+(defun ai-code-backends-infra--display-buffer-in-side-window (buffer)
   "Display BUFFER in a side window."
   (let ((window
-         (if claude-code-ide-infra-use-side-window
-             (let* ((side claude-code-ide-infra-window-side)
+         (if ai-code-backends-infra-use-side-window
+             (let* ((side ai-code-backends-infra-window-side)
                     (display-buffer-alist
                      `((,(regexp-quote (buffer-name buffer))
                         (display-buffer-in-side-window)
                         (side . ,side)
                         (slot . 0)
                         ,@(when (memq side '(left right))
-                            `((window-width . ,claude-code-ide-infra-window-width)))
+                            `((window-width . ,ai-code-backends-infra-window-width)))
                         ,@(when (memq side '(top bottom))
-                            `((window-height . ,claude-code-ide-infra-window-height)))
+                            `((window-height . ,ai-code-backends-infra-window-height)))
                         (window-parameters . ((no-delete-other-windows . t)))))))
                (display-buffer buffer))
            (display-buffer buffer))))
-    (setq claude-code-ide-infra--last-accessed-buffer buffer)
-    (when (and window claude-code-ide-infra-focus-on-open)
+    (setq ai-code-backends-infra--last-accessed-buffer buffer)
+    (when (and window ai-code-backends-infra-focus-on-open)
       (select-window window))
     window))
 
 ;;; Session Helpers
 
-(defun claude-code-ide-infra--session-working-directory ()
+(defun ai-code-backends-infra--session-working-directory ()
   "Return the working directory, preferring the current project root."
   (if-let ((project (project-current)))
       (expand-file-name (project-root project))
     (expand-file-name default-directory)))
 
-(defun claude-code-ide-infra--session-buffer-name (prefix directory)
+(defun ai-code-backends-infra--session-buffer-name (prefix directory)
   "Return a session buffer name for PREFIX in DIRECTORY."
   (format "*%s[%s]*"
           prefix
           (file-name-nondirectory (directory-file-name directory))))
 
-(defun claude-code-ide-infra--cleanup-session (directory buffer-name process-table)
+(defun ai-code-backends-infra--cleanup-session (directory buffer-name process-table)
   "Clean up a session for DIRECTORY using BUFFER-NAME and PROCESS-TABLE."
   (remhash directory process-table)
   (when-let ((buffer (get-buffer buffer-name)))
     (when (buffer-live-p buffer)
       (kill-buffer buffer))))
 
-(defun claude-code-ide-infra--toggle-or-create-session (working-dir buffer-name process-table command
+(defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn)
   "Toggle or create a terminal session.
 WORKING-DIR is the directory for the session.
@@ -272,15 +272,15 @@ PROCESS-TABLE maps directories to processes.
 COMMAND is the shell command to run.
 ESCAPE-FN is bound to `C-<escape>' inside the session buffer when non-nil.
 CLEANUP-FN is called with no arguments when the process exits."
-  (claude-code-ide-infra--cleanup-dead-processes process-table)
+  (ai-code-backends-infra--cleanup-dead-processes process-table)
   (let ((existing-process (gethash working-dir process-table))
         (buffer (get-buffer buffer-name)))
     (if (and existing-process (process-live-p existing-process) buffer)
         (if (get-buffer-window buffer)
             (delete-window (get-buffer-window buffer))
-          (claude-code-ide-infra--display-buffer-in-side-window buffer))
+          (ai-code-backends-infra--display-buffer-in-side-window buffer))
       (let* ((buffer-and-process
-              (claude-code-ide-infra--create-terminal-session
+              (ai-code-backends-infra--create-terminal-session
                buffer-name working-dir command nil))
              (new-buffer (car buffer-and-process))
              (process (cdr buffer-and-process)))
@@ -292,46 +292,46 @@ CLEANUP-FN is called with no arguments when the process exits."
         (when escape-fn
           (with-current-buffer new-buffer
             (local-set-key (kbd "C-<escape>") escape-fn)))
-        (sleep-for claude-code-ide-infra-terminal-initialization-delay)
-        (claude-code-ide-infra--display-buffer-in-side-window new-buffer)))))
+        (sleep-for ai-code-backends-infra-terminal-initialization-delay)
+        (ai-code-backends-infra--display-buffer-in-side-window new-buffer)))))
 
-(defun claude-code-ide-infra--switch-to-session-buffer (buffer-name missing-message)
+(defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message)
   "Switch to BUFFER-NAME or signal MISSING-MESSAGE."
   (if-let ((buffer (get-buffer buffer-name)))
       (if-let ((window (get-buffer-window buffer)))
           (select-window window)
-        (claude-code-ide-infra--display-buffer-in-side-window buffer))
+        (ai-code-backends-infra--display-buffer-in-side-window buffer))
     (user-error "%s" missing-message)))
 
-(defun claude-code-ide-infra--send-line-to-session (buffer-name missing-message line)
+(defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line)
   "Send LINE to BUFFER-NAME or signal MISSING-MESSAGE."
   (if-let ((buffer (get-buffer buffer-name)))
       (with-current-buffer buffer
-        (claude-code-ide-infra--terminal-send-string line)
+        (ai-code-backends-infra--terminal-send-string line)
         (sit-for 0.1)
-        (claude-code-ide-infra--terminal-send-return))
+        (ai-code-backends-infra--terminal-send-return))
     (user-error "%s" missing-message)))
 
 ;;; Generic Session Creation
 
-(defun claude-code-ide-infra--create-terminal-session (buffer-name working-dir command env-vars)
+(defun ai-code-backends-infra--create-terminal-session (buffer-name working-dir command env-vars)
   "Generic function to create a terminal session.
 BUFFER-NAME is the name for the buffer.
 WORKING-DIR is the directory.
 COMMAND is the shell command to run.
 ENV-VARS is a list of environment variables."
-  (claude-code-ide-infra--terminal-ensure-backend)
+  (ai-code-backends-infra--terminal-ensure-backend)
   (let ((default-directory working-dir))
     (cond
-     ((eq claude-code-ide-infra-terminal-backend 'vterm)
+     ((eq ai-code-backends-infra-terminal-backend 'vterm)
       (let* ((vterm-shell command)
              (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
         (let ((buffer (save-window-excursion (vterm buffer-name))))
           (with-current-buffer buffer
-            (claude-code-ide-infra--configure-vterm-buffer))
+            (ai-code-backends-infra--configure-vterm-buffer))
           (cons buffer (get-buffer-process buffer)))))
 
-     ((eq claude-code-ide-infra-terminal-backend 'eat)
+     ((eq ai-code-backends-infra-terminal-backend 'eat)
       (let* ((buffer (get-buffer-create buffer-name))
              (parts (split-string-shell-command command))
              (program (car parts))
@@ -343,12 +343,12 @@ ENV-VARS is a list of environment variables."
           (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 
-(defun claude-code-ide-infra--cleanup-dead-processes (table)
+(defun ai-code-backends-infra--cleanup-dead-processes (table)
   "Clean up dead processes from TABLE."
   (maphash (lambda (dir proc)
              (unless (process-live-p proc)
                (remhash dir table)))
            table))
 
-(provide 'claude-code-ide-infra)
-;;; claude-code-ide-infra.el ends here
+(provide 'ai-code-backends-infra)
+;;; ai-code-backends-infra.el ends here

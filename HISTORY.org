@@ -2,7 +2,7 @@
 * Release history
 
 ** Main branch change
-- Feat: Add claude-code-ide-infra.el, use it as infrastructure for
+- Feat: Add ai-code-backends-infra.el, use it as infrastructure for
   - OpenAI Codex
   - GitHub Copilot CLI
   - Opencode

@@ -5,12 +5,12 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Provide Grok CLI integration by reusing `claude-code-ide-infra'.
+;; Provide Grok CLI integration by reusing `ai-code-backends-infra'.
 
 ;;; Code:
 
 (require 'ai-code-backends)
-(require 'claude-code-ide-infra)
+(require 'ai-code-backends-infra)
 
 (defgroup ai-code-grok-cli nil
   "Grok CLI integration via `claude-code'."
@@ -32,21 +32,21 @@
 
 ;;;###autoload
 (defun ai-code-grok-cli (&optional arg)
-  "Start Grok CLI (uses `claude-code-ide-infra' logic).
+  "Start Grok CLI (uses `ai-code-backends-infra' logic).
 ARG is currently unused but kept for compatibility."
   (interactive "P")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "grok" working-dir))
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir))
          (command (concat ai-code-grok-cli-program " "
                           (mapconcat 'identity ai-code-grok-cli-program-switches " "))))
-    (claude-code-ide-infra--toggle-or-create-session
+    (ai-code-backends-infra--toggle-or-create-session
      working-dir
      buffer-name
      ai-code-grok-cli--processes
      command
      nil
      (lambda ()
-       (claude-code-ide-infra--cleanup-session
+       (ai-code-backends-infra--cleanup-session
         working-dir
         buffer-name
         ai-code-grok-cli--processes)))))
@@ -55,9 +55,9 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-grok-cli-switch-to-buffer ()
   "Switch to the Grok CLI buffer."
   (interactive)
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "grok" working-dir)))
-    (claude-code-ide-infra--switch-to-session-buffer
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir)))
+    (ai-code-backends-infra--switch-to-session-buffer
      buffer-name
      "No Grok session for this project")))
 
@@ -67,9 +67,9 @@ ARG is currently unused but kept for compatibility."
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
   (interactive "sGrok> ")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "grok" working-dir)))
-    (claude-code-ide-infra--send-line-to-session
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir)))
+    (ai-code-backends-infra--send-line-to-session
      buffer-name
      "No Grok session for this project"
      line)))
@@ -82,13 +82,13 @@ ARG is passed to the underlying start function."
   (let ((ai-code-grok-cli-program-switches
          (append ai-code-grok-cli-program-switches '("resume"))))
     (ai-code-grok-cli arg)
-    (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-           (buffer-name (claude-code-ide-infra--session-buffer-name "grok" working-dir))
+    (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+           (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir))
            (buffer (get-buffer buffer-name)))
       (when buffer
         (with-current-buffer buffer
           (sit-for 0.5)
-          (claude-code-ide-infra--terminal-send-string "")
+          (ai-code-backends-infra--terminal-send-string "")
           (goto-char (point-min)))))))
 
 (provide 'ai-code-grok-cli)

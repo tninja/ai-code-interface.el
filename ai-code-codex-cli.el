@@ -5,16 +5,16 @@
 
 ;;; Commentary:
 ;;
-;; Thin wrapper that reuses `claude-code-ide-infra' to run Codex CLI.
+;; Thin wrapper that reuses `ai-code-backends-infra' to run Codex CLI.
 ;; Provides interactive commands and aliases for the AI Code suite.
 ;;
 ;;; Code:
 
 (require 'ai-code-backends)
-(require 'claude-code-ide-infra)
+(require 'ai-code-backends-infra)
 
 (defgroup ai-code-codex-cli nil
-  "Codex CLI integration via `claude-code-ide-infra'."
+  "Codex CLI integration via `ai-code-backends-infra'."
   :group 'tools
   :prefix "ai-code-codex-cli-")
 
@@ -33,21 +33,21 @@
 
 ;;;###autoload
 (defun ai-code-codex-cli (&optional arg)
-  "Start Codex (uses `claude-code-ide-infra' logic).
+  "Start Codex (uses `ai-code-backends-infra' logic).
 ARG is currently unused but kept for compatibility."
   (interactive "P")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "codex" working-dir))
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "codex" working-dir))
          (command (concat ai-code-codex-cli-program " "
                           (mapconcat 'identity ai-code-codex-cli-program-switches " "))))
-    (claude-code-ide-infra--toggle-or-create-session
+    (ai-code-backends-infra--toggle-or-create-session
      working-dir
      buffer-name
      ai-code-codex-cli--processes
      command
      #'ai-code-codex-cli-send-escape
      (lambda ()
-       (claude-code-ide-infra--cleanup-session
+       (ai-code-backends-infra--cleanup-session
         working-dir
         buffer-name
         ai-code-codex-cli--processes)))))
@@ -56,9 +56,9 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-codex-cli-switch-to-buffer ()
   "Switch to the Codex CLI buffer."
   (interactive)
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "codex" working-dir)))
-    (claude-code-ide-infra--switch-to-session-buffer
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "codex" working-dir)))
+    (ai-code-backends-infra--switch-to-session-buffer
      buffer-name
      "No Codex session for this project")))
 
@@ -66,9 +66,9 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-codex-cli-send-command (line)
   "Send LINE to Codex CLI."
   (interactive "sCodex> ")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "codex" working-dir)))
-    (claude-code-ide-infra--send-line-to-session
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "codex" working-dir)))
+    (ai-code-backends-infra--send-line-to-session
      buffer-name
      "No Codex session for this project"
      line)))
@@ -77,7 +77,7 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-codex-cli-send-escape ()
   "Send escape key to Codex CLI."
   (interactive)
-  (claude-code-ide-infra--terminal-send-escape))
+  (ai-code-backends-infra--terminal-send-escape))
 
 ;;;###autoload
 (defun ai-code-codex-cli-resume (&optional arg)

@@ -5,7 +5,7 @@
 
 ;;; Commentary:
 ;;
-;; Thin wrapper that reuses `claude-code-ide-infra' to run Opencode.
+;; Thin wrapper that reuses `ai-code-backends-infra' to run Opencode.
 ;; Provides interactive commands and aliases for the AI Code suite.
 ;;
 ;; Opencode is an open-source alternative to Claude Code that provides
@@ -15,7 +15,7 @@
 ;;; Code:
 
 (require 'ai-code-backends)
-(require 'claude-code-ide-infra)
+(require 'ai-code-backends-infra)
 
 
 (defgroup ai-code-opencode nil
@@ -38,21 +38,21 @@
 
 ;;;###autoload
 (defun ai-code-opencode (&optional arg)
-  "Start Opencode (uses `claude-code-ide-infra' logic).
+  "Start Opencode (uses `ai-code-backends-infra' logic).
 ARG is currently unused but kept for compatibility."
   (interactive "P")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir))
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir))
          (command (concat ai-code-opencode-program " "
                           (mapconcat 'identity ai-code-opencode-program-switches " "))))
-    (claude-code-ide-infra--toggle-or-create-session
+    (ai-code-backends-infra--toggle-or-create-session
      working-dir
      buffer-name
      ai-code-opencode--processes
      command
      nil
      (lambda ()
-       (claude-code-ide-infra--cleanup-session
+       (ai-code-backends-infra--cleanup-session
         working-dir
         buffer-name
         ai-code-opencode--processes)))))
@@ -61,9 +61,9 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-opencode-switch-to-buffer ()
   "Switch to the Opencode buffer."
   (interactive)
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir)))
-    (claude-code-ide-infra--switch-to-session-buffer
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir)))
+    (ai-code-backends-infra--switch-to-session-buffer
      buffer-name
      "No Opencode session for this project")))
 
@@ -72,9 +72,9 @@ ARG is currently unused but kept for compatibility."
   "Send LINE to Opencode.
 When called interactively, prompts for the command."
   (interactive "sOpencode> ")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir)))
-    (claude-code-ide-infra--send-line-to-session
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir)))
+    (ai-code-backends-infra--send-line-to-session
      buffer-name
      "No Opencode session for this project"
      line)))
@@ -97,13 +97,13 @@ prompt for the project directory."
   (let ((ai-code-opencode-program-switches
          (append ai-code-opencode-program-switches '("--continue"))))
     (ai-code-opencode arg)
-    (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-           (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir))
+    (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+           (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir))
            (buffer (get-buffer buffer-name)))
       (when buffer
         (with-current-buffer buffer
           (sit-for 0.5)
-          (claude-code-ide-infra--terminal-send-string "")
+          (ai-code-backends-infra--terminal-send-string "")
           (goto-char (point-min)))))))
 
 (provide 'ai-code-opencode)

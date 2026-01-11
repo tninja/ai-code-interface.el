@@ -5,16 +5,16 @@
 
 ;;; Commentary:
 ;;
-;; Thin wrapper that reuses `claude-code-ide-infra' to run GitHub Copilot CLI.
+;; Thin wrapper that reuses `ai-code-backends-infra' to run GitHub Copilot CLI.
 ;; Provides interactive commands and aliases for the AI Code suite.
 ;;
 ;;; Code:
 
 (require 'ai-code-backends)
-(require 'claude-code-ide-infra)
+(require 'ai-code-backends-infra)
 
 (defgroup ai-code-github-copilot-cli nil
-  "GitHub Copilot CLI integration via `claude-code-ide-infra'."
+  "GitHub Copilot CLI integration via `ai-code-backends-infra'."
   :group 'tools
   :prefix "ai-code-github-copilot-cli-")
 
@@ -33,21 +33,21 @@
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli (&optional arg)
-  "Start GitHub Copilot CLI (uses `claude-code-ide-infra' logic).
+  "Start GitHub Copilot CLI (uses `ai-code-backends-infra' logic).
 ARG is currently unused but kept for compatibility."
   (interactive "P")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir))
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir))
          (command (concat ai-code-github-copilot-cli-program " "
                           (mapconcat 'identity ai-code-github-copilot-cli-program-switches " "))))
-    (claude-code-ide-infra--toggle-or-create-session
+    (ai-code-backends-infra--toggle-or-create-session
      working-dir
      buffer-name
      ai-code-github-copilot-cli--processes
      command
      #'ai-code-github-copilot-cli-send-escape
      (lambda ()
-       (claude-code-ide-infra--cleanup-session
+       (ai-code-backends-infra--cleanup-session
         working-dir
         buffer-name
         ai-code-github-copilot-cli--processes)))))
@@ -56,9 +56,9 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-github-copilot-cli-switch-to-buffer ()
   "Switch to the GitHub Copilot CLI buffer."
   (interactive)
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir)))
-    (claude-code-ide-infra--switch-to-session-buffer
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir)))
+    (ai-code-backends-infra--switch-to-session-buffer
      buffer-name
      "No Copilot session for this project")))
 
@@ -66,9 +66,9 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-github-copilot-cli-send-command (line)
   "Send LINE to GitHub Copilot CLI."
   (interactive "sCopilot> ")
-  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-         (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir)))
-    (claude-code-ide-infra--send-line-to-session
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir)))
+    (ai-code-backends-infra--send-line-to-session
      buffer-name
      "No Copilot session for this project"
      line)))
@@ -77,7 +77,7 @@ ARG is currently unused but kept for compatibility."
 (defun ai-code-github-copilot-cli-send-escape ()
   "Send escape key to GitHub Copilot CLI."
   (interactive)
-  (claude-code-ide-infra--terminal-send-escape))
+  (ai-code-backends-infra--terminal-send-escape))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-resume (&optional arg)
@@ -86,13 +86,13 @@ ARG is currently unused but kept for compatibility."
   (let ((ai-code-github-copilot-cli-program-switches (append ai-code-github-copilot-cli-program-switches '("--resume"))))
     (ai-code-github-copilot-cli arg)
     ;; Send empty string to trigger terminal processing and ensure CLI session picker appears
-    (let* ((working-dir (claude-code-ide-infra--session-working-directory))
-           (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir))
+    (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+           (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir))
            (buffer (get-buffer buffer-name)))
       (when buffer
         (with-current-buffer buffer
           (sit-for 0.5)
-          (claude-code-ide-infra--terminal-send-string "")
+          (ai-code-backends-infra--terminal-send-string "")
           (goto-char (point-min)))))))
 
 (provide 'ai-code-github-copilot-cli)

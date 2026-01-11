@@ -23,7 +23,7 @@
 ;;   - Opencode
 ;;   - Grok CLI
 ;;
-;; Dependency: claude-code-ide-infra.el provides shared terminal infrastructure
+;; Dependency: ai-code-backends-infra.el provides shared terminal infrastructure
 ;; (eat / vterm integration, which need to be installed) for OpenAI
 ;; Codex,  GitHub Copilot CLI, Opencode, and Grok CLI backends.
 ;;
