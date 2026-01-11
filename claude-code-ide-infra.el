@@ -1,6 +1,8 @@
 ;;; claude-code-ide-infra.el --- Infrastructure for AI Code Terminals  -*- lexical-binding: t; -*-
 
 ;; Author: Yoav Orot, Kang Tu, AI Agent
+;; SPDX-License-Identifier: Apache-2.0
+
 ;; Keywords: ai, terminal, vterm, eat
 
 ;;; Commentary:
