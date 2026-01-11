@@ -34,7 +34,7 @@ Can be either `vterm' or `eat'."
                  (const :tag "Bottom" bottom))
   :group 'claude-code-ide-infra)
 
-(defcustom claude-code-ide-infra-window-width 90
+(defcustom claude-code-ide-infra-window-width 80
   "Width of the side window when opened on left or right."
   :type 'integer
   :group 'claude-code-ide-infra)
@@ -99,9 +99,9 @@ Can be either `vterm' or `eat'."
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
       (let* ((complex-redraw-detected
-              (string-match-p "\033\[[0-9]*A.*\033\[K.*\033\[[0-9]*A.*\033\[K" input))
+              (string-match-p "\033\\[[0-9]*A.*\033\\[K.*\033\\[[0-9]*A.*\033\\[K" input))
              (clear-count (cl-count-if (lambda (s) (string= s "\033[K"))
-                                       (split-string input "\033[K" t)))
+                                       (split-string input "\033\\[K" t)))
              (escape-count (cl-count ?\033 input))
              (input-length (length input))
              (escape-density (if (> input-length 0) (/ (float escape-count) input-length) 0)))
@@ -247,7 +247,7 @@ WORKING-DIR is the directory.
 COMMAND is the shell command to run.
 ENV-VARS is a list of environment variables."
   (claude-code-ide-infra--terminal-ensure-backend)
-  (let ((default-directory working-dir)))
+  (let ((default-directory working-dir))
     (cond
      ((eq claude-code-ide-infra-terminal-backend 'vterm)
       (let* ((vterm-shell command)
