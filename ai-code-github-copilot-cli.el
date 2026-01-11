@@ -5,25 +5,16 @@
 
 ;;; Commentary:
 ;;
-;; Thin wrapper that reuses `claude-code' to run GitHub Copilot CLI.
+;; Thin wrapper that reuses `claude-code-ide-infra' to run GitHub Copilot CLI.
 ;; Provides interactive commands and aliases for the AI Code suite.
 ;;
 ;;; Code:
 
 (require 'ai-code-backends)
-
-(declare-function claude-code "claude-code" (&optional arg extra-switches force-prompt force-switch-to-buffer))
-(declare-function claude-code-resume "claude-code" (&optional arg))
-(declare-function claude-code-switch-to-buffer "claude-code" (&optional arg))
-(declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
-(declare-function claude-code--term-send-string "claude-code" (backend string))
-(declare-function claude-code--do-send-command "claude-code" (cmd))
-(defvar claude-code-terminal-backend)
-(defvar claude-code-program)
-(defvar claude-code-program-switches)
+(require 'claude-code-ide-infra)
 
 (defgroup ai-code-github-copilot-cli nil
-  "GitHub Copilot CLI integration via `claude-code'."
+  "GitHub Copilot CLI integration via `claude-code-ide-infra'."
   :group 'tools
   :prefix "ai-code-github-copilot-cli-")
 
@@ -37,54 +28,73 @@
   :type '(repeat string)
   :group 'ai-code-github-copilot-cli)
 
+(defvar ai-code-github-copilot-cli--processes (make-hash-table :test 'equal)
+  "Hash table mapping directory roots to their Copilot processes.")
+
 ;;;###autoload
 (defun ai-code-github-copilot-cli (&optional arg)
-  "Start GitHub Copilot CLI (reuses `claude-code' startup logic).
-ARG is passed to `claude-code'."
+  "Start GitHub Copilot CLI (uses `claude-code-ide-infra' logic).
+ARG is currently unused but kept for compatibility."
   (interactive "P")
-  (let ((claude-code-program ai-code-github-copilot-cli-program)
-        (claude-code-program-switches ai-code-github-copilot-cli-program-switches))
-    (claude-code arg)))
+  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+         (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir))
+         (command (concat ai-code-github-copilot-cli-program " "
+                          (mapconcat 'identity ai-code-github-copilot-cli-program-switches " "))))
+    (claude-code-ide-infra--toggle-or-create-session
+     working-dir
+     buffer-name
+     ai-code-github-copilot-cli--processes
+     command
+     #'ai-code-github-copilot-cli-send-escape
+     (lambda ()
+       (claude-code-ide-infra--cleanup-session
+        working-dir
+        buffer-name
+        ai-code-github-copilot-cli--processes)))))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-switch-to-buffer ()
   "Switch to the GitHub Copilot CLI buffer."
   (interactive)
-  (claude-code-switch-to-buffer))
+  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+         (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir)))
+    (claude-code-ide-infra--switch-to-session-buffer
+     buffer-name
+     "No Copilot session for this project")))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-send-command (line)
-  "Send LINE to GitHub Copilot CLI programmatically or interactively.
-When called interactively, prompts for the command.
-When called from Lisp code, sends LINE directly without prompting."
+  "Send LINE to GitHub Copilot CLI."
   (interactive "sCopilot> ")
-  (claude-code--do-send-command line))
+  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+         (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir)))
+    (claude-code-ide-infra--send-line-to-session
+     buffer-name
+     "No Copilot session for this project"
+     line)))
+
+;;;###autoload
+(defun ai-code-github-copilot-cli-send-escape ()
+  "Send escape key to GitHub Copilot CLI."
+  (interactive)
+  (claude-code-ide-infra--terminal-send-escape))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-resume (&optional arg)
-  "Resume a previous GitHub Copilot CLI session.
-
-This command starts GitHub Copilot CLI with the --resume flag to resume
-a specific past session. The CLI will present an interactive list of past
-sessions to choose from.
-
-If current buffer belongs to a project, start in the project's root
-directory. Otherwise start in the directory of the current buffer file,
-or the current value of `default-directory' if no project and no buffer file.
-
-With double prefix ARG (\\[universal-argument] \\[universal-argument]),
-prompt for the project directory."
+  "Resume a previous GitHub Copilot CLI session."
   (interactive "P")
-  (let ((claude-code-program ai-code-github-copilot-cli-program)
-        (claude-code-program-switches ai-code-github-copilot-cli-program-switches)
-        (extra-switches '("--resume")))
-    (claude-code--start arg extra-switches nil t)
+  (let ((ai-code-github-copilot-cli-program-switches (append ai-code-github-copilot-cli-program-switches '("--resume"))))
+    (ai-code-github-copilot-cli arg)
     ;; Send empty string to trigger terminal processing and ensure CLI session picker appears
-    (claude-code--term-send-string claude-code-terminal-backend "")
-    ;; Position cursor at beginning to show session list from the top
-    (goto-char (point-min))))
+    (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+           (buffer-name (claude-code-ide-infra--session-buffer-name "copilot" working-dir))
+           (buffer (get-buffer buffer-name)))
+      (when buffer
+        (with-current-buffer buffer
+          (sit-for 0.5)
+          (claude-code-ide-infra--terminal-send-string "")
+          (goto-char (point-min)))))))
 
 (provide 'ai-code-github-copilot-cli)
 
 ;;; ai-code-github-copilot-cli.el ends here
-

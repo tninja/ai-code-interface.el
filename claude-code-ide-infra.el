@@ -1,6 +1,6 @@
 ;;; claude-code-ide-infra.el --- Infrastructure for AI Code Terminals  -*- lexical-binding: t; -*-
 
-;; Author: AI Agent
+;; Author: Yoav Orot, Kang Tu, AI Agent
 ;; Keywords: ai, terminal, vterm, eat
 
 ;;; Commentary:
@@ -237,6 +237,76 @@ Can be either `vterm' or `eat'."
     (when (and window claude-code-ide-infra-focus-on-open)
       (select-window window))
     window))
+
+;;; Session Helpers
+
+(defun claude-code-ide-infra--session-working-directory ()
+  "Return the working directory, preferring the current project root."
+  (if-let ((project (project-current)))
+      (expand-file-name (project-root project))
+    (expand-file-name default-directory)))
+
+(defun claude-code-ide-infra--session-buffer-name (prefix directory)
+  "Return a session buffer name for PREFIX in DIRECTORY."
+  (format "*%s[%s]*"
+          prefix
+          (file-name-nondirectory (directory-file-name directory))))
+
+(defun claude-code-ide-infra--cleanup-session (directory buffer-name process-table)
+  "Clean up a session for DIRECTORY using BUFFER-NAME and PROCESS-TABLE."
+  (remhash directory process-table)
+  (when-let ((buffer (get-buffer buffer-name)))
+    (when (buffer-live-p buffer)
+      (kill-buffer buffer))))
+
+(defun claude-code-ide-infra--toggle-or-create-session (working-dir buffer-name process-table command
+                                                                     &optional escape-fn cleanup-fn)
+  "Toggle or create a terminal session.
+WORKING-DIR is the directory for the session.
+BUFFER-NAME is the terminal buffer name.
+PROCESS-TABLE maps directories to processes.
+COMMAND is the shell command to run.
+ESCAPE-FN is bound to `C-<escape>' inside the session buffer when non-nil.
+CLEANUP-FN is called with no arguments when the process exits."
+  (claude-code-ide-infra--cleanup-dead-processes process-table)
+  (let ((existing-process (gethash working-dir process-table))
+        (buffer (get-buffer buffer-name)))
+    (if (and existing-process (process-live-p existing-process) buffer)
+        (if (get-buffer-window buffer)
+            (delete-window (get-buffer-window buffer))
+          (claude-code-ide-infra--display-buffer-in-side-window buffer))
+      (let* ((buffer-and-process
+              (claude-code-ide-infra--create-terminal-session
+               buffer-name working-dir command nil))
+             (new-buffer (car buffer-and-process))
+             (process (cdr buffer-and-process)))
+        (puthash working-dir process process-table)
+        (when cleanup-fn
+          (set-process-sentinel process
+                                (lambda (_proc _event)
+                                  (funcall cleanup-fn))))
+        (when escape-fn
+          (with-current-buffer new-buffer
+            (local-set-key (kbd "C-<escape>") escape-fn)))
+        (sleep-for claude-code-ide-infra-terminal-initialization-delay)
+        (claude-code-ide-infra--display-buffer-in-side-window new-buffer)))))
+
+(defun claude-code-ide-infra--switch-to-session-buffer (buffer-name missing-message)
+  "Switch to BUFFER-NAME or signal MISSING-MESSAGE."
+  (if-let ((buffer (get-buffer buffer-name)))
+      (if-let ((window (get-buffer-window buffer)))
+          (select-window window)
+        (claude-code-ide-infra--display-buffer-in-side-window buffer))
+    (user-error "%s" missing-message)))
+
+(defun claude-code-ide-infra--send-line-to-session (buffer-name missing-message line)
+  "Send LINE to BUFFER-NAME or signal MISSING-MESSAGE."
+  (if-let ((buffer (get-buffer buffer-name)))
+      (with-current-buffer buffer
+        (claude-code-ide-infra--terminal-send-string line)
+        (sit-for 0.1)
+        (claude-code-ide-infra--terminal-send-return))
+    (user-error "%s" missing-message)))
 
 ;;; Generic Session Creation
 
