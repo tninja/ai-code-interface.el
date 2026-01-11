@@ -47,7 +47,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; Enable global keybinding for the main menu
     (global-set-key (kbd "C-c a") #'ai-code-menu)
     ;; Optional: Use vterm if you prefer, by default it is eat
-    ;; (setq claude-code-terminal-backend 'vterm) ;; for openai codex, github copilot cli, opencode; for claude-code-ide.el and gemini-cli.el, you can check their config
+    ;; (setq claude-code-ide-infra-terminal-backend 'vterm) ;; for openai codex, github copilot cli, opencode, grok; for claude-code-ide.el and gemini-cli.el, you can check their config
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)
     (setq auto-revert-interval 1) ;; set to 1 second for faster update
@@ -66,7 +66,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; Enable global keybinding for the main menu
     (global-set-key (kbd "C-c a") #'ai-code-menu)
     ;; Optional: Use vterm if you prefer, by default it is eat
-    ;; (setq claude-code-terminal-backend 'vterm) ;; for openai codex, github copilot cli, opencode; for claude-code-ide.el and gemini-cli.el, you can check their config
+    ;; (setq claude-code-ide-infra-terminal-backend 'vterm) ;; for openai codex, github copilot cli, opencode, grok; for claude-code-ide.el and gemini-cli.el, you can check their config
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)
     (setq auto-revert-interval 1) ;; set to 1 second for faster update
@@ -82,8 +82,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - `org`: Org-mode support
 - `magit`: Git integration
 - `transient`: For the menu system
-- Claude Code (`[[https://github.com/stevemolitor/claude-code.el][claude-code.el]]`), (use straight to install, NOT MELPA version)
-  - eat / vterm need to be installed to support various AI coding CLI backends.
+- eat / vterm need to be installed to support various AI coding CLI backends.
 
 *** Optional Dependencies
 - `helm`: For an enhanced auto-completion experience (`ai-code-input.el`).
@@ -142,7 +141,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 
 ** Add a new AI coding CLI backend
 
-- [[https://github.com/tninja/ai-code-interface.el/pull/2][This PR]] add the github-copilot-cli (require claude-code.el). It can be an example to add basic support for other AI coding CLI.
+- [[https://github.com/tninja/ai-code-interface.el/pull/2][This PR]] adds github-copilot-cli. It can be an example to add basic support for other AI coding CLI.
 
 - Open a issue, Post information about the new AI coding CLI backend (eg. cursor CLI?), at least providing the command line name. You can also include the version upgrade command, how to resume, where the configuration files are located, and so on. We can ask GitHub Copilot to add support features based on the issue.
 
