@@ -5,7 +5,7 @@
 
 ;;; Commentary:
 ;;
-;; Thin wrapper that reuses `claude-code' to run Opencode.
+;; Thin wrapper that reuses `claude-code-ide-infra' to run Opencode.
 ;; Provides interactive commands and aliases for the AI Code suite.
 ;;
 ;; Opencode is an open-source alternative to Claude Code that provides
@@ -15,15 +15,7 @@
 ;;; Code:
 
 (require 'ai-code-backends)
-
-(declare-function claude-code "claude-code" (&optional arg))
-(declare-function claude-code--start "claude-code" (arg extra-switches &optional force-prompt force-switch-to-buffer))
-(declare-function claude-code--term-send-string "claude-code" (backend string))
-(declare-function claude-code--do-send-command "claude-code" (cmd))
-(declare-function claude-code-switch-to-buffer "claude-code")
-(defvar claude-code-terminal-backend)
-(defvar claude-code-program)
-(defvar claude-code-program-switches)
+(require 'claude-code-ide-infra)
 
 
 (defgroup ai-code-opencode nil
@@ -41,27 +33,51 @@
   :type '(repeat string)
   :group 'ai-code-opencode)
 
+(defvar ai-code-opencode--processes (make-hash-table :test 'equal)
+  "Hash table mapping directory roots to their Opencode processes.")
+
 ;;;###autoload
 (defun ai-code-opencode (&optional arg)
-  "Start Opencode (reuses `claude-code' startup logic).
-ARG is passed to `claude-code'."
+  "Start Opencode (uses `claude-code-ide-infra' logic).
+ARG is currently unused but kept for compatibility."
   (interactive "P")
-  (let ((claude-code-program ai-code-opencode-program)
-        (claude-code-program-switches ai-code-opencode-program-switches))
-    (claude-code arg)))
+  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+         (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir))
+         (command (concat ai-code-opencode-program " "
+                          (mapconcat 'identity ai-code-opencode-program-switches " "))))
+    (claude-code-ide-infra--toggle-or-create-session
+     working-dir
+     buffer-name
+     ai-code-opencode--processes
+     command
+     nil
+     (lambda ()
+       (claude-code-ide-infra--cleanup-session
+        working-dir
+        buffer-name
+        ai-code-opencode--processes)))))
 
 ;;;###autoload
 (defun ai-code-opencode-switch-to-buffer ()
   "Switch to the Opencode buffer."
   (interactive)
-  (claude-code-switch-to-buffer))
+  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+         (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir)))
+    (claude-code-ide-infra--switch-to-session-buffer
+     buffer-name
+     "No Opencode session for this project")))
 
 ;;;###autoload
 (defun ai-code-opencode-send-command (line)
   "Send LINE to Opencode.
 When called interactively, prompts for the command."
   (interactive "sOpencode> ")
-  (claude-code--do-send-command line))
+  (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+         (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir)))
+    (claude-code-ide-infra--send-line-to-session
+     buffer-name
+     "No Opencode session for this project"
+     line)))
 
 ;;;###autoload
 (defun ai-code-opencode-resume (&optional arg)
@@ -78,14 +94,18 @@ or the current value of `default-directory' if no project and no buffer file.
 With double prefix ARG (\\[universal-argument] \\[universal-argument]),
 prompt for the project directory."
   (interactive "P")
-  (let ((claude-code-program ai-code-opencode-program)
-        (claude-code-program-switches ai-code-opencode-program-switches))
-    (claude-code--start arg '("--continue") nil t)
-    (claude-code--term-send-string claude-code-terminal-backend "")
-    (with-current-buffer claude-code-terminal-backend
-      (goto-char (point-min)))))
+  (let ((ai-code-opencode-program-switches
+         (append ai-code-opencode-program-switches '("--continue"))))
+    (ai-code-opencode arg)
+    (let* ((working-dir (claude-code-ide-infra--session-working-directory))
+           (buffer-name (claude-code-ide-infra--session-buffer-name "opencode" working-dir))
+           (buffer (get-buffer buffer-name)))
+      (when buffer
+        (with-current-buffer buffer
+          (sit-for 0.5)
+          (claude-code-ide-infra--terminal-send-string "")
+          (goto-char (point-min)))))))
 
 (provide 'ai-code-opencode)
 
 ;;; ai-code-opencode.el ends here
-
