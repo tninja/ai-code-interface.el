@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+
+** 0.90
 - Feat: Add ai-code-backends-infra.el, use it as infrastructure for
   - OpenAI Codex
   - GitHub Copilot CLI
