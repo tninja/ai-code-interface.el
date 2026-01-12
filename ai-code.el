@@ -1,4 +1,4 @@
-;;; ai-code.el --- Unified interface for AI coding CLI tool such as Codex, Copilot CLI, Opencode, Grok CLI, etc -*- lexical-binding: t; -*-
+;;; ai-code.el --- Unified interface for AI coding CLI such as Codex, Copilot CLI, Opencode, Grok CLI, etc -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; Version: 0.90
