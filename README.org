@@ -149,13 +149,22 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 
 ** FAQ
 
-- Q: Using OpenCode as backend, it might have performance issues with eat.el in Doom Emacs. [[https://github.com/tninja/ai-code-interface.el/issues/9#issuecomment-3543277108][Issue]]
+*** Q: Using OpenCode as backend, it might have performance issues with eat.el in Doom Emacs. [[https://github.com/tninja/ai-code-interface.el/issues/9#issuecomment-3543277108][Issue]]
+
 - A: Use vterm as backend, opencode won't trigger mouse hover and will not cause emacs flickering. Set "theme" to system in openocde config can reduce glitches. From [[https://github.com/tninja/ai-code-interface.el/issues/9#issuecomment-3543335121][gkzhb's answer]]:
 #+begin_src json
 {
   "$schema": "https://opencode.ai/config.json",
   "theme": "system"
 }
+#+end_src
+
+*** Gemini CLI response is relative slow, how to improve?
+
+- A: use gemini-3-flash model, it is pretty fast, with good quality (being able to solve leetcode hard problems). You can set the following in your emacs config:
+
+#+begin_src elisp
+  (setq ai-code-gemini-cli-program-switches '("--model" "gemini-3-flash-preview"))
 #+end_src
 
 ** AI Assisted Programming related books
