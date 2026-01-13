@@ -167,7 +167,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   (setq ai-code-gemini-cli-program-switches '("--model" "gemini-3-flash-preview"))
 #+end_src
 
-*** Q: Codex CLI use my API key, instead of my ChatGPT Plus subscription and cost money, how to fix that? 
+*** Q: Codex CLI uses my API key, instead of my ChatGPT Plus subscription and costs money, how to fix that? 
 
 - A: use `codex login` to login with your OpenAI account that has ChatGPT Plus subscription. After that, Codex CLI will use your ChatGPT Plus subscription automatically. To confirm, check with /status inside the codex CLI buffer.
 
