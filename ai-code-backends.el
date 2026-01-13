@@ -66,11 +66,11 @@ When called from Lisp code, sends CMD directly without prompting."
      :cli     "claude")
     (gemini
      :label "Gemini CLI"
-     :require gemini-cli
-     :start   gemini-cli
-     :switch  gemini-cli-switch-to-buffer
-     :send    gemini-cli--do-send-command
-     :resume  gemini-cli-resume
+     :require ai-code-gemini-cli
+     :start   ai-code-gemini-cli
+     :switch  ai-code-gemini-cli-switch-to-buffer
+     :send    ai-code-gemini-cli-send-command
+     :resume  ai-code-gemini-cli-resume
      :config  "~/.gemini/settings.json"
      :upgrade "npm install -g @google/gemini-cli"
      :cli     "gemini")
