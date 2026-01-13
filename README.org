@@ -137,6 +137,8 @@ The generated prompt will include the function/region scope, visible file list, 
    - Pick one of the supported backends and the integration will switch immediately.
    - The selection updates the start/switch/send commands and the CLI used by `ai-code-apply-prompt-on-current-file`.
 
+   When setting the backend programmatically using `ai-code-set-backend`, you can use either lowercase or capitalized symbols (e.g., both `'opencode` and `'Opencode` will work). The function is case-insensitive for convenience.
+
    Supported options:
    - Claude Code (`[[https://github.com/stevemolitor/claude-code.el][claude-code.el]]`)
    - Claude Code IDE (`[[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide.el]]`)

@@ -135,15 +135,44 @@ The :upgrade property can be either a string shell command or nil."
   "Currently selected backend key from `ai-code-backends'.")
 
 (defun ai-code-set-backend (new-backend)
-  "Set the AI backend to NEW-BACKEND."
-  (unless (ai-code--backend-spec new-backend)
-    (user-error "Unknown backend: %s" new-backend))
-  (setq ai-code-selected-backend new-backend)
-  (ai-code--apply-backend new-backend))
+  "Set the AI backend to NEW-BACKEND.
+NEW-BACKEND can be a symbol or string, and matching is case-insensitive.
+For example, both \\='opencode and \\='Opencode will match the opencode backend."
+  ;; Normalize the backend name: convert to symbol and downcase
+  (let* ((backend-sym (if (stringp new-backend)
+                          (intern (downcase new-backend))
+                        new-backend))
+         (backend-name (symbol-name backend-sym))
+         (normalized-backend (intern (downcase backend-name)))
+         (spec (ai-code--backend-spec-normalized normalized-backend)))
+    (unless spec
+      (let ((available-backends
+             (mapconcat (lambda (it)
+                          (format "%s (%s)"
+                                  (car it)
+                                  (plist-get (cdr it) :label)))
+                        ai-code-backends
+                        ", ")))
+        (user-error "Unknown backend: %s. Available backends: %s"
+                    new-backend available-backends)))
+    ;; Use the actual backend key from the spec (not the normalized one)
+    (let ((actual-key (car spec)))
+      (setq ai-code-selected-backend actual-key)
+      (ai-code--apply-backend actual-key))))
 
 (defun ai-code--backend-spec (key)
   "Return backend plist for KEY from `ai-code-backends'."
   (seq-find (lambda (it) (eq (car it) key)) ai-code-backends))
+
+(defun ai-code--backend-spec-normalized (key)
+  "Return backend plist for KEY with case-insensitive match.
+Looks up KEY in `ai-code-backends' by comparing downcased symbol names.
+KEY should be a downcased symbol."
+  (seq-find (lambda (it)
+              (let ((backend-key (car it)))
+                (string= (downcase (symbol-name backend-key))
+                         (downcase (symbol-name key)))))
+            ai-code-backends))
 
 (defun ai-code-current-backend-label ()
   "Return label string of the currently selected backend.

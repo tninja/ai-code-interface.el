@@ -4,3 +4,4 @@ GTAGS
 GRTAGS
 GPATH
 .ai.code.notes.org
+*.elc
