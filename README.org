@@ -159,7 +159,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 }
 #+end_src
 
-*** Q: Gemini CLI response is relative slow, how to improve?
+*** Q: Gemini CLI response is relatively slow, how to improve?
 
 - A: use gemini-3-flash model, it is pretty fast, with good quality (being able to solve leetcode hard problems). And it is FREE. You can set the following in your emacs config:
 
