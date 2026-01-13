@@ -17,14 +17,14 @@
 ;;
 ;; Supported AI coding CLIs include:
 ;;   - Claude Code (claude-code.el)
-;;   - Gemini CLI (gemini-cli.el)
+;;   - Gemini CLI
 ;;   - OpenAI Codex
 ;;   - GitHub Copilot CLI
 ;;   - Opencode
 ;;   - Grok CLI
 ;;
 ;; Dependency: ai-code-backends-infra.el provides shared terminal infrastructure
-;; (eat / vterm integration, which need to be installed) for OpenAI
+;; (eat / vterm integration, which need to be installed) for Gemini CLI, OpenAI
 ;; Codex,  GitHub Copilot CLI, Opencode, and Grok CLI backends.
 ;;
 ;; Many features are ported from aider.el, making it a powerful alternative for

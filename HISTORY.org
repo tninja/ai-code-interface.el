@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Integrate Gemini CLI into ai-code-backends-infra, removing dependency on external gemini-cli.el package.
 
 ** 0.90
 - Feat: Add ai-code-backends-infra.el, use it as infrastructure for
