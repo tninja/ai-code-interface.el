@@ -138,11 +138,11 @@ The :upgrade property can be either a string shell command or nil."
   "Set the AI backend to NEW-BACKEND.
 NEW-BACKEND can be a symbol or string, and matching is case-insensitive.
 For example, both \\='opencode and \\='Opencode will match the opencode backend."
-  ;; Normalize the backend name: convert to symbol and downcase
-  (let* ((backend-sym (if (stringp new-backend)
-                          (intern (downcase new-backend))
-                        new-backend))
-         (normalized-backend (intern (downcase (symbol-name backend-sym))))
+  ;; Normalize: convert to downcased symbol for case-insensitive matching
+  (let* ((normalized-backend
+          (if (stringp new-backend)
+              (intern (downcase new-backend))
+            (intern (downcase (symbol-name new-backend)))))
          (spec (ai-code--backend-spec-normalized normalized-backend)))
     (unless spec
       (let ((available-backends
