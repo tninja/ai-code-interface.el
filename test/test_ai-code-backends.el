@@ -54,27 +54,15 @@
 (ert-deftest test-ai-code-backends--set-backend-normalization ()
   "Test that backend name normalization works correctly."
   ;; Test string input conversion and normalization
-  (let* ((backend-sym-lowercase (if (stringp "opencode")
-                                    (intern (downcase "opencode"))
-                                  "opencode"))
-         (normalized-lowercase (intern (downcase (symbol-name backend-sym-lowercase)))))
-    (should (eq normalized-lowercase 'opencode)))
-  
-  (let* ((backend-sym-capital (if (stringp "Opencode")
-                                  (intern (downcase "Opencode"))
-                                "Opencode"))
-         (normalized-capital (intern (downcase (symbol-name backend-sym-capital)))))
-    (should (eq normalized-capital 'opencode)))
+  (should (eq (intern (downcase "opencode")) 'opencode))
+  (should (eq (intern (downcase "Opencode")) 'opencode))
+  (should (eq (intern (downcase "OPENCODE")) 'opencode))
   
   ;; Test symbol input normalization
-  (let ((normalized-sym-capital (intern (downcase (symbol-name 'Opencode)))))
-    (should (eq normalized-sym-capital 'opencode)))
-  
-  (let ((normalized-sym-upper (intern (downcase (symbol-name 'OPENCODE)))))
-    (should (eq normalized-sym-upper 'opencode)))
-  
-  (let ((normalized-sym-mixed (intern (downcase (symbol-name 'OpenCode)))))
-    (should (eq normalized-sym-mixed 'opencode))))
+  (should (eq (intern (downcase (symbol-name 'opencode))) 'opencode))
+  (should (eq (intern (downcase (symbol-name 'Opencode))) 'opencode))
+  (should (eq (intern (downcase (symbol-name 'OPENCODE))) 'opencode))
+  (should (eq (intern (downcase (symbol-name 'OpenCode))) 'opencode)))
 
 (ert-deftest test-ai-code-backends--set-backend-error-message ()
   "Test that ai-code-set-backend provides helpful error message for invalid backends."

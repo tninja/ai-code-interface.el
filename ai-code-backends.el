@@ -142,8 +142,7 @@ For example, both \\='opencode and \\='Opencode will match the opencode backend.
   (let* ((backend-sym (if (stringp new-backend)
                           (intern (downcase new-backend))
                         new-backend))
-         (backend-name (symbol-name backend-sym))
-         (normalized-backend (intern (downcase backend-name)))
+         (normalized-backend (intern (downcase (symbol-name backend-sym))))
          (spec (ai-code--backend-spec-normalized normalized-backend)))
     (unless spec
       (let ((available-backends
