@@ -34,8 +34,7 @@
   (should (fboundp 'ai-code-cli-send-command))
   (should (fboundp 'ai-code-cli-resume))
   
-  ;; Verify that the aliases point to actual functions
-  (should (fboundp 'ai-code-cli-start))
+  ;; Verify that the aliases point to actual functions (not just symbols)
   (should (functionp (symbol-function 'ai-code-cli-start)))
   
   ;; Verify that calling the alias would invoke the correct backend
