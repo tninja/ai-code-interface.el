@@ -6,9 +6,9 @@
 [[https://stable.melpa.org/#/ai-code][https://stable.melpa.org/packages/ai-code-badge.svg]]
 [[https://github.com/tninja/ai-code.el/graphs/contributors][https://img.shields.io/github/contributors/tninja/ai-code.el.svg]]
 
-An Emacs interface for AI-assisted software development. *The purpose is to provide a uniform interface and experience for different AI backend*. It is also designed to integrate seamlessly with AI-driven agile development workflow.
+An Emacs interface for AI-assisted software development. *The purpose is to provide a uniform interface and experience for different AI backends*. It is also designed to integrate seamlessly with AI-driven agile development workflows.
 
-- Current it support these AI coding CLI:
+- Currently it supports these AI coding CLIs:
   - [[https://github.com/anthropics/claude-code][Claude Code]]
   - [[https://github.com/google-gemini/gemini-cli][Gemini CLI]]
   - [[https://github.com/openai/codex][OpenAI Codex]]
@@ -16,9 +16,9 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
   - [[https://opencode.ai/][Opencode]]
   - [[https://grokcli.io/][Grok CLI]]
 
-- I switch across different CLI based AI tool in emacs: Claude Code / Gemini CLI / Aider / OpenAI Codex. If you also use different AI tools inside emacs, but want to keep same user interface and experience, this package is for you.
+- I switch between different CLI-based AI tools in Emacs: Claude Code / Gemini CLI / Aider / OpenAI Codex. If you also use different AI tools inside Emacs, but want to keep the same user interface and experience, this package is for you.
 
-- Lots of feature and tool ported from [[https://github.com/tninja/aider.el][aider.el]], if you like the feature in aider.el, but wish to switch to modern AI coding CLI, this package is also for you.
+- Lots of features and tools are ported from [[https://github.com/tninja/aider.el][aider.el]]. If you like the features in aider.el, but wish to switch to modern AI coding CLI, this package is also for you.
 
 - Screenshot
 
@@ -114,7 +114,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     - *Refactoring a Function*: With the cursor in a function, press `C-c a`, then `r` (`ai-code-refactor-book-method`). Select a refactoring technique from the list, provide any required input (e.g., a new method name), and the prompt will be generated.
     - *Reviewing a Pull Request*: Press `C-c a`, then `v` (`ai-code-pull-or-review-diff-file`). Choose to generate a diff between two branches. The diff will be created in a new buffer, and you'll be prompted to start a review.
 
-*** Context Engineering 
+*** Context Engineering
 
 Context engineering is the deliberate practice of selecting, structuring, and delivering the right information to an AI model so the output is specific, accurate, and actionable. For AI-assisted programming, the model cannot read your whole codebase by default, so the quality of the result depends heavily on the clarity and relevance of the provided context (file paths, functions, regions, related files, and repo-level notes). Good context engineering reduces ambiguity, prevents irrelevant suggestions, and keeps changes aligned with the current code.
 
@@ -162,15 +162,15 @@ The generated prompt will include the function/region scope, visible file list, 
 
 - [[https://github.com/tninja/ai-code-interface.el/pull/2][This PR]] adds github-copilot-cli. It can be an example to add basic support for other AI coding CLI.
 
-- Open a issue, Post information about the new AI coding CLI backend (eg. cursor CLI?), at least providing the command line name. You can also include the version upgrade command, how to resume, where the configuration files are located, and so on. We can ask GitHub Copilot to add support features based on the issue.
+- Open an issue, post information about the new AI coding CLI backend (eg. cursor CLI?), at least providing the command line name. You can also include the version upgrade command, how to resume, where the configuration files are located, and so on. We can ask GitHub Copilot to add support features based on the issue.
 
 ** [[https://github.com/tninja/aider.el/blob/main/appendix.org#be-careful-about-ai-generated-code][Why Agile development with AI?]]
 
 ** FAQ
 
-*** Q: Using OpenCode as backend, it might have performance issues with eat.el in Doom Emacs. [[https://github.com/tninja/ai-code-interface.el/issues/9#issuecomment-3543277108][Issue]]
+*** Q: Using Opencode as backend, it might have performance issues with eat.el in Doom Emacs. [[https://github.com/tninja/ai-code-interface.el/issues/9#issuecomment-3543277108][Issue]]
 
-- A: Use vterm as backend, opencode won't trigger mouse hover and will not cause emacs flickering. Set "theme" to system in openocde config can reduce glitches. From [[https://github.com/tninja/ai-code-interface.el/issues/9#issuecomment-3543335121][gkzhb's answer]]:
+- A: Use vterm as the backend; Opencode won't trigger mouse hover and will not cause Emacs flickering. Setting "theme" to "system" in the Opencode config can reduce glitches. From [[https://github.com/tninja/ai-code-interface.el/issues/9#issuecomment-3543335121][gkzhb's answer]]:
 #+begin_src json
 {
   "$schema": "https://opencode.ai/config.json",
@@ -178,15 +178,15 @@ The generated prompt will include the function/region scope, visible file list, 
 }
 #+end_src
 
-*** Q: Gemini CLI response is relative slow, how to improve?
+*** Q: Gemini CLI response is relatively slow, how to improve?
 
-- A: use gemini-3-flash model, it is pretty fast, with good quality (being able to solve leetcode hard problems). And it is FREE. You can set the following in your emacs config:
+- A: use gemini-3-flash model, it is pretty fast, with good quality (being able to solve leetcode hard problems), and it is free. You can set the following in your Emacs config:
 
 #+begin_src elisp
   (setq ai-code-gemini-cli-program-switches '("--model" "gemini-3-flash-preview"))
 #+end_src
 
-*** Q: Codex CLI use my API key, instead of my ChatGPT Plus subscription and cost money, how to fix that? 
+*** Q: Codex CLI use my API key, instead of my ChatGPT Plus subscription and cost money, how to fix that?
 
 - A: use `codex login` to login with your OpenAI account that has ChatGPT Plus subscription. After that, Codex CLI will use your ChatGPT Plus subscription automatically. To confirm, check with /status inside the codex CLI buffer.
 
@@ -200,7 +200,7 @@ The following books introduce how to use AI to assist programming and potentiall
 
 - [[https://github.com/tninja/aider.el?tab=readme-ov-file#ai-assisted-programming-related-books][More AI Assisted Programming related books]]
 
-** Related emacs packages
+** Related Emacs packages
 - Claude Code (`[[https://github.com/stevemolitor/claude-code.el][claude-code.el]]`)
 - Claude Code IDE (`[[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide.el]]`)
 - Gemini CLI (`[[https://github.com/linchen2chris/gemini-cli.el][gemini-cli.el]]`)
