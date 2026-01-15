@@ -35,8 +35,8 @@
   (should (fboundp 'ai-code-cli-resume))
   
   ;; Verify that the aliases point to actual functions
-  (should (symbolp (symbol-function 'ai-code-cli-start)))
-  (should (eq (symbol-function 'ai-code-cli-start) 'ai-code-codex-cli))
+  (should (functionp (symbol-function 'ai-code-cli-start)))
+  (should (eq (symbol-function 'ai-code-cli-start) (symbol-function 'ai-code-codex-cli)))
   
   ;; Verify codex-specific functions are defined
   (should (fboundp 'ai-code-codex-cli))
