@@ -17,6 +17,18 @@
 (require 'cl-lib)
 (require 'project)
 
+;; Silence native-compiler warnings.
+(declare-function vterm "vterm" (&optional buffer-name))
+(declare-function vterm-send-string "vterm" (&rest args))
+(declare-function vterm-send-escape "vterm" ())
+(declare-function vterm-send-return "vterm" ())
+(declare-function vterm--window-adjust-process-window-size "vterm" (&rest args))
+(declare-function vterm--filter "vterm" (&rest args))
+(declare-function eat-term-send-string "eat" (&rest args))
+(declare-function eat--adjust-process-window-size "eat" (&rest args))
+(declare-function eat-mode "eat" ())
+(declare-function eat-exec "eat" (&rest args))
+
 ;;; Customization
 
 (defgroup ai-code-backends-infra nil
