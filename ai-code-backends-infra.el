@@ -29,6 +29,10 @@
 (declare-function eat-mode "eat" ())
 (declare-function eat-exec "eat" (&rest args))
 
+;; Let byte-compiler know these are special vars used for dynamic binding.
+(defvar vterm-shell)
+(defvar vterm-environment)
+
 ;;; Customization
 
 (defgroup ai-code-backends-infra nil
