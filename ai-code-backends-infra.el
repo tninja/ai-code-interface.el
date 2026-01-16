@@ -155,7 +155,8 @@ Can be either `vterm' or `eat'."
     (set-process-query-on-exit-flag proc nil)
     (when (fboundp 'process-put)
       (process-put proc 'read-output-max 4096)))
-  (when ai-code-backends-infra-vterm-anti-flicker
+  (when (and ai-code-backends-infra-vterm-anti-flicker
+             (fboundp 'vterm--filter))
     (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer)))
 
 ;;; Terminal Backend Abstraction
@@ -275,6 +276,7 @@ Can be either `vterm' or `eat'."
     (when (buffer-live-p buffer)
       (kill-buffer buffer))))
 
+;;;###autoload
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn)
   "Toggle or create a terminal session.
@@ -307,6 +309,7 @@ CLEANUP-FN is called with no arguments when the process exits."
         (sleep-for ai-code-backends-infra-terminal-initialization-delay)
         (ai-code-backends-infra--display-buffer-in-side-window new-buffer)))))
 
+;;;###autoload
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message)
   "Switch to BUFFER-NAME or signal MISSING-MESSAGE."
   (if-let ((buffer (get-buffer buffer-name)))
@@ -315,6 +318,7 @@ CLEANUP-FN is called with no arguments when the process exits."
         (ai-code-backends-infra--display-buffer-in-side-window buffer))
     (user-error "%s" missing-message)))
 
+;;;###autoload
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line)
   "Send LINE to BUFFER-NAME or signal MISSING-MESSAGE."
   (if-let ((buffer (get-buffer buffer-name)))
@@ -326,6 +330,7 @@ CLEANUP-FN is called with no arguments when the process exits."
 
 ;;; Generic Session Creation
 
+;;;###autoload
 (defun ai-code-backends-infra--create-terminal-session (buffer-name working-dir command env-vars)
   "Generic function to create a terminal session.
 BUFFER-NAME is the name for the buffer.
