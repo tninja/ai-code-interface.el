@@ -58,7 +58,6 @@
 (require 'seq)
 
 (require 'ai-code-backends)
-(require 'ai-code-backends-infra)
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
 (require 'ai-code-agile)

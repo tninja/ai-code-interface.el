@@ -29,6 +29,10 @@
 (declare-function eat-mode "eat" ())
 (declare-function eat-exec "eat" (&rest args))
 
+;; Declare vterm dynamic variables for let-binding to work with lexical-binding
+(defvar vterm-shell)
+(defvar vterm-environment)
+
 ;;; Customization
 
 (defgroup ai-code-backends-infra nil
