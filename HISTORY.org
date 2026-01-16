@@ -2,6 +2,9 @@
 * Release history
 
 ** Main branch change
+
+** 0.91
+- Fix: Weird ai-code-backends-infra.el loading bug, by Silex, and opencode start issue, by e665107
 - Feat: Integrate Gemini CLI into ai-code-backends-infra, removing dependency on external gemini-cli.el package.
 
 ** 0.90

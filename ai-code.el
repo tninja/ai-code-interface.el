@@ -1,7 +1,7 @@
 ;;; ai-code.el --- Unified interface for AI coding CLI such as Codex, Copilot CLI, Opencode, Grok CLI, etc -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
-;; Version: 0.90
+;; Version: 0.91
 ;; Package-Requires: ((emacs "28.1") (transient "0.8.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
