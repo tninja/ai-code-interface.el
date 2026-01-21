@@ -337,7 +337,7 @@ Return a cons of (base-name . instance-name) or nil."
       (when (eq existing buffer)
         (remhash key ai-code-backends-infra--directory-buffer-map)))))
 
-(defun ai-code-backends-infra--select-session-buffer (prefix directory)
+(defun ai-code-backends-infra--select-session-buffer (prefix directory &optional force-prompt)
   "Select a session buffer for PREFIX in DIRECTORY.
 Returns the selected buffer or nil if none exist."
   (let ((buffers (ai-code-backends-infra--find-session-buffers prefix directory)))
@@ -355,7 +355,7 @@ Returns the selected buffer or nil if none exist."
                                        prefix)
                                       buf))
                               buffers)))
-        (if (and remembered (memq remembered buffers))
+        (if (and (not force-prompt) remembered (memq remembered buffers))
             remembered
           (let ((selection (completing-read
                             (format "Select %s session: " prefix)
@@ -483,31 +483,33 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
         (ai-code-backends-infra--display-buffer-in-side-window new-buffer)))))
 
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
-                                                                    &optional prefix working-dir)
+                                                                    &optional prefix working-dir force-prompt)
   "Switch to BUFFER-NAME or signal MISSING-MESSAGE.
 When PREFIX and WORKING-DIR are provided, select from multiple sessions."
   (let ((buffer (or (and buffer-name (get-buffer buffer-name))
                     (and prefix working-dir
                          (ai-code-backends-infra--select-session-buffer
                           prefix
-                          working-dir)))))
+                          working-dir
+                          force-prompt)))))
     (if buffer
         (progn
           (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
           (if-let ((window (get-buffer-window buffer)))
-              (select-window window)
+            (select-window window)
             (ai-code-backends-infra--display-buffer-in-side-window buffer)))
       (user-error "%s" missing-message))))
 
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
-                                                                &optional prefix working-dir)
+                                                                &optional prefix working-dir force-prompt)
   "Send LINE to BUFFER-NAME or signal MISSING-MESSAGE.
 When PREFIX and WORKING-DIR are provided, select from multiple sessions."
   (let ((buffer (or (and buffer-name (get-buffer buffer-name))
                     (and prefix working-dir
                          (ai-code-backends-infra--select-session-buffer
                           prefix
-                          working-dir)))))
+                          working-dir
+                          force-prompt)))))
     (if buffer
         (with-current-buffer buffer
           (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)

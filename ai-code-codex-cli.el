@@ -63,7 +63,8 @@ With prefix ARG, prompt for a new instance name."
      nil
      "No Codex session for this project"
      ai-code-codex-cli--session-prefix
-     working-dir)))
+     working-dir
+     t)))
 
 ;;;###autoload
 (defun ai-code-codex-cli-send-command (line)
