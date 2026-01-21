@@ -107,6 +107,9 @@ Can be either `vterm' or `eat'."
 (defvar ai-code-backends-infra--last-accessed-buffer nil
   "The most recently accessed AI Code buffer.")
 
+(defvar ai-code-backends-infra--directory-buffer-map (make-hash-table :test 'equal)
+  "Hash table mapping (prefix . directory) to last selected session buffer.")
+
 ;;; Vterm Rendering Optimization
 
 (defvar-local ai-code-backends-infra--vterm-render-queue nil)
@@ -289,6 +292,10 @@ When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
   "Return a session key for DIRECTORY and INSTANCE-NAME."
   (cons directory (ai-code-backends-infra--normalize-instance-name instance-name)))
 
+(defun ai-code-backends-infra--session-map-key (prefix directory)
+  "Return a map key for PREFIX and DIRECTORY."
+  (cons prefix (expand-file-name directory)))
+
 (defun ai-code-backends-infra--parse-session-buffer-name (buffer-name prefix)
   "Parse BUFFER-NAME for PREFIX.
 Return a cons of (base-name . instance-name) or nil."
@@ -315,25 +322,48 @@ Return a cons of (base-name . instance-name) or nil."
          (string= (car parsed) base)))
      (buffer-list))))
 
+(defun ai-code-backends-infra--remember-session-buffer (prefix directory buffer)
+  "Remember BUFFER as the last selected session for PREFIX and DIRECTORY."
+  (when (and prefix directory buffer)
+    (puthash (ai-code-backends-infra--session-map-key prefix directory)
+             buffer
+             ai-code-backends-infra--directory-buffer-map)))
+
+(defun ai-code-backends-infra--forget-session-buffer (prefix directory buffer)
+  "Forget BUFFER if it's the remembered session for PREFIX and DIRECTORY."
+  (when (and prefix directory buffer)
+    (let* ((key (ai-code-backends-infra--session-map-key prefix directory))
+           (existing (gethash key ai-code-backends-infra--directory-buffer-map)))
+      (when (eq existing buffer)
+        (remhash key ai-code-backends-infra--directory-buffer-map)))))
+
 (defun ai-code-backends-infra--select-session-buffer (prefix directory)
   "Select a session buffer for PREFIX in DIRECTORY.
 Returns the selected buffer or nil if none exist."
   (let ((buffers (ai-code-backends-infra--find-session-buffers prefix directory)))
     (cond
      ((null buffers) nil)
-     ((= (length buffers) 1) (car buffers))
+     ((= (length buffers) 1)
+      (ai-code-backends-infra--remember-session-buffer prefix directory (car buffers))
+      (car buffers))
      (t
-      (let* ((choices (mapcar (lambda (buf)
+      (let* ((remembered (gethash (ai-code-backends-infra--session-map-key prefix directory)
+                                  ai-code-backends-infra--directory-buffer-map))
+             (choices (mapcar (lambda (buf)
                                 (cons (ai-code-backends-infra--session-instance-name
                                        (buffer-name buf)
                                        prefix)
                                       buf))
-                              buffers))
-             (selection (completing-read
-                         (format "Select %s session: " prefix)
-                         (mapcar #'car choices)
-                         nil t)))
-        (cdr (assoc selection choices)))))))
+                              buffers)))
+        (if (and remembered (memq remembered buffers))
+            remembered
+          (let ((selection (completing-read
+                            (format "Select %s session: " prefix)
+                            (mapcar #'car choices)
+                            nil t)))
+            (let ((buffer (cdr (assoc selection choices))))
+              (ai-code-backends-infra--remember-session-buffer prefix directory buffer)
+              buffer))))))))
 
 (defun ai-code-backends-infra--prompt-for-instance-name (existing-instance-names &optional force-prompt)
   "Prompt for a new instance name.
@@ -369,9 +399,9 @@ If FORCE-PROMPT is nil and there are no existing instances, return \"default\"."
                                       prefix))
                                 "default"))
          (key (ai-code-backends-infra--session-key directory resolved-instance)))
-    (remhash key process-table)
-    (remhash directory process-table))
+    (remhash key process-table))
   (when-let ((buffer (get-buffer buffer-name)))
+    (ai-code-backends-infra--forget-session-buffer prefix directory buffer)
     (when (buffer-live-p buffer)
       (kill-buffer buffer))))
 
@@ -393,10 +423,6 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
                                 (ai-code-backends-infra--find-session-buffers
                                  prefix
                                  working-dir)))
-         (selected-buffer (and prefix (not instance-name) (not force-prompt)
-                               (ai-code-backends-infra--select-session-buffer
-                                prefix
-                                working-dir)))
          (existing-instance-names (mapcar (lambda (buf)
                                             (ai-code-backends-infra--session-instance-name
                                              (buffer-name buf)
@@ -404,13 +430,11 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
                                           existing-buffers))
          (resolved-instance (cond
                              (instance-name (ai-code-backends-infra--normalize-instance-name instance-name))
-                             (selected-buffer
-                              (ai-code-backends-infra--session-instance-name
-                               (buffer-name selected-buffer)
-                               prefix))
-                             (t (ai-code-backends-infra--prompt-for-instance-name
-                                 existing-instance-names
-                                 force-prompt))))
+                             (prefix
+                              (ai-code-backends-infra--prompt-for-instance-name
+                               existing-instance-names
+                               force-prompt))
+                             (t "default")))
          (resolved-buffer-name (or buffer-name
                                    (and prefix
                                         (ai-code-backends-infra--session-buffer-name
@@ -419,11 +443,13 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
                                          resolved-instance))))
          (session-key (ai-code-backends-infra--session-key working-dir resolved-instance))
          (existing-process (gethash session-key process-table))
-         (buffer (or selected-buffer (get-buffer resolved-buffer-name))))
+         (buffer (get-buffer resolved-buffer-name)))
     (if (and existing-process (process-live-p existing-process) buffer)
         (if (get-buffer-window buffer)
             (delete-window (get-buffer-window buffer))
-          (ai-code-backends-infra--display-buffer-in-side-window buffer))
+          (progn
+            (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+            (ai-code-backends-infra--display-buffer-in-side-window buffer)))
       (let* ((buffer-and-process
               (ai-code-backends-infra--create-terminal-session
                resolved-buffer-name working-dir command nil))
@@ -444,7 +470,16 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
         (when escape-fn
           (with-current-buffer new-buffer
             (local-set-key (kbd "C-<escape>") escape-fn)))
+        (with-current-buffer new-buffer
+          (add-hook 'kill-buffer-hook
+                    (lambda ()
+                      (ai-code-backends-infra--forget-session-buffer
+                       prefix
+                       working-dir
+                       (current-buffer)))
+                    nil t))
         (sleep-for ai-code-backends-infra-terminal-initialization-delay)
+        (ai-code-backends-infra--remember-session-buffer prefix working-dir new-buffer)
         (ai-code-backends-infra--display-buffer-in-side-window new-buffer)))))
 
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
@@ -457,9 +492,11 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                           prefix
                           working-dir)))))
     (if buffer
-        (if-let ((window (get-buffer-window buffer)))
-            (select-window window)
-          (ai-code-backends-infra--display-buffer-in-side-window buffer))
+        (progn
+          (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+          (if-let ((window (get-buffer-window buffer)))
+              (select-window window)
+            (ai-code-backends-infra--display-buffer-in-side-window buffer)))
       (user-error "%s" missing-message))))
 
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
@@ -473,6 +510,7 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                           working-dir)))))
     (if buffer
         (with-current-buffer buffer
+          (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
           (ai-code-backends-infra--terminal-send-string line)
           (sit-for 0.1)
           (ai-code-backends-infra--terminal-send-return))
@@ -511,9 +549,9 @@ ENV-VARS is a list of environment variables."
 
 (defun ai-code-backends-infra--cleanup-dead-processes (table)
   "Clean up dead processes from TABLE."
-  (maphash (lambda (dir proc)
+  (maphash (lambda (key proc)
              (unless (process-live-p proc)
-               (remhash dir table)))
+               (remhash key table)))
            table))
 
 (provide 'ai-code-backends-infra)
