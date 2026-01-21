@@ -28,50 +28,55 @@
   :type '(repeat string)
   :group 'ai-code-cursor-cli)
 
+(defconst ai-code-cursor-cli--session-prefix "cursor"
+  "Session prefix used in Cursor CLI buffer names.")
+
 (defvar ai-code-cursor-cli--processes (make-hash-table :test 'equal)
-  "Hash table mapping directory roots to their Cursor processes.")
+  "Hash table mapping Cursor session keys to processes.")
 
 ;;;###autoload
 (defun ai-code-cursor-cli (&optional arg)
   "Start Cursor CLI (uses `ai-code-backends-infra' logic).
-ARG is currently unused but kept for compatibility."
+With prefix ARG, prompt for a new instance name."
   (interactive "P")
   (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "cursor" working-dir))
+         (force-prompt (and arg t))
          (command (concat ai-code-cursor-cli-program " "
                           (mapconcat 'identity ai-code-cursor-cli-program-switches " "))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
-     buffer-name
+     nil
      ai-code-cursor-cli--processes
      command
      #'ai-code-cursor-cli-send-escape
-     (lambda ()
-       (ai-code-backends-infra--cleanup-session
-        working-dir
-        buffer-name
-        ai-code-cursor-cli--processes)))))
+     nil
+     nil
+     ai-code-cursor-cli--session-prefix
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-switch-to-buffer ()
   "Switch to the Cursor CLI buffer."
   (interactive)
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "cursor" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
-     buffer-name
-     "No Cursor session for this project")))
+     nil
+     "No Cursor session for this project"
+     ai-code-cursor-cli--session-prefix
+     working-dir
+     t)))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-send-command (line)
   "Send LINE to Cursor CLI."
   (interactive "sCursor> ")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "cursor" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--send-line-to-session
-     buffer-name
+     nil
      "No Cursor session for this project"
-     line)))
+     line
+     ai-code-cursor-cli--session-prefix
+     working-dir)))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-send-escape ()
@@ -87,8 +92,9 @@ ARG is currently unused but kept for compatibility."
     (ai-code-cursor-cli arg)
     ;; Send empty string to trigger terminal processing and ensure CLI session picker appears
     (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer-name (ai-code-backends-infra--session-buffer-name "cursor" working-dir))
-           (buffer (get-buffer buffer-name)))
+           (buffer (ai-code-backends-infra--select-session-buffer
+                    ai-code-cursor-cli--session-prefix
+                    working-dir)))
       (when buffer
         (with-current-buffer buffer
           (sit-for 0.5)

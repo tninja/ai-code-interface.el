@@ -33,51 +33,56 @@
   :type '(repeat string)
   :group 'ai-code-opencode)
 
+(defconst ai-code-opencode--session-prefix "opencode"
+  "Session prefix used in Opencode buffer names.")
+
 (defvar ai-code-opencode--processes (make-hash-table :test 'equal)
-  "Hash table mapping directory roots to their Opencode processes.")
+  "Hash table mapping Opencode session keys to processes.")
 
 ;;;###autoload
 (defun ai-code-opencode (&optional arg)
   "Start Opencode (uses `ai-code-backends-infra' logic).
-ARG is currently unused but kept for compatibility."
+With prefix ARG, prompt for a new instance name."
   (interactive "P")
   (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir))
+         (force-prompt (and arg t))
          (command (concat ai-code-opencode-program " "
                           (mapconcat 'identity ai-code-opencode-program-switches " "))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
-     buffer-name
+     nil
      ai-code-opencode--processes
      command
      nil
-     (lambda ()
-       (ai-code-backends-infra--cleanup-session
-        working-dir
-        buffer-name
-        ai-code-opencode--processes)))))
+     nil
+     nil
+     ai-code-opencode--session-prefix
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-opencode-switch-to-buffer ()
   "Switch to the Opencode buffer."
   (interactive)
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
-     buffer-name
-     "No Opencode session for this project")))
+     nil
+     "No Opencode session for this project"
+     ai-code-opencode--session-prefix
+     working-dir
+     t)))
 
 ;;;###autoload
 (defun ai-code-opencode-send-command (line)
   "Send LINE to Opencode.
 When called interactively, prompts for the command."
   (interactive "sOpencode> ")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--send-line-to-session
-     buffer-name
+     nil
      "No Opencode session for this project"
-     line)))
+     line
+     ai-code-opencode--session-prefix
+     working-dir)))
 
 ;;;###autoload
 (defun ai-code-opencode-resume (&optional arg)
@@ -98,8 +103,9 @@ prompt for the project directory."
          (append ai-code-opencode-program-switches '("--continue"))))
     (ai-code-opencode arg)
     (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer-name (ai-code-backends-infra--session-buffer-name "opencode" working-dir))
-           (buffer (get-buffer buffer-name)))
+           (buffer (ai-code-backends-infra--select-session-buffer
+                    ai-code-opencode--session-prefix
+                    working-dir)))
       (when buffer
         (with-current-buffer buffer
           (sit-for 0.5)

@@ -28,50 +28,55 @@
   :type '(repeat string)
   :group 'ai-code-gemini-cli)
 
+(defconst ai-code-gemini-cli--session-prefix "gemini"
+  "Session prefix used in Gemini CLI buffer names.")
+
 (defvar ai-code-gemini-cli--processes (make-hash-table :test 'equal)
-  "Hash table mapping directory roots to their Gemini processes.")
+  "Hash table mapping Gemini session keys to processes.")
 
 ;;;###autoload
 (defun ai-code-gemini-cli (&optional arg)
   "Start Gemini (uses `ai-code-backends-infra' logic).
-ARG is currently unused but kept for compatibility."
+With prefix ARG, prompt for a new instance name."
   (interactive "P")
   (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "gemini" working-dir))
+         (force-prompt (and arg t))
          (command (concat ai-code-gemini-cli-program " "
                           (mapconcat 'identity ai-code-gemini-cli-program-switches " "))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
-     buffer-name
+     nil
      ai-code-gemini-cli--processes
      command
      #'ai-code-gemini-cli-send-escape
-     (lambda ()
-       (ai-code-backends-infra--cleanup-session
-        working-dir
-        buffer-name
-        ai-code-gemini-cli--processes)))))
+     nil
+     nil
+     ai-code-gemini-cli--session-prefix
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-switch-to-buffer ()
   "Switch to the Gemini CLI buffer."
   (interactive)
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "gemini" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
-     buffer-name
-     "No Gemini session for this project")))
+     nil
+     "No Gemini session for this project"
+     ai-code-gemini-cli--session-prefix
+     working-dir
+     t)))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-send-command (line)
   "Send LINE to Gemini CLI."
   (interactive "sGemini> ")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "gemini" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--send-line-to-session
-     buffer-name
+     nil
      "No Gemini session for this project"
-     line)))
+     line
+     ai-code-gemini-cli--session-prefix
+     working-dir)))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-send-escape ()

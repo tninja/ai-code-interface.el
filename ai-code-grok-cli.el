@@ -27,39 +27,43 @@
   :type '(repeat string)
   :group 'ai-code-grok-cli)
 
+(defconst ai-code-grok-cli--session-prefix "grok"
+  "Session prefix used in Grok CLI buffer names.")
+
 (defvar ai-code-grok-cli--processes (make-hash-table :test 'equal)
-  "Hash table mapping directory roots to their Grok processes.")
+  "Hash table mapping Grok session keys to processes.")
 
 ;;;###autoload
 (defun ai-code-grok-cli (&optional arg)
   "Start Grok CLI (uses `ai-code-backends-infra' logic).
-ARG is currently unused but kept for compatibility."
+With prefix ARG, prompt for a new instance name."
   (interactive "P")
   (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir))
+         (force-prompt (and arg t))
          (command (concat ai-code-grok-cli-program " "
                           (mapconcat 'identity ai-code-grok-cli-program-switches " "))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
-     buffer-name
+     nil
      ai-code-grok-cli--processes
      command
      nil
-     (lambda ()
-       (ai-code-backends-infra--cleanup-session
-        working-dir
-        buffer-name
-        ai-code-grok-cli--processes)))))
+     nil
+     nil
+     ai-code-grok-cli--session-prefix
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-grok-cli-switch-to-buffer ()
   "Switch to the Grok CLI buffer."
   (interactive)
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
-     buffer-name
-     "No Grok session for this project")))
+     nil
+     "No Grok session for this project"
+     ai-code-grok-cli--session-prefix
+     working-dir
+     t)))
 
 ;;;###autoload
 (defun ai-code-grok-cli-send-command (line)
@@ -67,12 +71,13 @@ ARG is currently unused but kept for compatibility."
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
   (interactive "sGrok> ")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--send-line-to-session
-     buffer-name
+     nil
      "No Grok session for this project"
-     line)))
+     line
+     ai-code-grok-cli--session-prefix
+     working-dir)))
 
 ;;;###autoload
 (defun ai-code-grok-cli-resume (&optional arg)
@@ -83,8 +88,9 @@ ARG is passed to the underlying start function."
          (append ai-code-grok-cli-program-switches '("resume"))))
     (ai-code-grok-cli arg)
     (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer-name (ai-code-backends-infra--session-buffer-name "grok" working-dir))
-           (buffer (get-buffer buffer-name)))
+           (buffer (ai-code-backends-infra--select-session-buffer
+                    ai-code-grok-cli--session-prefix
+                    working-dir)))
       (when buffer
         (with-current-buffer buffer
           (sit-for 0.5)

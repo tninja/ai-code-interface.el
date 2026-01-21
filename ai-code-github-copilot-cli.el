@@ -28,50 +28,55 @@
   :type '(repeat string)
   :group 'ai-code-github-copilot-cli)
 
+(defconst ai-code-github-copilot-cli--session-prefix "copilot"
+  "Session prefix used in GitHub Copilot CLI buffer names.")
+
 (defvar ai-code-github-copilot-cli--processes (make-hash-table :test 'equal)
-  "Hash table mapping directory roots to their Copilot processes.")
+  "Hash table mapping Copilot session keys to processes.")
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli (&optional arg)
   "Start GitHub Copilot CLI (uses `ai-code-backends-infra' logic).
-ARG is currently unused but kept for compatibility."
+With prefix ARG, prompt for a new instance name."
   (interactive "P")
   (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir))
+         (force-prompt (and arg t))
          (command (concat ai-code-github-copilot-cli-program " "
                           (mapconcat 'identity ai-code-github-copilot-cli-program-switches " "))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
-     buffer-name
+     nil
      ai-code-github-copilot-cli--processes
      command
      #'ai-code-github-copilot-cli-send-escape
-     (lambda ()
-       (ai-code-backends-infra--cleanup-session
-        working-dir
-        buffer-name
-        ai-code-github-copilot-cli--processes)))))
+     nil
+     nil
+     ai-code-github-copilot-cli--session-prefix
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-switch-to-buffer ()
   "Switch to the GitHub Copilot CLI buffer."
   (interactive)
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
-     buffer-name
-     "No Copilot session for this project")))
+     nil
+     "No Copilot session for this project"
+     ai-code-github-copilot-cli--session-prefix
+     working-dir
+     t)))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-send-command (line)
   "Send LINE to GitHub Copilot CLI."
   (interactive "sCopilot> ")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--send-line-to-session
-     buffer-name
+     nil
      "No Copilot session for this project"
-     line)))
+     line
+     ai-code-github-copilot-cli--session-prefix
+     working-dir)))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-send-escape ()
@@ -87,8 +92,9 @@ ARG is currently unused but kept for compatibility."
     (ai-code-github-copilot-cli arg)
     ;; Send empty string to trigger terminal processing and ensure CLI session picker appears
     (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer-name (ai-code-backends-infra--session-buffer-name "copilot" working-dir))
-           (buffer (get-buffer buffer-name)))
+           (buffer (ai-code-backends-infra--select-session-buffer
+                    ai-code-github-copilot-cli--session-prefix
+                    working-dir)))
       (when buffer
         (with-current-buffer buffer
           (sit-for 0.5)
