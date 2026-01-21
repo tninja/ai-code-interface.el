@@ -123,7 +123,17 @@ When called from Lisp code, sends CMD directly without prompting."
      :resume  ai-code-cursor-cli-resume
      :config  "~/.cursor"
      :upgrade "cursor-agent update"
-     :cli     "cursor-agent"))
+     :cli     "cursor-agent")
+    (kiro
+     :label "Kiro CLI"
+     :require ai-code-kiro-cli
+     :start   ai-code-kiro-cli
+     :switch  ai-code-kiro-cli-switch-to-buffer
+     :send    ai-code-kiro-cli-send-command
+     :resume  ai-code-kiro-cli-resume
+     :config  "~/.kiro/settings/cli.json"
+     :upgrade "kiro-cli update"
+     :cli     "kiro-cli"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
 :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).

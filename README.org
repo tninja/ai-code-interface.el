@@ -16,6 +16,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
   - [[https://opencode.ai/][Opencode]]
   - [[https://grokcli.io/][Grok CLI]]
   - [[https://docs.cursor.com/en/cli][Cursor CLI]]
+  - [[https://kiro.dev/docs/kiro-cli][Kiro CLI]]
 
 - I switch between different CLI-based AI tools in Emacs: Claude Code / Gemini CLI / Aider / OpenAI Codex. If you also use different AI tools inside Emacs, but want to keep the same user interface and experience, this package is for you.
 
@@ -44,7 +45,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 #+begin_src emacs-lisp
   (use-package ai-code
     :config
-    ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'claude-code-ide, 'claude-code, 'cursor
+    ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'claude-code-ide, 'claude-code, 'cursor, 'kiro
     (ai-code-set-backend 'codex)
     ;; Enable global keybinding for the main menu
     (global-set-key (kbd "C-c a") #'ai-code-menu)
@@ -64,7 +65,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   (use-package ai-code
     :straight (:host github :repo "tninja/ai-code-interface.el")
     :config
-    ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'claude-code-ide, 'claude-code, 'cursor
+    ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'claude-code-ide, 'claude-code, 'cursor, 'kiro
     (ai-code-set-backend 'codex)
     ;; Enable global keybinding for the main menu
     (global-set-key (kbd "C-c a") #'ai-code-menu)
@@ -150,6 +151,7 @@ The generated prompt will include the function/region scope, visible file list, 
    - [[https://opencode.ai/][Opencode]] (`[[./ai-code-opencode.el][ai-code-opencode.el]]`)
    - [[https://grokcli.io/][Grok CLI]] (`[[./ai-code-grok-cli.el][ai-code-grok-cli.el]]`)
    - [[https://docs.cursor.com/en/cli][Cursor CLI]] (`[[./ai-code-cursor-cli.el][ai-code-cursor-cli.el]]`)
+   - [[https://kiro.dev/docs/kiro-cli][Kiro CLI]] (`[[./ai-code-kiro-cli.el][ai-code-kiro-cli.el]]`)
 
 **** Grok CLI setup
      Install [[https://grokcli.io/][grok-cli]] and ensure the `grok` executable is on your PATH.
