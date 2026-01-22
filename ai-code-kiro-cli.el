@@ -38,8 +38,11 @@
                  (string :tag "Agent name"))
   :group 'ai-code-kiro-cli)
 
+(defconst ai-code-kiro-cli--session-prefix "kiro"
+  "Session prefix used in Kiro CLI buffer names.")
+
 (defvar ai-code-kiro-cli--processes (make-hash-table :test 'equal)
-  "Hash table mapping directory roots to their Kiro processes.")
+  "Hash table mapping Kiro session keys to processes.")
 
 (defun ai-code-kiro-cli--build-command ()
   "Build the Kiro CLI command string."
@@ -55,43 +58,55 @@
 ;;;###autoload
 (defun ai-code-kiro-cli (&optional arg)
   "Start Kiro CLI chat session.
-ARG is currently unused but kept for compatibility."
+With prefix ARG, prompt for a new instance name."
   (interactive "P")
   (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "kiro" working-dir))
-         (command (ai-code-kiro-cli--build-command)))
+         (force-prompt (and arg t))
+         (command (ai-code-kiro-cli--build-command))
+         (instance-name nil))
+    (unless force-prompt
+      (when-let ((existing-buffer
+                  (ai-code-backends-infra--select-session-buffer
+                   ai-code-kiro-cli--session-prefix
+                   working-dir)))
+        (setq instance-name
+              (ai-code-backends-infra--session-instance-name
+               (buffer-name existing-buffer)
+               ai-code-kiro-cli--session-prefix))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
-     buffer-name
+     nil
      ai-code-kiro-cli--processes
      command
      #'ai-code-kiro-cli-send-escape
-     (lambda ()
-       (ai-code-backends-infra--cleanup-session
-        working-dir
-        buffer-name
-        ai-code-kiro-cli--processes)))))
+     nil
+     instance-name
+     ai-code-kiro-cli--session-prefix
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-switch-to-buffer ()
   "Switch to the Kiro CLI buffer."
   (interactive)
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "kiro" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
-     buffer-name
-     "No Kiro session for this project")))
+     nil
+     "No Kiro session for this project"
+     ai-code-kiro-cli--session-prefix
+     working-dir
+     t)))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-send-command (line)
   "Send LINE to Kiro CLI."
   (interactive "sKiro> ")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (buffer-name (ai-code-backends-infra--session-buffer-name "kiro" working-dir)))
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--send-line-to-session
-     buffer-name
+     nil
      "No Kiro session for this project"
-     line)))
+     line
+     ai-code-kiro-cli--session-prefix
+     working-dir)))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-send-escape ()
