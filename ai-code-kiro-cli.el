@@ -45,7 +45,7 @@
   "Build the Kiro CLI command string."
   (let ((args (list ai-code-kiro-cli-program "chat")))
     (when ai-code-kiro-cli-trust-all-tools
-      (push "--trust-all-tools" (cdr (last args))))
+      (setq args (append args '("--trust-all-tools"))))
     (when ai-code-kiro-cli-agent
       (setq args (append args (list "--agent" ai-code-kiro-cli-agent))))
     (when ai-code-kiro-cli-program-switches
