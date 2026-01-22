@@ -220,8 +220,7 @@ Can be either `vterm' or `eat'."
 (defun ai-code-backends-infra--session-buffer-p (buffer)
   "Check if BUFFER belongs to an AI session."
   (when-let ((name (if (stringp buffer) buffer (buffer-name buffer))))
-    (or (string-prefix-p "*claude-code[" name)
-        (string-prefix-p "*codex[" name))))
+    (string-match-p "\\`\\*.*\\[.*\\].*\\*\\'" name)))
 
 (defun ai-code-backends-infra--terminal-reflow-filter (original-fn &rest args)
   "Filter terminal reflows to prevent height-only resize triggers."

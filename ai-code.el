@@ -79,6 +79,7 @@
 (declare-function ai-code-select-backend "ai-code-backends")
 (declare-function ai-code-open-backend-config "ai-code-backends")
 (declare-function ai-code-upgrade-backend "ai-code-backends")
+(declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 
@@ -157,8 +158,7 @@ ARG is the prefix argument."
 Otherwise switch to AI CLI buffer."
   (interactive)
   (if (and current-prefix-arg
-           (string-prefix-p "*" (buffer-name))
-           (string-suffix-p "*" (buffer-name)))
+           (ai-code-backends-infra--session-buffer-p (current-buffer)))
       (quit-window)
     (ai-code-cli-switch-to-buffer)))
 
