@@ -57,9 +57,8 @@ Respects the notification interval to avoid spamming."
              (ai-code-notifications--can-notify-p))
     (setq ai-code-notifications--last-notification-time (current-time))
     (cond
-     ;; Use D-Bus notifications on Linux (when available)
-     ((and (featurep 'dbusbind)
-           (require 'notifications nil t)
+     ;; Use D-Bus notifications if available
+     ((and (require 'notifications nil t)
            (fboundp 'notifications-notify))
       (notifications-notify
        :title title

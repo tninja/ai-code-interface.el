@@ -116,8 +116,12 @@ Can be either `vterm' or `eat'."
 (defvar-local ai-code-backends-infra--idle-timer nil
   "Timer for detecting idle state (response completion).")
 
-(defvar ai-code-backends-infra-idle-delay 1.5
-  "Delay in seconds of inactivity before considering response complete.")
+(defcustom ai-code-backends-infra-idle-delay 1.5
+  "Delay in seconds of inactivity before considering response complete.
+After this period of terminal inactivity, a notification may be sent
+if the AI session buffer is not currently visible."
+  :type 'number
+  :group 'ai-code-backends-infra)
 
 ;;; Vterm Rendering Optimization
 
@@ -134,6 +138,8 @@ Can be either `vterm' or `eat'."
     (when (require 'ai-code-notifications nil t)
       (when (fboundp 'ai-code-notifications-response-ready)
         (let ((buffer-name (buffer-name)))
+          ;; Extract backend name from buffer name format: *<backend>[<dir>]*
+          ;; Example: "*codex[my-project]*" -> "codex"
           (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
             (let ((backend-name (match-string 1 buffer-name)))
               (ai-code-notifications-response-ready backend-name))))))))
