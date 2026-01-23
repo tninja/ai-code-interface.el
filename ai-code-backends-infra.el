@@ -110,10 +110,41 @@ Can be either `vterm' or `eat'."
 (defvar ai-code-backends-infra--directory-buffer-map (make-hash-table :test 'equal)
   "Hash table mapping (prefix . directory) to last selected session buffer.")
 
+(defvar-local ai-code-backends-infra--last-activity-time nil
+  "Time of the last terminal activity in this buffer.")
+
+(defvar-local ai-code-backends-infra--idle-timer nil
+  "Timer for detecting idle state (response completion).")
+
+(defvar ai-code-backends-infra-idle-delay 1.5
+  "Delay in seconds of inactivity before considering response complete.")
+
 ;;; Vterm Rendering Optimization
 
 (defvar-local ai-code-backends-infra--vterm-render-queue nil)
 (defvar-local ai-code-backends-infra--vterm-render-timer nil)
+
+(declare-function ai-code-notifications-response-ready "ai-code-notifications" (&optional backend-name))
+
+(defun ai-code-backends-infra--check-response-complete ()
+  "Check if AI response is complete and notify if enabled."
+  (when (and (buffer-live-p (current-buffer))
+             (not (eq (selected-window) (get-buffer-window (current-buffer)))))
+    ;; Only notify if buffer is not currently visible/focused
+    (when (require 'ai-code-notifications nil t)
+      (when (fboundp 'ai-code-notifications-response-ready)
+        (let ((buffer-name (buffer-name)))
+          (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
+            (let ((backend-name (match-string 1 buffer-name)))
+              (ai-code-notifications-response-ready backend-name))))))))
+
+(defun ai-code-backends-infra--schedule-idle-check ()
+  "Schedule a check for response completion after idle period."
+  (when ai-code-backends-infra--idle-timer
+    (cancel-timer ai-code-backends-infra--idle-timer))
+  (setq ai-code-backends-infra--idle-timer
+        (run-at-time ai-code-backends-infra-idle-delay nil
+                     #'ai-code-backends-infra--check-response-complete)))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates."
@@ -121,6 +152,9 @@ Can be either `vterm' or `eat'."
           (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
+      ;; Track activity for notification purposes
+      (setq ai-code-backends-infra--last-activity-time (current-time))
+      (ai-code-backends-infra--schedule-idle-check)
       (let* ((complex-redraw-detected
               (string-match-p "\033\\[[0-9]*A.*\033\\[K.*\033\\[[0-9]*A.*\033\\[K" input))
              (clear-count (cl-count-if (lambda (s) (string= s "\033[K"))
@@ -545,6 +579,17 @@ ENV-VARS is a list of environment variables."
           (unless (eq major-mode 'eat-mode) (eat-mode))
           (setq-local process-environment (append env-vars process-environment))
           (eat-exec buffer buffer-name program nil args)
+          ;; Add process filter to track activity for notifications
+          (when-let ((proc (get-buffer-process buffer)))
+            (let ((orig-filter (process-filter proc)))
+              (set-process-filter
+               proc
+               (lambda (process output)
+                 (with-current-buffer (process-buffer process)
+                   (setq ai-code-backends-infra--last-activity-time (current-time))
+                   (ai-code-backends-infra--schedule-idle-check))
+                 (when orig-filter
+                   (funcall orig-filter process output))))))
           (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 

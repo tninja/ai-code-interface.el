@@ -68,6 +68,7 @@
 (require 'ai-code-grok-cli)
 (require 'ai-code-file)
 (require 'ai-code-ai)
+(require 'ai-code-notifications)
 
 ;; Forward declarations for dynamically defined backend functions
 (declare-function ai-code-cli-start "ai-code-backends")
@@ -222,7 +223,8 @@ Shows the current backend label to the right."
     ("d" "Toggle current buffer dedicated" ai-code-toggle-current-buffer-dedicated)
     ;; ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
     ("m" "Debug python MCP server" ai-code-debug-mcp)
-    ("n" "Take notes from AI session region" ai-code-take-notes)]])
+    ("n" "Take notes from AI session region" ai-code-take-notes)
+    ("N" "Toggle notifications" ai-code-notifications-toggle)]])
 
 
 
