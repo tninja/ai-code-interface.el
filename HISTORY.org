@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Fix: add back multiple session support
 - Feat: add kiro-cli support, by jenkinsjb
 - Feat: add cursor-cli support, by donneyluck
 
