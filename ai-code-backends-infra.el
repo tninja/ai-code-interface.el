@@ -585,11 +585,13 @@ ENV-VARS is a list of environment variables."
               (set-process-filter
                proc
                (lambda (process output)
+                 ;; Call original filter first
+                 (when orig-filter
+                   (funcall orig-filter process output))
+                 ;; Then track activity for notifications
                  (with-current-buffer (process-buffer process)
                    (setq ai-code-backends-infra--last-activity-time (current-time))
-                   (ai-code-backends-infra--schedule-idle-check))
-                 (when orig-filter
-                   (funcall orig-filter process output))))))
+                   (ai-code-backends-infra--schedule-idle-check))))))
           (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 
