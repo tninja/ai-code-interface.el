@@ -129,8 +129,8 @@ Can be either `vterm' or `eat'."
 (defun ai-code-backends-infra--check-response-complete ()
   "Check if AI response is complete and notify if enabled."
   (when (and (buffer-live-p (current-buffer))
-             (not (eq (selected-window) (get-buffer-window (current-buffer)))))
-    ;; Only notify if buffer is not currently visible/focused
+             ;; Only notify if buffer is not currently visible in any window
+             (null (get-buffer-window-list (current-buffer) nil t)))
     (when (require 'ai-code-notifications nil t)
       (when (fboundp 'ai-code-notifications-response-ready)
         (let ((buffer-name (buffer-name)))

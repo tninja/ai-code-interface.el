@@ -10,13 +10,11 @@
 
 ;;; Code:
 
-(require 'notifications)
-
 ;;; Customization
 
 (defgroup ai-code-notifications nil
   "Desktop notifications for AI Code Interface."
-  :group 'ai-code)
+  :group 'tools)
 
 (defcustom ai-code-notifications-enabled t
   "Whether to enable desktop notifications for AI responses."
@@ -59,8 +57,9 @@ Respects the notification interval to avoid spamming."
              (ai-code-notifications--can-notify-p))
     (setq ai-code-notifications--last-notification-time (current-time))
     (cond
-     ;; Use D-Bus notifications on Linux
+     ;; Use D-Bus notifications on Linux (when available)
      ((and (featurep 'dbusbind)
+           (require 'notifications nil t)
            (fboundp 'notifications-notify))
       (notifications-notify
        :title title
