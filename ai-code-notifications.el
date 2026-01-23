@@ -42,6 +42,11 @@ Set to 0 for no timeout (notification stays until dismissed)."
 
 ;;; Functions
 
+(defun ai-code-notifications--dbus-available-p ()
+  "Check if D-Bus notifications are available."
+  (and (require 'notifications nil t)
+       (fboundp 'notifications-notify)))
+
 (defun ai-code-notifications--can-notify-p ()
   "Check if we can send a notification now.
 Returns non-nil if enough time has passed since the last notification."
@@ -56,18 +61,15 @@ Respects the notification interval to avoid spamming."
   (when (and ai-code-notifications-enabled
              (ai-code-notifications--can-notify-p))
     (setq ai-code-notifications--last-notification-time (current-time))
-    (cond
-     ;; Use D-Bus notifications if available
-     ((and (require 'notifications nil t)
-           (fboundp 'notifications-notify))
-      (notifications-notify
-       :title title
-       :body message
-       :timeout ai-code-notifications-timeout
-       :app-name "Emacs AI Code"))
-     ;; Fallback to message in minibuffer
-     (t
-      (message "[AI Code] %s: %s" title message)))))
+    (if (ai-code-notifications--dbus-available-p)
+        ;; Use D-Bus notifications if available
+        (notifications-notify
+         :title title
+         :body message
+         :timeout ai-code-notifications-timeout
+         :app-name "Emacs AI Code")
+      ;; Fallback to message in minibuffer
+      (message "[AI Code] %s: %s" title message))))
 
 (defun ai-code-notifications-response-ready (&optional backend-name)
   "Notify that an AI response is ready.
