@@ -377,7 +377,7 @@ If FORCE-PROMPT is nil and there are no existing instances, return \"default\"."
                                  (format "Instance name (existing: %s): "
                                          (mapconcat #'identity existing-instance-names ", "))
                                "Instance name: ")
-                             nil nil proposed-name))
+                             nil nil (and (> (length proposed-name) 0) proposed-name)))
           (cond
            ((string= proposed-name "")
             (message "Instance name cannot be empty. Please enter a name.")
