@@ -139,7 +139,13 @@ if the AI session buffer is not currently visible."
       (when (fboundp 'ai-code-notifications-response-ready)
         (let ((buffer-name (buffer-name)))
           ;; Extract backend name from buffer name format: *<backend>[<dir>]*
-          ;; Example: "*codex[my-project]*" -> "codex"
+          ;; Example: "*codex[my-project]*" extracts "codex"
+          ;; Regex breakdown:
+          ;;   \\*       - matches literal asterisk
+          ;;   \\(       - start capture group 1
+          ;;   [^[]+     - one or more chars that are not '['
+          ;;   \\)       - end capture group 1 (this is the backend name)
+          ;;   \\[       - matches literal '['
           (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
             (let ((backend-name (match-string 1 buffer-name)))
               (ai-code-notifications-response-ready backend-name))))))))

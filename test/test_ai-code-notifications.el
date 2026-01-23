@@ -75,11 +75,12 @@
                  (setq notification-title (plist-get args :title))
                  (setq notification-body (plist-get args :body)))))
       (with-temp-buffer
-        (rename-buffer "*test-buffer*" t)
-        (ai-code-notifications-response-ready "TestBackend")
+        ;; Use buffer name matching expected format: *<backend>[<dir>]*
+        (rename-buffer "*testbackend[test-project]*" t)
+        (ai-code-notifications-response-ready "testbackend")
         ;; Notification should have been sent
-        (should (string-match-p "TestBackend" (or notification-title "")))
-        (should (string-match-p "test-buffer" (or notification-body "")))))))
+        (should (string-match-p "testbackend" (or notification-title "")))
+        (should (string-match-p "test-project" (or notification-body "")))))))
 
 (provide 'test_ai-code-notifications)
 
