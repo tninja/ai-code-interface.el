@@ -160,7 +160,7 @@ Otherwise switch to AI CLI buffer."
   (if (and current-prefix-arg
            (ai-code-backends-infra--session-buffer-p (current-buffer)))
       (quit-window)
-    (ai-code-cli-switch-to-buffer)))
+    (ai-code-cli-switch-to-buffer t)))
 
 (defclass ai-code--use-prompt-suffix-type (transient-lisp-variable)
   ((variable :initform 'ai-code-use-prompt-suffix)

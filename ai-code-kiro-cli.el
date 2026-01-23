@@ -85,16 +85,17 @@ With prefix ARG, prompt for a new instance name."
      force-prompt)))
 
 ;;;###autoload
-(defun ai-code-kiro-cli-switch-to-buffer ()
-  "Switch to the Kiro CLI buffer."
-  (interactive)
+(defun ai-code-kiro-cli-switch-to-buffer (&optional force-prompt)
+  "Switch to the Kiro CLI buffer.
+When FORCE-PROMPT is non-nil, prompt to select a session."
+  (interactive "P")
   (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
      nil
      "No Kiro session for this project"
      ai-code-kiro-cli--session-prefix
      working-dir
-     t)))
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-send-command (line)

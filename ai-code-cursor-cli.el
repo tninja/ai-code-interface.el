@@ -55,16 +55,17 @@ With prefix ARG, prompt for a new instance name."
      force-prompt)))
 
 ;;;###autoload
-(defun ai-code-cursor-cli-switch-to-buffer ()
-  "Switch to the Cursor CLI buffer."
-  (interactive)
+(defun ai-code-cursor-cli-switch-to-buffer (&optional force-prompt)
+  "Switch to the Cursor CLI buffer.
+When FORCE-PROMPT is non-nil, prompt to select a session."
+  (interactive "P")
   (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
      nil
      "No Cursor session for this project"
      ai-code-cursor-cli--session-prefix
      working-dir
-     t)))
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-send-command (line)

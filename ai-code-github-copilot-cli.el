@@ -55,16 +55,17 @@ With prefix ARG, prompt for a new instance name."
      force-prompt)))
 
 ;;;###autoload
-(defun ai-code-github-copilot-cli-switch-to-buffer ()
-  "Switch to the GitHub Copilot CLI buffer."
-  (interactive)
+(defun ai-code-github-copilot-cli-switch-to-buffer (&optional force-prompt)
+  "Switch to the GitHub Copilot CLI buffer.
+When FORCE-PROMPT is non-nil, prompt to select a session."
+  (interactive "P")
   (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--switch-to-session-buffer
      nil
      "No Copilot session for this project"
      ai-code-github-copilot-cli--session-prefix
      working-dir
-     t)))
+     force-prompt)))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-send-command (line)
