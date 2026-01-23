@@ -54,6 +54,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)
     (setq auto-revert-interval 1) ;; set to 1 second for faster update
+    ;; Optional: Enable desktop notifications when AI responses are ready
+    ;; (setq ai-code-notifications-enabled t) ;; enabled by default
     ;; Optional: Set up Magit integration for AI commands in Magit popups
     (with-eval-after-load 'magit
       (ai-code-magit-setup-transients)))
@@ -74,6 +76,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)
     (setq auto-revert-interval 1) ;; set to 1 second for faster update
+    ;; Optional: Enable desktop notifications when AI responses are ready
+    ;; (setq ai-code-notifications-enabled t) ;; enabled by default
     ;; Optional: Set up Magit integration for AI commands in Magit popups
     (with-eval-after-load 'magit
       (ai-code-magit-setup-transients)))
@@ -104,7 +108,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), edit backend configs (`g`), and run prompts against the current file (`|`). It support multiple sessions per project.
 - *Context-Aware Code Actions*: The menu exposes dedicated entries for changing code (`c`), implementing TODOs (`i`), asking questions (`q`), explaining code (`x`), sending free-form commands (`<SPC>`), and refreshing AI context (`@`). Each command automatically captures the surrounding function, region, or clipboard contents (via `C-u`) to keep prompts precise.
 - *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), block sending (`b`), and AI-assisted shell/file execution (`!`).
-- *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), and capture session notes straight into Org (`n`).
+- *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), capture session notes straight into Org (`n`), and toggle desktop notifications (`N`) to get alerted when AI responses are ready in background sessions.
 - *Seamless Prompt Management*: Open `.ai.code.prompt.org`, send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized.
 - *Interactive Chat & Context Tools*: Dedicated buffers hold long-running chats, automatically enriched with file paths, diffs, and history from Magit or Git commands for richer AI responses.
 - *AI-Assisted Bash Commands*: From Dired, shell, eshell, or vterm, run `C-c a !` and type natural-language commands prefixed with `:` (e.g., `:count lines of python code recursively`); the tool generates the shell command for review and executes it in a compile buffer.
@@ -132,6 +136,41 @@ Example (focused refactor with curated context):
 2) Open another related file in a window so it is picked up by `ai-code--get-context-files-string`.
 3) Place the cursor in the target function and run `C-c a c` to request a change.
 The generated prompt will include the function/region scope, visible file list, and stored repo context entries, giving the AI exactly the surrounding information it needs.
+
+*** Desktop Notifications
+
+When working with multiple AI sessions, it can be useful to receive desktop notifications when AI responses are complete. This is especially helpful when you prompt an AI and then switch to other tasks while waiting for the response.
+
+**** Enabling Notifications
+- Notifications are enabled by default.
+- Press `C-c a` then `N` to toggle notifications on/off.
+- Alternatively, use `M-x ai-code-notifications-toggle`.
+
+**** How It Works
+- The package monitors terminal activity in AI session buffers.
+- When the terminal has been idle for ~1.5 seconds (configurable via `ai-code-backends-infra-idle-delay`), it's considered a completed response.
+- If the AI session buffer is not currently visible/focused, a desktop notification is sent.
+- Notifications are throttled to avoid spam (minimum 2 seconds between notifications).
+
+**** Customization
+You can customize notification behavior with these variables:
+#+begin_src emacs-lisp
+  ;; Enable/disable notifications
+  (setq ai-code-notifications-enabled t)
+  
+  ;; Show notifications when AI completes a response
+  (setq ai-code-notifications-show-on-response t)
+  
+  ;; Notification timeout in milliseconds (0 = no timeout)
+  (setq ai-code-notifications-timeout 5000)
+  
+  ;; Idle delay before considering response complete (in seconds)
+  (setq ai-code-backends-infra-idle-delay 1.5)
+#+end_src
+
+**** Platform Support
+- On Linux with D-Bus, native desktop notifications are used.
+- On other platforms, notifications appear in the Emacs minibuffer.
 
 ** AI coding CLI backend
 
