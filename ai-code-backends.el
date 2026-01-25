@@ -33,7 +33,7 @@ Argument ARG is passed to the backend's resume function."
   (ai-code--unsupported-resume arg))
 
 ;;;###autoload
-(defun ai-code-claude-code-send-command (cmd)
+(defun ai-code-claude-code-el-send-command (cmd)
   "Send CMD to claude-code programmatically or interactively.
 This wrapper function works around the signature change in
 `claude-code-send-command' which no longer accepts a command parameter.
@@ -139,7 +139,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :require claude-code
      :start   claude-code
      :switch  claude-code-switch-to-buffer
-     :send    ai-code-claude-code-send-command
+     :send    ai-code-claude-code-el-send-command
      :resume  claude-code-resume
      :config  "~/.claude.json"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
