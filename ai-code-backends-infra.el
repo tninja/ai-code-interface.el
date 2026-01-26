@@ -172,7 +172,9 @@ if the AI session buffer is not currently visible."
   (funcall orig-fun process input))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
-  "Smart rendering filter for optimized vterm display updates."
+  "Smart rendering filter for optimized vterm display updates.
+Activity tracking for notifications is handled separately by
+`ai-code-backends-infra--vterm-notification-tracker'."
   (if (or (not ai-code-backends-infra-vterm-anti-flicker)
           (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
       (funcall orig-fun process input)
