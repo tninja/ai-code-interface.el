@@ -9,6 +9,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'ai-code-notifications)
 
 (ert-deftest test-ai-code-notifications-toggle ()
