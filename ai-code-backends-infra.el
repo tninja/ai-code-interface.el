@@ -128,6 +128,9 @@ if the AI session buffer is not currently visible."
 (defvar-local ai-code-backends-infra--vterm-render-queue nil)
 (defvar-local ai-code-backends-infra--vterm-render-timer nil)
 
+(defvar ai-code-backends-infra--vterm-advices-installed nil
+  "Flag indicating whether vterm filter advices have been installed globally.")
+
 (declare-function ai-code-notifications-response-ready "ai-code-notifications" (&optional backend-name))
 
 (defun ai-code-backends-infra--check-response-complete (buffer)
@@ -215,11 +218,14 @@ if the AI session buffer is not currently visible."
     (set-process-query-on-exit-flag proc nil)
     (when (fboundp 'process-put)
       (process-put proc 'read-output-max 4096)))
-  ;; Always install notification tracker for session buffers
-  (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-notification-tracker)
-  ;; Conditionally install anti-flicker renderer
-  (when ai-code-backends-infra-vterm-anti-flicker
-    (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer)))
+  ;; Install vterm filter advices globally (only once)
+  (unless ai-code-backends-infra--vterm-advices-installed
+    ;; Always install notification tracker for session buffers
+    (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-notification-tracker)
+    ;; Conditionally install anti-flicker renderer
+    (when ai-code-backends-infra-vterm-anti-flicker
+      (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer))
+    (setq ai-code-backends-infra--vterm-advices-installed t)))
 
 ;;; Terminal Backend Abstraction
 
