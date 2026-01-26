@@ -130,33 +130,35 @@ if the AI session buffer is not currently visible."
 
 (declare-function ai-code-notifications-response-ready "ai-code-notifications" (&optional backend-name))
 
-(defun ai-code-backends-infra--check-response-complete ()
-  "Check if AI response is complete and notify if enabled."
-  (when (and (buffer-live-p (current-buffer))
-             ;; Only notify if buffer is not currently visible in any window
-             (null (get-buffer-window-list (current-buffer) nil t)))
-    (when (require 'ai-code-notifications nil t)
-      (when (fboundp 'ai-code-notifications-response-ready)
-        (let ((buffer-name (buffer-name)))
-          ;; Extract backend name from buffer name format: *<backend>[<dir>]*
-          ;; Example: "*codex[my-project]*" extracts "codex"
-          ;; Regex breakdown:
-          ;;   \\*       - matches literal asterisk
-          ;;   \\(       - start capture group 1
-          ;;   [^[]+     - one or more chars that are not '['
-          ;;   \\)       - end capture group 1 (this is the backend name)
-          ;;   \\[       - matches literal '['
-          (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
-            (let ((backend-name (match-string 1 buffer-name)))
-              (ai-code-notifications-response-ready backend-name))))))))
+(defun ai-code-backends-infra--check-response-complete (buffer)
+  "Check if AI response is complete in BUFFER and notify if enabled."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (null (get-buffer-window-list buffer nil t))
+        (when (require 'ai-code-notifications nil t)
+          (when (fboundp 'ai-code-notifications-response-ready)
+            (let ((buffer-name (buffer-name buffer)))
+              ;; Extract backend name from buffer name format: *<backend>[<dir>]*
+              ;; Example: "*codex[my-project]*" extracts "codex"
+              ;; Regex breakdown:
+              ;;   \\*       - matches literal asterisk
+              ;;   \\(       - start capture group 1
+              ;;   [^[]+     - one or more chars that are not '['
+              ;;   \\)       - end capture group 1 (this is the backend name)
+              ;;   \\[       - matches literal '['
+              (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
+                (let ((backend-name (match-string 1 buffer-name)))
+                  (ai-code-notifications-response-ready backend-name))))))))))
 
 (defun ai-code-backends-infra--schedule-idle-check ()
   "Schedule a check for response completion after idle period."
   (when ai-code-backends-infra--idle-timer
     (cancel-timer ai-code-backends-infra--idle-timer))
-  (setq ai-code-backends-infra--idle-timer
-        (run-at-time ai-code-backends-infra-idle-delay nil
-                     #'ai-code-backends-infra--check-response-complete)))
+  (let ((buffer (current-buffer)))
+    (setq ai-code-backends-infra--idle-timer
+          (run-at-time ai-code-backends-infra-idle-delay nil
+                       #'ai-code-backends-infra--check-response-complete
+                       buffer))))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates."
