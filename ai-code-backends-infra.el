@@ -160,15 +160,20 @@ if the AI session buffer is not currently visible."
                        #'ai-code-backends-infra--check-response-complete
                        buffer))))
 
+(defun ai-code-backends-infra--vterm-notification-tracker (orig-fun process input)
+  "Track vterm activity for notification purposes, then call ORIG-FUN."
+  (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+    (with-current-buffer (process-buffer process)
+      (setq ai-code-backends-infra--last-activity-time (current-time))
+      (ai-code-backends-infra--schedule-idle-check)))
+  (funcall orig-fun process input))
+
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates."
   (if (or (not ai-code-backends-infra-vterm-anti-flicker)
           (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
-      ;; Track activity for notification purposes
-      (setq ai-code-backends-infra--last-activity-time (current-time))
-      (ai-code-backends-infra--schedule-idle-check)
       (let* ((complex-redraw-detected
               (string-match-p "\033\\[[0-9]*A.*\033\\[K.*\033\\[[0-9]*A.*\033\\[K" input))
              (clear-count (cl-count-if (lambda (s) (string= s "\033[K"))
@@ -210,6 +215,9 @@ if the AI session buffer is not currently visible."
     (set-process-query-on-exit-flag proc nil)
     (when (fboundp 'process-put)
       (process-put proc 'read-output-max 4096)))
+  ;; Always install notification tracker for session buffers
+  (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-notification-tracker)
+  ;; Conditionally install anti-flicker renderer
   (when ai-code-backends-infra-vterm-anti-flicker
     (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer)))
 
