@@ -70,8 +70,10 @@
         (ai-code-notifications--last-notification-time nil)
         (notification-title nil)
         (notification-body nil))
-    ;; Mock the notifications-notify function
-    (cl-letf (((symbol-function 'notifications-notify)
+    ;; Mock the notifications-notify function and force D-Bus availability
+    (cl-letf (((symbol-function 'ai-code-notifications--dbus-available-p)
+               (lambda () t))
+              ((symbol-function 'notifications-notify)
                (lambda (&rest args)
                  (setq notification-title (plist-get args :title))
                  (setq notification-body (plist-get args :body)))))
