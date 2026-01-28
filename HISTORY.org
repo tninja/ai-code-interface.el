@@ -3,6 +3,7 @@
 
 ** Main branch change
 - Chore: Enhance ai-code-send-command to support multi-level context inputs
+- Fix: Start AI CLI with Kiro-cli backend leads to error, reported by texastony
 
 ** 1.20
 - Feat: Add ai-code-claude-code.el, a built-in Claude Code backend using ai-code-backends-infra (no external package required)
