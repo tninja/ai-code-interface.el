@@ -135,8 +135,8 @@ with a newline separator."
 With \\[universal-argument], append files and repo context.
 With \\[universal-argument] \\[universal-argument], also append clipboard context.
 ARG is the prefix argument."
-  ;; DONE: when C-u pressed, I want to add files-context-string and repo-context-string just like ai-code--handle-regular-code-change; when C-u C-u pressed, also attach clipboard-context
-  ;; DONE: I want the prompt-label can adjust for no C-u, C-u, and C-u C-u cases
+  ;; Prefix levels control whether files/repo and clipboard context are included,
+  ;; and the prompt label reflects the selected context.
   (interactive "P")
   (let* ((initial-input (when (use-region-p)
                           (string-trim-right
