@@ -22,15 +22,12 @@ This test verifies the fix for the 'force-prompt' undefined variable bug."
                (list :command (concat program " " (mapconcat 'identity args " ")))))
             ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
              (lambda (&rest args) nil)))
-    ;; This should not throw an error about undefined variable 'force-prompt'
-    (should-not (condition-case err
-                    (progn
-                      (ai-code-kiro-cli)
-                      nil)
-                  (void-variable
-                   (if (eq (cadr err) 'force-prompt)
-                       'force-prompt-undefined
-                     nil))))))
+    ;; This should not throw any 'void-variable' error (including 'force-prompt')
+    (should (condition-case nil
+                (progn
+                  (ai-code-kiro-cli)
+                  t)
+              (void-variable nil)))))
 
 (provide 'test_ai-code-kiro-cli)
 
