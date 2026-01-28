@@ -73,17 +73,7 @@ With prefix ARG, prompt for CLI args using the current defaults
                     (ai-code-kiro-cli--build-args)
                     arg
                     "Kiro"))
-         (command (plist-get resolved :command))
-         (instance-name nil))
-    (unless force-prompt
-      (when-let ((existing-buffer
-                  (ai-code-backends-infra--select-session-buffer
-                   ai-code-kiro-cli--session-prefix
-                   working-dir)))
-        (setq instance-name
-              (ai-code-backends-infra--session-instance-name
-               (buffer-name existing-buffer)
-               ai-code-kiro-cli--session-prefix))))
+         (command (plist-get resolved :command)))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil
@@ -91,7 +81,7 @@ With prefix ARG, prompt for CLI args using the current defaults
      command
      #'ai-code-kiro-cli-send-escape
      nil
-     instance-name
+     nil
      ai-code-kiro-cli--session-prefix
      nil)))
 
