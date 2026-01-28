@@ -132,27 +132,40 @@ with a newline separator."
 ;;;###autoload
 (defun ai-code-send-command (arg)
   "Read a prompt from the user and send it to the AI service.
-With a prefix argument (\\[universal-argument]), append the clipboard
-contents as context.
+With \\[universal-argument], append files and repo context.
+With \\[universal-argument] \\[universal-argument], also append clipboard context.
 ARG is the prefix argument."
+  ;; DONE: when C-u pressed, I want to add files-context-string and repo-context-string just like ai-code--handle-regular-code-change; when C-u C-u pressed, also attach clipboard-context
+  ;; DONE: I want the prompt-label can adjust for no C-u, C-u, and C-u C-u cases
   (interactive "P")
   (let* ((initial-input (when (use-region-p)
                           (string-trim-right
                            (buffer-substring-no-properties (region-beginning)
                                                            (region-end))
                            "\n")))
-         (clipboard-context (when arg (ai-code--get-clipboard-text)))
-         (prompt-label (if (and clipboard-context
-                                (string-match-p "\\S-" clipboard-context))
-                           "Send to AI (clipboard context): "
-                         "Send to AI: ")))
+         (prefix-value (when arg (prefix-numeric-value arg)))
+         (include-files-and-repo (and arg (>= prefix-value 4)))
+         (include-clipboard (and arg (>= prefix-value 16)))
+         (files-context-string (when include-files-and-repo
+                                 (ai-code--get-context-files-string)))
+         (repo-context-string (when include-files-and-repo
+                                (ai-code--format-repo-context-info)))
+         (clipboard-context (when include-clipboard
+                              (ai-code--get-clipboard-text)))
+         (prompt-label
+          (cond
+           (include-clipboard "Send to AI (files/repo/clipboard context): ")
+           (include-files-and-repo "Send to AI (files/repo context): ")
+           (t "Send to AI: "))))
     (when-let* ((prompt (ai-code-read-string prompt-label initial-input)))
-      (let ((final-prompt (if (and clipboard-context
-                                   (string-match-p "\\S-" clipboard-context))
-                              (concat prompt
-                                      "\n\nClipboard context:\n"
-                                      clipboard-context)
-                            prompt)))
+      (let ((final-prompt
+             (concat prompt
+                     (or files-context-string "")
+                     (or repo-context-string "")
+                     (when (and clipboard-context
+                                (string-match-p "\\S-" clipboard-context))
+                       (concat "\n\nClipboard context:\n"
+                               clipboard-context)))))
         (ai-code--insert-prompt final-prompt)))))
 
 ;;;###autoload
@@ -208,7 +221,7 @@ Shows the current backend label to the right."
     ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
     ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
     ("x" "Explain code in scope" ai-code-explain)
-    ("<SPC>" "Send command (C-u: clipboard)" ai-code-send-command)
+    ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
     ("@" "Add context (C-u: clear)" ai-code-context-action)
     ("K" "Create or open task file" ai-code-create-or-open-task-file)]
 
