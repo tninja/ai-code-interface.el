@@ -32,6 +32,7 @@
 ;; Declare vterm dynamic variables for let-binding to work with lexical-binding
 (defvar vterm-shell)
 (defvar vterm-environment)
+(defvar vterm-kill-buffer-on-exit)
 
 ;;; Customization
 
@@ -541,31 +542,45 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
              (new-buffer (car buffer-and-process))
              (process (cdr buffer-and-process)))
         (puthash session-key process process-table)
-        (set-process-sentinel
-         process
-         (lambda (_proc _event)
-           (ai-code-backends-infra--cleanup-session
-            working-dir
-            resolved-buffer-name
-            process-table
-            resolved-instance
-            prefix)
-           (when cleanup-fn
-             (funcall cleanup-fn))))
-        (when escape-fn
-          (with-current-buffer new-buffer
-            (local-set-key (kbd "C-<escape>") escape-fn)))
-        (with-current-buffer new-buffer
-          (add-hook 'kill-buffer-hook
-                    (lambda ()
-                      (ai-code-backends-infra--forget-session-buffer
-                       prefix
-                       working-dir
-                       (current-buffer)))
-                    nil t))
+        ;; Wait for initialization before checking process status
         (sleep-for ai-code-backends-infra-terminal-initialization-delay)
-        (ai-code-backends-infra--remember-session-buffer prefix working-dir new-buffer)
-        (ai-code-backends-infra--display-buffer-in-side-window new-buffer)))))
+        ;; Check if process is still alive after initialization delay
+        (if (and process (process-live-p process))
+            (progn
+              ;; Process started successfully, set up sentinel for cleanup on exit
+              (set-process-sentinel
+               process
+               (lambda (_proc _event)
+                 (ai-code-backends-infra--cleanup-session
+                  working-dir
+                  resolved-buffer-name
+                  process-table
+                  resolved-instance
+                  prefix)
+                 (when cleanup-fn
+                   (funcall cleanup-fn))))
+              (when escape-fn
+                (with-current-buffer new-buffer
+                  (local-set-key (kbd "C-<escape>") escape-fn)))
+              (with-current-buffer new-buffer
+                (add-hook 'kill-buffer-hook
+                          (lambda ()
+                            (ai-code-backends-infra--forget-session-buffer
+                             prefix
+                             working-dir
+                             (current-buffer)))
+                          nil t))
+              (ai-code-backends-infra--remember-session-buffer prefix working-dir new-buffer)
+              (ai-code-backends-infra--display-buffer-in-side-window new-buffer))
+          ;; Process exited during initialization - show buffer with error to user
+          ;; Clean up the session from process table (but keep buffer visible)
+          (remhash session-key process-table)
+          ;; Display the buffer so user can see the error output
+          (if (buffer-live-p new-buffer)
+              (progn
+                (pop-to-buffer new-buffer)
+                (message "CLI failed to start - see buffer for error details"))
+            (message "CLI failed to start - process exited immediately")))))))
 
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
                                                                     &optional prefix working-dir force-prompt)
@@ -616,6 +631,7 @@ ENV-VARS is a list of environment variables."
     (cond
      ((eq ai-code-backends-infra-terminal-backend 'vterm)
       (let* ((vterm-shell command)
+             (vterm-kill-buffer-on-exit nil)  ; Keep buffer alive to show errors
              (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
         (let ((buffer (save-window-excursion (vterm buffer-name))))
           (with-current-buffer buffer
