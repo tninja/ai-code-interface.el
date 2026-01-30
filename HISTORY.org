@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Fix notification after visible response, by Silex
+- Chore: Enhance backend selection to prioritize current choice in completion list
 
 ** 1.21
 - Chore: Enhance ai-code-send-command to support multi-level context inputs
