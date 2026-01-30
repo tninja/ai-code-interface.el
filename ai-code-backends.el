@@ -255,9 +255,20 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
                                    (label (plist-get (cdr it) :label)))
                               (cons (format "%s" label) key)))
                           ai-code-backends))
+         (current-label (car (seq-find (lambda (it)
+                                         (eq (cdr it) ai-code-selected-backend))
+                                       choices)))
+         (ordered-choices (if current-label
+                              (let ((current (assoc current-label choices)))
+                                (cons current
+                                      (seq-remove (lambda (it)
+                                                    (equal (car it) current-label))
+                                                  choices)))
+                            choices))
          (choice (completing-read "Select backend: "
-                                  (mapcar #'car choices) nil t))
-         (key (cdr (assoc choice choices))))
+                                  (mapcar #'car ordered-choices)
+                                  nil t nil nil current-label))
+         (key (cdr (assoc choice ordered-choices))))
     (ai-code-set-backend key)))
 
 ;;;###autoload
