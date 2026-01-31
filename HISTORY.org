@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Better error handling when AI coding CLI failed to start 
 - Fix notification after visible response, by Silex
 - Chore: Enhance backend selection to prioritize current choice in completion list
 
