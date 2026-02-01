@@ -51,7 +51,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     (global-set-key (kbd "C-c a") #'ai-code-menu)
     ;; Optional: Use eat if you prefer, by default it is vterm
     ;; (setq ai-code-backends-infra-terminal-backend 'eat) ;; for openai codex, github copilot cli, opencode, grok, cursor-cli; for claude-code-ide.el, you can check their config
-    ;; Optional: Enable @ file completion inside comments
+    ;; Optional: Enable @ file completion inside comments (when ai coding session opened)
     ;; (ai-code-prompt-comment-filepath-completion-mode 1)
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)
@@ -74,7 +74,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     (global-set-key (kbd "C-c a") #'ai-code-menu)
     ;; Optional: Use eat if you prefer, by default it is vterm
     ;; (setq ai-code-backends-infra-terminal-backend 'eat) ;; for openai codex, github copilot cli, opencode, grok, cursor-cli; for claude-code-ide.el, you can check their config
-    ;; Optional: Enable @ file completion inside comments
+    ;; Optional: Enable @ file completion inside comments (when ai coding session opened)
     ;; (ai-code-prompt-comment-filepath-completion-mode 1)
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)

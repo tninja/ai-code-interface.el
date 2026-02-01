@@ -32,7 +32,7 @@
 ;;   ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro
 ;;   (ai-code-set-backend 'codex) ;; set your preferred backend
 ;;   (global-set-key (kbd "C-c a") #'ai-code-menu)
-;;   ;; Optional: Enable @ file completion inside comments
+;;   ;; Optional: Enable @ file completion inside comments (when ai coding session opened)
 ;;   ;; (ai-code-prompt-comment-filepath-completion-mode 1)
 ;;   (global-auto-revert-mode 1)
 ;;   (setq auto-revert-interval 1) ;; set to 1 second for faster update
