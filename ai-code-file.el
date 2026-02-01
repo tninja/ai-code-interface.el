@@ -367,7 +367,6 @@ When no region is selected, use the full file path and current function
 \(if any).  When a region is active, use the file path with line range
 in the form filepath#Lstart-Lend."
   (interactive)
-  ;; DONE: I want to let context session candidates to be added, have all repo with ai-code session opened. is it doable? 
   (let* ((current-root (magit-toplevel))
          (all-roots (let ((roots '()))
                       (walk-windows

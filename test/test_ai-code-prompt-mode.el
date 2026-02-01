@@ -320,5 +320,307 @@ and ensures everything is cleaned up afterward."
     ;; Verify that the matched mode is ai-code-prompt-mode
     (should (eq matched-mode 'ai-code-prompt-mode))))
 
+;;; Tests for filepath completion functionality
+
+(ert-deftest ai-code-test-dedupe-preserve-order ()
+  "Test that ai-code--dedupe-preserve-order removes duplicates while preserving order."
+  ;; Test basic deduplication
+  (let ((items '("a" "b" "c" "b" "a" "d")))
+    (should (equal (ai-code--dedupe-preserve-order items)
+                   '("a" "b" "c" "d"))))
+  
+  ;; Test empty list
+  (should (equal (ai-code--dedupe-preserve-order '()) '()))
+  
+  ;; Test list with no duplicates
+  (let ((items '("x" "y" "z")))
+    (should (equal (ai-code--dedupe-preserve-order items)
+                   '("x" "y" "z"))))
+  
+  ;; Test all duplicates
+  (let ((items '("same" "same" "same")))
+    (should (equal (ai-code--dedupe-preserve-order items)
+                   '("same")))))
+
+(ert-deftest ai-code-test-file-in-git-repo-p ()
+  "Test that ai-code--file-in-git-repo-p correctly identifies files in git repo."
+  (ai-code-with-test-repo
+   ;; File in repo should return non-nil
+   (should (ai-code--file-in-git-repo-p mock-file-in-repo git-root))
+   
+   ;; File outside repo should return nil
+   (should-not (ai-code--file-in-git-repo-p outside-file git-root))
+   
+   ;; Non-existent file should return nil
+   (should-not (ai-code--file-in-git-repo-p "/tmp/non-existent-file.txt" git-root))
+   
+   ;; nil file should return nil
+   (should-not (ai-code--file-in-git-repo-p nil git-root))))
+
+(ert-deftest ai-code-test-relative-filepath ()
+  "Test that ai-code--relative-filepath returns correct relative paths with @ prefix."
+  (ai-code-with-test-repo
+   ;; Test file in subdirectory
+   (let ((result (ai-code--relative-filepath mock-file-in-repo git-root)))
+     (should (string= result "@src/main.js")))))
+
+(ert-deftest ai-code-test-visible-window-files ()
+  "Test that ai-code--visible-window-files returns files from visible windows."
+  (ai-code-with-test-repo
+   (let ((test-file-1 (expand-file-name "file1.el" git-root))
+         (test-file-2 (expand-file-name "file2.el" git-root)))
+     (unwind-protect
+         (progn
+           ;; Create test files
+           (with-temp-file test-file-1 (insert "content1"))
+           (with-temp-file test-file-2 (insert "content2"))
+           
+           ;; Mock ai-code--git-ignored-repo-file-p to return nil for all files
+           (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
+                      (lambda (file root) nil)))
+             
+             ;; Open files in buffers but don't display them
+             (with-current-buffer (find-file-noselect test-file-1)
+               (with-current-buffer (find-file-noselect test-file-2)
+                 ;; Mock window-list to return windows with these buffers
+                 (cl-letf (((symbol-function 'window-list)
+                            (lambda (&optional frame no-minibuf)
+                              (list (selected-window))))
+                           ((symbol-function 'window-buffer)
+                            (lambda (win)
+                              (if (eq win (selected-window))
+                                  (get-buffer (file-name-nondirectory test-file-1))
+                                (get-buffer (file-name-nondirectory test-file-2))))))
+                   (let ((result (ai-code--visible-window-files git-root)))
+                     ;; Should contain the file from the selected window
+                     (should (member test-file-1 result))))))))
+       
+       ;; Cleanup
+       (when (file-exists-p test-file-1) (delete-file test-file-1))
+       (when (file-exists-p test-file-2) (delete-file test-file-2))))))
+
+(ert-deftest ai-code-test-buffer-file-list ()
+  "Test that ai-code--buffer-file-list returns buffer files excluding skip-files."
+  (ai-code-with-test-repo
+   (let ((test-file-1 (expand-file-name "buf1.el" git-root))
+         (test-file-2 (expand-file-name "buf2.el" git-root))
+         (test-file-3 (expand-file-name "buf3.el" git-root)))
+     (unwind-protect
+         (progn
+           ;; Create test files
+           (with-temp-file test-file-1 (insert "content1"))
+           (with-temp-file test-file-2 (insert "content2"))
+           (with-temp-file test-file-3 (insert "content3"))
+           
+           ;; Mock ai-code--git-ignored-repo-file-p
+           (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
+                      (lambda (file root) nil)))
+             
+             ;; Open files in buffers
+             (let ((buf1 (find-file-noselect test-file-1))
+                   (buf2 (find-file-noselect test-file-2))
+                   (buf3 (find-file-noselect test-file-3)))
+               (unwind-protect
+                   (progn
+                     ;; Test without skip-files
+                     (let ((result (ai-code--buffer-file-list git-root)))
+                       (should (member test-file-1 result))
+                       (should (member test-file-2 result))
+                       (should (member test-file-3 result)))
+                     
+                     ;; Test with skip-files
+                     (let ((result (ai-code--buffer-file-list 
+                                   git-root 
+                                   (list (file-truename test-file-1)))))
+                       (should-not (member test-file-1 result))
+                       (should (member test-file-2 result))
+                       (should (member test-file-3 result))))
+                 
+                 ;; Kill buffers
+                 (when (buffer-live-p buf1) (kill-buffer buf1))
+                 (when (buffer-live-p buf2) (kill-buffer buf2))
+                 (when (buffer-live-p buf3) (kill-buffer buf3))))))
+       
+       ;; Cleanup files
+       (when (file-exists-p test-file-1) (delete-file test-file-1))
+       (when (file-exists-p test-file-2) (delete-file test-file-2))
+       (when (file-exists-p test-file-3) (delete-file test-file-3))))))
+
+(ert-deftest ai-code-test-prompt-filepath-candidates-excludes-current-file ()
+  "Test that ai-code--prompt-filepath-candidates excludes the current file."
+  (ai-code-with-test-repo
+   (let ((test-file (expand-file-name "current.el" git-root)))
+     (unwind-protect
+         (progn
+           ;; Create test file
+           (with-temp-file test-file (insert "content"))
+           
+           ;; Mock dependencies
+           (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
+                      (lambda (file root) nil))
+                     ((symbol-function 'ai-code--repo-recent-files)
+                      (lambda (root) (list test-file))))
+             
+             ;; Test with current buffer being the test file
+             (with-current-buffer (find-file-noselect test-file)
+               (unwind-protect
+                   (let ((candidates (ai-code--prompt-filepath-candidates)))
+                     ;; Current file should be excluded
+                     (should-not (member "@current.el" candidates)))
+                 (kill-buffer)))))
+       
+       ;; Cleanup
+       (when (file-exists-p test-file) (delete-file test-file))))))
+
+(ert-deftest ai-code-test-prompt-filepath-candidates-excludes-ai-code-files ()
+  "Test that ai-code--prompt-filepath-candidates excludes files under .ai.code.files."
+  (ai-code-with-test-repo
+   (let ((ai-files-dir (expand-file-name ".ai.code.files" git-root))
+         (task-file (expand-file-name ".ai.code.files/task.org" git-root))
+         (normal-file (expand-file-name "normal.el" git-root)))
+     (unwind-protect
+         (progn
+           ;; Create test files
+           (make-directory ai-files-dir t)
+           (with-temp-file task-file (insert "task"))
+           (with-temp-file normal-file (insert "normal"))
+           
+           ;; Mock dependencies
+           (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
+                      (lambda (file root) nil))
+                     ((symbol-function 'ai-code--repo-recent-files)
+                      (lambda (root) (list task-file normal-file))))
+             
+             (let ((candidates (ai-code--prompt-filepath-candidates)))
+               ;; Task file should be excluded
+               (should-not (cl-some (lambda (c) (string-prefix-p "@.ai.code.files/" c))
+                                    candidates))
+               ;; Normal file should be included
+               (should (member "@normal.el" candidates)))))
+       
+       ;; Cleanup
+       (when (file-exists-p task-file) (delete-file task-file))
+       (when (file-exists-p normal-file) (delete-file normal-file))
+       (when (file-directory-p ai-files-dir) (delete-directory ai-files-dir))))))
+
+(ert-deftest ai-code-test-prompt-filepath-candidates-prioritizes-visible-windows ()
+  "Test that ai-code--prompt-filepath-candidates prioritizes visible window files."
+  (ai-code-with-test-repo
+   (let ((visible-file (expand-file-name "visible.el" git-root))
+         (buffer-file (expand-file-name "buffer.el" git-root)))
+     (unwind-protect
+         (progn
+           ;; Create test files
+           (with-temp-file visible-file (insert "visible"))
+           (with-temp-file buffer-file (insert "buffer"))
+           
+           ;; Mock dependencies
+           (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
+                      (lambda (file root) nil))
+                     ((symbol-function 'ai-code--visible-window-files)
+                      (lambda (root) (list visible-file)))
+                     ((symbol-function 'ai-code--buffer-file-list)
+                      (lambda (root skip) (list buffer-file)))
+                     ((symbol-function 'ai-code--repo-recent-files)
+                      (lambda (root) '())))
+             
+             (let ((candidates (ai-code--prompt-filepath-candidates)))
+               ;; Visible file should come before buffer file
+               (should (equal candidates '("@visible.el" "@buffer.el"))))))
+       
+       ;; Cleanup
+       (when (file-exists-p visible-file) (delete-file visible-file))
+       (when (file-exists-p buffer-file) (delete-file buffer-file))))))
+
+(ert-deftest ai-code-test-prompt-filepath-capf-returns-candidates-after-at ()
+  "Test that ai-code--prompt-filepath-capf returns candidates when '@' is typed."
+  (ai-code-with-test-repo
+   (with-temp-buffer
+     ;; Insert text with @ symbol
+     (insert "Check @")
+     
+     ;; Mock dependencies
+     (cl-letf (((symbol-function 'ai-code--prompt-filepath-candidates)
+                (lambda () '("@file1.el" "@file2.el"))))
+       
+       (let* ((result (ai-code--prompt-filepath-capf))
+              (start (nth 0 result))
+              (end (nth 1 result))
+              (candidates (nth 2 result))
+              (props (nthcdr 3 result)))
+         ;; Should return completion table
+         (should result)
+         (should (= start (- (point) 1)))  ; start position at @
+         (should (= end (point)))          ; end position at current point
+         (should (equal candidates '("@file1.el" "@file2.el"))) ; candidates
+         (should (eq (plist-get props :exclusive) 'no)))))))
+
+(ert-deftest ai-code-test-prompt-filepath-capf-no-candidates-without-at ()
+  "Test that ai-code--prompt-filepath-capf returns nil when '@' is not present."
+  (ai-code-with-test-repo
+   (with-temp-buffer
+     ;; Insert text without @ symbol
+     (insert "Check file")
+     
+     ;; Should return nil
+     (should-not (ai-code--prompt-filepath-capf)))))
+
+(ert-deftest ai-code-test-prompt-filepath-capf-partial-match ()
+  "Test that ai-code--prompt-filepath-capf works with partial file paths after '@'."
+  (ai-code-with-test-repo
+   (with-temp-buffer
+     ;; Insert text with @ and partial path
+     (insert "Check @src/ma")
+     (let ((at-position (- (point) (length "src/ma"))))
+       ;; Mock dependencies
+       (cl-letf (((symbol-function 'ai-code--prompt-filepath-candidates)
+                  (lambda () '("@src/main.el" "@src/main.js"))))
+         
+         (let* ((result (ai-code--prompt-filepath-capf))
+                (start (nth 0 result))
+                (end (nth 1 result))
+                (candidates (nth 2 result)))
+           ;; Should return completion table
+           (should result)
+           (should (= start (1- at-position))) ; start at @ (one before 's')
+           (should (= end (point)))            ; end at current position
+           (should (equal candidates '("@src/main.el" "@src/main.js"))))))))))
+
+(ert-deftest ai-code-test-prompt-auto-trigger-filepath-completion ()
+  "Test that ai-code--prompt-auto-trigger-filepath-completion triggers completion after '@'."
+  (ai-code-with-test-repo
+   (with-temp-buffer
+     ;; Insert @ symbol
+     (insert "@")
+     
+     ;; Mock completion-at-point
+     (let ((completion-called nil))
+       (cl-letf (((symbol-function 'completion-at-point)
+                  (lambda () (setq completion-called t))))
+         
+         ;; Call auto-trigger function
+         (ai-code--prompt-auto-trigger-filepath-completion)
+         
+         ;; Should have called completion-at-point
+         (should completion-called))))))
+
+(ert-deftest ai-code-test-prompt-auto-trigger-no-trigger-without-at ()
+  "Test that ai-code--prompt-auto-trigger-filepath-completion doesn't trigger without '@'."
+  (ai-code-with-test-repo
+   (with-temp-buffer
+     ;; Insert text without @
+     (insert "text")
+     
+     ;; Mock completion-at-point
+     (let ((completion-called nil))
+       (cl-letf (((symbol-function 'completion-at-point)
+                  (lambda () (setq completion-called t))))
+         
+         ;; Call auto-trigger function
+         (ai-code--prompt-auto-trigger-filepath-completion)
+         
+         ;; Should NOT have called completion-at-point
+         (should-not completion-called))))))
+
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here
