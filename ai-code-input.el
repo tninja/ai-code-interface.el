@@ -235,10 +235,13 @@ The current buffer's file is always first."
               (ai-code-backends-infra--session-buffer-p (current-buffer))
               (not (minibufferp))
               (magit-toplevel))))
+    (ai-code-backends-infra--terminal-send-string "@")
     (when should-complete
       (let ((candidates (ai-code--prompt-filepath-candidates)))
         (when candidates
-          (let ((choice (completing-read "File: " candidates nil nil)))
+          (let ((choice (condition-case nil
+                            (completing-read "File: " candidates nil nil)
+                          (quit nil))))
             (when (and choice (not (string-empty-p choice)))
               (ai-code-backends-infra--terminal-send-backspace)
               (ai-code-backends-infra--terminal-send-string choice))))))))
