@@ -189,8 +189,7 @@ Activity tracking for notifications is handled separately by
     (with-current-buffer (process-buffer process)
       (let* ((complex-redraw-detected
               (string-match-p "\033\\[[0-9]*A.*\033\\[K.*\033\\[[0-9]*A.*\033\\[K" input))
-             (clear-count (cl-count-if (lambda (s) (string= s "\033[K"))
-                                       (split-string input "\033\\[K" t)))
+             (clear-count (1- (length (split-string input "\033\\[K"))))
              (escape-count (cl-count ?\033 input))
              (input-length (length input))
              (escape-density (if (> input-length 0) (/ (float escape-count) input-length) 0)))
