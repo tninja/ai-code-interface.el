@@ -690,5 +690,36 @@ ENV-VARS is a list of environment variables."
                (remhash key table)))
            table))
 
+;;; Evil Mode Integration
+
+(defvar ai-code-backends-infra--evil-original-spc-command nil
+  "Original command for SPC in `evil-normal-state-map'.")
+
+(declare-function ai-code-send-command "ai-code" (&optional arg))
+
+(defun ai-code-backends-infra--evil-spc-command ()
+  "In AI session buffers, run `ai-code-send-command'.
+Otherwise, run the original command for SPC."
+  (interactive)
+  (if (ai-code-backends-infra--session-buffer-p (current-buffer))
+      (call-interactively #'ai-code-send-command)
+    (when ai-code-backends-infra--evil-original-spc-command
+      (call-interactively ai-code-backends-infra--evil-original-spc-command))))
+
+;;;###autoload
+(defun ai-code-backends-infra-evil-setup ()
+  "Setup AI Code integration with Evil mode.
+This function configures SPC key binding in Evil normal state for
+AI session buffers.  Call this function after Evil is loaded,
+typically in your Emacs configuration with:
+  (with-eval-after-load \\='evil (ai-code-backends-infra-evil-setup))"
+  (interactive)
+  (when (and (featurep 'evil) (boundp 'evil-normal-state-map))
+    (unless ai-code-backends-infra--evil-original-spc-command
+      (setq ai-code-backends-infra--evil-original-spc-command
+            (lookup-key evil-normal-state-map (kbd "SPC"))))
+    (define-key evil-normal-state-map (kbd "SPC")
+                #'ai-code-backends-infra--evil-spc-command)))
+
 (provide 'ai-code-backends-infra)
 ;;; ai-code-backends-infra.el ends here

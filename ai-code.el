@@ -34,6 +34,8 @@
 ;;   (global-set-key (kbd "C-c a") #'ai-code-menu)
 ;;   ;; Optional: Enable @ file completion in comments and AI sessions
 ;;   (ai-code-prompt-filepath-completion-mode 1)
+;;   ;; Optional: SPC key in ai coding window trigger prompt enter UI
+;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
 ;;   (setq auto-revert-interval 1) ;; set to 1 second for faster update
 ;;   )
@@ -252,38 +254,13 @@ Shows the current backend label to the right."
 
 
 
-;; When in a special buffer (e.g., *claude-code*) and using evil-mode,
-;; pressing SPC in normal state will send the prompt.
+;; DONE: When in an ai-coding session (e.g., with -backends-infra.el code) and using evil-mode,
+;; pressing SPC in normal state will trigger ai-code-send-command.
+;; Fixed implementation moved to ai-code-backends-infra.el:
+;;   - `ai-code-backends-infra--evil-spc-command' - intercepts SPC in AI session buffers
+;;   - `ai-code-backends-infra-evil-setup' - call with (with-eval-after-load 'evil ...)
 
-;; following code is buggy
-(defvar ai-code--original-spc-command-in-evil-normal-state nil
-  "Original command for SPC in `evil-normal-state`.")
-
-(defun ai-code-spc-command-for-special-buffer-in-evil ()
-  "In special buffers (*...*), run `ai-code-send-command`.
-Otherwise, run the original command for SPC."
-  (interactive)
-  (if (and (string-prefix-p "*" (buffer-name))
-           (string-suffix-p "*" (buffer-name)))
-      (call-interactively #'ai-code-send-command)
-    (when ai-code--original-spc-command-in-evil-normal-state
-      (call-interactively ai-code--original-spc-command-in-evil-normal-state))))
-
-;;;###autoload
-(defun ai-code-evil-setup ()
-  "Setup AI Code integration with Evil mode.
-This function configures SPC key binding in Evil normal state for
-special AI Code buffers.  Call this function after Evil is loaded,
-typically in your Emacs configuration with:
-  (with-eval-after-load \\='evil (ai-code-evil-setup))"
-  (interactive)
-  (when (and (featurep 'evil) (boundp 'evil-normal-state-map))
-    (unless ai-code--original-spc-command-in-evil-normal-state
-      (setq ai-code--original-spc-command-in-evil-normal-state
-            (lookup-key evil-normal-state-map (kbd "SPC"))))
-    (when ai-code--original-spc-command-in-evil-normal-state
-      (define-key evil-normal-state-map (kbd "SPC")
-        #'ai-code-spc-command-for-special-buffer-in-evil))))
+;; (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 
 (provide 'ai-code)
 

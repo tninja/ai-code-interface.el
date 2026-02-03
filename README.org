@@ -52,6 +52,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; (setq ai-code-backends-infra-terminal-backend 'eat) ;; for openai codex, github copilot cli, opencode, grok, cursor-cli; for claude-code-ide.el, you can check their config
     ;; Optional: Enable @ file completion in comments and AI sessions
     (ai-code-prompt-filepath-completion-mode 1)
+    ;; Optional: SPC key in ai coding window trigger prompt enter UI
+    (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)
     (setq auto-revert-interval 1) ;; set to 1 second for faster update
