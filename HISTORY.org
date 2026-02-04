@@ -4,6 +4,8 @@
 ** Main branch change
 
 - Feat: Add CodeBuddy Code CLI backend support, by CodeBuddy
+- Feat: Add # class / function name completion in AI prompts, comments and AI coding session
+- Chore: Include Dired directories in current frame for Git root paths list
 
 ** 1.30
 - Feat: Enable @ completion in ai coding session window

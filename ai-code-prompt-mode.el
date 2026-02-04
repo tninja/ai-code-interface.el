@@ -261,6 +261,25 @@ NOTE: This does not handle file paths containing spaces."
   (when-let ((git-root (magit-toplevel)))
     (let* ((git-root-truename (file-truename git-root))
            (current-file (buffer-file-name (current-buffer)))
+           (current-frame-dired-paths
+            (let ((paths '()))
+              (dolist (win (window-list nil 'no-minibuffer))
+                (with-current-buffer (window-buffer win)
+                  (when (derived-mode-p 'dired-mode)
+                    (let ((dir (if (fboundp 'dired-current-directory)
+                                   (dired-current-directory)
+                                 default-directory)))
+                      (when (and dir
+                                 (file-directory-p dir)
+                                 (string-prefix-p git-root-truename
+                                                  (file-truename dir))
+                                 (not (ai-code--git-ignored-repo-file-p
+                                       dir
+                                       git-root-truename)))
+                        (push (ai-code--relative-filepath dir
+                                                          git-root-truename)
+                              paths))))))
+              (nreverse (delete-dups paths))))
            (visible-files (ai-code--visible-window-files git-root-truename))
            (skip-files (mapcar #'file-truename visible-files))
            (buffer-files (ai-code--buffer-file-list git-root-truename skip-files))
@@ -275,7 +294,7 @@ NOTE: This does not handle file paths containing spaces."
            (recent-paths (mapcar (lambda (file)
                                    (ai-code--relative-filepath file git-root-truename))
                                  recent-files))
-           (combined (append visible-paths buffer-paths recent-paths))
+           (combined (append current-frame-dired-paths visible-paths buffer-paths recent-paths))
            (deduped (ai-code--dedupe-preserve-order combined))
            (filtered '()))
       (dolist (item deduped)
