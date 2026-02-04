@@ -1,6 +1,6 @@
 ;;; ai-code-codebuddy-cli.el --- Thin wrapper for CodeBuddy Code CLI  -*- lexical-binding: t; -*-
 
-;; Author: Kang Tu <tninja@gmail.com>
+;; Author: liaohanqin
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
