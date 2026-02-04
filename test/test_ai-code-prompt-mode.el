@@ -791,5 +791,62 @@ and ensures everything is cleaned up afterward."
          ;; Should return nil (in minibuffer)
          (should-not result))))))
 
+(ert-deftest ai-code-test-prompt-filepath-candidates-includes-dired-directories ()
+  "Test that ai-code--prompt-filepath-candidates includes dired directories from current frame."
+  (ai-code-with-test-repo
+   (let ((dired-dir-1 (expand-file-name "src/" git-root))
+         (dired-dir-2 (expand-file-name "test/" git-root))
+         (test-file (expand-file-name "file.el" git-root))
+         (dired-buf-1 nil)
+         (dired-buf-2 nil))
+     (unwind-protect
+         (progn
+           ;; Create test directories and file
+           (make-directory dired-dir-1 t)
+           (make-directory dired-dir-2 t)
+           (with-temp-file test-file (insert "content"))
+           
+           ;; Open dired buffers and display them in windows
+           (setq dired-buf-1 (dired-noselect dired-dir-1))
+           (setq dired-buf-2 (dired-noselect dired-dir-2))
+           
+           ;; Display dired buffers in windows to simulate visible frame
+           (switch-to-buffer dired-buf-1)
+           (split-window)
+           (other-window 1)
+           (switch-to-buffer dired-buf-2)
+           
+           ;; Mock dependencies
+           (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
+                      (lambda (_file _root) nil))
+                     ((symbol-function 'ai-code--visible-window-files)
+                      (lambda (_root) '()))
+                     ((symbol-function 'ai-code--buffer-file-list)
+                      (lambda (_root _skip) (list test-file)))
+                     ((symbol-function 'ai-code--repo-recent-files)
+                      (lambda (_root) '())))
+             
+             (let ((candidates (ai-code--prompt-filepath-candidates)))
+               ;; Both dired directories should be included in candidates
+               (should (member "@src/" candidates))
+               (should (member "@test/" candidates))
+               ;; Test file should also be included
+               (should (member "@file.el" candidates))
+               ;; Dired directories should come before buffer files
+               (let ((src-pos (cl-position "@src/" candidates :test #'string=))
+                     (test-pos (cl-position "@test/" candidates :test #'string=))
+                     (file-pos (cl-position "@file.el" candidates :test #'string=)))
+                 (should (< src-pos file-pos))
+                 (should (< test-pos file-pos))))))
+       
+       ;; Cleanup
+       (when (buffer-live-p dired-buf-1) (kill-buffer dired-buf-1))
+       (when (buffer-live-p dired-buf-2) (kill-buffer dired-buf-2))
+       (when (file-exists-p test-file) (delete-file test-file))
+       (when (file-directory-p dired-dir-1) (delete-directory dired-dir-1))
+       (when (file-directory-p dired-dir-2) (delete-directory dired-dir-2))
+       ;; Restore window configuration
+       (delete-other-windows)))))
+
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here
