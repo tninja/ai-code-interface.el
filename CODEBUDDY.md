@@ -24,7 +24,7 @@ The project uses melpazoid for CI checks. The workflow is defined in `.github/wo
 ## High-Level Architecture
 
 ### Core Design Philosophy
-This is a unified interface package for AI-assisted software development that abstracts over multiple AI coding CLI backends (Claude Code, Gemini CLI, OpenAI Codex, GitHub Copilot CLI, Opencode, Grok CLI, Cursor CLI, Kiro CLI). The package provides a consistent user experience across different AI tools while maintaining context-aware code actions and agile development workflows.
+This is a unified interface package for AI-assisted software development that abstracts over multiple AI coding CLI backends (Claude Code, Gemini CLI, OpenAI Codex, GitHub Copilot CLI, Opencode, Grok CLI, Cursor CLI, CodeBuddy Code CLI, Kiro CLI). The package provides a consistent user experience across different AI tools while maintaining context-aware code actions and agile development workflows.
 
 ### Backend System Architecture
 
