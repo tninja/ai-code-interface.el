@@ -143,7 +143,17 @@ When called from Lisp code, sends CMD directly without prompting."
      :resume  claude-code-resume
      :config  "~/.claude.json"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
-     :cli     "claude"))
+     :cli     "claude")
+    (codebuddy
+     :label "CodeBuddy Code"
+     :require ai-code-codebuddy-cli
+     :start   ai-code-codebuddy-cli
+     :switch  ai-code-codebuddy-cli-switch-to-buffer
+     :send    ai-code-codebuddy-cli-send-command
+     :resume  ai-code-codebuddy-cli-resume
+     :config  "~/.codebuddy"
+     :upgrade "codebuddy update"
+     :cli     "codebuddy"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
 :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).

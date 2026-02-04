@@ -6,3 +6,4 @@ GPATH
 .ai.code.notes.org
 .ai.code.files/
 __pycache__/
+*.elc

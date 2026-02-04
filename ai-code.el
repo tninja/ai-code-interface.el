@@ -24,12 +24,13 @@
 ;;   - Grok CLI
 ;;   - Cursor CLI
 ;;   - Kiro CLI
+;;   - CodeBuddy Code CLI
 ;;
 ;; Basic configuration example:
 ;;
 ;; (use-package ai-code
 ;;   :config
-;;   ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro
+;;   ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro, 'codebuddy
 ;;   (ai-code-set-backend 'codex) ;; set your preferred backend
 ;;   (global-set-key (kbd "C-c a") #'ai-code-menu)
 ;;   ;; Optional: Enable @ file completion in comments and AI sessions
@@ -71,6 +72,7 @@
 (require 'ai-code-github-copilot-cli)
 (require 'ai-code-opencode)
 (require 'ai-code-grok-cli)
+(require 'ai-code-codebuddy-cli)
 (require 'ai-code-file)
 (require 'ai-code-ai)
 (require 'ai-code-notifications)

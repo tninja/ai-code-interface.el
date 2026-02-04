@@ -17,6 +17,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
   - [[https://grokcli.io/][Grok CLI]]
   - [[https://docs.cursor.com/en/cli][Cursor CLI]]
   - [[https://kiro.dev/cli/][Kiro CLI]]
+  - [[https://cnb.cool/codebuddy/codebuddy-code][CodeBuddy Code CLI]]
 
 - I switch between different CLI-based AI tools in Emacs: Claude Code / OpenAI Codex / Gemini CLI / etc. If you also use different AI tools inside Emacs, but want to keep the same user interface and experience, this package is for you.
 
@@ -44,7 +45,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   (use-package ai-code
     ;; :straight (:host github :repo "tninja/ai-code-interface.el") ;; if you want to use straight to install, no need to have MELPA setting above
     :config
-    ;; use codex as backend, other options are 'claude-code, 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'cursor, 'kiro, 'claude-code-ide, 'claude-code-el
+    ;; use codex as backend, other options are 'claude-code, 'gemini, 'github-copilot-cli, 'opencode, 'grok, 'cursor, 'kiro, 'codebuddy, 'claude-code-ide, 'claude-code-el
     (ai-code-set-backend 'codex)
     ;; Enable global keybinding for the main menu
     (global-set-key (kbd "C-c a") #'ai-code-menu)
@@ -167,6 +168,7 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
    - [[https://grokcli.io/][Grok CLI]] (`[[./ai-code-grok-cli.el][ai-code-grok-cli.el]]`)
    - [[https://docs.cursor.com/en/cli][Cursor CLI]] (`[[./ai-code-cursor-cli.el][ai-code-cursor-cli.el]]`)
    - [[https://kiro.dev/cli/][Kiro CLI]] (`[[./ai-code-kiro-cli.el][ai-code-kiro-cli.el]]`)
+   - [[https://cnb.cool/codebuddy/codebuddy-code][CodeBuddy Code CLI]] (`[[./ai-code-codebuddy-cli.el][ai-code-codebuddy-cli.el]]`)
    
    It also supports external backends through customization of the `ai-code-backends` variable; currently it includes:
    - Claude Code IDE (`[[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide.el]]`)
@@ -178,6 +180,14 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
      point at a different binary or pass additional flags (for example,
      selecting a profile). After that, select the backend through
      `ai-code-select-backend` or bind a helper in your config.
+
+**** CodeBuddy Code CLI setup
+     Install CodeBuddy Code CLI via npm: =npm install -g @tencent-ai/codebuddy-code=, or via Homebrew: =brew install Tencent-CodeBuddy/tap/codebuddy-code=.
+     Ensure the `codebuddy` executable is on your PATH.
+     Customize `ai-code-codebuddy-cli-program` or `ai-code-codebuddy-cli-program-switches` if you want to
+     point at a different binary or pass additional flags. After that, select the backend through
+     `ai-code-select-backend` or bind a helper in your config.
+     To resume previous conversations, use =-c= flag (automatically handled by the resume command).
 
    You can add other backends by customizing the `ai-code-backends` variable.
 

@@ -3,6 +3,8 @@
 
 ** Main branch change
 
+- Feat: Add CodeBuddy Code CLI backend support, by CodeBuddy
+
 ** 1.30
 - Feat: Enable @ completion in ai coding session window
 - Feat: @ in ai-code-prompt-mode will trigger filename completion
