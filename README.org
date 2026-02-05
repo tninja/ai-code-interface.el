@@ -114,8 +114,6 @@ This package makes context engineering easy by automatically assembling precise 
 - Manual context curation: `C-c a @` (`ai-code-context-action`) stores file paths, function anchors, or region ranges in a repo-scoped list, which is appended to prompts via `ai-code--format-repo-context-info`.
 - Optional clipboard context: prefix with `C-u` to append clipboard content to prompts for external snippets or logs.
 - @-triggered filepath completion in comments and AI sessions. Type `@` to open a completion list of recent and visible repo files, then select a path to insert.
-- Prompt file name customization: set `ai-code-prompt-file-name` to change the default prompt file name created under `.ai.code.files/`.
-- Prompt path preprocessing: when `ai-code-prompt-preprocess-filepaths` is non-nil, file paths in prompts are normalized to `@relative/path` within the current repo.
 - Prompt suffix guardrails: set `ai-code-prompt-suffix` to append persistent constraints to every prompt (when `ai-code-use-prompt-suffix` is non-nil). Example: `(setq ai-code-prompt-suffix "Only use English in code file, but Reply in Simplified Chinese language")`.
 - Optional GPTel headline generation: set `ai-code-use-gptel-headline` to auto-generate prompt headings with GPTel.
 
