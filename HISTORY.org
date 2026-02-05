@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Add Aider CLI support as a new AI backend integration
 - Chore: Add session id field to task file template, for tracking / recovering purpose
 
 ** 1.40
