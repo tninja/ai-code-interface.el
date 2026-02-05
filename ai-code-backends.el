@@ -124,6 +124,26 @@ When called from Lisp code, sends CMD directly without prompting."
      :config  "~/.kiro/settings/cli.json"
      :upgrade "kiro-cli update"
      :cli     "kiro-cli")
+    (codebuddy
+     :label "CodeBuddy Code"
+     :require ai-code-codebuddy-cli
+     :start   ai-code-codebuddy-cli
+     :switch  ai-code-codebuddy-cli-switch-to-buffer
+     :send    ai-code-codebuddy-cli-send-command
+     :resume  ai-code-codebuddy-cli-resume
+     :config  "~/.codebuddy"
+     :upgrade "codebuddy update"
+     :cli     "codebuddy")
+    (aider
+     :label "Aider CLI"
+     :require ai-code-aider-cli
+     :start   ai-code-aider-cli
+     :switch  ai-code-aider-cli-switch-to-buffer
+     :send    ai-code-aider-cli-send-command
+     :resume  nil
+     :config  "~/.aider.conf.yml"
+     :upgrade nil
+     :cli     "aider")
     (claude-code-ide  ; external backend, requires claude-code-ide.el package
      :label "claude-code-ide.el"
      :require claude-code-ide
@@ -143,17 +163,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :resume  claude-code-resume
      :config  "~/.claude.json"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
-     :cli     "claude")
-    (codebuddy
-     :label "CodeBuddy Code"
-     :require ai-code-codebuddy-cli
-     :start   ai-code-codebuddy-cli
-     :switch  ai-code-codebuddy-cli-switch-to-buffer
-     :send    ai-code-codebuddy-cli-send-command
-     :resume  ai-code-codebuddy-cli-resume
-     :config  "~/.codebuddy"
-     :upgrade "codebuddy update"
-     :cli     "codebuddy"))
+     :cli     "claude"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
 :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).
