@@ -90,7 +90,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - *Context-Aware Code Actions*: The menu exposes dedicated entries for changing code (`c`), implementing TODOs (`i`), asking questions (`q`), explaining code (`x`), sending free-form commands (`<SPC>`), and refreshing AI context (`@`). Each command automatically captures the surrounding function, region, or clipboard contents (via `C-u`) to keep prompts precise.
 - *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), block sending (`b`), and AI-assisted shell/file execution (`!`).
 - *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), capture session notes straight into Org (`n`), and toggle desktop notifications (`N`) to get alerted when AI responses are ready in background sessions.
-- *Seamless Prompt Management*: Open `.ai.code.prompt.org`, send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized.
+- *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` by default), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized.
 - *Interactive Chat & Context Tools*: Dedicated buffers hold long-running chats, automatically enriched with file paths, diffs, and history from Magit or Git commands for richer AI responses.
 - *AI-Assisted Bash Commands*: From Dired, shell, eshell, or vterm, run `C-c a !` and type natural-language commands prefixed with `:` (e.g., `:count lines of python code recursively`); the tool generates the shell command for review and executes it in a compile buffer.
 
@@ -113,7 +113,10 @@ This package makes context engineering easy by automatically assembling precise 
 - Manual context curation: `C-c a @` (`ai-code-context-action`) stores file paths, function anchors, or region ranges in a repo-scoped list, which is appended to prompts via `ai-code--format-repo-context-info`.
 - Optional clipboard context: prefix with `C-u` to append clipboard content to prompts for external snippets or logs.
 - @-triggered filepath completion in comments and AI sessions. Type `@` to open a completion list of recent and visible repo files, then select a path to insert.
+- Prompt file name customization: set `ai-code-prompt-file-name` to change the default prompt file name created under `.ai.code.files/`.
+- Prompt path preprocessing: when `ai-code-prompt-preprocess-filepaths` is non-nil, file paths in prompts are normalized to `@relative/path` within the current repo.
 - Prompt suffix guardrails: set `ai-code-prompt-suffix` to append persistent constraints to every prompt (when `ai-code-use-prompt-suffix` is non-nil). Example: `(setq ai-code-prompt-suffix "Only use English in code file, but Reply in Simplified Chinese language")`.
+- Optional GPTel headline generation: set `ai-code-use-gptel-headline` to auto-generate prompt headings with GPTel.
 
 Example (focused refactor with curated context):
 1) In a buffer, run `C-c a @` to add the current function or selected region to stored repo context.
@@ -143,7 +146,7 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 
 **** How It Works
 - The package monitors terminal activity in AI session buffers.
-- When the terminal has been idle for ~1.5 seconds (configurable via `ai-code-backends-infra-idle-delay`), it's considered a completed response.
+- When the terminal has been idle for ~5 seconds (configurable via `ai-code-backends-infra-idle-delay`), it's considered a completed response.
 - If the AI session buffer is not currently visible/focused, a desktop notification is sent.
 - Notifications are throttled to avoid spam (minimum 2 seconds between notifications).
 
