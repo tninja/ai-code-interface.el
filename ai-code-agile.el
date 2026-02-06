@@ -628,13 +628,21 @@ to fix code."
 
 (defun ai-code--run-test-ai-assisted ()
   "Run tests by sending a prompt to AI with current context."
-  (let* ((function-name (which-function))
-         (file-info (ai-code--get-context-files-string))
-         (initial-input (format "Run the tests for the current %s using appropriate test_runner.%s"
-                         (if function-name
-                             (format "function '%s'" function-name)
-                           "file")
-                         file-info))
+  (let* ((is-dired (derived-mode-p 'dired-mode))
+         (function-name (unless is-dired (which-function)))
+         (file-info (unless is-dired (ai-code--get-context-files-string)))
+         (initial-input
+          (cond
+           (is-dired
+            (format "Run the tests for source code in directory '%s' using appropriate test_runner."
+                    (dired-current-directory)))
+           (function-name
+            (format "Run the tests for the current function '%s' using appropriate test_runner.%s"
+                    function-name
+                    file-info))
+           (t
+            (format "Run the tests for the current file using appropriate test_runner.%s"
+                    file-info))))
          (prompt (ai-code-read-string "Send to AI: " initial-input)))
     (ai-code--insert-prompt prompt)))
 

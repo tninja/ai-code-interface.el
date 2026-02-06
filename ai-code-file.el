@@ -335,8 +335,7 @@ If user chooses to build, check for build.sh in the project root
 and send to AI for execution. Otherwise, ask AI to generate a build command.
 If user chooses to test, call `ai-code-run-test'."
   (interactive)
-  ;; DONE: let user choose they want to build or test. if it is test, call ai-code-run-test function
-  (let ((action (completing-read "Choose action: " '("Build project" "Test on scopeTest") nil t)))
+  (let ((action (completing-read "Choose action: " '("Build project" "Test on scope") nil t)))
     (cond
      ((string= action "Build project") (ai-code-build-project))
      ((string= action "Test on scope") (ai-code-run-test)))))
@@ -347,7 +346,6 @@ If user chooses to test, call `ai-code-run-test'."
 Check for build.sh in the project root and send to AI for execution.
 Otherwise, ask AI to generate a build command."
   (interactive)
-  ;; DONE: let AI to run build.sh instead of running it directly, so that AI can learn from the build output
   (let* ((proj-root (or (and (fboundp 'projectile-project-root)
                              (ignore-errors (projectile-project-root)))
                         (magit-toplevel)))
