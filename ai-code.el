@@ -240,7 +240,7 @@ Shows the current backend label to the right."
     ("v" "Pull or Review Code Change"  ai-code-pull-or-review-diff-file)
     ;; ("b" "Send prompt block to AI" ai-code-prompt-send-block)
     ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
-    ("b" "Build project"               ai-code-build-project)
+    ("b" "Build / Test project"               ai-code-build-or-test-project)
     ("p" "Open prompt history file" ai-code-open-prompt-file)
     ;; ("I" "Insert function name at point" ai-code-insert-function-at-point)
     ("K" "Create or open task file" ai-code-create-or-open-task-file)

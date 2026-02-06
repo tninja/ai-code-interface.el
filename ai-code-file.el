@@ -24,6 +24,7 @@
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (prompt))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function projectile-project-root "projectile")
+(declare-function ai-code-run-test "ai-code-agile")
 
 (defcustom ai-code-sed-command "sed"
   "GNU sed command used to apply prompts to files."
@@ -328,27 +329,43 @@ is active; otherwise run the current file."
     (ai-code-run-current-file))))
 
 ;;;###autoload
+(defun ai-code-build-or-test-project ()
+  "Build or test the current project based on user choice.
+If user chooses to build, check for build.sh in the project root
+and send to AI for execution. Otherwise, ask AI to generate a build command.
+If user chooses to test, call `ai-code-run-test'."
+  (interactive)
+  ;; DONE: let user choose they want to build or test. if it is test, call ai-code-run-test function
+  (let ((action (completing-read "Choose action: " '("Build project" "Test on scopeTest") nil t)))
+    (cond
+     ((string= action "Build project") (ai-code-build-project))
+     ((string= action "Test on scope") (ai-code-run-test)))))
+
+;;;###autoload
 (defun ai-code-build-project ()
   "Build the current project.
-Check for build.sh in the project root and run it if found.
+Check for build.sh in the project root and send to AI for execution.
 Otherwise, ask AI to generate a build command."
   (interactive)
-  ;; DONE: If projectile package, is available, first check the build.sh in
-  ;; the projectile root dir. Otherwise, check the git root dir.
+  ;; DONE: let AI to run build.sh instead of running it directly, so that AI can learn from the build output
   (let* ((proj-root (or (and (fboundp 'projectile-project-root)
                              (ignore-errors (projectile-project-root)))
                         (magit-toplevel)))
-         (build-script (when proj-root (expand-file-name "build.sh" proj-root))))
-    (if (and proj-root build-script (file-exists-p build-script))
-        (let ((default-directory proj-root)
-              (buffer-name (format "*ai-code-build: %s*" (file-name-nondirectory (directory-file-name proj-root)))))
-          (compilation-start "bash build.sh" nil (lambda (_mode) buffer-name)))
-      (let* ((repo-context (ai-code--format-repo-context-info))
-             (initial-input (concat "Build the current project. Provide the build command and execute it if possible. "
-                             (when proj-root (format "\nProject root: %s" proj-root))
-                             (when repo-context (concat "\n" repo-context))))
-             (prompt (ai-code-read-string "Send to AI: " initial-input)))
-        (ai-code--insert-prompt prompt)))))
+         (build-script (when proj-root (expand-file-name "build.sh" proj-root)))
+         (repo-context (ai-code--format-repo-context-info))
+         (initial-input
+          (if (and proj-root build-script (file-exists-p build-script))
+              ;; build.sh exists, ask AI to run it
+              (concat "Run the build script and report the results. "
+                      (format "\nProject root: %s" proj-root)
+                      (format "\nBuild script: %s" build-script)
+                      (when repo-context (concat "\n" repo-context)))
+            ;; No build.sh, ask AI to generate build command
+            (concat "Build the current project. Provide the build command and execute it if possible. "
+                    (when proj-root (format "\nProject root: %s" proj-root))
+                    (when repo-context (concat "\n" repo-context)))))
+         (prompt (ai-code-read-string "Send to AI: " initial-input)))
+    (ai-code--insert-prompt prompt)))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
   "Hash table storing context info lists per Git repository root.")
