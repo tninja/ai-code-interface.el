@@ -581,7 +581,7 @@ If no such buffer is found, report a user-error."
       (user-error "No test file found in current windows. Please open a test file first"))))
 
 (defconst ai-code--tdd-test-pattern-instruction
-  "\nFollow the test-code pattern in the current project. Write the test-code in the test-file."
+  "\nFollow the test-code pattern in the current project. Write the test-code in the test-file. If the test-file does not exist, create it using the same test-filename pattern used in this repository."
   "Instruction appended to TDD prompts to enforce the project's test pattern.")
 
 (defun ai-code--tdd-red-stage (function-name)
