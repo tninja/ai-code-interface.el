@@ -580,30 +580,54 @@ If no such buffer is found, report a user-error."
     (unless has-test-buffer
       (user-error "No test file found in current windows. Please open a test file first"))))
 
+(defconst ai-code--tdd-test-pattern-instruction
+  "\nFollow the test-code pattern in the current project. Write the test-code in the test-file."
+  "Instruction appended to TDD prompts to enforce the project's test pattern.")
+
 (defun ai-code--tdd-red-stage (function-name)
   "Handle the Red stage of TDD for FUNCTION-NAME: Write a failing test."
-  (if (and (region-active-p) (not (derived-mode-p 'prog-mode)))
-      ;; If there is a selected region, and it is not a prog-mode derived buffer,
-      ;; assume this is the information / exception of failed test.
-      ;; Use it as initial prompt to fix the source code.
-      (let* ((failure-info (buffer-substring-no-properties (region-beginning) (region-end)))
-             (prompt (ai-code-read-string "Confirm test failure to fix: " failure-info))
+  (let ((test-pattern-instruction ai-code--tdd-test-pattern-instruction))
+    (if (and (region-active-p) (not (derived-mode-p 'prog-mode)))
+        ;; If there is a selected region, and it is not a prog-mode derived buffer,
+        ;; assume this is the information / exception of failed test.
+        ;; Use it as initial prompt to fix the source code.
+        (let* ((failure-info (buffer-substring-no-properties (region-beginning) (region-end)))
+               (prompt (ai-code-read-string "Confirm test failure to fix: " failure-info))
+               (file-info (ai-code--get-context-files-string))
+               (tdd-instructions (format "Fix the code to resolve the following error:\n%s%s%s"
+                                         prompt
+                                         file-info
+                                         test-pattern-instruction)))
+          (ai-code--insert-prompt tdd-instructions))
+      ;; Original path: write a failing test
+      (ai-code--ensure-test-buffer-visible)
+      (let* ((feature-desc (ai-code-read-string
+                            (if function-name
+                                (format "Describe the feature to test for '%s': " function-name)
+                              "Describe the feature to test: ") "Implement test functions using test cases described in the comments."))
              (file-info (ai-code--get-context-files-string))
-             (tdd-instructions (format "Fix the code to resolve the following error:\n%s%s" prompt file-info)))
-        (ai-code--insert-prompt tdd-instructions))
-    ;; Original path: write a failing test
-    ;; DONE: at least one buffer in current window should be a test
-    ;; file (contains 'test' in name, case insensitive), otherwise
-    ;; report error and exit this function
-    (ai-code--ensure-test-buffer-visible)
-    (let* ((feature-desc (ai-code-read-string
-                          (if function-name
-                              (format "Describe the feature to test for '%s': " function-name)
-                            "Describe the feature to test: ") "Implement test functions using test cases described in the comments."))
-           (file-info (ai-code--get-context-files-string))
-           (tdd-instructions
-            (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code." feature-desc file-info)))
-      (ai-code--insert-prompt tdd-instructions))))
+             (tdd-instructions
+              (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code.%s"
+                      feature-desc
+                      file-info
+                      test-pattern-instruction)))
+        (ai-code--insert-prompt tdd-instructions)))))
+
+(defun ai-code--tdd-red-green-stage (function-name)
+  "Handle the Red + Green stage for FUNCTION-NAME in one prompt."
+  ;; (ai-code--ensure-test-buffer-visible)
+  (let* ((feature-desc (ai-code-read-string
+                        (if function-name
+                            (format "Describe the feature to test for '%s': " function-name)
+                          "Describe the feature to test: ")
+                        "Implement test functions using test cases described in the comments."))
+         (file-info (ai-code--get-context-files-string))
+         (tdd-instructions
+          (format "%s%s\nFollow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code. Run the tests and follow up with the @test result (fix code if there is error).%s"
+                  feature-desc
+                  file-info
+                  ai-code--tdd-test-pattern-instruction)))
+    (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--tdd-green-stage (function-name)
   "Handle the Green stage of TDD for FUNCTION-NAME: Make the test pass.
@@ -681,13 +705,15 @@ them if available."
 Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
+  ;; DONE: Append a new option to the tail: Red + Green. This allows users to complete both stages in one prompt. After that, AI should run the test, follow up with the @test result (eg. fix the code if there is error).
   (let* ((function-name (which-function))
          (cycle-stage (completing-read
                        "Select TDD stage: "
                        '("0. Run unit-tests"
                          "1. Red (Write failing test)"
                          "2. Green (Make test pass)"
-                         "3. Refactor (Improve code quality)")
+                         "3. Refactor (Improve code quality)"
+                         "4. Red + Green (One prompt)")
                        nil t))
          (stage-num (string-to-number (substring cycle-stage 0 1))))
     (cond
@@ -698,7 +724,9 @@ Works with both source code and test files that have been added to ai-code."
      ;; Green stage - make test pass
      ((= stage-num 2) (ai-code--tdd-green-stage function-name))
      ;; Refactor stage - call the main refactoring function in TDD mode
-     ((= stage-num 3) (ai-code-refactor-book-method t)))))
+     ((= stage-num 3) (ai-code-refactor-book-method t))
+     ;; Red + Green combined in one prompt
+     ((= stage-num 4) (ai-code--tdd-red-green-stage function-name)))))
 
 (provide 'ai-code-agile)
 ;;; ai-code-agile.el ends here
