@@ -122,7 +122,9 @@ with a newline separator."
 ;;;###autoload
 (defcustom ai-code-test-after-code-change-suffix
   "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)."
-  "Prompt suffix to request running tests after code changes.")
+  "Prompt suffix to request running tests after code changes."
+  :type 'string
+  :group 'ai-code)
 
 ;;;###autoload
 (defcustom ai-code-test-after-code-change nil
