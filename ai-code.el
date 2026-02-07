@@ -157,7 +157,7 @@ with a newline separator."
 
 (defcustom ai-code-test-after-code-change nil
   "Select how prompts request tests after code changes."
-  :type '(choice (const :tag "Use suffix prompt" suffix)
+  :type '(choice (const :tag "Use test after code change prompt" test-after-change)
                  (const :tag "Use TDD Red+Green prompt" tdd)
                  (const :tag "Off" nil))
   :set #'ai-code--test-after-code-change--set
@@ -262,9 +262,9 @@ Otherwise switch to AI CLI buffer."
   "Select `ai-code-test-after-code-change` mode."
   :class 'ai-code--code-change-auto-test-type
   :key "T"
-  :description "Auto test type for code change:"
+  :description "Auto test type:"
   :reader (lambda (_prompt _initial-input _history)
-            (let* ((choices '(("Use test after code prompt" . suffix)
+            (let* ((choices '(("Use test after code change prompt" . test-after-change)
                               ("Use TDD Red+Green prompt" . tdd)
                               ("Off" . nil)))
                    (choice (completing-read "Test after code change: "
