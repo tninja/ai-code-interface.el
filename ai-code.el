@@ -219,6 +219,22 @@ Otherwise switch to AI CLI buffer."
   :reader (lambda (_prompt _initial-input _history)
             (not ai-code-use-prompt-suffix)))
 
+;; DONE: similar to ai-code--infix-toggle-suffix, introduce infix for ai-code-test-after-code-change, and add it to menu
+
+(defclass ai-code--test-after-code-change-type (transient-lisp-variable)
+  ((variable :initform 'ai-code-test-after-code-change)
+   (format :initform "%k %d %v")
+   (reader :initform #'transient-lisp-variable--read-value))
+  "Toggle helper for `ai-code-test-after-code-change`.")
+
+(transient-define-infix ai-code--infix-toggle-test-after-code-change ()
+  "Toggle `ai-code-test-after-code-change`."
+  :class 'ai-code--test-after-code-change-type
+  :key "T"
+  :description "Test after code change:"
+  :reader (lambda (_prompt _initial-input _history)
+            (not ai-code-test-after-code-change)))
+
 (defun ai-code--select-backend-description (&rest _)
   "Dynamic description for the Select Backend menu item.
 Shows the current backend label to the right."
@@ -236,7 +252,9 @@ Shows the current backend label to the right."
     ("s" ai-code-select-backend :description ai-code--select-backend-description)
     ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
     ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
-    ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)]
+    ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
+    ("p" "Open prompt history file" ai-code-open-prompt-file)
+    ]
 
    ["AI Code Actions"
     (ai-code--infix-toggle-suffix)
@@ -249,13 +267,13 @@ Shows the current backend label to the right."
     ]
 
    ["AI Agile Development"
+    (ai-code--infix-toggle-test-after-code-change)
     ("r" "Refactor Code"               ai-code-refactor-book-method)
     ("t" "Test Driven Development"     ai-code-tdd-cycle)
     ("v" "Pull or Review Code Change"  ai-code-pull-or-review-diff-file)
     ;; ("b" "Send prompt block to AI" ai-code-prompt-send-block)
     ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
     ("b" "Build / Test project"               ai-code-build-or-test-project)
-    ("p" "Open prompt history file" ai-code-open-prompt-file)
     ;; ("I" "Insert function name at point" ai-code-insert-function-at-point)
     ("K" "Create or open task file" ai-code-create-or-open-task-file)
     ("n" "Take notes from AI session region" ai-code-take-notes)
