@@ -16,7 +16,7 @@
 (defvar ai-code-use-gptel-headline)
 (defvar ai-code-prompt-suffix)
 (defvar ai-code-auto-test-type)
-(defvar ai-code-test-after-code-change-suffix)
+(defvar ai-code-auto-test-suffix)
 (defvar ai-code-use-prompt-suffix)
 
 (declare-function yas-load-directory "yasnippet" (dir))
@@ -168,7 +168,7 @@ Returns the full prompt text with suffix for sending to AI."
   "Write PROMPT-TEXT to the AI prompt file."
   (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type
-                                         ai-code-test-after-code-change-suffix))))
+                                         ai-code-auto-test-suffix))))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (mapconcat #'identity suffix-parts "\n")))
          (full-prompt (concat (if suffix
