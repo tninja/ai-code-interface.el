@@ -634,10 +634,10 @@ to fix code."
          (initial-input
           (cond
            (is-dired
-            (format "Run the tests for source code in directory '%s' using appropriate test_runner."
+            (format "Run the tests for source code in directory '%s' using appropriate test runner."
                     (dired-current-directory)))
            (function-name
-            (format "Run the tests for the current function '%s' using appropriate test_runner.%s"
+            (format "Run the tests for the current function '%s' using appropriate test runner.%s"
                     function-name
                     file-info))
            (t
