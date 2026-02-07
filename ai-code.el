@@ -124,15 +124,46 @@ with a newline separator."
 ;;;###autoload
 (defcustom ai-code-test-after-code-change-suffix
   "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)."
-  "Prompt suffix to request running tests after code changes."
+  "Default prompt suffix to request running tests after code changes."
   :type '(choice (const nil) string)
   :group 'ai-code)
 
 ;;;###autoload
-(defcustom ai-code-test-after-code-change nil
-  "When non-nil, append a test instruction to prompt suffixes where supported."
-  :type 'boolean
+(defcustom ai-code-test-after-code-change-user-suffix nil
+  "User-provided prompt suffix for test-after-code-change."
+  :type '(choice (const nil) string)
   :group 'ai-code)
+
+(defun ai-code--test-after-code-change--resolve-tdd-suffix ()
+  "Return the TDD-style suffix for test-after-code-change prompts."
+  (let ((pattern (when (and (boundp 'ai-code--tdd-test-pattern-instruction)
+                            (stringp ai-code--tdd-test-pattern-instruction))
+                   ai-code--tdd-test-pattern-instruction)))
+    (concat "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error)."
+            (or pattern ""))))
+
+(defun ai-code--test-after-code-change--set (symbol value)
+  "Set SYMBOL to VALUE and update related suffix behavior."
+  (set-default symbol value)
+  (pcase value
+    ('tdd
+     (setq ai-code-test-after-code-change-suffix
+           (ai-code--test-after-code-change--resolve-tdd-suffix)))
+    ('suffix
+     (when ai-code-test-after-code-change-user-suffix
+       (setq ai-code-test-after-code-change-suffix
+             ai-code-test-after-code-change-user-suffix)))
+    (_ nil)))
+
+(defcustom ai-code-test-after-code-change nil
+  "Select how prompts request tests after code changes."
+  :type '(choice (const :tag "Use suffix prompt" suffix)
+                 (const :tag "Use TDD Red+Green prompt" tdd)
+                 (const :tag "Off" nil))
+  :set #'ai-code--test-after-code-change--set
+  :group 'ai-code)
+
+;; DONE: Make ai-code--infix-toggle-test-after-code-change, and ai-code-test-after-code-change to be a selection instead of a on / off toggle. The choices for selection should be 1. use ai-code-test-after-code-change-suffix; 2. use prompt similar to the one side ai-code--tdd-red-green-stage, with ai-code--tdd-test-pattern-instruction; 3. off
 
 ;;;###autoload
 (defcustom ai-code-cli "claude"
@@ -221,21 +252,25 @@ Otherwise switch to AI CLI buffer."
   :reader (lambda (_prompt _initial-input _history)
             (not ai-code-use-prompt-suffix)))
 
-;; DONE: similar to ai-code--infix-toggle-suffix, introduce infix for ai-code-test-after-code-change, and add it to menu
-
-(defclass ai-code--test-after-code-change-type (transient-lisp-variable)
+(defclass ai-code--code-change-auto-test-type (transient-lisp-variable)
   ((variable :initform 'ai-code-test-after-code-change)
    (format :initform "%k %d %v")
    (reader :initform #'transient-lisp-variable--read-value))
-  "Toggle helper for `ai-code-test-after-code-change`.")
+  "Selection helper for `ai-code-test-after-code-change`.")
 
-(transient-define-infix ai-code--infix-toggle-test-after-code-change ()
-  "Toggle `ai-code-test-after-code-change`."
-  :class 'ai-code--test-after-code-change-type
+(transient-define-infix ai-code--infix-select-code-change-auto-test ()
+  "Select `ai-code-test-after-code-change` mode."
+  :class 'ai-code--code-change-auto-test-type
   :key "T"
-  :description "Test after code change:"
+  :description "Auto test type for code change:"
   :reader (lambda (_prompt _initial-input _history)
-            (not ai-code-test-after-code-change)))
+            (let* ((choices '(("Use test after code prompt" . suffix)
+                              ("Use TDD Red+Green prompt" . tdd)
+                              ("Off" . nil)))
+                   (choice (completing-read "Test after code change: "
+                                            (mapcar #'car choices)
+                                            nil t)))
+              (cdr (assoc choice choices)))))
 
 (defun ai-code--select-backend-description (&rest _)
   "Dynamic description for the Select Backend menu item.
@@ -269,7 +304,7 @@ Shows the current backend label to the right."
     ]
 
    ["AI Agile Development"
-    (ai-code--infix-toggle-test-after-code-change)
+    (ai-code--infix-select-code-change-auto-test)
     ("r" "Refactor Code"               ai-code-refactor-book-method)
     ("t" "Test Driven Development"     ai-code-tdd-cycle)
     ("v" "Pull or Review Code Change"  ai-code-pull-or-review-diff-file)
