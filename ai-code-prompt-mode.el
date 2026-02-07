@@ -15,7 +15,7 @@
 
 (defvar ai-code-use-gptel-headline)
 (defvar ai-code-prompt-suffix)
-(defvar ai-code-test-after-code-change)
+(defvar ai-code-auto-test-type)
 (defvar ai-code-test-after-code-change-suffix)
 (defvar ai-code-use-prompt-suffix)
 
@@ -167,7 +167,7 @@ Returns the full prompt text with suffix for sending to AI."
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
   "Write PROMPT-TEXT to the AI prompt file."
   (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
-                                       (when ai-code-test-after-code-change
+                                       (when ai-code-auto-test-type
                                          ai-code-test-after-code-change-suffix))))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (mapconcat #'identity suffix-parts "\n")))

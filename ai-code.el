@@ -37,7 +37,7 @@
 ;;   ;; Optional: Enable @ file completion in comments and AI sessions
 ;;   (ai-code-prompt-filepath-completion-mode 1)
 ;;   ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
-;;   (ai-code-test-after-code-change t)
+;;   (ai-code-auto-test-type 'test-after-change)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
 ;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
@@ -155,7 +155,7 @@ with a newline separator."
              ai-code-test-after-code-change-user-suffix)))
     (_ nil)))
 
-(defcustom ai-code-test-after-code-change nil
+(defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
   :type '(choice (const :tag "Use test after code change prompt" test-after-change)
                  (const :tag "Use TDD Red+Green prompt" tdd)
@@ -163,7 +163,6 @@ with a newline separator."
   :set #'ai-code--test-after-code-change--set
   :group 'ai-code)
 
-;; DONE: Make ai-code--infix-toggle-test-after-code-change, and ai-code-test-after-code-change to be a selection instead of a on / off toggle. The choices for selection should be 1. use ai-code-test-after-code-change-suffix; 2. use prompt similar to the one side ai-code--tdd-red-green-stage, with ai-code--tdd-test-pattern-instruction; 3. off
 
 ;;;###autoload
 (defcustom ai-code-cli "claude"
@@ -253,13 +252,13 @@ Otherwise switch to AI CLI buffer."
             (not ai-code-use-prompt-suffix)))
 
 (defclass ai-code--code-change-auto-test-type (transient-lisp-variable)
-  ((variable :initform 'ai-code-test-after-code-change)
+  ((variable :initform 'ai-code-auto-test-type)
    (format :initform "%k %d %v")
    (reader :initform #'transient-lisp-variable--read-value))
-  "Selection helper for `ai-code-test-after-code-change`.")
+  "Selection helper for `ai-code-auto-test-type`.")
 
 (transient-define-infix ai-code--infix-select-code-change-auto-test ()
-  "Select `ai-code-test-after-code-change` mode."
+  "Select `ai-code-auto-test-type` mode."
   :class 'ai-code--code-change-auto-test-type
   :key "T"
   :description "Auto test type:"
