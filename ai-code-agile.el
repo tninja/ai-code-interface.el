@@ -641,7 +641,7 @@ to fix code."
                     function-name
                     file-info))
            (t
-            (format "Run the tests for the current file using appropriate test_runner.%s"
+            (format "Run the tests for the current file using appropriate test runner.%s"
                     file-info))))
          (prompt (ai-code-read-string "Send to AI: " initial-input)))
     (ai-code--insert-prompt prompt)))
