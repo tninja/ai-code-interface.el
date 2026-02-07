@@ -143,15 +143,27 @@ with a newline separator."
 (defun ai-code--test-after-code-change--set (symbol value)
   "Set SYMBOL to VALUE and update related suffix behavior."
   (set-default symbol value)
+  (set symbol value)
   (pcase value
+    ('test-after-change
+     (setq ai-code-auto-test-suffix
+           ai-code-test-after-code-change-suffix))
     ('tdd
      (setq ai-code-auto-test-suffix
            (ai-code--test-after-code-change--resolve-tdd-suffix)))
-    ('suffix
-     (when ai-code-test-after-code-change-suffix
-       (setq ai-code-auto-test-suffix
-             ai-code-test-after-code-change-suffix)))
-    (_ nil)))
+    (_
+     (setq ai-code-auto-test-suffix nil))))
+
+(defun ai-code--set-auto-test-type (value)
+  "Set `ai-code-auto-test-type` to VALUE and update suffix behavior."
+  (ai-code--test-after-code-change--set 'ai-code-auto-test-type value)
+  value)
+
+(defun ai-code--apply-auto-test-type (value)
+  "Set `ai-code-auto-test-type` and refresh related suffix."
+  (setq ai-code-auto-test-type value)
+  (ai-code--test-after-code-change--set 'ai-code-auto-test-type value)
+  value)
 
 (defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
@@ -267,7 +279,12 @@ Otherwise switch to AI CLI buffer."
                    (choice (completing-read "Test after code change: "
                                             (mapcar #'car choices)
                                             nil t)))
-              (cdr (assoc choice choices)))))
+              (let ((value (cdr (assoc choice choices))))
+                (ai-code--apply-auto-test-type value)
+                (message "Auto test type set to %s; prompt suffix is now %s"
+                         (or value "off")
+                         (or ai-code-auto-test-suffix "cleared"))
+                value))))
 
 (defun ai-code--select-backend-description (&rest _)
   "Dynamic description for the Select Backend menu item.
