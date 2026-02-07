@@ -122,14 +122,12 @@ with a newline separator."
   :group 'ai-code)
 
 ;;;###autoload
-(defcustom ai-code-auto-test-suffix
+(defvar ai-code-auto-test-suffix
   "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)."
-  "Default prompt suffix to request running tests after code changes."
-  :type '(choice (const nil) string)
-  :group 'ai-code)
+  "Default prompt suffix to request running tests after code changes.")
 
 ;;;###autoload
-(defcustom ai-code-test-after-code-change-user-suffix nil
+(defcustom ai-code-test-after-code-change-suffix nil
   "User-provided prompt suffix for test-after-code-change."
   :type '(choice (const nil) string)
   :group 'ai-code)
@@ -150,9 +148,9 @@ with a newline separator."
      (setq ai-code-auto-test-suffix
            (ai-code--test-after-code-change--resolve-tdd-suffix)))
     ('suffix
-     (when ai-code-test-after-code-change-user-suffix
+     (when ai-code-test-after-code-change-suffix
        (setq ai-code-auto-test-suffix
-             ai-code-test-after-code-change-user-suffix)))
+             ai-code-test-after-code-change-suffix)))
     (_ nil)))
 
 (defcustom ai-code-auto-test-type nil
