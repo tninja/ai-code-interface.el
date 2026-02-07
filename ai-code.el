@@ -36,6 +36,8 @@
 ;;   (global-set-key (kbd "C-c a") #'ai-code-menu)
 ;;   ;; Optional: Enable @ file completion in comments and AI sessions
 ;;   (ai-code-prompt-filepath-completion-mode 1)
+;;   ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
+;;   (ai-code-test-after-code-change t)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
 ;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
@@ -46,7 +48,7 @@
 ;;   - Transient-driven Hub (C-c a) for all AI capabilities.
 ;;   - One key switching to different AI backend (C-c a s).
 ;;   - Context-aware code actions (change code, implement TODOs, explain code, @ completion).
-;;   - Agile development workflows (TDD cycle, refactoring navigator, review helper).
+;;   - Agile development workflows (TDD cycle, refactoring navigator, review helper, Build / Test feedback loop).
 ;;   - Seamless prompt management using Org-mode.
 ;;   - AI-assisted bash commands and productivity utilities.
 ;;   - Multiple AI coding sessions management.

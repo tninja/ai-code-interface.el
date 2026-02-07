@@ -54,6 +54,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; (setq ai-code-backends-infra-terminal-backend 'eat) ;; the way to config all native supported CLI. for external backend such as claude-code-ide.el and claude-code.el, please check their config
     ;; Optional: Enable @ file completion in comments and AI sessions
     (ai-code-prompt-filepath-completion-mode 1)
+    ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
+    (ai-code-test-after-code-change t)
     ;; Optional: In AI session buffers, SPC in Evil normal state triggers the prompt-enter UI
     (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
@@ -130,6 +132,14 @@ The generated prompt will include the function/region scope, visible file list, 
   - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
 
 - [[https://martinfowler.com/articles/exploring-gen-ai/context-engineering-coding-agents.html][Context Engineering for Coding Agents]], recommended by Martin Fowler.
+
+*** Build / Test Feedback Loop 
+
+Use the prompt suffix and TDD helpers to keep a tight build + test loop. This reduces context switching, shortens the time between a change and verified feedback, and lets the AI work more independently with less human-in-the-loop effort:
+
+- `ai-code-test-after-code-change`: When non-nil, prompts ask the AI to run test after code changes and follow up on results.
+- `ai-code--tdd-red-green-stage`: Generates a single prompt for Red + Green with explicit test follow-up.
+- `ai-code-build-or-test-project`: Run the project build or test from the menu (`C-c a b`).
 
 *** Desktop Notifications (Experimental)
 
