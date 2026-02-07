@@ -154,11 +154,6 @@ with a newline separator."
     (_
      (setq ai-code-auto-test-suffix nil))))
 
-(defun ai-code--set-auto-test-type (value)
-  "Set `ai-code-auto-test-type` to VALUE and update suffix behavior."
-  (ai-code--test-after-code-change--set 'ai-code-auto-test-type value)
-  value)
-
 (defun ai-code--apply-auto-test-type (value)
   "Set `ai-code-auto-test-type` and refresh related suffix."
   (setq ai-code-auto-test-type value)
