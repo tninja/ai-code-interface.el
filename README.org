@@ -137,7 +137,7 @@ The generated prompt will include the function/region scope, visible file list, 
 
 Use the prompt suffix and TDD helpers to keep a tight build + test loop. This reduces context switching, shortens the time between a change and verified feedback, and lets the AI work more independently with less human-in-the-loop effort:
 
-- `ai-code-test-after-code-change`: Selects how prompts request tests after code changes (test-after-change, TDD Red+Green, or off).
+- `ai-code-auto-test-type`: Selects how prompts request tests after code changes (test-after-change, TDD Red+Green, or off).
 - `ai-code--tdd-red-green-stage`: Generates a single prompt for Red + Green with explicit test follow-up.
 - `ai-code-build-or-test-project`: Run the project build or test from the menu (`C-c a b`).
 
