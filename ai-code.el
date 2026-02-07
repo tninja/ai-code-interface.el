@@ -37,7 +37,7 @@
 ;;   ;; Optional: Enable @ file completion in comments and AI sessions
 ;;   (ai-code-prompt-filepath-completion-mode 1)
 ;;   ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
-;;   (ai-code-auto-test-type 'test-after-change)
+;;   (setq ai-code-auto-test-type 'test-after-change)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
 ;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
