@@ -34,6 +34,8 @@
 ;; Variables that will be defined in ai-code.el
 (defvar ai-code-use-prompt-suffix)
 (defvar ai-code-prompt-suffix)
+(defvar ai-code-test-after-code-change)
+(defvar ai-code-test-after-code-change-suffix)
 (defvar ai-code-cli)
 
 ;;;###autoload
@@ -195,9 +197,14 @@ sed \"1i <prompt>: \" <file> | <ai-code-cli>
 and runs it in a compilation buffer."
   (interactive)
   (let* ((prompt (ai-code-read-string "Prompt: "))
-         (prompt-with-suffix (if (and ai-code-use-prompt-suffix ai-code-prompt-suffix)
-                                 (concat prompt ", " ai-code-prompt-suffix)
-                                 prompt))
+         (suffix-parts (delq nil (list ai-code-prompt-suffix
+                                       (when ai-code-test-after-code-change
+                                         ai-code-test-after-code-change-suffix))))
+         (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
+                   (string-join suffix-parts ", ")))
+         (prompt-with-suffix (if suffix
+                                 (concat prompt ", " suffix)
+                               prompt))
          (file-name (cond
                      ((derived-mode-p 'dired-mode)
                       (dired-get-filename))

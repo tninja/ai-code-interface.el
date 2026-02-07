@@ -113,8 +113,20 @@ with a newline separator."
   :type '(choice (const nil) string)
   :group 'ai-code)
 
+;;;###autoload
 (defcustom ai-code-use-prompt-suffix t
   "When non-nil, append `ai-code-prompt-suffix` where supported."
+  :type 'boolean
+  :group 'ai-code)
+
+;;;###autoload
+(defcustom ai-code-test-after-code-change-suffix
+  "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)."
+  "Prompt suffix to request running tests after code changes.")
+
+;;;###autoload
+(defcustom ai-code-test-after-code-change nil
+  "When non-nil, append a test instruction to prompt suffixes where supported."
   :type 'boolean
   :group 'ai-code)
 
