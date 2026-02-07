@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Introduce ai-code-test-after-code-change-suffix, optionally let AI to test the code after change
 - Chore: Let AI build / test the project, and get output as context
 - Feat: Add Aider CLI support as a new AI backend integration
 - Chore: Add session id field to task file template, for tracking / recovering purpose
