@@ -11,6 +11,8 @@
 
 (require 'seq)
 
+(require 'ai-code-git) 
+
 (defvar ai-code-cli)
 (defvar claude-code-terminal-backend)
 
