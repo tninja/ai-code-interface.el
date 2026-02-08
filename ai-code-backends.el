@@ -16,6 +16,7 @@
 
 (declare-function claude-code--do-send-command "claude-code" (cmd))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
+(declare-function ai-code--validate-git-repository "ai-code-git" ())
 
 (defun ai-code--unsupported-resume (&optional _arg)
   "Signal that the current backend does not support resume.
@@ -51,6 +52,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :send    ai-code-claude-code-send-command
      :resume  ai-code-claude-code-resume
      :config  "~/.claude.json"
+     :agent-file "CLAUDE.md"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
      :cli     "claude")
     (gemini
@@ -61,6 +63,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :send    ai-code-gemini-cli-send-command
      :resume  ai-code-gemini-cli-resume
      :config  "~/.gemini/settings.json"
+     :agent-file "GEMINI.md"
      :upgrade "npm install -g @google/gemini-cli"
      :cli     "gemini")
     (github-copilot-cli
@@ -81,6 +84,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :send    ai-code-codex-cli-send-command
      :resume  ai-code-codex-cli-resume
      :config  "~/.codex/config.toml"
+     :agent-file "AGENTS.md"
      :upgrade "npm install -g @openai/codex@latest"
      :cli     "codex")
     (opencode
@@ -151,6 +155,7 @@ When called from Lisp code, sends CMD directly without prompting."
      :send    claude-code-ide-send-prompt
      :resume  claude-code-ide-resume
      :config  "~/.claude.json"
+     :agent-file "CLAUDE.md"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
      :cli     "claude")
     (claude-code-el  ; external backend, requires claude-code.el package
@@ -161,11 +166,12 @@ When called from Lisp code, sends CMD directly without prompting."
      :send    ai-code-claude-code-el-send-command
      :resume  claude-code-resume
      :config  "~/.claude.json"
+     :agent-file "CLAUDE.md"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
      :cli     "claude"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
-:send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING).
+:send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING :agent-file STRING-or-nil).
 The :upgrade property can be either a string shell command or nil."
   :type '(repeat (list (symbol :tag "Key")
                        (const :label) (string :tag "Label")
@@ -177,7 +183,9 @@ The :upgrade property can be either a string shell command or nil."
                                                (const :tag "Not supported" nil))
                        (const :upgrade) (choice (string :tag "Upgrade command")
                                                 (const :tag "Not supported" nil))
-                       (const :cli) (string :tag "CLI name")))
+                       (const :cli) (string :tag "CLI name")
+                       (const :agent-file) (choice (string :tag "Agent file name")
+                                                   (const :tag "Not supported" nil))))
   :group 'ai-code)
 
 (defvar ai-code-selected-backend 'claude-code
@@ -306,6 +314,24 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
           (let ((file (expand-file-name config)))
             (find-file-other-window file)
             (message "Opened %s config: %s" label file)))))))
+
+;;;###autoload
+(defun ai-code-open-backend-agent-file ()
+  "Open the current backend's agent file from the git repository root."
+  (interactive)
+  (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
+    (if (not spec)
+        (user-error "No backend is currently selected")
+      (let* ((plist (cdr spec))
+             (label (or (plist-get plist :label)
+                        (symbol-name ai-code-selected-backend)))
+             (agent-file (plist-get plist :agent-file)))
+        (if (not agent-file)
+            (user-error "Backend '%s' does not declare an agent file" label)
+          (let* ((git-root (ai-code--validate-git-repository))
+                 (file (expand-file-name agent-file git-root)))
+            (find-file-other-window file)
+            (message "Opened %s agent file: %s" label file)))))))
 
 ;;;###autoload
 (defun ai-code-upgrade-backend ()

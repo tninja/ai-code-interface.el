@@ -92,6 +92,7 @@
 (declare-function ai-code-set-backend "ai-code-backends")
 (declare-function ai-code-select-backend "ai-code-backends")
 (declare-function ai-code-open-backend-config "ai-code-backends")
+(declare-function ai-code-open-backend-agent-file "ai-code-backends")
 (declare-function ai-code-upgrade-backend "ai-code-backends")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 
@@ -298,8 +299,9 @@ Shows the current backend label to the right."
     ("s" ai-code-select-backend :description ai-code--select-backend-description)
     ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
     ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
+    ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
     ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
-    ("p" "Open prompt history file" ai-code-open-prompt-file)
+    ;; DONE: add function and corresponding menu item to open the agent file under git repo root. For example, CLAUDE.md for claude code, AGENTS.md for codex cli, GEMINI.md for Gemini CLI, etc. You can add corresponding file name to each backend's config and use it here to open the file.
     ]
 
    ["AI Code Actions"
@@ -330,9 +332,10 @@ Shows the current backend label to the right."
     ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
     ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
     ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
-    ("d" "Toggle current buffer dedicated" ai-code-toggle-current-buffer-dedicated)
+    ;; ("d" "Toggle current buffer dedicated" ai-code-toggle-current-buffer-dedicated)
     ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
     ;; ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
+    ("p" "Open prompt history file" ai-code-open-prompt-file)
     ("m" "Debug python MCP server" ai-code-debug-mcp)
     ("N" "Toggle notifications" ai-code-notifications-toggle)]])
 

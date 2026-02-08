@@ -1,0 +1,34 @@
+;;; test_ai-code-backends.el --- Tests for ai-code-backends.el -*- lexical-binding: t; -*-
+
+;; Author: Kang Tu <tninja@gmail.com>
+;; SPDX-License-Identifier: Apache-2.0
+
+;;; Commentary:
+;; Tests for ai-code-backends.el behavior.
+
+;;; Code:
+
+(require 'ert)
+(require 'cl-lib)
+(require 'ai-code-backends)
+
+(ert-deftest ai-code-test-open-backend-agent-file-opens-path ()
+  "Test that agent file opens from git root using backend config."
+  (let* ((temp-dir (make-temp-file "ai-code-agent-" t))
+         (backend-key 'test-backend)
+         (ai-code-backends `((,backend-key
+                              :label "Test Backend"
+                              :agent-file "AGENTS.md")))
+         (ai-code-selected-backend backend-key)
+         (opened-path nil))
+    (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+               (lambda () temp-dir))
+              ((symbol-function 'find-file-other-window)
+               (lambda (path) (setq opened-path path))))
+      (ai-code-open-backend-agent-file)
+      (should (string= opened-path
+                       (expand-file-name "AGENTS.md" temp-dir))))))
+
+(provide 'test_ai-code-backends)
+
+;;; test_ai-code-backends.el ends here
