@@ -21,13 +21,16 @@
                               :agent-file "AGENTS.md")))
          (ai-code-selected-backend backend-key)
          (opened-path nil))
-    (cl-letf (((symbol-function 'ai-code--validate-git-repository)
-               (lambda () temp-dir))
-              ((symbol-function 'find-file-other-window)
-               (lambda (path) (setq opened-path path))))
-      (ai-code-open-backend-agent-file)
-      (should (string= opened-path
-                       (expand-file-name "AGENTS.md" temp-dir))))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+                   (lambda () temp-dir))
+                  ((symbol-function 'find-file-other-window)
+                   (lambda (path) (setq opened-path path))))
+          (ai-code-open-backend-agent-file)
+          (should (string= opened-path
+                           (expand-file-name "AGENTS.md" temp-dir))))
+      (when (and temp-dir (file-directory-p temp-dir))
+        (delete-directory temp-dir t))))
 
 (provide 'test_ai-code-backends)
 
