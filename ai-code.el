@@ -301,7 +301,6 @@ Shows the current backend label to the right."
     ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
     ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
     ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
-    ;; DONE: add function and corresponding menu item to open the agent file under git repo root. For example, CLAUDE.md for claude code, AGENTS.md for codex cli, GEMINI.md for Gemini CLI, etc. You can add corresponding file name to each backend's config and use it here to open the file.
     ]
 
    ["AI Code Actions"
