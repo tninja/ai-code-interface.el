@@ -16,6 +16,7 @@
   (let ((ai-code-auto-test-suffix "old")
         (ai-code-auto-test-type nil)
         (ai-code--tdd-test-pattern-instruction nil))
+    (ai-code--apply-auto-test-type 'tdd)
     (should (string-match-p "Follow TDD principles" ai-code-auto-test-suffix))))
 
 (provide 'test_ai-code)
