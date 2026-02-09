@@ -38,8 +38,14 @@ This function combines candidate-list with history for better completion."
                      nil nil initial-input
                      'ai-code-read-string-history)))
 
+(defvar ai-code--read-string-fn #'ai-code-plain-read-string
+  "Function used by `ai-code-read-string' to read user input.")
+
 ;;;###autoload
-(defalias 'ai-code-read-string #'ai-code-plain-read-string)
+(defun ai-code-read-string (prompt &optional initial-input candidate-list)
+  "Read a string from the user with PROMPT and optional INITIAL-INPUT.
+CANDIDATE-LIST provides additional completion options if provided."
+  (funcall ai-code--read-string-fn prompt initial-input candidate-list))
 
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
   "Read a string with Helm completion using specified history file.
@@ -101,8 +107,11 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
   (ai-code-helm-read-string-with-history prompt "ai-code-helm-read-string-history.el" initial-input candidate-list))
 
 ;;;###autoload
-(if (featurep 'helm)
-    (defalias 'ai-code-read-string #'ai-code-helm-read-string))
+(when (featurep 'helm)
+  (setq ai-code--read-string-fn #'ai-code-helm-read-string))
+
+(with-eval-after-load 'helm
+  (setq ai-code--read-string-fn #'ai-code-helm-read-string))
 
 (defun ai-code--get-window-files ()
   "Get a list of unique file paths from all visible windows."
