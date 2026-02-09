@@ -21,8 +21,8 @@
 
 (declare-function yas-load-directory "yasnippet" (dir))
 (declare-function yas-minor-mode "yasnippet")
-(declare-function ai-code-cli-send-command "ai-code-interface" (command))
-(declare-function ai-code-cli-switch-to-buffer "ai-code-interface" ())
+(declare-function ai-code-cli-send-command "ai-code-backends" (command))
+(declare-function ai-code-cli-switch-to-buffer "ai-code-backends" ())
 (declare-function gptel-request "gptel" (prompt &rest args))
 (declare-function gptel-abort "gptel" (buffer))
 (declare-function ai-code--git-repo-recent-modified-files "ai-code-git" (base-dir limit))

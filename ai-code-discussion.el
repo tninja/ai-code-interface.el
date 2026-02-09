@@ -16,7 +16,7 @@
 
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
-(declare-function ai-code--get-clipboard-text "ai-code-interface")
+(declare-function ai-code--get-clipboard-text "ai-code")
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
 (declare-function magit-toplevel "magit" (&optional dir))

@@ -19,7 +19,7 @@
 
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
-(declare-function ai-code--get-clipboard-text "ai-code-interface")
+(declare-function ai-code--get-clipboard-text "ai-code")
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
 (declare-function ai-code--format-repo-context-info "ai-code-file")
