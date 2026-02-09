@@ -65,6 +65,10 @@
 (require 'transient)
 (require 'seq)
 
+(defgroup ai-code nil
+  "Unified interface for multiple AI coding CLIs."
+  :group 'tools)
+
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
 (require 'ai-code-input)

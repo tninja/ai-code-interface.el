@@ -470,8 +470,8 @@ Otherwise, return the current `default-directory`."
   "Generate a task filename from TASK-NAME.
 If `ai-code-task-use-gptel-filename` is non-nil, use GPTel to generate
 a smart filename. Otherwise, use cleaned-up task name directly.
-If TASK-NAME contains 'rdar://ID', use 'rdar_ID_' as prefix.
-Otherwise, use 'task_YYYYMMDD_' as prefix.
+If TASK-NAME contains `rdar://ID`, use `rdar_ID_` as prefix.
+Otherwise, use `task_YYYYMMDD_` as prefix.
 Returns a filename with .org suffix."
   (let* ((radar-id (when (string-match "rdar://\\([0-9]+\\)" task-name)
                      (match-string 1 task-name)))

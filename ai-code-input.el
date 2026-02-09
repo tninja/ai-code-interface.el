@@ -388,6 +388,7 @@ END-POS defaults to the current '#' position."
 (define-minor-mode ai-code-prompt-filepath-completion-mode
   "Toggle @ file completion in comments and AI sessions across all buffers."
   :global t
+  :group 'ai-code
   (setq ai-code-prompt-filepath-completion-enabled
         ai-code-prompt-filepath-completion-mode)
   (if ai-code-prompt-filepath-completion-mode
