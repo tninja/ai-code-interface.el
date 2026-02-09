@@ -32,6 +32,13 @@
       (when (and temp-dir (file-directory-p temp-dir))
         (delete-directory temp-dir t))))
 
+(ert-deftest ai-code-test-cli-send-command-nil-errors-noninteractive ()
+  "Ensure nil COMMAND errors in noninteractive calls."
+  (let ((ai-code--cli-send-fn (lambda (_command)
+                                (ert-fail "Should not be called"))))
+    (should-error (ai-code-cli-send-command nil)
+                  :type 'user-error)))
+
 (provide 'test_ai-code-backends)
 
 ;;; test_ai-code-backends.el ends here

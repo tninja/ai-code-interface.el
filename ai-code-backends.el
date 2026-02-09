@@ -20,6 +20,32 @@
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 (declare-function ai-code--validate-git-repository "ai-code-git" ())
 
+(defvar ai-code--cli-start-fn #'ai-code--unsupported-start)
+(defvar ai-code--cli-resume-fn #'ai-code--unsupported-resume)
+(defvar ai-code--cli-switch-fn #'ai-code--unsupported-switch-to-buffer)
+(defvar ai-code--cli-send-fn #'ai-code--unsupported-send-command)
+
+(defun ai-code--unsupported-start (&optional _arg)
+  "Signal that the current backend does not support start.
+Argument _ARG is ignored."
+  (interactive "P")
+  (user-error "Backend '%s' does not support start"
+              (ai-code-current-backend-label)))
+
+(defun ai-code--unsupported-switch-to-buffer (&optional _arg)
+  "Signal that the current backend does not support switching.
+Argument _ARG is ignored."
+  (interactive "P")
+  (user-error "Backend '%s' does not support switching buffers"
+              (ai-code-current-backend-label)))
+
+(defun ai-code--unsupported-send-command (&optional _command)
+  "Signal that the current backend does not support sending commands.
+Argument _COMMAND is ignored."
+  (interactive)
+  (user-error "Backend '%s' does not support sending commands"
+              (ai-code-current-backend-label)))
+
 (defun ai-code--unsupported-resume (&optional _arg)
   "Signal that the current backend does not support resume.
 Argument _ARG is ignored."
@@ -28,11 +54,49 @@ Argument _ARG is ignored."
               (ai-code-current-backend-label)))
 
 ;;;###autoload
+(defun ai-code-cli-start (&optional arg)
+  "Start the current backend's CLI session when supported.
+Argument ARG is passed to the backend's start function."
+  (interactive "P")
+  (if (called-interactively-p 'interactive)
+      (call-interactively ai-code--cli-start-fn)
+    (if arg
+        (funcall ai-code--cli-start-fn arg)
+      (funcall ai-code--cli-start-fn))))
+
+;;;###autoload
 (defun ai-code-cli-resume (&optional arg)
   "Resume the current backend's CLI session when supported.
 Argument ARG is passed to the backend's resume function."
   (interactive "P")
-  (ai-code--unsupported-resume arg))
+  (if (called-interactively-p 'interactive)
+      (call-interactively ai-code--cli-resume-fn)
+    (if arg
+        (funcall ai-code--cli-resume-fn arg)
+      (funcall ai-code--cli-resume-fn))))
+
+;;;###autoload
+(defun ai-code-cli-switch-to-buffer (&optional arg)
+  "Switch to the current backend's CLI buffer when supported.
+Argument ARG is passed to the backend's switch function."
+  (interactive "P")
+  (if (called-interactively-p 'interactive)
+      (call-interactively ai-code--cli-switch-fn)
+    (if arg
+        (funcall ai-code--cli-switch-fn arg)
+      (funcall ai-code--cli-switch-fn))))
+
+;;;###autoload
+(defun ai-code-cli-send-command (&optional command)
+  "Send COMMAND to the current backend when supported.
+When called interactively, prompt for COMMAND.
+Noninteractive callers must supply COMMAND."
+  (interactive)
+  (if (called-interactively-p 'interactive)
+      (call-interactively ai-code--cli-send-fn)
+    (if (null command)
+        (user-error "COMMAND is required for noninteractive calls")
+      (funcall ai-code--cli-send-fn command))))
 
 ;;;###autoload
 (defun ai-code-claude-code-el-send-command (cmd)
@@ -220,7 +284,7 @@ Falls back to symbol name when label is unavailable."
 
 (defun ai-code--apply-backend (key)
   "Apply backend identified by KEY.
-Sets `ai-code-cli-*' defaliases and updates `ai-code-cli'."
+Sets backend dispatch functions and updates `ai-code-cli'."
   (let* ((spec (ai-code--backend-spec key)))
     (unless spec
       (user-error "Unknown backend: %s" key))
@@ -247,20 +311,14 @@ Sets `ai-code-cli-*' defaliases and updates `ai-code-cli'."
            label
            (mapconcat #'symbol-name missing-fns ", ")
            (symbol-name feature))))
-      (defalias 'ai-code-cli-start start)
-      (defalias 'ai-code-cli-switch-to-buffer switch)
-      (defalias 'ai-code-cli-send-command send)
       (when (and resume (not (fboundp resume)))
         (user-error
          "Backend '%s' declares resume function '%s' but it is not callable"
          label (symbol-name resume)))
-      (if resume
-          (fset 'ai-code-cli-resume
-                (lambda (&optional arg)
-                  (interactive "P")
-                  (let ((current-prefix-arg arg))
-                    (call-interactively resume))))
-        (fset 'ai-code-cli-resume #'ai-code--unsupported-resume))
+      (setq ai-code--cli-start-fn start
+            ai-code--cli-switch-fn switch
+            ai-code--cli-send-fn send
+            ai-code--cli-resume-fn (if resume resume #'ai-code--unsupported-resume))
       (setq ai-code-cli cli
             ai-code-selected-backend key)
       (message "AI Code backend switched to: %s" (plist-get plist :label)))))
