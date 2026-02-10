@@ -14,7 +14,7 @@ This is **ai-code-interface.el**, an Emacs package that provides a uniform inter
 ## Code Style and Conventions
 
 ### File Naming
-- Main module: `ai-code-interface.el`
+- Main module: `ai-code.el`
 - Sub-modules: `ai-code-*.el` (e.g., `ai-code-backends.el`, `ai-code-agile.el`)
 - Tests: `test_*.el` (e.g., `test_ai-code-change.el`)
 
@@ -98,7 +98,7 @@ The package uses a pluggable backend system:
 ### Adding New Features
 - Place in appropriate module (`ai-code-change.el`, `ai-code-agile.el`, etc.)
 - Add interactive commands with `;;;###autoload`
-- Update transient menu in `ai-code-interface.el` if needed
+- Update transient menu in `ai-code.el` if needed
 - Add tests to corresponding test file
 
 ### Fixing Bugs
