@@ -141,6 +141,15 @@ if the AI session buffer is not currently visible."
 
 (declare-function ai-code-notifications-response-ready "ai-code-notifications" (&optional backend-name))
 
+(defun ai-code-backends-infra--output-meaningful-p (output)
+  "Return non-nil when OUTPUT contains meaningful printable content."
+  (let* ((str (or output ""))
+         ;; Strip ANSI escape sequences.
+         (str (replace-regexp-in-string "\x1b\\[[0-9;?]*[ -/]*[@-~]" "" str))
+         ;; Strip other control characters.
+         (str (replace-regexp-in-string "[\x00-\x1f\x7f]" "" str)))
+    (string-match-p "[^ \t\n\r]" str)))
+
 (defun ai-code-backends-infra--buffer-user-visible-p (buffer)
   "Return non-nil when BUFFER is visible in any live window."
   (and (get-buffer-window-list buffer nil t) t))
@@ -184,9 +193,10 @@ if the AI session buffer is not currently visible."
   "Track vterm activity for notification purposes, then call ORIG-FUN."
   (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
     (with-current-buffer (process-buffer process)
-      (setq ai-code-backends-infra--last-activity-time (current-time))
-      (setq ai-code-backends-infra--response-seen nil)
-      (ai-code-backends-infra--schedule-idle-check)))
+      (when (ai-code-backends-infra--output-meaningful-p input)
+        (setq ai-code-backends-infra--last-activity-time (current-time))
+        (setq ai-code-backends-infra--response-seen nil)
+        (ai-code-backends-infra--schedule-idle-check))))
   (funcall orig-fun process input))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
@@ -686,9 +696,10 @@ ENV-VARS is a list of environment variables."
                    (funcall orig-filter process output))
                  ;; Then track activity for notifications
                  (with-current-buffer (process-buffer process)
-                   (setq ai-code-backends-infra--last-activity-time (current-time))
-                   (setq ai-code-backends-infra--response-seen nil)
-                   (ai-code-backends-infra--schedule-idle-check))))))
+                   (when (ai-code-backends-infra--output-meaningful-p output)
+                     (setq ai-code-backends-infra--last-activity-time (current-time))
+                     (setq ai-code-backends-infra--response-seen nil)
+                     (ai-code-backends-infra--schedule-idle-check)))))))
           (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 
