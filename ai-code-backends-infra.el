@@ -119,7 +119,9 @@ Can be either `vterm' or `eat'."
   "Timer for detecting idle state (response completion).")
 
 (defvar-local ai-code-backends-infra--response-seen nil
-  "Non-nil when the last response completed while visible.")
+  "Non-nil when the current response has been observed.
+Observation happens either by the buffer being visible or by a notification
+being sent for the response completion.")
 
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
