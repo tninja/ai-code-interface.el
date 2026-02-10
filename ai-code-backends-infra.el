@@ -146,6 +146,8 @@ if the AI session buffer is not currently visible."
 (defun ai-code-backends-infra--output-meaningful-p (output)
   "Return non-nil when OUTPUT contains meaningful printable content."
   (let* ((str (or output ""))
+         ;; Strip OSC sequences (ESC ] ... BEL or ESC ] ... ESC \).
+         (str (replace-regexp-in-string "\x1b\\][^\x07\x1b]*\\(?:\x07\\|\x1b\\\\\\)" "" str))
          ;; Strip ANSI escape sequences.
          (str (replace-regexp-in-string "\x1b\\[[0-9;?]*[ -/]*[@-~]" "" str))
          ;; Strip other control characters.
