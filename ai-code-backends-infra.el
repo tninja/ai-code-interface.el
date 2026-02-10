@@ -112,9 +112,6 @@ Can be either `vterm' or `eat'."
 (defvar ai-code-backends-infra--directory-buffer-map (make-hash-table :test 'equal)
   "Hash table mapping (prefix . directory) to last selected session buffer.")
 
-(defvar-local ai-code-backends-infra--last-activity-time nil
-  "Time of the last terminal activity in this buffer.")
-
 (defvar-local ai-code-backends-infra--idle-timer nil
   "Timer for detecting idle state (response completion).")
 
@@ -197,7 +194,6 @@ if the AI session buffer is not currently visible."
   (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
     (with-current-buffer (process-buffer process)
       (when (ai-code-backends-infra--output-meaningful-p input)
-        (setq ai-code-backends-infra--last-activity-time (current-time))
         (setq ai-code-backends-infra--response-seen nil)
         (ai-code-backends-infra--schedule-idle-check))))
   (funcall orig-fun process input))
@@ -700,7 +696,6 @@ ENV-VARS is a list of environment variables."
                  ;; Then track activity for notifications
                  (with-current-buffer (process-buffer process)
                    (when (ai-code-backends-infra--output-meaningful-p output)
-                     (setq ai-code-backends-infra--last-activity-time (current-time))
                      (setq ai-code-backends-infra--response-seen nil)
                      (ai-code-backends-infra--schedule-idle-check)))))))
           (cons buffer (get-buffer-process buffer)))))
