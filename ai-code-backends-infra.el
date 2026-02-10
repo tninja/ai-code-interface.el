@@ -189,8 +189,7 @@ if the AI session buffer is not currently visible."
   (let ((buffer (current-buffer)))
     (setq ai-code-backends-infra--idle-timer
           (run-at-time ai-code-backends-infra-idle-delay nil
-                       (lambda (buf)
-                         (ai-code-backends-infra--check-response-complete buf))
+                       #'ai-code-backends-infra--check-response-complete
                        buffer))))
 
 (defun ai-code-backends-infra--vterm-notification-tracker (orig-fun process input)
