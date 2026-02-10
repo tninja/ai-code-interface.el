@@ -297,7 +297,7 @@ Shows the current backend label to the right."
   ["AI Code Commands"
    ["AI CLI session"
     ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
-    ("R" "Resume AI CLI" ai-code-cli-resume)
+    ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
     ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
     ;; Use plist style to provide a dynamic description function.
     ("s" ai-code-select-backend :description ai-code--select-backend-description)

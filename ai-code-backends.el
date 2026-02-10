@@ -67,7 +67,11 @@ Argument ARG is passed to the backend's start function."
 ;;;###autoload
 (defun ai-code-cli-resume (&optional arg)
   "Resume the current backend's CLI session when supported.
-Argument ARG is passed to the backend's resume function."
+Noninteractive callers pass ARG to the backend resume function.
+When called interactively, any prefix argument is forwarded via
+`current-prefix-arg', and it is up to the backend how to interpret
+it (for example, some backends may use a non-nil prefix to prompt for
+additional CLI arguments)."
   (interactive "P")
   (if (called-interactively-p 'interactive)
       (call-interactively ai-code--cli-resume-fn)
@@ -318,7 +322,13 @@ Sets backend dispatch functions and updates `ai-code-cli'."
       (setq ai-code--cli-start-fn start
             ai-code--cli-switch-fn switch
             ai-code--cli-send-fn send
-            ai-code--cli-resume-fn (if resume resume #'ai-code--unsupported-resume))
+            ai-code--cli-resume-fn (if resume
+                                      (lambda (&optional arg)
+                                        (interactive "P")
+                                        (let ((prefix (or arg current-prefix-arg)))
+                                          (let ((current-prefix-arg prefix))
+                                            (call-interactively resume))))
+                                    #'ai-code--unsupported-resume))
       (setq ai-code-cli cli
             ai-code-selected-backend key)
       (message "AI Code backend switched to: %s" (plist-get plist :label)))))
