@@ -68,6 +68,25 @@
         (ai-code-backends-infra--check-response-complete (current-buffer))
         (should (= notification-count 1))))))
 
+(ert-deftest test-ai-code-backends-infra-response-not-idle-reschedules ()
+  "Reschedule idle checks when meaningful output is too recent."
+  (let ((scheduled nil)
+        (ai-code-backends-infra-idle-delay 10.0))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+               (lambda (_buffer) nil))
+              ((symbol-function 'ai-code-backends-infra--schedule-idle-check)
+               (lambda () (setq scheduled t)))
+              ((symbol-function 'ai-code-notifications-response-ready)
+               (lambda (&rest _args)
+                 (error "Should not notify"))))
+      (with-temp-buffer
+        (rename-buffer "*testbackend[test-dir]*" t)
+        (setq ai-code-backends-infra--response-seen nil)
+        (setq ai-code-backends-infra--last-meaningful-output-time (float-time))
+        (ai-code-backends-infra--check-response-complete (current-buffer))
+        (should-not ai-code-backends-infra--response-seen)
+        (should scheduled)))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
