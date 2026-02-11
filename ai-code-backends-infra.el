@@ -120,6 +120,9 @@ Can be either `vterm' or `eat'."
 Observation happens either by the buffer being visible or by a notification
 being sent for the response completion.")
 
+(defvar-local ai-code-backends-infra--last-meaningful-output-time nil
+  "Float timestamp of the most recent meaningful output.")
+
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
 
@@ -159,28 +162,31 @@ if the AI session buffer is not currently visible."
   "Check if AI response is complete in BUFFER and notify if enabled."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      (let ((visible (ai-code-backends-infra--buffer-user-visible-p buffer)))
-        (if visible
-            (setq ai-code-backends-infra--response-seen t)
-          (when (not ai-code-backends-infra--response-seen)
-            (setq ai-code-backends-infra--response-seen t)
-            (when (require 'ai-code-notifications nil t)
-              (when (fboundp 'ai-code-notifications-response-ready)
-                (let ((buffer-name (buffer-name buffer)))
-                  ;; Extract backend name from buffer name format: *<backend>[<dir>]*
-                  ;; Example: "*codex[my-project]*" extracts "codex"
-                  ;; Regex breakdown:
-                  ;;   \\*       - matches literal asterisk
-                  ;;   \\(       - start capture group 1
-                  ;;   [^[]+     - one or more chars that are not '['
-                  ;;   \\)       - end capture group 1 (this is the backend name)
-                  ;;   \\[       - matches literal '['
-                  (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
-                    (let ((backend-name (match-string 1 buffer-name)))
-                      (ai-code-notifications-response-ready backend-name))))))))))))
+      (if (ai-code-backends-infra--idle-delay-elapsed-p)
+          (let ((visible (ai-code-backends-infra--buffer-user-visible-p buffer)))
+            (if visible
+                (setq ai-code-backends-infra--response-seen t)
+              (when (not ai-code-backends-infra--response-seen)
+                (setq ai-code-backends-infra--response-seen t)
+                (when (require 'ai-code-notifications nil t)
+                  (when (fboundp 'ai-code-notifications-response-ready)
+                    (let ((buffer-name (buffer-name buffer)))
+                      ;; Extract backend name from buffer name format: *<backend>[<dir>]*
+                      ;; Example: "*codex[my-project]*" extracts "codex"
+                      ;; Regex breakdown:
+                      ;;   \\*       - matches literal asterisk
+                      ;;   \\(       - start capture group 1
+                      ;;   [^[]+     - one or more chars that are not '['
+                      ;;   \\)       - end capture group 1 (this is the backend name)
+                      ;;   \\[       - matches literal '['
+                      (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
+                        (let ((backend-name (match-string 1 buffer-name)))
+                          (ai-code-notifications-response-ready backend-name)))))))))
+        (ai-code-backends-infra--schedule-idle-check)))))
 
 (defun ai-code-backends-infra--schedule-idle-check ()
-  "Schedule a check for response completion after idle period."
+  "Schedule a check for response completion after idle period.
+The timer is reset only after meaningful output is observed."
   (when ai-code-backends-infra--idle-timer
     (cancel-timer ai-code-backends-infra--idle-timer))
   (let ((buffer (current-buffer)))
@@ -189,13 +195,24 @@ if the AI session buffer is not currently visible."
                        #'ai-code-backends-infra--check-response-complete
                        buffer))))
 
+(defun ai-code-backends-infra--idle-delay-elapsed-p ()
+  "Return non-nil when idle delay has elapsed since last output."
+  (let ((last ai-code-backends-infra--last-meaningful-output-time))
+    (or (null last)
+        (>= (- (float-time) last) ai-code-backends-infra-idle-delay))))
+
+(defun ai-code-backends-infra--note-meaningful-output ()
+  "Record meaningful output and schedule idle tracking."
+  (setq ai-code-backends-infra--response-seen nil
+        ai-code-backends-infra--last-meaningful-output-time (float-time))
+  (ai-code-backends-infra--schedule-idle-check))
+
 (defun ai-code-backends-infra--vterm-notification-tracker (orig-fun process input)
   "Track vterm activity for notification purposes, then call ORIG-FUN."
   (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
     (with-current-buffer (process-buffer process)
       (when (ai-code-backends-infra--output-meaningful-p input)
-        (setq ai-code-backends-infra--response-seen nil)
-        (ai-code-backends-infra--schedule-idle-check))))
+        (ai-code-backends-infra--note-meaningful-output))))
   (funcall orig-fun process input))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
@@ -696,8 +713,7 @@ ENV-VARS is a list of environment variables."
                  ;; Then track activity for notifications
                  (with-current-buffer (process-buffer process)
                    (when (ai-code-backends-infra--output-meaningful-p output)
-                     (setq ai-code-backends-infra--response-seen nil)
-                     (ai-code-backends-infra--schedule-idle-check)))))))
+                     (ai-code-backends-infra--note-meaningful-output)))))))
           (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 
