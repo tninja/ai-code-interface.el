@@ -3,6 +3,13 @@
 
 ** Main branch change
 
+** 1.44
+- Chore: Honor prefix args for Resume AI CLI , by Silex
+- Fix: Fix offscreen response notifications and ignore output noise, by Silex
+- Chore: Add dedicated CLI args history, by Silex
+- Fix: Stabilize backend dispatch and clean up design mismatches, by Silex
+- Feat: Add agent-file property and command to open backend agent files
+
 ** 1.42
 - Fix: Handle github copilot cli prompt sent truncate issue
 - Feat: Add ai-code-auto-test-type selection to optionally let AI test the code after changes
