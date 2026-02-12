@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Add shell command history variable and use it in prompt
 
 ** 1.44
 - Chore: Honor prefix args for Resume AI CLI , by Silex
