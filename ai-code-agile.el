@@ -655,18 +655,27 @@ to fix code."
   (let* ((is-dired (derived-mode-p 'dired-mode))
          (function-name (unless is-dired (which-function)))
          (file-info (unless is-dired (ai-code--get-context-files-string)))
+         (error-handling-instruction
+          (concat "\n\nIf any test fails:"
+                  "\n1. Analyze the test failure output carefully to identify which test(s) failed"
+                  "\n2. Investigate the root cause by examining the test code and related source files"
+                  "\n3. Provide a clear explanation of what went wrong"
+                  "\n4. Suggest specific code fixes for user approval before making any changes"))
          (initial-input
           (cond
            (is-dired
-            (format "Run the tests for source code in directory '%s' using appropriate test runner."
-                    (dired-current-directory)))
+            (format "Run the tests for source code in directory '%s' using appropriate test runner.%s"
+                    (dired-current-directory)
+                    error-handling-instruction))
            (function-name
-            (format "Run the tests for the current function '%s' using appropriate test runner.%s"
+            (format "Run the tests for the current function '%s' using appropriate test runner.%s%s"
                     function-name
-                    file-info))
+                    file-info
+                    error-handling-instruction))
            (t
-            (format "Run the tests for the current file using appropriate test runner.%s"
-                    file-info))))
+            (format "Run the tests for the current file using appropriate test runner.%s%s"
+                    file-info
+                    error-handling-instruction))))
          (prompt (ai-code-read-string "Send to AI: " initial-input)))
     (ai-code--insert-prompt prompt)))
 

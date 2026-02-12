@@ -362,17 +362,25 @@ Otherwise, ask AI to generate a build command."
                         (magit-toplevel)))
          (build-script (when proj-root (expand-file-name "build.sh" proj-root)))
          (repo-context (ai-code--format-repo-context-info))
+         (error-handling-instruction
+          (concat "\n\nIf the build fails:"
+                  "\n1. Analyze the error output carefully to identify the failure point"
+                  "\n2. Investigate the root cause by examining relevant source files"
+                  "\n3. Provide a clear explanation of what went wrong"
+                  "\n4. Suggest specific code fixes for user approval before making any changes"))
          (initial-input
           (if (and proj-root build-script (file-exists-p build-script))
               ;; build.sh exists, ask AI to run it
               (concat "Run the build script and report the results. "
                       (format "\nProject root: %s" proj-root)
                       (format "\nBuild script: %s" build-script)
-                      (when repo-context (concat "\n" repo-context)))
+                      (when repo-context (concat "\n" repo-context))
+                      error-handling-instruction)
             ;; No build.sh, ask AI to generate build command
             (concat "Build the current project. Provide the build command and execute it if possible. "
                     (when proj-root (format "\nProject root: %s" proj-root))
-                    (when repo-context (concat "\n" repo-context)))))
+                    (when repo-context (concat "\n" repo-context))
+                    error-handling-instruction)))
          (prompt (ai-code-read-string "Send to AI: " initial-input)))
     (ai-code--insert-prompt prompt)))
 
