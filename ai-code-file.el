@@ -114,6 +114,9 @@ contains a directory path, open it directly in Dired in another window."
 (defvar ai-code-run-file-history nil
   "History list for `ai-code-run-current-file' commands.")
 
+(defvar ai-code-shell-command-history nil
+  "History list for shell command prompts.")
+
 (defun ai-code--run-command-in-comint (command run-directory display-name)
   "Run COMMAND in a comint buffer using RUN-DIRECTORY and DISPLAY-NAME.
 COMMAND is parsed into a program and its SWITCHES using
@@ -231,7 +234,8 @@ and runs it in a compilation buffer."
 Read initial command from user with INITIAL-INPUT as default.
 If command starts with ':', treat as prompt for AI to generate command.
 Return the final command string."
-  (let* ((initial-command (ai-code-read-string "Shell command: " initial-input))
+  (let* ((initial-command (read-string "Shell command: " initial-input
+                                       'ai-code-shell-command-history))
          ;; if current buffer is Dired buffer, replace the * character
          ;; inside initial-command with file base name under cursor,
          ;; or marked files, separate with space
