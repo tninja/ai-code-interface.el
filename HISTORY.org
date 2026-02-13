@@ -3,6 +3,7 @@
 
 ** Main branch change
 - Chore: Allow selecting target directory for new task file creation
+- Chore: Add error handling instructions to test and build commands
 - Chore: Add shell command history variable and use it in prompt
 
 ** 1.44
