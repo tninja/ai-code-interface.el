@@ -514,7 +514,17 @@ using GPTel, and creates the task file."
              (ai-code-files-dir (ai-code--ensure-files-directory))
              (generated-filename (ai-code--generate-task-filename task-name))
              (confirmed-filename (read-string "Confirm task filename: " generated-filename))
-             (task-file (expand-file-name confirmed-filename ai-code-files-dir)))
+             (current-dir (expand-file-name default-directory))
+             (target-dir (completing-read
+                          "Create task file in: "
+                          (list (format "ai-code-files-dir: %s" ai-code-files-dir)
+                                (format "current directory: %s" current-dir))
+                          nil t nil nil
+                          (format "ai-code-files-dir: %s" ai-code-files-dir)))
+             (selected-dir (if (string-prefix-p "ai-code-files-dir:" target-dir)
+                               ai-code-files-dir
+                             current-dir))
+             (task-file (expand-file-name confirmed-filename selected-dir)))
         ;; Ensure filename has .org extension
         (unless (string-suffix-p ".org" confirmed-filename)
           (setq task-file (concat task-file ".org")))
