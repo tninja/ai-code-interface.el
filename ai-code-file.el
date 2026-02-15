@@ -37,6 +37,7 @@
 (defvar ai-code-auto-test-type)
 (defvar ai-code-auto-test-suffix)
 (defvar ai-code-cli)
+(defvar ai-code-task-use-gptel-filename)
 
 ;;;###autoload
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
