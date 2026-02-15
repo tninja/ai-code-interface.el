@@ -557,7 +557,7 @@ toggle dedication for every window in the current frame."
 (defun ai-code--sanitize-generated-path-name (name)
   "Sanitize generated NAME for file or directory creation."
   (let ((clean-name (downcase (string-trim (or name "")))))
-    (setq clean-name (car (split-string clean-name "\n" t)))
+    (setq clean-name (or (car (split-string clean-name "\n" t)) ""))
     (setq clean-name (replace-regexp-in-string "[^a-z0-9._/-]" "_" clean-name))
     (setq clean-name (replace-regexp-in-string "_+" "_" clean-name))
     (setq clean-name (replace-regexp-in-string "/+" "/" clean-name))
