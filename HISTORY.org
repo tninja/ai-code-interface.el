@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Create file or dir name with gptel, with ai-code-create-file-or-dir function
 
 ** 1.45
 - Chore: Add option to create task folder, instead of single task .org file
