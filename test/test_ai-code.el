@@ -9,6 +9,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'ai-code)
 
 (ert-deftest ai-code-test-set-auto-test-type-tdd-updates-suffix ()
@@ -18,6 +19,22 @@
         (ai-code--tdd-test-pattern-instruction nil))
     (ai-code--apply-auto-test-type 'tdd)
     (should (string-match-p "Follow TDD principles" ai-code-auto-test-suffix))))
+
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send ()
+  "Test that send-time type resolution is consistent across mode values."
+  (let ((ai-code-auto-test-type 'test-after-change))
+    (should (eq 'test-after-change (ai-code--resolve-auto-test-type-for-send))))
+  (let ((ai-code-auto-test-type 'tdd))
+    (should (eq 'tdd (ai-code--resolve-auto-test-type-for-send))))
+  (let ((ai-code-auto-test-type nil))
+    (should (eq nil (ai-code--resolve-auto-test-type-for-send)))))
+
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-ask-me ()
+  "Test that ask-me mode resolves by interactive per-send selection."
+  (let ((ai-code-auto-test-type 'ask-me))
+    (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda () 'tdd)))
+      (should (eq 'tdd (ai-code--resolve-auto-test-type-for-send))))))
 
 (provide 'test_ai-code)
 

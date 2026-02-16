@@ -159,6 +159,14 @@ with a newline separator."
     (or (cdr (assoc choice ai-code--auto-test-type-ask-choices))
         'test-after-change)))
 
+(defun ai-code--resolve-auto-test-type-for-send ()
+  "Resolve the concrete auto test type for the current send action."
+  (pcase ai-code-auto-test-type
+    ('ask-me (ai-code--read-auto-test-type-choice))
+    ('test-after-change 'test-after-change)
+    ('tdd 'tdd)
+    (_ nil)))
+
 (defun ai-code--auto-test-suffix-for-type (type)
   "Return prompt suffix for auto test TYPE."
   (pcase type
@@ -168,9 +176,8 @@ with a newline separator."
 
 (defun ai-code--resolve-auto-test-suffix-for-send ()
   "Resolve auto test suffix for the current send action."
-  (if (eq ai-code-auto-test-type 'ask-me)
-      (ai-code--auto-test-suffix-for-type (ai-code--read-auto-test-type-choice))
-    (ai-code--auto-test-suffix-for-type ai-code-auto-test-type)))
+  (ai-code--auto-test-suffix-for-type
+   (ai-code--resolve-auto-test-type-for-send)))
 
 (defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)
   "Resolve and bind auto test suffix before sending PROMPT-TEXT."
@@ -187,17 +194,8 @@ with a newline separator."
   "Set SYMBOL to VALUE and update related suffix behavior."
   (set-default symbol value)
   (set symbol value)
-  (pcase value
-    ('test-after-change
-     (setq ai-code-auto-test-suffix
-           ai-code-test-after-code-change-suffix))
-    ('tdd
-     (setq ai-code-auto-test-suffix
-           (ai-code--test-after-code-change--resolve-tdd-suffix)))
-    ('ask-me
-     (setq ai-code-auto-test-suffix nil))
-    (_
-     (setq ai-code-auto-test-suffix nil))))
+  (setq ai-code-auto-test-suffix
+        (ai-code--auto-test-suffix-for-type value)))
 
 (defun ai-code--apply-auto-test-type (value)
   "Set `ai-code-auto-test-type` and refresh related suffix."
