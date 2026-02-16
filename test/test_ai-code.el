@@ -53,6 +53,25 @@
                (lambda () nil)))
       (should (eq nil (ai-code--resolve-auto-test-suffix-for-send))))))
 
+(ert-deftest ai-code-test-write-prompt-ask-me-no-test-does-not-append-auto-test-suffix ()
+  "Test that ask-me no-test choice does not append auto test suffix when sending prompt."
+  (let ((sent-command nil)
+        (ai-code-auto-test-type 'ask-me)
+        (ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix "BASE SUFFIX")
+        (ai-code-auto-test-suffix "SHOULD NOT APPEAR"))
+    (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda () nil))
+              ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+               (lambda () nil))
+              ((symbol-function 'ai-code-cli-send-command)
+               (lambda (command) (setq sent-command command)))
+              ((symbol-function 'ai-code-cli-switch-to-buffer)
+               (lambda (&rest _args) nil)))
+      (ai-code--write-prompt-to-file-and-send "Implement feature")
+      (should (string-match-p "BASE SUFFIX" sent-command))
+      (should-not (string-match-p "SHOULD NOT APPEAR" sent-command)))))
+
 (provide 'test_ai-code)
 
 ;;; test_ai-code.el ends here
