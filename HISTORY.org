@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Add option: ask-me, to ai-code-auto-test-type
 - Feat: Create file or dir name with gptel, with ai-code-create-file-or-dir function
 
 ** 1.45
