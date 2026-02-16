@@ -147,7 +147,8 @@ with a newline separator."
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
-    ("Test driven development: Write test first" . tdd))
+    ("Test driven development: Write test first" . tdd)
+    ("Do not run test" . nil))
   "Choices for resolving the auto test suffix when `ai-code-auto-test-type` is `ask-me`.")
 
 (defun ai-code--read-auto-test-type-choice ()
@@ -155,9 +156,11 @@ with a newline separator."
   (let* ((choice (completing-read "Choose test prompt type for this send: "
                                   (mapcar #'car ai-code--auto-test-type-ask-choices)
                                   nil t nil nil
-                                  (caar ai-code--auto-test-type-ask-choices))))
-    (or (cdr (assoc choice ai-code--auto-test-type-ask-choices))
-        'test-after-change)))
+                                  (caar ai-code--auto-test-type-ask-choices)))
+         (choice-cell (assoc choice ai-code--auto-test-type-ask-choices)))
+    (if choice-cell
+        (cdr choice-cell)
+      'test-after-change)))
 
 (defun ai-code--resolve-auto-test-type-for-send ()
   "Resolve the concrete auto test type for the current send action."

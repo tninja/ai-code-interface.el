@@ -13,6 +13,13 @@
 (require 'ai-code-file)
 (require 'cl-lib)
 
+(defvar ai-code-use-prompt-suffix)
+(defvar ai-code-prompt-suffix)
+(defvar ai-code-auto-test-type)
+(defvar ai-code-auto-test-suffix)
+(defvar ai-code-cli)
+(defvar ai-code-sed-command)
+
 ;; Helper macro to set up and tear down the test environment
 (defmacro ai-code-file-with-test-env (&rest body)
   "Set up a temporary environment for testing file operations.
@@ -474,6 +481,32 @@ everything is cleaned up afterward."
        (should created-file)
        (should (string-prefix-p dired-dir created-file))
        (should (file-exists-p created-file))))))
+
+(ert-deftest ai-code-test-apply-prompt-on-current-file-uses-send-time-auto-test-suffix ()
+  "Test that apply-prompt uses send-time resolved suffix when auto test is enabled."
+  (let ((captured-command nil)
+        (resolved-called nil)
+        (ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix nil)
+        (ai-code-auto-test-type 'ask-me)
+        (ai-code-auto-test-suffix nil)
+        (ai-code-cli "claude")
+        (ai-code-sed-command "sed"))
+    (cl-letf (((symbol-function 'ai-code-read-string)
+               (lambda (&rest _args) "Refactor this"))
+              ((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
+               (lambda ()
+                 (setq resolved-called t)
+                 "RUN TESTS"))
+              ((symbol-function 'compilation-start)
+               (lambda (command &rest _args)
+                 (setq captured-command command)
+                 nil)))
+      (with-temp-buffer
+        (setq buffer-file-name "/tmp/sample.py")
+        (ai-code-apply-prompt-on-current-file))
+      (should resolved-called)
+      (should (string-match-p "RUN\\\\ TESTS" captured-command)))))
 
 (provide 'test_ai-code-file)
 

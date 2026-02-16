@@ -36,6 +36,23 @@
                (lambda () 'tdd)))
       (should (eq 'tdd (ai-code--resolve-auto-test-type-for-send))))))
 
+(ert-deftest ai-code-test-read-auto-test-type-choice-allow-no-test ()
+  "Test that ask choices support selecting no test run."
+  (let ((ai-code--auto-test-type-ask-choices
+         '(("Run tests after code change" . test-after-change)
+           ("Test driven development: Write test first" . tdd)
+           ("Do not run test" . nil))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Do not run test")))
+      (should (eq nil (ai-code--read-auto-test-type-choice))))))
+
+(ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-no-test ()
+  "Test that ask-me can resolve to no test suffix."
+  (let ((ai-code-auto-test-type 'ask-me))
+    (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda () nil)))
+      (should (eq nil (ai-code--resolve-auto-test-suffix-for-send))))))
+
 (provide 'test_ai-code)
 
 ;;; test_ai-code.el ends here

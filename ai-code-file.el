@@ -22,6 +22,7 @@
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (prompt))
+(declare-function ai-code--resolve-auto-test-suffix-for-send "ai-code")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function projectile-project-root "projectile")
 (declare-function ai-code-run-test "ai-code-agile")
@@ -38,6 +39,12 @@
 (defvar ai-code-auto-test-suffix)
 (defvar ai-code-cli)
 (defvar ai-code-task-use-gptel-filename)
+
+(defun ai-code--resolve-auto-test-suffix-for-current-send ()
+  "Return auto test suffix for this send action in file operations."
+  (if (fboundp 'ai-code--resolve-auto-test-suffix-for-send)
+      (ai-code--resolve-auto-test-suffix-for-send)
+    ai-code-auto-test-suffix))
 
 ;;;###autoload
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
@@ -203,7 +210,7 @@ and runs it in a compilation buffer."
   (let* ((prompt (ai-code-read-string "Prompt: "))
          (suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type
-                                         ai-code-auto-test-suffix))))
+                                         (ai-code--resolve-auto-test-suffix-for-current-send)))))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (string-join suffix-parts ", ")))
          (prompt-with-suffix (if suffix
