@@ -55,7 +55,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; Optional: Enable @ file completion in comments and AI sessions
     (ai-code-prompt-filepath-completion-mode 1)
     ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
-    (setq ai-code-auto-test-type 'test-after-change)
+    (setq ai-code-auto-test-type 'ask-me)
     ;; Optional: In AI session buffers, SPC in Evil normal state triggers the prompt-enter UI
     (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer

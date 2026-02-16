@@ -37,7 +37,7 @@
 ;;   ;; Optional: Enable @ file completion in comments and AI sessions
 ;;   (ai-code-prompt-filepath-completion-mode 1)
 ;;   ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
-;;   (setq ai-code-auto-test-type 'test-after-change)
+;;   (setq ai-code-auto-test-type 'ask-me)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
 ;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
@@ -210,7 +210,6 @@ with a newline separator."
   "Select how prompts request tests after code changes."
   :type '(choice (const :tag "Use test after code change prompt" test-after-change)
                  (const :tag "Use TDD Red+Green prompt" tdd)
-                 ;; DONE: add ask-me as option. When selected, it asks the user to choose between test-after-change and tdd prompts every time when using ai-code-auto-test-type, and corresponding suffix is added before the prompt is sent to AI.
                  (const :tag "Ask every time" ask-me)
                  (const :tag "Off" nil))
   :set #'ai-code--test-after-code-change--set
