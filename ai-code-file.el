@@ -527,7 +527,8 @@ Includes stored context entries for the current Git repository if available."
   (when (and (boundp 'ai-code--repo-context-info)
              ai-code--repo-context-info)
     (let ((repo-root (condition-case nil
-                         (magit-toplevel)
+                         (let ((root (magit-toplevel)))
+                           (when root (file-truename root)))
                        (error nil))))
       (when repo-root
         (let ((entries (gethash repo-root ai-code--repo-context-info)))
