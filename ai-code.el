@@ -145,6 +145,44 @@ with a newline separator."
     (concat "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error)."
             (or pattern ""))))
 
+(defconst ai-code--auto-test-type-ask-choices
+  '(("Run tests after code change" . test-after-change)
+    ("Test driven development: Write test first" . tdd))
+  "Choices for resolving the auto test suffix when `ai-code-auto-test-type` is `ask-me`.")
+
+(defun ai-code--read-auto-test-type-choice ()
+  "Read and return one prompt test type for this send action."
+  (let* ((choice (completing-read "Choose test prompt type for this send: "
+                                  (mapcar #'car ai-code--auto-test-type-ask-choices)
+                                  nil t nil nil
+                                  (caar ai-code--auto-test-type-ask-choices))))
+    (or (cdr (assoc choice ai-code--auto-test-type-ask-choices))
+        'test-after-change)))
+
+(defun ai-code--auto-test-suffix-for-type (type)
+  "Return prompt suffix for auto test TYPE."
+  (pcase type
+    ('test-after-change ai-code-test-after-code-change-suffix)
+    ('tdd (ai-code--test-after-code-change--resolve-tdd-suffix))
+    (_ nil)))
+
+(defun ai-code--resolve-auto-test-suffix-for-send ()
+  "Resolve auto test suffix for the current send action."
+  (if (eq ai-code-auto-test-type 'ask-me)
+      (ai-code--auto-test-suffix-for-type (ai-code--read-auto-test-type-choice))
+    (ai-code--auto-test-suffix-for-type ai-code-auto-test-type)))
+
+(defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)
+  "Resolve and bind auto test suffix before sending PROMPT-TEXT."
+  (let ((ai-code-auto-test-suffix (ai-code--resolve-auto-test-suffix-for-send)))
+    (funcall orig-fun prompt-text)))
+
+(unless (advice-member-p #'ai-code--with-auto-test-suffix-for-send
+                         'ai-code--write-prompt-to-file-and-send)
+  (advice-add 'ai-code--write-prompt-to-file-and-send
+              :around
+              #'ai-code--with-auto-test-suffix-for-send))
+
 (defun ai-code--test-after-code-change--set (symbol value)
   "Set SYMBOL to VALUE and update related suffix behavior."
   (set-default symbol value)
@@ -156,6 +194,8 @@ with a newline separator."
     ('tdd
      (setq ai-code-auto-test-suffix
            (ai-code--test-after-code-change--resolve-tdd-suffix)))
+    ('ask-me
+     (setq ai-code-auto-test-suffix nil))
     (_
      (setq ai-code-auto-test-suffix nil))))
 
@@ -169,6 +209,8 @@ with a newline separator."
   "Select how prompts request tests after code changes."
   :type '(choice (const :tag "Use test after code change prompt" test-after-change)
                  (const :tag "Use TDD Red+Green prompt" tdd)
+                 ;; DONE: add ask-me as option. When selected, it asks the user to choose between test-after-change and tdd prompts every time when using ai-code-auto-test-type, and corresponding suffix is added before the prompt is sent to AI.
+                 (const :tag "Ask every time" ask-me)
                  (const :tag "Off" nil))
   :set #'ai-code--test-after-code-change--set
   :group 'ai-code)
@@ -275,6 +317,7 @@ Otherwise switch to AI CLI buffer."
   :reader (lambda (_prompt _initial-input _history)
             (let* ((choices '(("Use test after code change prompt" . test-after-change)
                               ("Use TDD Red+Green prompt" . tdd)
+                              ("Ask every time" . ask-me)
                               ("Off" . nil)))
                    (choice (completing-read "Test after code change: "
                                             (mapcar #'car choices)
@@ -283,7 +326,9 @@ Otherwise switch to AI CLI buffer."
                 (ai-code--apply-auto-test-type value)
                 (message "Auto test type set to %s; prompt suffix is now %s"
                          (or value "off")
-                         (or ai-code-auto-test-suffix "cleared"))
+                         (if (eq value 'ask-me)
+                             "ask each send"
+                           (or ai-code-auto-test-suffix "cleared")))
                 value))))
 
 (defun ai-code--select-backend-description (&rest _)
