@@ -148,7 +148,7 @@ with a newline separator."
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("Test driven development: Write test first" . tdd)
-    ("Do not run test" . nil))
+    ("Do not run tests" . nil))
   "Choices for resolving the auto test suffix when `ai-code-auto-test-type` is `ask-me`.")
 
 (defun ai-code--read-auto-test-type-choice ()
