@@ -523,7 +523,6 @@ With prefix ARG, clear all repositories."
 Presents a menu with three choices: Add context, Show context, or
 Clear context.  The prefix argument ARG is ignored."
   (interactive "P")
-  ;; DONE: use complet-reading like way to select from 1. Add Context; 2. Show Context; 3. Clear context. No need to use C-u anymore. Update menu description as well
   (let ((action (completing-read "Context action: "
                                  '("Add context" "Show context" "Clear context")
                                  nil t)))
