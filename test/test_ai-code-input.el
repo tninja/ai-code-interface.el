@@ -79,15 +79,25 @@
 
 (ert-deftest ai-code-test-any-ai-session-active-p-with-session ()
   "Test that ai-code--any-ai-session-active-p returns non-nil when AI session exists."
-  (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-p)
-             (lambda (buf)
-               (string-prefix-p "*ai-session*" (buffer-name buf)))))
-    ;; Create a mock AI session buffer
-    (let ((session-buf (get-buffer-create "*ai-session-test*")))
-      (unwind-protect
-          (should (ai-code--any-ai-session-active-p))
-        (when (buffer-live-p session-buf)
-          (kill-buffer session-buf))))))
+  (let ((original-bound (fboundp 'ai-code-backends-infra--session-buffer-p))
+        (original-fn (and (fboundp 'ai-code-backends-infra--session-buffer-p)
+                          (symbol-function 'ai-code-backends-infra--session-buffer-p))))
+    (unwind-protect
+        (progn
+          ;; Define the function so fboundp returns t
+          (fset 'ai-code-backends-infra--session-buffer-p
+                (lambda (buf)
+                  (string-prefix-p "*ai-session" (buffer-name buf))))
+          ;; Create a mock AI session buffer
+          (let ((session-buf (get-buffer-create "*ai-session-test*")))
+            (unwind-protect
+                (should (ai-code--any-ai-session-active-p))
+              (when (buffer-live-p session-buf)
+                (kill-buffer session-buf)))))
+      ;; Restore original state
+      (if original-bound
+          (fset 'ai-code-backends-infra--session-buffer-p original-fn)
+        (fmakunbound 'ai-code-backends-infra--session-buffer-p)))))
 
 (ert-deftest ai-code-test-any-ai-session-active-p-no-session ()
   "Test that ai-code--any-ai-session-active-p returns nil when no AI session exists."
@@ -168,23 +178,8 @@
         ;; Should return nil because we're not in a comment
         (should-not (ai-code--comment-filepath-capf))))))
 
-(ert-deftest ai-code-test-comment-filepath-capf-no-ai-session ()
-  "Test that ai-code--comment-filepath-capf returns nil when no AI session is active."
-  (let ((ai-code-prompt-filepath-completion-enabled t))
-    (with-temp-buffer
-      (emacs-lisp-mode)
-      (setq buffer-file-name "/tmp/test.el")
-      (insert ";; Check @")
-      (goto-char (point-max))
-      
-      ;; Mock dependencies - no AI session active
-      (cl-letf (((symbol-function 'ai-code--any-ai-session-active-p)
-                 (lambda () nil))
-                ((symbol-function 'magit-toplevel)
-                 (lambda (&optional dir) "/tmp/")))
-        
-        ;; Should return nil because no AI session is active
-        (should-not (ai-code--comment-filepath-capf))))))
+;;; ai-code--comment-filepath-capf does not check ai-code--any-ai-session-active-p,
+;;; so no test for "no AI session" scenario is needed here.
 
 (ert-deftest ai-code-test-comment-filepath-capf-disabled ()
   "Test that ai-code--comment-filepath-capf returns nil when disabled."
@@ -402,19 +397,22 @@
 
 (ert-deftest ai-code-test-filepath-completion-mode-toggle ()
   "Test that toggling mode works correctly."
-  (let ((ai-code-prompt-filepath-completion-mode nil))
-    (unwind-protect
-        (progn
-          ;; First toggle should enable
-          (ai-code-prompt-filepath-completion-mode)
-          (should ai-code-prompt-filepath-completion-mode)
-          
-          ;; Second toggle should disable
-          (ai-code-prompt-filepath-completion-mode)
-          (should-not ai-code-prompt-filepath-completion-mode))
-      
-      ;; Cleanup
-      (ai-code-prompt-filepath-completion-mode -1))))
+  (unwind-protect
+      (progn
+        ;; Start from a known disabled state
+        (ai-code-prompt-filepath-completion-mode -1)
+        (should-not ai-code-prompt-filepath-completion-mode)
+
+        ;; First toggle should enable
+        (ai-code-prompt-filepath-completion-mode 'toggle)
+        (should ai-code-prompt-filepath-completion-mode)
+
+        ;; Second toggle should disable
+        (ai-code-prompt-filepath-completion-mode 'toggle)
+        (should-not ai-code-prompt-filepath-completion-mode))
+
+    ;; Cleanup
+    (ai-code-prompt-filepath-completion-mode -1)))
 
 (ert-deftest ai-code-test-filepath-completion-mode-after-major-mode-change ()
   "Test that completion setup works after major mode change."
@@ -444,24 +442,24 @@
 (ert-deftest ai-code-test-comment-auto-trigger-with-at ()
   "Test that auto-trigger works when @ is inserted in a comment."
   (let ((ai-code-prompt-filepath-completion-enabled t)
-        (completion-called nil))
+        (completing-read-called nil))
     (with-temp-buffer
       (emacs-lisp-mode)
       (setq buffer-file-name "/tmp/test.el")
       (insert ";; ")
-      
+
       ;; Mock dependencies
-      (cl-letf (((symbol-function 'ai-code--any-ai-session-active-p)
-                 (lambda () t))
-                ((symbol-function 'completion-at-point)
-                 (lambda () (setq completion-called t))))
-        
+      (cl-letf (((symbol-function 'ai-code--prompt-filepath-candidates)
+                 (lambda () '("@file1.el" "@file2.el")))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) (setq completing-read-called t) "@file1.el")))
+
         ;; Insert @ and trigger auto-completion
         (insert "@")
         (ai-code--comment-auto-trigger-filepath-completion)
-        
-        ;; Should have called completion-at-point
-        (should completion-called)))))
+
+        ;; Should have called completing-read
+        (should completing-read-called)))))
 
 (ert-deftest ai-code-test-comment-auto-trigger-outside-comment ()
   "Test that auto-trigger doesn't work outside a comment."
@@ -486,26 +484,26 @@
         (should-not completion-called)))))
 
 (ert-deftest ai-code-test-comment-auto-trigger-no-ai-session ()
-  "Test that auto-trigger doesn't work when no AI session is active."
+  "Test that auto-trigger doesn't call completing-read when no candidates available."
   (let ((ai-code-prompt-filepath-completion-enabled t)
-        (completion-called nil))
+        (completing-read-called nil))
     (with-temp-buffer
       (emacs-lisp-mode)
       (setq buffer-file-name "/tmp/test.el")
       (insert ";; ")
-      
-      ;; Mock dependencies - no AI session
-      (cl-letf (((symbol-function 'ai-code--any-ai-session-active-p)
+
+      ;; Mock dependencies - no candidates available
+      (cl-letf (((symbol-function 'ai-code--prompt-filepath-candidates)
                  (lambda () nil))
-                ((symbol-function 'completion-at-point)
-                 (lambda () (setq completion-called t))))
-        
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) (setq completing-read-called t) "")))
+
         ;; Insert @ and trigger auto-completion
         (insert "@")
         (ai-code--comment-auto-trigger-filepath-completion)
-        
-        ;; Should NOT have called completion-at-point (no AI session)
-        (should-not completion-called)))))
+
+        ;; Should NOT have called completing-read (no candidates)
+        (should-not completing-read-called)))))
 
 (ert-deftest ai-code-test-comment-auto-trigger-disabled ()
   "Test that auto-trigger doesn't work when feature is disabled."

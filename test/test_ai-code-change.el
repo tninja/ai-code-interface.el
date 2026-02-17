@@ -89,6 +89,10 @@ is between the function definition and its body."
     (insert "    def my_function()\n")  ;; Line 1
     (insert "      # TODO implement this\n")  ;; Line 2 - cursor here
     (insert "      x = 1\n")  ;; Line 3
+    (insert "      x = 2\n")  ;; Line 4
+    (insert "      x = 3\n")  ;; Line 5
+    (insert "      x = 4\n")  ;; Line 6
+    (insert "      x = 5\n")  ;; Line 7
     (insert "    end\n")
     (goto-char (point-min))
     (forward-line 1)  ;; Move 1 line forward from line 1 to reach line 2 (the comment)
@@ -180,7 +184,7 @@ is between the function definition and its body."
     ;; Mock interactive functions and external dependencies
     (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "my task"))
               ((symbol-function 'ai-code--insert-prompt) (lambda (&rest _) t))
-              ((symbol-function 'ai-code-read-string) (lambda (&rest _) "some prompt"))
+              ((symbol-function 'ai-code-read-string) (lambda (&rest _) "my task"))
               ((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
               ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
               ((symbol-function 'ai-code--format-repo-context-info) (lambda () ""))

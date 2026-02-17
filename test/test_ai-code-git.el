@@ -94,43 +94,43 @@ When .gitignore already contains the required entries, they should
 not be added again."
   (let* ((temp-dir (file-truename (make-temp-file "ai-code-test-" t)))
          (gitignore-path (expand-file-name ".gitignore" temp-dir))
-         (required-entries (list ai-code-prompt-file-name
-                                ai-code-notes-file-name
+         (required-entries (list (concat ai-code-files-dir-name "/")
                                 ".projectile"
                                 "GTAGS"
                                 "GRTAGS"
-                                "GPATH")))
+                                "GPATH"
+                                "__pycache__/")))
     (unwind-protect
         (progn
           ;; Initialize git repository
           (let ((default-directory temp-dir))
             (shell-command "git init"))
-          
+
           ;; Create .gitignore with entries already present
           (with-temp-file gitignore-path
             (insert "# Existing entries\n")
             (dolist (entry required-entries)
               (insert entry "\n"))
             (insert "# End of file\n"))
-          
+
           ;; Store original content
           (let ((original-content (with-temp-buffer
                                     (insert-file-contents gitignore-path)
                                     (buffer-string))))
-            
-            ;; Mock magit-toplevel to return temp-dir
-            (cl-letf (((symbol-function 'magit-toplevel)
-                       (lambda () temp-dir)))
+
+            ;; Mock ai-code--git-root to return temp-dir
+            (cl-letf (((symbol-function 'ai-code--git-root)
+                       (lambda (&optional dir) temp-dir)))
               ;; Call the function
               (ai-code-update-git-ignore))
-            
+
             ;; Read the updated content
             (let ((updated-content (with-temp-buffer
                                      (insert-file-contents gitignore-path)
                                      (buffer-string))))
               ;; Content should be the same (no duplicates added)
               (should (string= original-content updated-content))
-              
+
               ;; Each entry should appear exactly once
               (dolist (entry required-entries)
                 (let ((count 0))
@@ -153,30 +153,30 @@ When .gitignore is missing some entries, they should be added."
           ;; Initialize git repository
           (let ((default-directory temp-dir))
             (shell-command "git init"))
-          
+
           ;; Create .gitignore with only some entries
           (with-temp-file gitignore-path
             (insert "# Existing entries\n")
             (insert ".projectile\n")
             (insert "GTAGS\n"))
-          
-          ;; Mock magit-toplevel to return temp-dir
-          (cl-letf (((symbol-function 'magit-toplevel)
-                     (lambda () temp-dir)))
+
+          ;; Mock ai-code--git-root to return temp-dir
+          (cl-letf (((symbol-function 'ai-code--git-root)
+                     (lambda (&optional dir) temp-dir)))
             ;; Call the function
             (ai-code-update-git-ignore))
-          
+
           ;; Read the updated content
           (let ((updated-content (with-temp-buffer
                                    (insert-file-contents gitignore-path)
                                    (buffer-string))))
             ;; All required entries should be present
-            (should (string-match-p (regexp-quote ai-code-prompt-file-name) updated-content))
-            (should (string-match-p (regexp-quote ai-code-notes-file-name) updated-content))
+            (should (string-match-p (regexp-quote (concat ai-code-files-dir-name "/")) updated-content))
             (should (string-match-p (regexp-quote ".projectile") updated-content))
             (should (string-match-p (regexp-quote "GTAGS") updated-content))
             (should (string-match-p (regexp-quote "GRTAGS") updated-content))
-            (should (string-match-p (regexp-quote "GPATH") updated-content))))
+            (should (string-match-p (regexp-quote "GPATH") updated-content))
+            (should (string-match-p (regexp-quote "__pycache__/") updated-content))))
       ;; Cleanup
       (delete-directory temp-dir t))))
 

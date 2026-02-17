@@ -163,7 +163,8 @@ The current buffer's file is always first."
     (catch 'found
       (dolist (pattern patterns)
         (when (string-match pattern line)
-          (throw 'found (match-string 1 line))))
+          (let ((name (match-string 1 line)))
+            (throw 'found (replace-regexp-in-string ":+\\'" "" name)))))
       nil)))
 
 (defun ai-code--imenu-symbol-from-position (payload)
