@@ -19,7 +19,6 @@
 (declare-function ai-code--get-clipboard-text "ai-code")
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
-(declare-function magit-toplevel "magit" (&optional dir))
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
 
