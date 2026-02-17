@@ -12,6 +12,7 @@
 (defvar yas-snippet-dirs)
 
 (declare-function magit-toplevel "magit" (&optional dir))
+(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 (defvar ai-code-use-gptel-headline)
 (defvar ai-code-prompt-suffix)
@@ -206,12 +207,11 @@ The function splits the prompt by whitespace, checks if each part is a file
 path within the current git repository, and if so, replaces it with a
 relative path prefixed with @.
 NOTE: This does not handle file paths containing spaces."
-  (if-let* ((git-root (magit-toplevel)))
-      (let ((git-root-truename (file-truename git-root)))
-        (mapconcat
-         (lambda (word) (ai-code--process-word-for-filepath word git-root-truename))
-         (split-string prompt-text "[ \t\n]+" t) ; split by whitespace and remove empty strings
-         " "))
+  (if-let* ((git-root-truename (ai-code--git-root)))
+      (mapconcat
+       (lambda (word) (ai-code--process-word-for-filepath word git-root-truename))
+       (split-string prompt-text "[ \t\n]+" t) ; split by whitespace and remove empty strings
+       " ")
     ;; Not in a git repo, return original prompt
     prompt-text))
 
@@ -324,9 +324,8 @@ that root, otherwise return the absolute path."
 
 (defun ai-code--prompt-filepath-candidates ()
   "Return file path candidates for prompt completion."
-  (when-let ((git-root (magit-toplevel)))
-    (let* ((git-root-truename (file-truename git-root))
-           (current-file (buffer-file-name (current-buffer)))
+  (when-let ((git-root-truename (ai-code--git-root)))
+    (let* ((current-file (buffer-file-name (current-buffer)))
            (current-frame-dired-paths
             (ai-code--current-frame-dired-paths git-root-truename))
            (visible-files (ai-code--visible-window-files))
@@ -361,7 +360,7 @@ that root, otherwise return the absolute path."
 
 (defun ai-code--prompt-filepath-capf ()
   "Provide completion candidates for @file paths in prompt buffer."
-  (when (and (not (minibufferp)) (magit-toplevel))
+  (when (and (not (minibufferp)) (ai-code--git-root))
     (let ((end (point))
           (start (save-excursion
                    (skip-chars-backward "A-Za-z0-9_./-")
@@ -454,7 +453,7 @@ based on the task name. Otherwise, use cleaned-up task name directly."
   "Get the task directory path.
 If in a git repository, return `.ai.code.files/` under git root.
 Otherwise, return the current `default-directory`."
-  (let ((git-root (magit-toplevel)))
+  (let ((git-root (ai-code--git-root)))
     (if git-root
         (expand-file-name ai-code-files-dir-name git-root)
       default-directory)))

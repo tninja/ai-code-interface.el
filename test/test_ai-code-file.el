@@ -508,6 +508,38 @@ everything is cleaned up afterward."
       (should resolved-called)
       (should (string-match-p "RUN\\\\ TESTS" captured-command)))))
 
+;;; Tests for ai-code--git-root
+
+(ert-deftest ai-code-test-git-root-returns-truename ()
+  "Test that `ai-code--git-root' returns file-truename of magit-toplevel."
+  (cl-letf (((symbol-function 'magit-toplevel)
+             (lambda (&optional _dir) "/some/symlinked/path/")))
+    (cl-letf (((symbol-function 'file-truename)
+               (lambda (path) "/some/real/path/")))
+      (should (string= (ai-code--git-root) "/some/real/path/")))))
+
+(ert-deftest ai-code-test-git-root-returns-nil-when-not-in-repo ()
+  "Test that `ai-code--git-root' returns nil when not in a git repo."
+  (cl-letf (((symbol-function 'magit-toplevel)
+             (lambda (&optional _dir) nil)))
+    (should (null (ai-code--git-root)))))
+
+(ert-deftest ai-code-test-git-root-passes-dir-argument ()
+  "Test that `ai-code--git-root' passes DIR argument to magit-toplevel."
+  (let ((received-dir nil))
+    (cl-letf (((symbol-function 'magit-toplevel)
+               (lambda (&optional dir) (setq received-dir dir) "/path/"))
+             ((symbol-function 'file-truename)
+              (lambda (path) path)))
+      (ai-code--git-root "/custom/dir/")
+      (should (string= received-dir "/custom/dir/")))))
+
+(ert-deftest ai-code-test-git-root-handles-error-gracefully ()
+  "Test that `ai-code--git-root' returns nil when magit-toplevel errors."
+  (cl-letf (((symbol-function 'magit-toplevel)
+             (lambda (&optional _dir) (error "Not a git repository"))))
+    (should (null (ai-code--git-root)))))
+
 (provide 'test_ai-code-file)
 
 ;;; test_ai-code-file.el ends here

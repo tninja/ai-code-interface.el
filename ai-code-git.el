@@ -29,6 +29,7 @@ Candidate values:
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode" ())
+(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 (defvar ai-code-files-dir-name)
 
@@ -64,7 +65,7 @@ Provide overall assessment.
 (defun ai-code--validate-git-repository ()
   "Validate that current directory is in a git repository.
 Return the git root directory if valid, otherwise signal an error."
-  (let ((git-root (magit-toplevel)))
+  (let ((git-root (ai-code--git-root)))
     (if git-root
         git-root
       (user-error "Not in a git repository"))))
@@ -543,9 +544,7 @@ PREFIX is the prefix argument."
      ((not (require 'magit nil t))
       (message "Magit is not available; cannot determine project root."))
      (t
-      (let* ((git-root (condition-case nil
-                           (magit-toplevel)
-                         (error nil)))
+      (let* ((git-root (ai-code--git-root))
              (initial-dir (or git-root default-directory))
              (dir (expand-file-name
                    (read-directory-name "Initialize project at: "
@@ -580,7 +579,7 @@ PREFIX is the prefix argument."
   "Ensure repository .gitignore contains AI Code related entries.
 If not inside a Git repository, do nothing."
   (interactive)
-  (let ((git-root (magit-toplevel)))
+  (let ((git-root (ai-code--git-root)))
     (if (not git-root)
         (message "ai-code-update-git-ignore: not in a git repository, skipped")
       (let* ((gitignore-path (expand-file-name ".gitignore" git-root))
@@ -622,7 +621,7 @@ If not inside a Git repository, do nothing."
 (defun ai-code--git-repo-recent-modified-files (base-dir limit)
   "Return up to LIMIT most recently modified files under BASE-DIR.
 If BASE-DIR is in a Git repository, use `git ls-files' to enumerate files."
-  (let* ((git-root (magit-toplevel base-dir))
+  (let* ((git-root (ai-code--git-root base-dir))
          (root (or git-root base-dir))
          (files (if git-root
                     (let ((default-directory root))
@@ -658,7 +657,7 @@ With a PREFIX argument (e.g., when called via `C-u'), prompt for a recently
 modified file and insert \"@\" followed by the selected filename into the
 buffer from which this command was invoked, instead of visiting the file."
   (interactive "P")
-  (let* ((git-root (magit-toplevel))
+  (let* ((git-root (ai-code--git-root))
          (base-dir (or git-root default-directory))
          (files (ai-code--git-repo-recent-modified-files base-dir 20))
          (origin-buffer (current-buffer)))

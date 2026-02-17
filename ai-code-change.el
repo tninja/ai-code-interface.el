@@ -20,6 +20,7 @@
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
 (declare-function ai-code--get-clipboard-text "ai-code")
+(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
 (declare-function ai-code--format-repo-context-info "ai-code-file")
@@ -484,7 +485,7 @@ or whole file.  Requires the `flycheck` package to be installed and available."
   (when (bound-and-true-p flycheck-mode)
     (if (null flycheck-current-errors)
         (message "No Flycheck errors found in the current buffer.")
-      (let* ((git-root (or (magit-toplevel) default-directory))
+      (let* ((git-root (or (ai-code--git-root) default-directory))
              (rel-file (file-relative-name buffer-file-name git-root))
              ;; determine start/end/scope-description via helper
              (scope-data (ai-code--choose-flycheck-scope))

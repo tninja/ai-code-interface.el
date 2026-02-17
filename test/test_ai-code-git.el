@@ -92,7 +92,7 @@ other-file"))
   "Test that ai-code-update-git-ignore does not add duplicate entries.
 When .gitignore already contains the required entries, they should
 not be added again."
-  (let* ((temp-dir (make-temp-file "ai-code-test-" t))
+  (let* ((temp-dir (file-truename (make-temp-file "ai-code-test-" t)))
          (gitignore-path (expand-file-name ".gitignore" temp-dir))
          (required-entries (list ai-code-prompt-file-name
                                 ai-code-notes-file-name
@@ -146,7 +146,7 @@ not be added again."
 (ert-deftest ai-code-test-ai-code-update-git-ignore-adds-missing ()
   "Test that ai-code-update-git-ignore adds missing entries.
 When .gitignore is missing some entries, they should be added."
-  (let* ((temp-dir (make-temp-file "ai-code-test-" t))
+  (let* ((temp-dir (file-truename (make-temp-file "ai-code-test-" t)))
          (gitignore-path (expand-file-name ".gitignore" temp-dir)))
     (unwind-protect
         (progn

@@ -20,6 +20,7 @@
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
 (declare-function magit-toplevel "magit" (&optional dir))
+(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
 
 (defvar ai-code--repo-context-info)
@@ -151,7 +152,7 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
   "Convert absolute FILE-PATHS to git repository relative paths.
 Returns a list of relative paths from the git repository root."
   (when file-paths
-    (let ((git-root (magit-toplevel)))
+    (let ((git-root (ai-code--git-root)))
       (when git-root
         (mapcar (lambda (file-path)
                   (file-relative-name file-path git-root))
@@ -385,7 +386,7 @@ Explain what this function does, its parameters, return value, algorithm, and it
 
 (defun ai-code--explain-git-repo ()
   "Explain the current git repository."
-  (let ((git-root (magit-toplevel)))
+  (let ((git-root (ai-code--git-root)))
     (if (not git-root)
         (user-error "Not in a git repository")
       (let* ((repo-name (file-name-nondirectory (directory-file-name git-root)))

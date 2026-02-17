@@ -18,9 +18,9 @@
   "Set up a temporary git repository environment for testing.
 This macro creates a temporary directory structure, mocks `magit-toplevel`,
 and ensures everything is cleaned up afterward."
-  `(let* ((git-root (expand-file-name "test-repo/" temporary-file-directory))
+  `(let* ((git-root (expand-file-name "test-repo/" (file-truename temporary-file-directory)))
           (mock-file-in-repo (expand-file-name "src/main.js" git-root))
-          (outside-file (expand-file-name "other-file.txt" temporary-file-directory)))
+          (outside-file (expand-file-name "other-file.txt" (file-truename temporary-file-directory))))
      (unwind-protect
          (progn
            ;; Setup: Create dummy files and directories

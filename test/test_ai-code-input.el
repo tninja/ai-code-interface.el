@@ -732,7 +732,7 @@
 
 (ert-deftest ai-code-test-hash-completion-target-file-valid ()
   "Test that ai-code--hash-completion-target-file returns file path for valid @file#."
-  (let* ((git-root (expand-file-name "test-repo/" temporary-file-directory))
+  (let* ((git-root (expand-file-name "test-repo/" (file-truename temporary-file-directory)))
          (test-file (expand-file-name "src/test.el" git-root)))
     (unwind-protect
         (progn
@@ -769,8 +769,8 @@
 
 (ert-deftest ai-code-test-hash-completion-target-file-outside-repo ()
   "Test that ai-code--hash-completion-target-file returns nil for files outside repo."
-  (let* ((git-root (expand-file-name "test-repo/" temporary-file-directory))
-         (outside-file (expand-file-name "outside.el" temporary-file-directory)))
+  (let* ((git-root (expand-file-name "test-repo/" (file-truename temporary-file-directory)))
+         (outside-file (expand-file-name "outside.el" (file-truename temporary-file-directory))))
     (unwind-protect
         (progn
           ;; Setup: Create files
@@ -888,8 +888,8 @@
 (ert-deftest ai-code-test-comment-auto-trigger-with-hash ()
   "Test that auto-trigger completes symbols when # is inserted after @file."
   (let ((ai-code-prompt-filepath-completion-enabled t)
-        (git-root (expand-file-name "test-repo/" temporary-file-directory))
-        (test-file (expand-file-name "src/test.el" (expand-file-name "test-repo/" temporary-file-directory))))
+        (git-root (expand-file-name "test-repo/" (file-truename temporary-file-directory)))
+        (test-file (expand-file-name "src/test.el" (expand-file-name "test-repo/" (file-truename temporary-file-directory)))))
     (unwind-protect
         (progn
           ;; Setup: Create test file
@@ -948,8 +948,8 @@
 (ert-deftest ai-code-test-session-auto-trigger-hash ()
   "Test that # auto-trigger works in AI session buffers."
   (let ((ai-code-prompt-filepath-completion-enabled t)
-        (git-root (expand-file-name "test-repo/" temporary-file-directory))
-        (test-file (expand-file-name "src/test.el" (expand-file-name "test-repo/" temporary-file-directory)))
+        (git-root (expand-file-name "test-repo/" (file-truename temporary-file-directory)))
+        (test-file (expand-file-name "src/test.el" (expand-file-name "test-repo/" (file-truename temporary-file-directory))))
         (terminal-sent nil))
     (unwind-protect
         (progn

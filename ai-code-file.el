@@ -27,6 +27,16 @@
 (declare-function projectile-project-root "projectile")
 (declare-function ai-code-run-test "ai-code-agile")
 
+(defun ai-code--git-root (&optional dir)
+  "Return the normalized Git repository root path, or nil.
+Calls `magit-toplevel' with optional DIR argument and applies
+`file-truename' to resolve symlinks.  Returns nil when not inside
+a Git repository or when `magit-toplevel' signals an error."
+  (condition-case nil
+      (let ((root (magit-toplevel dir)))
+        (when root (file-truename root)))
+    (error nil)))
+
 (defcustom ai-code-sed-command "sed"
   "GNU sed command used to apply prompts to files."
   :type 'string
@@ -64,8 +74,7 @@ with @ prefix if within git repo."
            (magit-get-current-branch))
           ;; If current buffer is a file, use existing logic
           ((buffer-file-name)
-           (let* ((git-root (magit-toplevel))
-                  (git-root-truename (when git-root (file-truename git-root))))
+           (let ((git-root-truename (ai-code--git-root)))
              (if (use-region-p)
                  (let ((processed-file (if (and git-root-truename (not arg))
                                            (ai-code--process-word-for-filepath (buffer-file-name) git-root-truename)
@@ -79,8 +88,7 @@ with @ prefix if within git repo."
           ;; If current buffer is a dired buffer
           ((derived-mode-p 'dired-mode)
            (let* ((file-at-point (ignore-errors (dired-get-file-for-visit)))
-                  (git-root (magit-toplevel))
-                  (git-root-truename (when git-root (file-truename git-root))))
+                  (git-root-truename (ai-code--git-root)))
              (if file-at-point
                  ;; If there's a file under cursor, copy its processed path
                  (if (and git-root-truename (not arg))
@@ -367,7 +375,7 @@ Otherwise, ask AI to generate a build command."
   (interactive)
   (let* ((proj-root (or (and (fboundp 'projectile-project-root)
                              (ignore-errors (projectile-project-root)))
-                        (magit-toplevel)))
+                        (ai-code--git-root)))
          (build-script (when proj-root (expand-file-name "build.sh" proj-root)))
          (repo-context (ai-code--format-repo-context-info))
          (error-handling-instruction
@@ -409,12 +417,12 @@ When no region is selected, use the full file path and current function
 \(if any).  When a region is active, use the file path with line range
 in the form filepath#Lstart-Lend."
   (interactive)
-  (let* ((current-root (magit-toplevel))
+  (let* ((current-root (ai-code--git-root))
          (all-roots (let ((roots '()))
                       (walk-windows
                        (lambda (w)
                          (with-current-buffer (window-buffer w)
-                           (let ((root (magit-toplevel)))
+                           (let ((root (ai-code--git-root)))
                              (when (and root (not (member root roots)))
                                (push root roots)))))
                        nil 'current-frame)
@@ -422,7 +430,7 @@ in the form filepath#Lstart-Lend."
                         (dolist (buf (buffer-list))
                           (when (ai-code-backends-infra--session-buffer-p buf)
                             (with-current-buffer buf
-                              (let ((root (ignore-errors (magit-toplevel))))
+                              (let ((root (ai-code--git-root)))
                                 (when (and root (not (member root roots)))
                                   (push root roots)))))))
                       (nreverse roots)))
@@ -502,7 +510,7 @@ With prefix ARG, clear all repositories."
       (progn
         (clrhash ai-code--repo-context-info)
         (message "Cleared all stored context info."))
-    (let ((repo-root (or (magit-toplevel)
+    (let ((repo-root (or (ai-code--git-root)
                          (user-error "Not inside a Git repository"))))
       (if (gethash repo-root ai-code--repo-context-info)
           (progn
@@ -526,10 +534,7 @@ current repo or all repos is delegated to `ai-code-clear-context'."
 Includes stored context entries for the current Git repository if available."
   (when (and (boundp 'ai-code--repo-context-info)
              ai-code--repo-context-info)
-    (let ((repo-root (condition-case nil
-                         (let ((root (magit-toplevel)))
-                           (when root (file-truename root)))
-                       (error nil))))
+    (let ((repo-root (ai-code--git-root)))
       (when repo-root
         (let ((entries (gethash repo-root ai-code--repo-context-info)))
           (when entries
