@@ -518,16 +518,23 @@ With prefix ARG, clear all repositories."
             (message "Cleared context info for %s." repo-root))
         (message "No context info stored for %s." repo-root)))))
 
-(defun ai-code-context-action (arg)
-  "Add or clear context entries depending on ARG.
-Without prefix ARG, add context and immediately list all stored entries.
-With prefix ARG \[universal-argument], clear context; clearing the
-current repo or all repos is delegated to `ai-code-clear-context'."
+(defun ai-code-context-action (_arg)
+  "Add, show, or clear context entries via `completing-read'.
+Presents a menu with three choices: Add context, Show context, or
+Clear context.  The prefix argument ARG is ignored."
   (interactive "P")
-  (if arg
-      (call-interactively #'ai-code-clear-context)
-    (call-interactively #'ai-code-add-context)
-    (ai-code-list-context)))
+  ;; DONE: use complet-reading like way to select from 1. Add Context; 2. Show Context; 3. Clear context. No need to use C-u anymore. Update menu description as well
+  (let ((action (completing-read "Context action: "
+                                 '("Add context" "Show context" "Clear context")
+                                 nil t)))
+    (pcase action
+      ("Add context"
+       (call-interactively #'ai-code-add-context)
+       (ai-code-list-context))
+      ("Show context"
+       (ai-code-list-context))
+      ("Clear context"
+       (call-interactively #'ai-code-clear-context)))))
 
 (defun ai-code--format-repo-context-info ()
   "Return formatted repository context string or nil.

@@ -540,6 +540,73 @@ everything is cleaned up afterward."
              (lambda (&optional _dir) (error "Not a git repository"))))
     (should (null (ai-code--git-root)))))
 
+;;; Tests for ai-code-context-action with completing-read
+
+(ert-deftest ai-code-test-context-action-add-calls-add-context ()
+  "Test that selecting 'Add context' calls `ai-code-add-context' and lists."
+  (let ((add-called nil)
+        (list-called nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (prompt collection &rest _args)
+                 "Add context"))
+              ((symbol-function 'ai-code-add-context)
+               (lambda ()
+                 (interactive)
+                 (setq add-called t)))
+              ((symbol-function 'ai-code-list-context)
+               (lambda ()
+                 (interactive)
+                 (setq list-called t))))
+      (ai-code-context-action nil)
+      (should add-called)
+      (should list-called))))
+
+(ert-deftest ai-code-test-context-action-show-calls-list-context ()
+  "Test that selecting 'Show context' calls `ai-code-list-context'."
+  (let ((list-called nil)
+        (add-called nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (prompt collection &rest _args)
+                 "Show context"))
+              ((symbol-function 'ai-code-list-context)
+               (lambda ()
+                 (interactive)
+                 (setq list-called t)))
+              ((symbol-function 'ai-code-add-context)
+               (lambda ()
+                 (interactive)
+                 (setq add-called t))))
+      (ai-code-context-action nil)
+      (should list-called)
+      (should-not add-called))))
+
+(ert-deftest ai-code-test-context-action-clear-calls-clear-context ()
+  "Test that selecting 'Clear context' calls `ai-code-clear-context'."
+  (let ((clear-called nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (prompt collection &rest _args)
+                 "Clear context"))
+              ((symbol-function 'ai-code-clear-context)
+               (lambda ()
+                 (interactive)
+                 (setq clear-called t))))
+      (ai-code-context-action nil)
+      (should clear-called))))
+
+(ert-deftest ai-code-test-context-action-ignores-prefix-arg ()
+  "Test that prefix arg no longer changes behavior; completing-read is used."
+  (let ((completing-read-called nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (prompt collection &rest _args)
+                 (setq completing-read-called t)
+                 "Show context"))
+              ((symbol-function 'ai-code-list-context)
+               (lambda ()
+                 (interactive)
+                 nil)))
+      (ai-code-context-action '(4))
+      (should completing-read-called))))
+
 (provide 'test_ai-code-file)
 
 ;;; test_ai-code-file.el ends here
