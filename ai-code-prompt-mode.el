@@ -11,7 +11,6 @@
 
 (defvar yas-snippet-dirs)
 
-(declare-function magit-toplevel "magit" (&optional dir))
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 (defvar ai-code-use-gptel-headline)
