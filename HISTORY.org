@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+
+** 1.51
 - Fix: correct auto-mode-alist for ai-code-prompt-mode 
 - Fix: Not to kill-buffer when CLI exits on error, reported and fix suggested by lesteral
 
