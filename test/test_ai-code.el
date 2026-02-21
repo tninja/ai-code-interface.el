@@ -46,6 +46,17 @@
                (lambda () (ert-fail "Should not ask test type for non-code prompts."))))
       (should (eq nil (ai-code--resolve-auto-test-type-for-send "Explain this function"))))))
 
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-ask-me-gptel-code-change ()
+  "Test that ask-me mode prompts user to select test type when GPTel classifies code change."
+  (let ((ai-code-auto-test-type 'ask-me)
+        (ai-code-use-gptel-classify-prompt t))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'code-change))
+              ((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda () 'test-after-change)))
+      (should (eq 'test-after-change
+                  (ai-code--resolve-auto-test-type-for-send "Refactor this function"))))))
+
 (ert-deftest ai-code-test-resolve-auto-test-type-for-send-ask-me-gptel-unknown-fallback ()
   "Test that ask-me mode falls back to interactive selection when GPTel is unknown."
   (let ((ai-code-auto-test-type 'ask-me)
