@@ -1051,5 +1051,38 @@ and ensures everything is cleaned up afterward."
          ;; Should return nil (in minibuffer)
          (should-not result))))))
 
+(ert-deftest ai-code-test-insert-backend-label-drawer ()
+  "Test that ai-code--insert-backend-label-drawer inserts a PROPERTIES drawer with AGENT."
+  (cl-letf (((symbol-function 'ai-code-current-backend-label)
+             (lambda () "codex")))
+    (with-temp-buffer
+      (ai-code--insert-backend-label-drawer)
+      (let ((content (buffer-string)))
+        (should (string-match-p (regexp-quote ":PROPERTIES:") content))
+        (should (string-match-p (regexp-quote ":AGENT: codex") content))
+        (should (string-match-p (regexp-quote ":END:") content))))))
+
+(ert-deftest ai-code-test-insert-backend-label-drawer-unknown-on-error ()
+  "Test that ai-code--insert-backend-label-drawer falls back to 'unknown' on error."
+  (cl-letf (((symbol-function 'ai-code-current-backend-label)
+             (lambda () (error "no backend"))))
+    (with-temp-buffer
+      (ai-code--insert-backend-label-drawer)
+      (let ((content (buffer-string)))
+        (should (string-match-p (regexp-quote ":AGENT: unknown") content))))))
+
+(ert-deftest ai-code-test-append-prompt-to-buffer-includes-drawer ()
+  "Test that ai-code--append-prompt-to-buffer inserts PROPERTIES drawer with AGENT."
+  (cl-letf (((symbol-function 'ai-code-current-backend-label)
+             (lambda () "gemini"))
+            ((symbol-function 'ai-code--generate-prompt-headline)
+             (lambda (_prompt-text) (insert "** test headline\n"))))
+    (with-temp-buffer
+      (ai-code--append-prompt-to-buffer "Fix the bug")
+      (let ((content (buffer-string)))
+        (should (string-match-p (regexp-quote ":PROPERTIES:") content))
+        (should (string-match-p (regexp-quote ":AGENT: gemini") content))
+        (should (string-match-p (regexp-quote ":END:") content))))))
+
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here

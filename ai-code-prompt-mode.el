@@ -13,7 +13,7 @@
 
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
-(defvar ai-code-use-gptel-headline)
+(defvar ai-code-use-gptel-headline nil)
 (defvar ai-code-prompt-suffix)
 (defvar ai-code-auto-test-type)
 (defvar ai-code-auto-test-suffix)
@@ -150,6 +150,15 @@ Only works when gptel package is installed, otherwise shows error message."
   "Get the buffer for PROMPT-FILE, without selecting it."
   (find-file-noselect prompt-file))
 
+(defun ai-code--insert-backend-label-drawer ()
+  "Insert an Org drawer recording the current AI backend label."
+  (let ((label (condition-case nil
+                   (ai-code-current-backend-label)
+                 (error "unknown"))))
+    (insert ":PROPERTIES:\n")
+    (insert (format ":AGENT: %s\n" label))
+    (insert ":END:\n")))
+
 (defun ai-code--append-prompt-to-buffer (prompt-text)
   "Append formatted PROMPT-TEXT to the end of the current buffer.
 This includes generating a headline and formatting the prompt.
@@ -157,6 +166,7 @@ Returns the full prompt text with suffix for sending to AI."
   (goto-char (point-max))
   (insert "\n\n")
   (ai-code--generate-prompt-headline prompt-text)
+  (ai-code--insert-backend-label-drawer)
   (ai-code--format-and-insert-prompt prompt-text))
 
 (defun ai-code--send-prompt (full-prompt)
