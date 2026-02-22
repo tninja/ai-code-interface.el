@@ -510,6 +510,9 @@ Returns a filename with .org suffix."
   (insert (format "#+DATE: %s\n" (format-time-string "%Y-%m-%d")))
   (unless (string-empty-p task-url)
     (insert (format "#+URL: %s\n" task-url)))
+  (let ((branch (magit-get-current-branch)))
+    (when branch
+      (insert (format "#+BRANCH: %s\n" branch))))
   (let ((label (ai-code-current-backend-label)))
     (insert (format "#+AGENT: %s\n" label))
     (insert "#+SESSION_ID: <Usually you can get the session id with /status or /stat in AI coding window>\n"))

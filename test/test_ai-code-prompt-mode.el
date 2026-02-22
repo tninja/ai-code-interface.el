@@ -265,6 +265,28 @@ and ensures everything is cleaned up afterward."
        (when (file-directory-p files-dir)
          (delete-directory files-dir t))))))
 
+(ert-deftest ai-code-test-initialize-task-file-content-includes-branch ()
+  "Test that ai-code--initialize-task-file-content inserts #+BRANCH when branch is available."
+  (cl-letf (((symbol-function 'magit-get-current-branch)
+             (lambda () "feature/my-branch"))
+            ((symbol-function 'ai-code-current-backend-label)
+             (lambda () "codex")))
+    (with-temp-buffer
+      (ai-code--initialize-task-file-content "Test Task" "https://example.com")
+      (let ((content (buffer-string)))
+        (should (string-match-p (regexp-quote "#+BRANCH: feature/my-branch") content))))))
+
+(ert-deftest ai-code-test-initialize-task-file-content-no-branch ()
+  "Test that ai-code--initialize-task-file-content omits #+BRANCH when no branch available."
+  (cl-letf (((symbol-function 'magit-get-current-branch)
+             (lambda () nil))
+            ((symbol-function 'ai-code-current-backend-label)
+             (lambda () "codex")))
+    (with-temp-buffer
+      (ai-code--initialize-task-file-content "Test Task" "")
+      (let ((content (buffer-string)))
+        (should-not (string-match-p "#+BRANCH:" content))))))
+
 (ert-deftest ai-code-test-create-or-open-task-file-adds-org-extension ()
   "Test that .org extension is added if missing from confirmed filename."
   (ai-code-with-test-repo
