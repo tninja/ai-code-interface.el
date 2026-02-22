@@ -176,23 +176,26 @@ and do not append auto test suffix."
 (defun ai-code--gptel-classify-prompt-code-change (prompt-text)
   "Classify whether PROMPT-TEXT requests code changes using GPTel.
 Return one of: `code-change`, `non-code-change`, or `unknown`."
-  (condition-case err
-      (if (require 'gptel nil t)
-          (let* ((raw-answer (ai-code-call-gptel-sync
-                              (concat "Classify whether this user prompt requests code changes in a repository.\n"
-                                      "Reply with exactly one token: CODE_CHANGE or NOT_CODE_CHANGE.\n"
-                                      "Treat edit/refactor/implement/fix/add/remove/update/tests as CODE_CHANGE.\n"
-                                      "Treat explain/summarize/discuss/review without editing as NOT_CODE_CHANGE.\n\n"
-                                      "Prompt:\n" prompt-text)))
-                 (answer (upcase (string-trim (or raw-answer "")))))
-            (cond
-             ((string-match-p "\\`CODE_CHANGE\\b" answer) 'code-change)
-             ((string-match-p "\\`NOT_CODE_CHANGE\\b" answer) 'non-code-change)
-             (t 'unknown)))
-        'unknown)
-    (error
-     (message "GPTel prompt classification failed: %s" (error-message-string err))
-     'unknown)))
+  (let ((classification
+         (condition-case err
+             (if (require 'gptel nil t)
+                 (let* ((raw-answer (ai-code-call-gptel-sync
+                                     (concat "Classify whether this user prompt requests code changes in a repository.\n"
+                                             "Reply with exactly one token: CODE_CHANGE or NOT_CODE_CHANGE.\n"
+                                             "Treat edit/refactor/implement/fix/add/remove/update/tests as CODE_CHANGE.\n"
+                                             "Treat explain/summarize/discuss/review without editing as NOT_CODE_CHANGE.\n\n"
+                                             "Prompt:\n" prompt-text)))
+                        (answer (upcase (string-trim (or raw-answer "")))))
+                   (cond
+                    ((string-match-p "\\`CODE_CHANGE\\b" answer) 'code-change)
+                    ((string-match-p "\\`NOT_CODE_CHANGE\\b" answer) 'non-code-change)
+                    (t 'unknown)))
+               'unknown)
+           (error
+            (message "GPTel prompt classification failed: %s" (error-message-string err))
+            'unknown))))
+    (message "GPTel prompt classification result: %s" classification)
+    classification))
 
 (defun ai-code--resolve-auto-test-type-for-send (&optional prompt-text)
   "Resolve the concrete auto test type for current send action for PROMPT-TEXT."
