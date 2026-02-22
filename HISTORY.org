@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Chore: Add git branch name to task file template
+- Chore: Add AGENT as drawer to .ai.code.prompt.file.org
 - Chore: When ai-code-use-gptel-classify-prompt is not nil, and ai-code-auto-test-type is not nil, use gptel to determine if the prompt is about to change code
   - So that prompt for code reading / explaining won't trigger test follow up; test should only be triggered when the code got changed.
 
