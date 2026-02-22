@@ -164,12 +164,10 @@ with a newline separator."
         (cdr choice-cell)
       'test-after-change)))
 
-;; DONE: add a custom var: ai-code-use-gptel-classify-prompt, default is nil. When it is non-nil, and ai-code-auto-test-type == ask-me , use gptel to classify if the prompt is about code change. If it is not, no need to ask user to choose test prompt type and append corresponding suffix.
-
 ;;;###autoload
 (defcustom ai-code-use-gptel-classify-prompt nil
   "Whether to use GPTel to classify prompts in `ask-me` auto test mode.
-When non-nil and `ai-code-auto-test-type` is `ask-me`, classify whether
+When non-nil and `ai-code-auto-test-type` is not nil, classify whether
 the current prompt is about code changes. If not, skip test type selection
 and do not append auto test suffix."
   :type 'boolean
@@ -206,8 +204,18 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
            ('non-code-change nil)
            (_ (ai-code--read-auto-test-type-choice)))
        (ai-code--read-auto-test-type-choice)))
-    ('test-after-change 'test-after-change)
-    ('tdd 'tdd)
+    ('test-after-change
+     (if ai-code-use-gptel-classify-prompt
+         (when (eq (ai-code--gptel-classify-prompt-code-change prompt-text)
+                   'code-change)
+           'test-after-change)
+       'test-after-change))
+    ('tdd
+     (if ai-code-use-gptel-classify-prompt
+         (when (eq (ai-code--gptel-classify-prompt-code-change prompt-text)
+                   'code-change)
+           'tdd)
+       'tdd))
     (_ nil)))
 
 (defun ai-code--auto-test-suffix-for-type (type)

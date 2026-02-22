@@ -68,6 +68,40 @@
       (should (eq 'test-after-change
                   (ai-code--resolve-auto-test-type-for-send "Please update code"))))))
 
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-fixed-type-gptel-classification-test-after-change ()
+  "Test that test-after-change mode appends suffix only for GPTel code-change classification."
+  (let ((ai-code-auto-test-type 'test-after-change)
+        (ai-code-use-gptel-classify-prompt t))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'code-change)))
+      (should (eq 'test-after-change
+                  (ai-code--resolve-auto-test-type-for-send "Refactor this code"))))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'non-code-change)))
+      (should (eq nil
+                  (ai-code--resolve-auto-test-type-for-send "Explain this design"))))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'unknown)))
+      (should (eq nil
+                  (ai-code--resolve-auto-test-type-for-send "Do something"))))))
+
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-fixed-type-gptel-classification-tdd ()
+  "Test that tdd mode appends suffix only for GPTel code-change classification."
+  (let ((ai-code-auto-test-type 'tdd)
+        (ai-code-use-gptel-classify-prompt t))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'code-change)))
+      (should (eq 'tdd
+                  (ai-code--resolve-auto-test-type-for-send "Implement feature"))))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'non-code-change)))
+      (should (eq nil
+                  (ai-code--resolve-auto-test-type-for-send "Summarize this file"))))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'unknown)))
+      (should (eq nil
+                  (ai-code--resolve-auto-test-type-for-send "Review architecture"))))))
+
 (ert-deftest ai-code-test-read-auto-test-type-choice-allow-no-test ()
   "Test that ask choices support selecting no test run."
   (let ((ai-code--auto-test-type-ask-choices
