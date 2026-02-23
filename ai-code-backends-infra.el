@@ -410,10 +410,12 @@ Activity tracking for notifications is handled separately by
       (cond
        ((and (stringp ai-code-backends-infra--session-directory)
              (> (length ai-code-backends-infra--session-directory) 0))
-        ai-code-backends-infra--session-directory)
+        (ai-code-backends-infra--normalize-session-directory
+         ai-code-backends-infra--session-directory))
        ((and (stringp default-directory)
              (> (length default-directory) 0))
-        default-directory)
+        (ai-code-backends-infra--normalize-session-directory
+         default-directory))
        (t nil)))))
 
 (defun ai-code-backends-infra--session-buffer-name (prefix directory &optional instance-name)
