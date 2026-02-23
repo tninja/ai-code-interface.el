@@ -123,6 +123,9 @@ being sent for the response completion.")
 (defvar-local ai-code-backends-infra--last-meaningful-output-time nil
   "Float timestamp of the most recent meaningful output.")
 
+(defvar-local ai-code-backends-infra--session-directory nil
+  "Normalized working directory associated with the current session buffer.")
+
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
 
@@ -389,6 +392,30 @@ Activity tracking for notifications is handled separately by
       (expand-file-name (project-root project))
     (expand-file-name default-directory)))
 
+(defun ai-code-backends-infra--normalize-session-directory (directory)
+  "Return DIRECTORY normalized for robust session matching."
+  (file-name-as-directory (expand-file-name directory)))
+
+(defun ai-code-backends-infra--set-session-directory (buffer directory)
+  "Store DIRECTORY on BUFFER for exact session matching."
+  (when (and (buffer-live-p buffer) (stringp directory))
+    (with-current-buffer buffer
+      (setq-local ai-code-backends-infra--session-directory
+                  (ai-code-backends-infra--normalize-session-directory directory)))))
+
+(defun ai-code-backends-infra--buffer-session-directory (buffer)
+  "Return BUFFER session directory, using legacy `default-directory' as fallback."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (cond
+       ((and (stringp ai-code-backends-infra--session-directory)
+             (> (length ai-code-backends-infra--session-directory) 0))
+        ai-code-backends-infra--session-directory)
+       ((and (stringp default-directory)
+             (> (length default-directory) 0))
+        default-directory)
+       (t nil)))))
+
 (defun ai-code-backends-infra--session-buffer-name (prefix directory &optional instance-name)
   "Return a session buffer name for PREFIX in DIRECTORY.
 When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
@@ -433,13 +460,17 @@ Return a cons of (base-name . instance-name) or nil."
 
 (defun ai-code-backends-infra--find-session-buffers (prefix directory)
   "Return session buffers for PREFIX in DIRECTORY."
-  (let ((base (file-name-nondirectory (directory-file-name directory))))
+  (let ((base (file-name-nondirectory (directory-file-name directory)))
+        (target-directory (ai-code-backends-infra--normalize-session-directory directory)))
     (cl-remove-if-not
      (lambda (buf)
        (when-let ((parsed (ai-code-backends-infra--parse-session-buffer-name
                            (buffer-name buf)
                            prefix)))
-         (string= (car parsed) base)))
+         (if-let ((buffer-directory (ai-code-backends-infra--buffer-session-directory buf)))
+             (string= (ai-code-backends-infra--normalize-session-directory buffer-directory)
+                      target-directory)
+           (string= (car parsed) base))))
      (buffer-list))))
 
 (defun ai-code-backends-infra--remember-session-buffer (prefix directory buffer)
@@ -589,6 +620,7 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
         (if (get-buffer-window buffer)
             (delete-window (get-buffer-window buffer))
           (progn
+            (ai-code-backends-infra--set-session-directory buffer working-dir)
             (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
             (ai-code-backends-infra--display-buffer-in-side-window buffer)))
       (let* ((buffer-and-process
@@ -690,6 +722,7 @@ ENV-VARS is a list of environment variables."
              (vterm-kill-buffer-on-exit nil)  ; Keep buffer alive to show errors
              (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
         (let ((buffer (save-window-excursion (vterm buffer-name))))
+          (ai-code-backends-infra--set-session-directory buffer working-dir)
           (with-current-buffer buffer
             (ai-code-backends-infra--configure-vterm-buffer))
           (cons buffer (get-buffer-process buffer)))))
@@ -699,6 +732,7 @@ ENV-VARS is a list of environment variables."
              (parts (split-string-shell-command command))
              (program (car parts))
              (args (cdr parts)))
+        (ai-code-backends-infra--set-session-directory buffer working-dir)
         (with-current-buffer buffer
           (unless (eq major-mode 'eat-mode) (eat-mode))
           (when (fboundp 'ai-code--session-handle-at-input)

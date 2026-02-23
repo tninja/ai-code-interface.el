@@ -122,6 +122,41 @@
     (should-not (get-buffer buf-name))
     (ignore buf)))
 
+(ert-deftest test-ai-code-backends-infra-find-session-buffers-uses-full-directory ()
+  "Find sessions by exact directory even when project base names collide."
+  (let* ((prefix "codex")
+         (base (format "ai-code-collision-%d" (random 1000000)))
+         (dir-a (format "/tmp/a/%s/" base))
+         (dir-b (format "/tmp/b/%s/" base))
+         (buf-name (format "*%s[%s]*" prefix base))
+         (buf (get-buffer-create buf-name)))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq-local ai-code-backends-infra--session-directory dir-a))
+          (should (memq buf (ai-code-backends-infra--find-session-buffers prefix dir-a)))
+          (should-not (memq buf (ai-code-backends-infra--find-session-buffers prefix dir-b))))
+      (when (buffer-live-p buf)
+        (kill-buffer buf)))))
+
+(ert-deftest test-ai-code-backends-infra-find-session-buffers-legacy-default-directory-fallback ()
+  "Use buffer default-directory when explicit session directory metadata is absent."
+  (let* ((prefix "codex")
+         (base (format "ai-code-legacy-%d" (random 1000000)))
+         (dir-a (format "/tmp/a/%s/" base))
+         (dir-b (format "/tmp/b/%s/" base))
+         (buf-name (format "*%s[%s]*" prefix base))
+         (buf (get-buffer-create buf-name)))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (setq-local ai-code-backends-infra--session-directory nil)
+            (setq default-directory dir-a))
+          (should (memq buf (ai-code-backends-infra--find-session-buffers prefix dir-a)))
+          (should-not (memq buf (ai-code-backends-infra--find-session-buffers prefix dir-b))))
+      (when (buffer-live-p buf)
+        (kill-buffer buf)))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
