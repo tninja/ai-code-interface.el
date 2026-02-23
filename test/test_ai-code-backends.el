@@ -90,6 +90,72 @@
     (should (eq (plist-get (cdr spec) :send) 'ai-code-agent-shell-send-command))
     (should (eq (plist-get (cdr spec) :resume) 'ai-code-agent-shell-resume))))
 
+(ert-deftest ai-code-test-backend-selection-keeps-repo-session-backend ()
+  "Switching backend in one repo should not overwrite started backend in another repo."
+  (let* ((ai-code-backends
+          '((backend-a
+             :label "Backend A"
+             :start ai-code-test-backend-a-start
+             :switch ai-code-test-backend-a-switch
+             :send ai-code-test-backend-a-send
+             :resume nil
+             :cli "a")
+            (backend-b
+             :label "Backend B"
+             :start ai-code-test-backend-b-start
+             :switch ai-code-test-backend-b-switch
+             :send ai-code-test-backend-b-send
+             :resume nil
+             :cli "b")))
+         (ai-code-selected-backend 'backend-a)
+         (ai-code--cli-start-fn #'ignore)
+         (ai-code--cli-switch-fn #'ignore)
+         (ai-code--cli-send-fn #'ignore)
+         (ai-code--cli-resume-fn #'ignore)
+         (repo-root "/repo-a/")
+         (start-calls nil))
+    (cl-letf (((symbol-function 'ai-code-test-backend-a-start)
+               (lambda (&optional _arg)
+                 (push 'backend-a start-calls)))
+              ((symbol-function 'ai-code-test-backend-b-start)
+               (lambda (&optional _arg)
+                 (push 'backend-b start-calls)))
+              ((symbol-function 'ai-code-test-backend-a-switch)
+               (lambda (&optional _arg) nil))
+              ((symbol-function 'ai-code-test-backend-b-switch)
+               (lambda (&optional _arg) nil))
+              ((symbol-function 'ai-code-test-backend-a-send)
+               (lambda (&optional _arg) nil))
+              ((symbol-function 'ai-code-test-backend-b-send)
+               (lambda (&optional _arg) nil))
+              ((symbol-function 'ai-code--git-root)
+               (lambda (&optional _dir) repo-root))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 (if (string= repo-root "/repo-a/")
+                     "Backend A"
+                   "Backend B")))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      ;; Start in repo A using Backend A.
+      (ai-code-select-backend)
+      (ai-code-cli-start)
+
+      ;; Switch to repo B and use Backend B.
+      (setq repo-root "/repo-b/")
+      (ai-code-select-backend)
+      (ai-code-cli-start)
+      (should (string= (ai-code-current-backend-label) "Backend B"))
+
+      ;; Returning to repo A should keep using Backend A.
+      (setq repo-root "/repo-a/")
+      (should (string= (ai-code-current-backend-label) "Backend A"))
+      (ai-code-cli-start)
+
+      (should (eq (car start-calls) 'backend-a))
+      (should (equal (reverse start-calls)
+                     '(backend-a backend-b backend-a))))))
+
 (provide 'test_ai-code-backends)
 
 ;;; test_ai-code-backends.el ends here

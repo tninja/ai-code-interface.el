@@ -410,6 +410,7 @@ Shows the current backend label to the right."
     ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
     ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
     ;; Use plist style to provide a dynamic description function.
+    ;; DONE: I want ai-code-select-backend (and ai-code--select-backend-description) should keep same backend for the git repo which already started ai-code-cli session, unless user explicitly want to switch in side that git repo. Eg. switch backend in git repo B should not switch backend in git repo A which already has a session, and next time user start session in repo A, it should use the same backend as before. This will be more intelligent and user friendly, and also avoid the problem that user switch backend in one repo but forget to switch back when work on another repo which already has session.
     ("s" ai-code-select-backend :description ai-code--select-backend-description)
     ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
     ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)

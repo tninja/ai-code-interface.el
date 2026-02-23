@@ -19,11 +19,66 @@
 (declare-function claude-code--do-send-command "claude-code" (cmd))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 (declare-function ai-code--validate-git-repository "ai-code-git" ())
+(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 (defvar ai-code--cli-start-fn #'ai-code--unsupported-start)
 (defvar ai-code--cli-resume-fn #'ai-code--unsupported-resume)
 (defvar ai-code--cli-switch-fn #'ai-code--unsupported-switch-to-buffer)
 (defvar ai-code--cli-send-fn #'ai-code--unsupported-send-command)
+
+(defvar ai-code--repo-backend-alist nil
+  "Alist of (GIT-ROOT . BACKEND) to keep backend affinity per repository.")
+
+(defun ai-code--normalize-git-root (git-root)
+  "Return normalized GIT-ROOT path, or nil when invalid."
+  (when (and (stringp git-root) (> (length git-root) 0))
+    (file-truename git-root)))
+
+(defun ai-code--current-git-root ()
+  "Return normalized current git root for backend affinity, or nil."
+  (let ((git-root
+         (cond
+          ((fboundp 'ai-code--git-root)
+           (ai-code--git-root))
+          ((fboundp 'magit-toplevel)
+           (condition-case nil
+               (magit-toplevel)
+             (error nil)))
+          (t nil))))
+    (ai-code--normalize-git-root git-root)))
+
+(defun ai-code--repo-backend-for-root (git-root)
+  "Return remembered backend for GIT-ROOT, or nil."
+  (cdr (assoc git-root ai-code--repo-backend-alist)))
+
+(defun ai-code--remember-repo-backend (git-root backend)
+  "Remember BACKEND for GIT-ROOT."
+  (when (and git-root backend)
+    (setq ai-code--repo-backend-alist
+          (cons (cons git-root backend)
+                (seq-remove (lambda (it)
+                              (string= (car it) git-root))
+                            ai-code--repo-backend-alist)))))
+
+(defun ai-code--effective-backend ()
+  "Return backend for current context, preferring repo-local affinity."
+  (let* ((git-root (ai-code--current-git-root))
+         (repo-backend (and git-root (ai-code--repo-backend-for-root git-root))))
+    (if (and repo-backend (ai-code--backend-spec repo-backend))
+        repo-backend
+      ai-code-selected-backend)))
+
+(defun ai-code--activate-effective-backend ()
+  "Switch active backend to the effective backend for current context."
+  (let ((effective (ai-code--effective-backend)))
+    (when (and effective (not (eq effective ai-code-selected-backend)))
+      (ai-code-set-backend effective))))
+
+(defun ai-code--remember-current-backend-for-repo ()
+  "Remember current backend for current git repository."
+  (let ((git-root (ai-code--current-git-root)))
+    (when git-root
+      (ai-code--remember-repo-backend git-root ai-code-selected-backend))))
 
 (defun ai-code--unsupported-start (&optional _arg)
   "Signal that the current backend does not support start.
@@ -58,11 +113,14 @@ Argument _ARG is ignored."
   "Start the current backend's CLI session when supported.
 Argument ARG is passed to the backend's start function."
   (interactive "P")
-  (if (called-interactively-p 'interactive)
-      (call-interactively ai-code--cli-start-fn)
-    (if arg
-        (funcall ai-code--cli-start-fn arg)
-      (funcall ai-code--cli-start-fn))))
+  (ai-code--activate-effective-backend)
+  (prog1
+      (if (called-interactively-p 'interactive)
+          (call-interactively ai-code--cli-start-fn)
+        (if arg
+            (funcall ai-code--cli-start-fn arg)
+          (funcall ai-code--cli-start-fn)))
+    (ai-code--remember-current-backend-for-repo)))
 
 ;;;###autoload
 (defun ai-code-cli-resume (&optional arg)
@@ -73,17 +131,21 @@ When called interactively, any prefix argument is forwarded via
 it (for example, some backends may use a non-nil prefix to prompt for
 additional CLI arguments)."
   (interactive "P")
-  (if (called-interactively-p 'interactive)
-      (call-interactively ai-code--cli-resume-fn)
-    (if arg
-        (funcall ai-code--cli-resume-fn arg)
-      (funcall ai-code--cli-resume-fn))))
+  (ai-code--activate-effective-backend)
+  (prog1
+      (if (called-interactively-p 'interactive)
+          (call-interactively ai-code--cli-resume-fn)
+        (if arg
+            (funcall ai-code--cli-resume-fn arg)
+          (funcall ai-code--cli-resume-fn)))
+    (ai-code--remember-current-backend-for-repo)))
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer (&optional arg)
   "Switch to the current backend's CLI buffer when supported.
 Argument ARG is passed to the backend's switch function."
   (interactive "P")
+  (ai-code--activate-effective-backend)
   (if (called-interactively-p 'interactive)
       (call-interactively ai-code--cli-switch-fn)
     (if arg
@@ -96,6 +158,7 @@ Argument ARG is passed to the backend's switch function."
 When called interactively, prompt for COMMAND.
 Noninteractive callers must supply COMMAND."
   (interactive)
+  (ai-code--activate-effective-backend)
   (if (called-interactively-p 'interactive)
       (call-interactively ai-code--cli-send-fn)
     (if (null command)
@@ -277,7 +340,8 @@ The :upgrade property can be either a string shell command or nil."
   (unless (ai-code--backend-spec new-backend)
     (user-error "Unknown backend: %s" new-backend))
   (setq ai-code-selected-backend new-backend)
-  (ai-code--apply-backend new-backend))
+  (ai-code--apply-backend new-backend)
+  (ai-code--remember-current-backend-for-repo))
 
 (defun ai-code--backend-spec (key)
   "Return backend plist for KEY from `ai-code-backends'."
@@ -286,10 +350,11 @@ The :upgrade property can be either a string shell command or nil."
 (defun ai-code-current-backend-label ()
   "Return label string of the currently selected backend.
 Falls back to symbol name when label is unavailable."
-  (let* ((spec (ai-code--backend-spec ai-code-selected-backend))
+  (let* ((effective-backend (ai-code--effective-backend))
+         (spec (ai-code--backend-spec effective-backend))
          (label (when spec (plist-get (cdr spec) :label))))
-    (or label (and ai-code-selected-backend
-                   (symbol-name ai-code-selected-backend)) "<none>")))
+    (or label (and effective-backend
+                   (symbol-name effective-backend)) "<none>")))
 
 (defun ai-code--ensure-backend-loaded (spec)
   "Ensure FEATURE for backend SPEC is loaded, if any."
@@ -365,8 +430,9 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
                                    (label (plist-get (cdr it) :label)))
                               (cons (format "%s" label) key)))
                           ai-code-backends))
+         (effective-backend (ai-code--effective-backend))
          (current-label (car (seq-find (lambda (it)
-                                         (eq (cdr it) ai-code-selected-backend))
+                                         (eq (cdr it) effective-backend))
                                        choices)))
          (ordered-choices (if current-label
                               (let ((current (assoc current-label choices)))
@@ -377,7 +443,7 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
                             choices))
          (choice (completing-read "Select backend: "
                                   (mapcar #'car ordered-choices)
-                                  nil t nil nil current-label))
+                                 nil t nil nil current-label))
          (key (cdr (assoc choice ordered-choices))))
     (ai-code-set-backend key)))
 
