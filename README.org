@@ -4,7 +4,7 @@
 
 [[https://melpa.org/#/ai-code][https://melpa.org/packages/ai-code-badge.svg]]
 [[https://stable.melpa.org/#/ai-code][https://stable.melpa.org/packages/ai-code-badge.svg]]
-[[https://github.com/tninja/ai-code.el/graphs/contributors][https://img.shields.io/github/contributors/tninja/ai-code.el.svg]]
+[[https://github.com/tninja/ai-code-interface.el/graphs/contributors][https://img.shields.io/github/contributors/tninja/ai-code-interface.el.svg]]
 
 An Emacs interface for AI-assisted software development. *The purpose is to provide a uniform interface and experience for different AI backends*, with context-aware AI coding actions, and integrating seamlessly with AI-driven agile development workflows.
 
@@ -31,6 +31,29 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
 - Screenshot
 
 [[./transient_menu.png]]
+
+** New User Quick Start
+
+If you are new to this package, follow this order:
+1. Read this section
+2. Run the setup in *Installation*
+3. Try one workflow in *Typical Workflows Example*
+4. Configure backend details in *AI coding CLI backend*
+
+Minimal setup:
+
+#+begin_src emacs-lisp
+(use-package ai-code
+  :config
+  (ai-code-set-backend 'codex)
+  (global-set-key (kbd "C-c a") #'ai-code-menu))
+#+end_src
+
+First 60 seconds:
+- `C-c a a`: Start AI CLI session
+- `C-c a c`: Ask AI to change current function/region
+- `C-c a q`: Ask question only (no code change)
+- `C-c a z`: Jump back to AI session buffer
 
 ** Installation
 
@@ -82,8 +105,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 *** Optional Dependencies
 - `helm`: For an enhanced auto-completion experience (`ai-code-input.el`).
 - `gptel`: For intelligent, AI-generated content headlines in the prompt file.
-  - ai-code-task-use-gptel-filename: When non-nil, file name created by `ai-code-create-task-file` or `ai-code-create-file-or-dir` will have auto-generated filenames created by GPTel
-  - ai-code-notes-use-gptel-headline: When non-nil, notes created by `ai-code-capture-session-note` will have auto-generated headlines created by GPTel
+  - ai-code-task-use-gptel-filename: When non-nil, file name created by `ai-code-create-or-open-task-file` or `ai-code-create-file-or-dir` will have auto-generated filenames created by GPTel
+  - ai-code-notes-use-gptel-headline: When non-nil, notes created by `ai-code-take-notes` will have auto-generated headlines created by GPTel
   - ai-code-use-gptel-headline: When non-nil, prompts sent to the AI will have auto-generated headlines created by GPTel, providing better organization and readability in the prompt file
   - ai-code-use-gptel-classify-prompt: When no nil, and `ai-code-auto-test-type` is not nil, classify whether the current prompt is about code changes and need to trigger following test
 - `flycheck`: To enable the `ai-code-flycheck-fix-errors-in-scope` command.
@@ -99,7 +122,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - *Transient-Driven Hub (`C-c a`)*: One keystroke opens a contextual transient menu that groups every capability (CLI control, code actions, agile workflows, utilities) so you never need to memorize scattered keybindings.
 - *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), edit backend configs (`g`), and run prompts against the current file (`|`). It support multiple sessions per project.
 - *Context-Aware Code Actions*: The menu exposes dedicated entries for changing code (`c`), implementing TODOs (`i`), asking questions (`q`), explaining code (`x`), sending free-form commands (`<SPC>`), and refreshing AI context (`@`). Each command automatically captures the surrounding function, region, or clipboard contents (via `C-u`) to keep prompts precise.
-- *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), block sending (`b`), and AI-assisted shell/file execution (`!`).
+- *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
 - *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), capture session notes straight into Org (`n`), and toggle desktop notifications (`N`) to get alerted when AI responses are ready in background sessions.
 - *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` by default), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized.
 - *Interactive Chat & Context Tools*: Dedicated buffers hold long-running chats, automatically enriched with file paths, diffs, and history from Magit or Git commands for richer AI responses.
@@ -208,7 +231,7 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 
 **** Grok CLI setup
      Install [[https://grokcli.io/][grok-cli]] and ensure the `grok` executable is on your PATH.
-     Customize `grok-cli-program` or `grok-cli-program-switches` if you want to
+     Customize `ai-code-grok-cli-program` or `ai-code-grok-cli-program-switches` if you want to
      point at a different binary or pass additional flags (for example,
      selecting a profile). After that, select the backend through
      `ai-code-select-backend` or bind a helper in your config.
