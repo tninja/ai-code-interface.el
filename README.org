@@ -109,6 +109,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 
 - *Changing Code*: Position the cursor on a function or select a region of code. Press `C-c a`, then `c` (`ai-code-code-change`). Describe the change you want to make in the prompt. The AI will receive the context of the function or region and your instruction. 
 - *Implementing a TODO*: Write a comment in your code, like `;; TODO: Implement caching for this function`. Place your cursor on that line and press `C-c a`, then `i` (`ai-code-implement-todo`). The AI will generate the implementation based on the comment.
+  - Relevant packages for TODO: [[https://github.com/tarsius/hl-todo][hl-todo]], [[https://github.com/alphapapa/magit-todos][magit-todos]]
 - *Asking a Question*: Place your cursor within a function, press `C-c a`, then `q` (`ai-code-ask-question`), type your question, and press Enter. The question, along with context, will be sent to the AI.
 - *Refactoring a Function*: With the cursor in a function, press `C-c a`, then `r` (`ai-code-refactor-book-method`). Select a refactoring technique from the list, provide any required input (e.g., a new method name), and the prompt will be generated.
 - *Automatically run tests after change*: When ai-code-auto-test-type is non-nil, AI will automatically run tests after code changes and follow up on results.
