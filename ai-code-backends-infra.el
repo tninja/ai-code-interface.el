@@ -112,6 +112,12 @@ Can be either `vterm' or `eat'."
 (defvar ai-code-backends-infra--directory-buffer-map (make-hash-table :test 'equal)
   "Hash table mapping (prefix . directory) to last selected session buffer.")
 
+(defvar ai-code-backends-infra--file-session-map (make-hash-table :test 'equal)
+  "Hash table mapping (prefix . file) to attached AI session buffer.")
+
+(defvar ai-code-backends-infra--preferred-session-buffer nil
+  "Preferred session buffer to place first when prompting for session selection.")
+
 (defvar-local ai-code-backends-infra--idle-timer nil
   "Timer for detecting idle state (response completion).")
 
@@ -396,6 +402,82 @@ Activity tracking for notifications is handled separately by
   "Return DIRECTORY normalized for robust session matching."
   (file-name-as-directory (expand-file-name directory)))
 
+(defun ai-code-backends-infra--normalize-file-path (file)
+  "Return normalized absolute path for FILE."
+  (let ((expanded (expand-file-name file)))
+    (if (file-exists-p expanded)
+        (file-truename expanded)
+      expanded)))
+
+(defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
+  "Return file-session map key for PREFIX and SOURCE-BUFFER."
+  (when (and prefix (buffer-live-p source-buffer))
+    (with-current-buffer source-buffer
+      (when (and (stringp buffer-file-name)
+                 (> (length buffer-file-name) 0))
+        (cons prefix
+              (ai-code-backends-infra--normalize-file-path buffer-file-name))))))
+
+(defun ai-code-backends-infra--remember-file-session-buffer (prefix source-buffer session-buffer)
+  "Remember SESSION-BUFFER as attached session for SOURCE-BUFFER and PREFIX."
+  (when-let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
+    (if (and session-buffer (buffer-live-p session-buffer))
+        (puthash key session-buffer ai-code-backends-infra--file-session-map)
+      (remhash key ai-code-backends-infra--file-session-map))))
+
+(defun ai-code-backends-infra--attached-file-session (prefix source-buffer working-dir)
+  "Return attached session state for PREFIX, SOURCE-BUFFER and WORKING-DIR.
+Return a cons of (BUFFER . MISSING-P)."
+  (let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
+    (if (null key)
+        (cons nil nil)
+      (let* ((attached (gethash key ai-code-backends-infra--file-session-map))
+             (valid (and (buffer-live-p attached)
+                         (memq attached
+                               (ai-code-backends-infra--find-session-buffers
+                                prefix
+                                working-dir)))))
+        (cond
+         (valid
+          (cons attached nil))
+         (attached
+          (remhash key ai-code-backends-infra--file-session-map)
+          (cons nil t))
+         (t
+          (cons nil nil)))))))
+
+(defun ai-code-backends-infra--resolve-session-buffer (buffer-name missing-message prefix working-dir
+                                                                  force-prompt source-buffer)
+  "Resolve session buffer using BUFFER-NAME or selection rules.
+MISSING-MESSAGE is used when no target session exists.
+When PREFIX and WORKING-DIR are present, prefer the attached session for
+SOURCE-BUFFER unless FORCE-PROMPT is non-nil."
+  (let* ((attached-state (and prefix working-dir
+                              (ai-code-backends-infra--attached-file-session
+                               prefix
+                               source-buffer
+                               working-dir)))
+         (attached-buffer (car-safe attached-state))
+         (attached-missing (cdr-safe attached-state))
+         (effective-force-prompt (or force-prompt attached-missing))
+         (buffer (or (and buffer-name (get-buffer buffer-name))
+                     (and attached-buffer (not force-prompt) attached-buffer)
+                     (and prefix working-dir
+                          (let ((ai-code-backends-infra--preferred-session-buffer
+                                 attached-buffer))
+                            (ai-code-backends-infra--select-session-buffer
+                             prefix
+                             working-dir
+                             effective-force-prompt))))))
+    (when attached-missing
+      (message "Attached AI session for this file no longer exists. Please select a target session again."))
+    (if buffer
+        (progn
+          (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+          (ai-code-backends-infra--remember-file-session-buffer prefix source-buffer buffer)
+          buffer)
+      (user-error "%s" missing-message))))
+
 (defun ai-code-backends-infra--set-session-directory (buffer directory)
   "Store DIRECTORY on BUFFER for exact session matching."
   (when (and (buffer-live-p buffer) (stringp directory))
@@ -502,18 +584,26 @@ Returns the selected buffer or nil if none exist."
      (t
       (let* ((remembered (gethash (ai-code-backends-infra--session-map-key prefix directory)
                                   ai-code-backends-infra--directory-buffer-map))
+             (preferred (if (memq ai-code-backends-infra--preferred-session-buffer buffers)
+                            ai-code-backends-infra--preferred-session-buffer
+                          (and (memq remembered buffers) remembered)))
+             (ordered-buffers (if preferred
+                                  (cons preferred (delq preferred (copy-sequence buffers)))
+                                buffers))
              (choices (mapcar (lambda (buf)
                                 (cons (ai-code-backends-infra--session-instance-name
                                        (buffer-name buf)
                                        prefix)
                                       buf))
-                              buffers)))
+                              ordered-buffers))
+             (candidates (mapcar #'car choices))
+             (default-candidate (car candidates)))
         (if (and (not force-prompt) remembered (memq remembered buffers))
             remembered
           (let ((selection (completing-read
                             (format "Select %s session: " prefix)
-                            (mapcar #'car choices)
-                            nil t)))
+                            candidates
+                            nil t nil nil default-candidate)))
             (let ((buffer (cdr (assoc selection choices))))
               (ai-code-backends-infra--remember-session-buffer prefix directory buffer)
               buffer))))))))
@@ -676,37 +766,40 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
                                                                     &optional prefix working-dir force-prompt)
   "Switch to BUFFER-NAME or signal MISSING-MESSAGE.
 When PREFIX and WORKING-DIR are provided, select from multiple sessions."
-  (let ((buffer (or (and buffer-name (get-buffer buffer-name))
-                    (and prefix working-dir
-                         (ai-code-backends-infra--select-session-buffer
-                          prefix
-                          working-dir
-                          force-prompt)))))
-    (if buffer
-        (progn
-          (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
-          (if-let ((window (get-buffer-window buffer)))
-            (select-window window)
-            (ai-code-backends-infra--display-buffer-in-side-window buffer)))
-      (user-error "%s" missing-message))))
+  (let ((source-buffer (current-buffer))
+        (buffer (ai-code-backends-infra--resolve-session-buffer
+                 buffer-name
+                 missing-message
+                 prefix
+                 working-dir
+                 force-prompt
+                 (current-buffer))))
+    (if-let ((window (get-buffer-window buffer)))
+        (select-window window)
+      (ai-code-backends-infra--display-buffer-in-side-window buffer))
+    (when (buffer-live-p source-buffer)
+      (ai-code-backends-infra--remember-file-session-buffer
+       prefix
+       source-buffer
+       buffer))))
 
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
                                                                 &optional prefix working-dir force-prompt)
   "Send LINE to BUFFER-NAME or signal MISSING-MESSAGE.
 When PREFIX and WORKING-DIR are provided, select from multiple sessions."
-  (let ((buffer (or (and buffer-name (get-buffer buffer-name))
-                    (and prefix working-dir
-                         (ai-code-backends-infra--select-session-buffer
-                          prefix
-                          working-dir
-                          force-prompt)))))
-    (if buffer
-        (with-current-buffer buffer
-          (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
-          (ai-code-backends-infra--terminal-send-string line)
-          (sit-for 0.5) ;; 0.1 might be too low for some cli backends such as github copilot cli
-          (ai-code-backends-infra--terminal-send-return))
-      (user-error "%s" missing-message))))
+  (let* ((source-buffer (current-buffer))
+         (buffer (ai-code-backends-infra--resolve-session-buffer
+                  buffer-name
+                  missing-message
+                  prefix
+                  working-dir
+                  force-prompt
+                  source-buffer)))
+    (with-current-buffer buffer
+      (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+      (ai-code-backends-infra--terminal-send-string line)
+      (sit-for 0.5) ;; 0.1 might be too low for some cli backends such as github copilot cli
+      (ai-code-backends-infra--terminal-send-return))))
 
 ;;; Generic Session Creation
 

@@ -301,6 +301,14 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
       (when (stringp text)
         (substring-no-properties text)))))
 
+;; DONE: Improve multiple session switching experience, for any ai backend use ai-code-backends-infra.el
+;; - file in git repo should have attached session
+;;   - Initially it was associated by sending any prompt to session (could be any send prompt command from menu, such as C-c a c, C-c a q, C-c a <SPC>, etc), triggered from that file buffer, or C-c C-z from that file buffer
+;;   - The associated ai session can be changed after C-c C-z pressed on that file buffer, and then target ai session re-selected
+;;   - If the corresponding associated buffer doesn't exist (has been killed), let user know and choose the target ai session again
+
+;; DONE: Multiple session support: when a file buffer already have an existing associated ai session, C-c c-z key triggered session select list, the associated session should be pre-selected in the session list (top), and if user select another session, the file buffer should be re-associated with the newly selected session.
+
 ;;;###autoload
 (defun ai-code-send-command (arg)
   "Read a prompt from the user and send it to the AI service.

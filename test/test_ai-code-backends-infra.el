@@ -157,6 +157,243 @@
       (when (buffer-live-p buf)
         (kill-buffer buf)))))
 
+(ert-deftest test-ai-code-backends-infra-send-line-attaches-session-per-file ()
+  "Sending from different files should keep independent attached sessions."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-session/")
+         (source-a (generate-new-buffer " *ai-code-source-a*"))
+         (source-b (generate-new-buffer " *ai-code-source-b*"))
+         (session-a (get-buffer-create "*codex[file-session:a]*"))
+         (session-b (get-buffer-create "*codex[file-session:b]*"))
+         (selection-order (list session-a session-b))
+         (send-targets nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source-a
+            (setq buffer-file-name "/tmp/ai-code-file-session/file-a.el")
+            (setq default-directory working-dir))
+          (with-current-buffer source-b
+            (setq buffer-file-name "/tmp/ai-code-file-session/file-b.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (&rest _args)
+                       (if selection-order
+                           (pop selection-order)
+                         (ert-fail "Selection should not run again for an attached file."))))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (&rest _args)
+                       (push (buffer-name (current-buffer)) send-targets)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda () nil))
+                    ((symbol-function 'sit-for)
+                     (lambda (&rest _args) nil)))
+            (with-current-buffer source-a
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-a1" prefix working-dir))
+            (with-current-buffer source-b
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-b1" prefix working-dir))
+            (with-current-buffer source-a
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-a2" prefix working-dir)))
+          (should (equal (nreverse send-targets)
+                         (list "*codex[file-session:a]*"
+                               "*codex[file-session:b]*"
+                               "*codex[file-session:a]*"))))
+      (dolist (buf (list source-a source-b session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-switch-force-prompt-rebinds-file-session ()
+  "Force switching should rebind the current file to the newly selected session."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-rebind/")
+         (source (generate-new-buffer " *ai-code-source-rebind*"))
+         (session-a (get-buffer-create "*codex[file-rebind:a]*"))
+         (session-b (get-buffer-create "*codex[file-rebind:b]*"))
+         (selection-order (list session-a session-b))
+         (force-prompts nil)
+         (display-targets nil)
+         (send-targets nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-rebind/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (_prefix _dir &optional force-prompt)
+                       (push force-prompt force-prompts)
+                       (if selection-order
+                           (pop selection-order)
+                         (ert-fail "Selection should not run after file session is rebound."))))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (buffer)
+                       (push (buffer-name buffer) display-targets)
+                       nil))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (&rest _args)
+                       (push (buffer-name (current-buffer)) send-targets)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda () nil))
+                    ((symbol-function 'sit-for)
+                     (lambda (&rest _args) nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-1" prefix working-dir)
+              (ai-code-backends-infra--switch-to-session-buffer
+               nil "missing" prefix working-dir t)
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-2" prefix working-dir)))
+
+          (should (equal (nreverse force-prompts) (list nil t)))
+          (should (equal (nreverse send-targets)
+                         (list "*codex[file-rebind:a]*"
+                               "*codex[file-rebind:b]*")))
+          (should (equal (nreverse display-targets)
+                         (list "*codex[file-rebind:b]*"))))
+      (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-switch-force-prompt-prioritizes-attached-session ()
+  "Force prompt should place attached file session at the top and as default."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-preselect/")
+         (source (generate-new-buffer " *ai-code-source-preselect*"))
+         (session-a (get-buffer-create "*codex[file-preselect:a]*"))
+         (session-b (get-buffer-create "*codex[file-preselect:b]*"))
+         (captured-collection nil)
+         (captured-default nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-preselect/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (ai-code-backends-infra--remember-file-session-buffer
+           prefix
+           source
+           session-b)
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
+                     (lambda (_prefix _dir)
+                       (list session-a session-b)))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt collection _predicate _require-match
+                              &optional _initial-input _hist def &rest _)
+                       (setq captured-collection collection)
+                       (setq captured-default def)
+                       "a"))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (_buffer) nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--switch-to-session-buffer
+               nil
+               "missing"
+               prefix
+               working-dir
+               t)))
+
+          (should (equal captured-collection '("b" "a")))
+          (should (equal captured-default "b"))
+          (should (eq (gethash
+                       (ai-code-backends-infra--file-session-map-key prefix source)
+                       ai-code-backends-infra--file-session-map)
+                      session-a)))
+      (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-send-line-reselects-when-attached-session-missing ()
+  "When an attached session buffer is killed, notify and force re-selection."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-missing/")
+         (source (generate-new-buffer " *ai-code-source-missing*"))
+         (session-a (get-buffer-create "*codex[file-missing:a]*"))
+         (session-b (get-buffer-create "*codex[file-missing:b]*"))
+         (selection-order (list session-a session-b))
+         (force-prompts nil)
+         (messages nil)
+         (send-targets nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-missing/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (_prefix _dir &optional force-prompt)
+                       (push force-prompt force-prompts)
+                       (if selection-order
+                           (pop selection-order)
+                         (ert-fail "Selection should only happen twice in this scenario."))))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (&rest _args)
+                       (push (buffer-name (current-buffer)) send-targets)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda () nil))
+                    ((symbol-function 'sit-for)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'message)
+                     (lambda (format-string &rest args)
+                       (push (apply #'format format-string args) messages)
+                       nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-1" prefix working-dir))
+            (when (buffer-live-p session-a)
+              (kill-buffer session-a))
+            (with-current-buffer source
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-2" prefix working-dir)))
+
+          (should (equal (nreverse force-prompts) (list nil t)))
+          (should (equal (nreverse send-targets)
+                         (list "*codex[file-missing:a]*"
+                               "*codex[file-missing:b]*")))
+          (should (= (length messages) 1))
+          (should (string-match-p
+                   "Attached AI session .* no longer exists"
+                   (car messages))))
+      (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
