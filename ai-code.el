@@ -309,6 +309,8 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 
 ;; DONE: Multiple session support: when a file buffer already have an existing associated ai session, C-c a z key triggered session select list, the associated session should be pre-selected in the session list (top), and if user select another session, the file buffer should be re-associated with the newly selected session.
 
+;; DONE: The current behavior: In repo X, I opened two ai-coding sessions s1 and s2. Then I opened a file f1 in repo X, and send a command through C-c a x, it directly send command to s2. I think it is wrong. Since f1 hasn't been associate with any session, it should ask me to select target session. If I choose s1, next time I send command from f1, it should directly send to s1 without asking, until I want to switch to s2 by C-c a z in f1 and select s2, then next time I send command from f1, it should directly send to s2.
+
 ;;;###autoload
 (defun ai-code-send-command (arg)
   "Read a prompt from the user and send it to the AI service.

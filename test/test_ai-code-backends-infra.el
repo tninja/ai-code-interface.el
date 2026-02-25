@@ -289,6 +289,62 @@
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
+(ert-deftest test-ai-code-backends-infra-send-line-unassociated-file-forces-selection ()
+  "Unassociated file should force session selection even if a session is remembered."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-new-association/")
+         (source (generate-new-buffer " *ai-code-source-new-association*"))
+         (session-a (get-buffer-create "*codex[file-new-association:a]*"))
+         (session-b (get-buffer-create "*codex[file-new-association:b]*"))
+         (force-prompts nil)
+         (send-targets nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-new-association/new-file.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          ;; Simulate repo-level remembered session (the previous behavior picked this directly).
+          (ai-code-backends-infra--remember-session-buffer prefix working-dir session-b)
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (_prefix _dir &optional force-prompt)
+                       (push force-prompt force-prompts)
+                       (if (= (length force-prompts) 1)
+                           session-a
+                         (ert-fail "Should not prompt again once file is associated."))))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (&rest _args)
+                       (push (buffer-name (current-buffer)) send-targets)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda () nil))
+                    ((symbol-function 'sit-for)
+                     (lambda (&rest _args) nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-1" prefix working-dir)
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-2" prefix working-dir)))
+
+          (should (equal (nreverse force-prompts) (list t)))
+          (should (equal (nreverse send-targets)
+                         (list "*codex[file-new-association:a]*"
+                               "*codex[file-new-association:a]*")))
+          (should (eq (gethash
+                       (ai-code-backends-infra--file-session-map-key prefix source)
+                       ai-code-backends-infra--file-session-map)
+                      session-a)))
+      (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
 (ert-deftest test-ai-code-backends-infra-switch-force-prompt-rebinds-file-session ()
   "Force switching should rebind the current file to the newly selected session."
   (let* ((prefix "codex")
@@ -339,7 +395,7 @@
               (ai-code-backends-infra--send-line-to-session
                nil "missing" "line-2" prefix working-dir)))
 
-          (should (equal (nreverse force-prompts) (list nil t)))
+          (should (equal (nreverse force-prompts) (list t t)))
           (should (equal (nreverse send-targets)
                          (list "*codex[file-rebind:a]*"
                                "*codex[file-rebind:b]*")))
@@ -505,7 +561,7 @@
               (ai-code-backends-infra--send-line-to-session
                nil "missing" "line-2" prefix working-dir)))
 
-          (should (equal (nreverse force-prompts) (list nil t)))
+          (should (equal (nreverse force-prompts) (list t t)))
           (should (equal (nreverse send-targets)
                          (list "*codex[file-missing:a]*"
                                "*codex[file-missing:b]*")))
