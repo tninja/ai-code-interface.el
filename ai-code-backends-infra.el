@@ -298,45 +298,48 @@ Activity tracking for notifications is handled separately by
     (unless (featurep 'eat) (require 'eat nil t))
     (unless (featurep 'eat)
       (user-error "The package eat is not installed")))
-   (t (user-error "Invalid terminal backend: %s" ai-code-backends-infra-terminal-backend))))
+   (t (user-error "Invalid terminal backend: %s" ai-code-backends-infra-terminal-backend)))
+  ;; Keep reflow advice synchronized with current backend/settings.
+  (ai-code-backends-infra--sync-reflow-filter-advice))
+
+(defun ai-code-backends-infra--terminal-dispatch (vterm-fn eat-fn)
+  "Run VTERM-FN or EAT-FN based on selected terminal backend."
+  (pcase ai-code-backends-infra-terminal-backend
+    ('vterm (funcall vterm-fn))
+    ('eat (funcall eat-fn))
+    (_ (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
 
 (defun ai-code-backends-infra--terminal-send-string (string)
   "Send STRING to the terminal in the current buffer."
-  (cond
-   ((eq ai-code-backends-infra-terminal-backend 'vterm)
-    (vterm-send-string string))
-   ((eq ai-code-backends-infra-terminal-backend 'eat)
-    (when (bound-and-true-p eat-terminal)
-      (eat-term-send-string eat-terminal string)))
-   (t (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
+  (ai-code-backends-infra--terminal-dispatch
+   (lambda () (vterm-send-string string))
+   (lambda ()
+     (when (bound-and-true-p eat-terminal)
+       (eat-term-send-string eat-terminal string)))))
 
 (defun ai-code-backends-infra--terminal-send-escape ()
   "Send escape key to the terminal in the current buffer."
-  (cond
-   ((eq ai-code-backends-infra-terminal-backend 'vterm) (vterm-send-escape))
-   ((eq ai-code-backends-infra-terminal-backend 'eat)
-    (when (bound-and-true-p eat-terminal)
-      (eat-term-send-string eat-terminal "\e")))
-   (t (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
+  (ai-code-backends-infra--terminal-dispatch
+   (lambda () (vterm-send-escape))
+   (lambda ()
+     (when (bound-and-true-p eat-terminal)
+       (eat-term-send-string eat-terminal "\e")))))
 
 (defun ai-code-backends-infra--terminal-send-return ()
   "Send return key to the terminal in the current buffer."
-  (cond
-   ((eq ai-code-backends-infra-terminal-backend 'vterm) (vterm-send-return))
-   ((eq ai-code-backends-infra-terminal-backend 'eat)
-    (when (bound-and-true-p eat-terminal)
-      (eat-term-send-string eat-terminal "\r")))
-   (t (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
+  (ai-code-backends-infra--terminal-dispatch
+   (lambda () (vterm-send-return))
+   (lambda ()
+     (when (bound-and-true-p eat-terminal)
+       (eat-term-send-string eat-terminal "\r")))))
 
 (defun ai-code-backends-infra--terminal-send-backspace ()
   "Send backspace key to the terminal in the current buffer."
-  (cond
-   ((eq ai-code-backends-infra-terminal-backend 'vterm)
-    (vterm-send-string "\177"))
-   ((eq ai-code-backends-infra-terminal-backend 'eat)
-    (when (bound-and-true-p eat-terminal)
-      (eat-term-send-string eat-terminal "\177")))
-   (t (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
+  (ai-code-backends-infra--terminal-dispatch
+   (lambda () (vterm-send-string "\177"))
+   (lambda ()
+     (when (bound-and-true-p eat-terminal)
+       (eat-term-send-string eat-terminal "\177")))))
 
 ;;; Reflow and Window Management
 
@@ -367,6 +370,23 @@ Activity tracking for notifications is handled separately by
     (if (and ai-code-backends-infra-prevent-reflow-glitch dimensions-stable)
         nil
       base-result)))
+
+(defun ai-code-backends-infra--sync-reflow-filter-advice ()
+  "Add or remove terminal reflow advice according to current settings."
+  (let* ((resize-handler (ai-code-backends-infra--terminal-resize-handler))
+         (enabled (and ai-code-backends-infra-prevent-reflow-glitch
+                       (or (eq ai-code-backends-infra-terminal-backend 'vterm)
+                           ai-code-backends-infra-eat-preserve-position))))
+    (if enabled
+        (unless (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                 resize-handler)
+          (advice-add resize-handler
+                      :around
+                      #'ai-code-backends-infra--terminal-reflow-filter))
+      (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                             resize-handler)
+        (advice-remove resize-handler
+                       #'ai-code-backends-infra--terminal-reflow-filter)))))
 
 (defun ai-code-backends-infra--display-buffer-in-side-window (buffer)
   "Display BUFFER in a side window."
@@ -682,6 +702,7 @@ CLEANUP-FN is called with no arguments when the process exits.
 INSTANCE-NAME overrides instance selection when non-nil.
 PREFIX enables instance selection when BUFFER-NAME is nil.
 When FORCE-PROMPT is non-nil, always prompt for a new instance name."
+  (setq process-table (or process-table ai-code-backends-infra--processes))
   (ai-code-backends-infra--cleanup-dead-processes process-table)
   (let* ((existing-buffers (and prefix
                                 (ai-code-backends-infra--find-session-buffers

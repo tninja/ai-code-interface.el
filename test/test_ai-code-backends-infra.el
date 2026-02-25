@@ -87,6 +87,82 @@
         (should-not ai-code-backends-infra--response-seen)
         (should scheduled)))))
 
+(ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-vterm ()
+  "Enable and disable reflow advice for vterm according to toggle."
+  (let ((handler 'ai-code-backends-infra--test-resize-vterm))
+    (fset handler (lambda (&rest args) args))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-resize-handler)
+                   (lambda () handler)))
+          (let ((ai-code-backends-infra-terminal-backend 'vterm)
+                (ai-code-backends-infra-prevent-reflow-glitch t))
+            (ai-code-backends-infra--sync-reflow-filter-advice)
+            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                     handler)))
+          (let ((ai-code-backends-infra-terminal-backend 'vterm)
+                (ai-code-backends-infra-prevent-reflow-glitch nil))
+            (ai-code-backends-infra--sync-reflow-filter-advice)
+            (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                         handler))))
+      (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter handler)
+        (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
+      (fmakunbound handler))))
+
+(ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-eat-toggle ()
+  "Respect `ai-code-backends-infra-eat-preserve-position' for eat backend."
+  (let ((handler 'ai-code-backends-infra--test-resize-eat))
+    (fset handler (lambda (&rest args) args))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-resize-handler)
+                   (lambda () handler)))
+          (let ((ai-code-backends-infra-terminal-backend 'eat)
+                (ai-code-backends-infra-prevent-reflow-glitch t)
+                (ai-code-backends-infra-eat-preserve-position nil))
+            (ai-code-backends-infra--sync-reflow-filter-advice)
+            (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                         handler)))
+          (let ((ai-code-backends-infra-terminal-backend 'eat)
+                (ai-code-backends-infra-prevent-reflow-glitch t)
+                (ai-code-backends-infra-eat-preserve-position t))
+            (ai-code-backends-infra--sync-reflow-filter-advice)
+            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                     handler))))
+      (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter handler)
+        (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
+      (fmakunbound handler))))
+
+(ert-deftest test-ai-code-backends-infra-toggle-or-create-session-default-process-table ()
+  "Fallback to global process table when PROCESS-TABLE is nil."
+  (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))
+         (working-dir "/tmp/ai-code-default-table/")
+         (buffer-name "*ai-code-default-table*")
+         (buffer (get-buffer-create buffer-name))
+         (captured-table nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--cleanup-dead-processes)
+                   (lambda (table) (setq captured-table table)))
+                  ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                   (lambda (&rest _args) (cons buffer 'mock-process)))
+                  ((symbol-function 'sleep-for)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'process-live-p)
+                   (lambda (&rest _args) t))
+                  ((symbol-function 'set-process-sentinel)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--toggle-or-create-session
+           working-dir
+           buffer-name
+           nil
+           "echo hi")
+          (should (eq captured-table ai-code-backends-infra--processes))
+          (should (eq (gethash (cons working-dir "default")
+                               ai-code-backends-infra--processes)
+                      'mock-process)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-cleanup-session-kills-buffer-on-normal-exit ()
   "Buffer is killed when the process exits normally (event starts with \"finished\")."
   (let* ((table (make-hash-table :test 'equal))
