@@ -131,6 +131,78 @@
         (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
       (fmakunbound handler))))
 
+(ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-clears-stale-handler ()
+  "Switching backend should remove stale reflow advice from old handler."
+  (let ((vterm-handler 'ai-code-backends-infra--test-resize-vterm-stale)
+        (eat-handler 'ai-code-backends-infra--test-resize-eat-stale)
+        (ai-code-backends-infra--reflow-advised-handlers nil))
+    (fset vterm-handler (lambda (&rest args) args))
+    (fset eat-handler (lambda (&rest args) args))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-resize-handler)
+                   (lambda ()
+                     (pcase ai-code-backends-infra-terminal-backend
+                       ('vterm vterm-handler)
+                       ('eat eat-handler)
+                       (_ (error "Unexpected backend"))))))
+          (let ((ai-code-backends-infra-terminal-backend 'vterm)
+                (ai-code-backends-infra-prevent-reflow-glitch t))
+            (ai-code-backends-infra--sync-reflow-filter-advice)
+            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                     vterm-handler)))
+          (let ((ai-code-backends-infra-terminal-backend 'eat)
+                (ai-code-backends-infra-prevent-reflow-glitch t)
+                (ai-code-backends-infra-eat-preserve-position nil))
+            (ai-code-backends-infra--sync-reflow-filter-advice))
+          (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                       vterm-handler)))
+      (dolist (handler (list vterm-handler eat-handler))
+        (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter handler)
+          (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
+        (fmakunbound handler)))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-send-string-prefers-session-backend ()
+  "Send should use session-local backend even after global backend changes."
+  (let ((ai-code-backends-infra-terminal-backend 'eat)
+        (calls nil)
+        (buffer (generate-new-buffer " *ai-code-terminal-dispatch*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'vterm-send-string)
+                   (lambda (_str) (push 'vterm calls)))
+                  ((symbol-function 'eat-term-send-string)
+                   (lambda (&rest _args) (push 'eat calls))))
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+            (ai-code-backends-infra--terminal-send-string "hello"))
+          (should (equal calls '(vterm))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-normalize-file-path-stable-across-existence ()
+  "Normalization should stay stable when file existence changes."
+  (let* ((root (make-temp-file "ai-code-normalize-file-path-" t))
+         (target-dir (expand-file-name "target" root))
+         (target-file (expand-file-name "main.el" target-dir))
+         (link-dir (expand-file-name "link" root))
+         (link-file (expand-file-name "main.el" link-dir))
+         before
+         after)
+    (unwind-protect
+        (progn
+          (make-directory target-dir t)
+          (make-directory link-dir t)
+          (condition-case err
+              (make-symbolic-link target-file link-file t)
+            (file-error
+             (ert-skip (format "Symlink unavailable for this environment: %S" err))))
+          (setq before (ai-code-backends-infra--normalize-file-path link-file))
+          (with-temp-file target-file
+            (insert "(message \"x\")\n"))
+          (setq after (ai-code-backends-infra--normalize-file-path link-file))
+          (should (equal before after)))
+      (ignore-errors
+        (delete-directory root t)))))
+
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-default-process-table ()
   "Fallback to global process table when PROCESS-TABLE is nil."
   (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))

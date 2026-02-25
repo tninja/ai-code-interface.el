@@ -118,6 +118,9 @@ Can be either `vterm' or `eat'."
 (defvar ai-code-backends-infra--preferred-session-buffer nil
   "Preferred session buffer to place first when prompting for session selection.")
 
+(defvar ai-code-backends-infra--reflow-advised-handlers nil
+  "Resize handlers currently advised with reflow filter.")
+
 (defvar-local ai-code-backends-infra--idle-timer nil
   "Timer for detecting idle state (response completion).")
 
@@ -131,6 +134,9 @@ being sent for the response completion.")
 
 (defvar-local ai-code-backends-infra--session-directory nil
   "Normalized working directory associated with the current session buffer.")
+
+(defvar-local ai-code-backends-infra--session-terminal-backend nil
+  "Terminal backend used by the current session buffer.")
 
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
@@ -302,12 +308,18 @@ Activity tracking for notifications is handled separately by
   ;; Keep reflow advice synchronized with current backend/settings.
   (ai-code-backends-infra--sync-reflow-filter-advice))
 
+(defun ai-code-backends-infra--current-terminal-backend ()
+  "Return terminal backend for current buffer operations."
+  (or ai-code-backends-infra--session-terminal-backend
+      ai-code-backends-infra-terminal-backend))
+
 (defun ai-code-backends-infra--terminal-dispatch (vterm-fn eat-fn)
   "Run VTERM-FN or EAT-FN based on selected terminal backend."
-  (pcase ai-code-backends-infra-terminal-backend
+  (pcase (ai-code-backends-infra--current-terminal-backend)
     ('vterm (funcall vterm-fn))
     ('eat (funcall eat-fn))
-    (_ (error "Unknown terminal backend: %s" ai-code-backends-infra-terminal-backend))))
+    (_ (error "Unknown terminal backend: %s"
+              (ai-code-backends-infra--current-terminal-backend)))))
 
 (defun ai-code-backends-infra--terminal-send-string (string)
   "Send STRING to the terminal in the current buffer."
@@ -376,17 +388,24 @@ Activity tracking for notifications is handled separately by
   (let* ((resize-handler (ai-code-backends-infra--terminal-resize-handler))
          (enabled (and ai-code-backends-infra-prevent-reflow-glitch
                        (or (eq ai-code-backends-infra-terminal-backend 'vterm)
-                           ai-code-backends-infra-eat-preserve-position))))
-    (if enabled
-        (unless (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                                 resize-handler)
-          (advice-add resize-handler
-                      :around
-                      #'ai-code-backends-infra--terminal-reflow-filter))
-      (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                             resize-handler)
-        (advice-remove resize-handler
-                       #'ai-code-backends-infra--terminal-reflow-filter)))))
+                           (and (eq ai-code-backends-infra-terminal-backend 'eat)
+                                ai-code-backends-infra-eat-preserve-position)))))
+    (dolist (handler (cl-copy-list ai-code-backends-infra--reflow-advised-handlers))
+      (unless (and enabled (eq handler resize-handler))
+        (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                               handler)
+          (advice-remove handler
+                         #'ai-code-backends-infra--terminal-reflow-filter))
+        (setq ai-code-backends-infra--reflow-advised-handlers
+              (delq handler ai-code-backends-infra--reflow-advised-handlers))))
+    (when (and enabled resize-handler)
+      (unless (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                               resize-handler)
+        (advice-add resize-handler
+                    :around
+                    #'ai-code-backends-infra--terminal-reflow-filter))
+      (cl-pushnew resize-handler ai-code-backends-infra--reflow-advised-handlers
+                  :test #'eq))))
 
 (defun ai-code-backends-infra--display-buffer-in-side-window (buffer)
   "Display BUFFER in a side window."
@@ -424,10 +443,7 @@ Activity tracking for notifications is handled separately by
 
 (defun ai-code-backends-infra--normalize-file-path (file)
   "Return normalized absolute path for FILE."
-  (let ((expanded (expand-file-name file)))
-    (if (file-exists-p expanded)
-        (file-truename expanded)
-      expanded)))
+  (expand-file-name file))
 
 (defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
   "Return file-session map key for PREFIX and SOURCE-BUFFER."
@@ -846,6 +862,7 @@ ENV-VARS is a list of environment variables."
         (let ((buffer (save-window-excursion (vterm buffer-name))))
           (ai-code-backends-infra--set-session-directory buffer working-dir)
           (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
             (ai-code-backends-infra--configure-vterm-buffer))
           (cons buffer (get-buffer-process buffer)))))
 
@@ -856,6 +873,7 @@ ENV-VARS is a list of environment variables."
              (args (cdr parts)))
         (ai-code-backends-infra--set-session-directory buffer working-dir)
         (with-current-buffer buffer
+          (setq-local ai-code-backends-infra--session-terminal-backend 'eat)
           (unless (eq major-mode 'eat-mode) (eat-mode))
           (when (fboundp 'ai-code--session-handle-at-input)
             (local-set-key (kbd "@") #'ai-code--session-handle-at-input))
