@@ -469,7 +469,7 @@ SOURCE-BUFFER unless FORCE-PROMPT is non-nil."
                              prefix
                              working-dir
                              effective-force-prompt))))))
-    (when attached-missing
+    (when (and attached-missing (null buffer-name))
       (message "Attached AI session for this file no longer exists. Please select a target session again."))
     (if buffer
         (progn
@@ -766,22 +766,17 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
                                                                     &optional prefix working-dir force-prompt)
   "Switch to BUFFER-NAME or signal MISSING-MESSAGE.
 When PREFIX and WORKING-DIR are provided, select from multiple sessions."
-  (let ((source-buffer (current-buffer))
-        (buffer (ai-code-backends-infra--resolve-session-buffer
-                 buffer-name
-                 missing-message
-                 prefix
-                 working-dir
-                 force-prompt
-                 (current-buffer))))
+  (let* ((source-buffer (current-buffer))
+         (buffer (ai-code-backends-infra--resolve-session-buffer
+                  buffer-name
+                  missing-message
+                  prefix
+                  working-dir
+                  force-prompt
+                  source-buffer)))
     (if-let ((window (get-buffer-window buffer)))
         (select-window window)
-      (ai-code-backends-infra--display-buffer-in-side-window buffer))
-    (when (buffer-live-p source-buffer)
-      (ai-code-backends-infra--remember-file-session-buffer
-       prefix
-       source-buffer
-       buffer))))
+      (ai-code-backends-infra--display-buffer-in-side-window buffer))))
 
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
                                                                 &optional prefix working-dir force-prompt)

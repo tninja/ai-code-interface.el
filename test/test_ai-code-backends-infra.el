@@ -331,6 +331,53 @@
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
+(ert-deftest test-ai-code-backends-infra-resolve-session-buffer-no-message-with-explicit-buffer-name ()
+  "Do not show attached-missing warning when explicit BUFFER-NAME is provided."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-explicit/")
+         (source (generate-new-buffer " *ai-code-source-explicit*"))
+         (attached (get-buffer-create "*codex[file-explicit:attached]*"))
+         (target (get-buffer-create "*codex[file-explicit:target]*"))
+         (messages nil)
+         result)
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-explicit/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer attached
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer target
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (ai-code-backends-infra--remember-file-session-buffer prefix source attached)
+          (kill-buffer attached)
+
+          (cl-letf (((symbol-function 'message)
+                     (lambda (format-string &rest args)
+                       (push (apply #'format format-string args) messages)
+                       nil))
+                    ((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (&rest _args)
+                       (ert-fail "Should not prompt when explicit buffer-name exists."))))
+            (with-current-buffer source
+              (setq result
+                    (ai-code-backends-infra--resolve-session-buffer
+                     (buffer-name target)
+                     "missing"
+                     prefix
+                     working-dir
+                     nil
+                     source))))
+          (should (eq result target))
+          (should (null messages)))
+      (dolist (buf (list source attached target))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
 (ert-deftest test-ai-code-backends-infra-send-line-reselects-when-attached-session-missing ()
   "When an attached session buffer is killed, notify and force re-selection."
   (let* ((prefix "codex")
