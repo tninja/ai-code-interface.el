@@ -714,7 +714,6 @@ them if available."
 Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
-  ;; DONE: Append a new option to the tail: Red + Green. This allows users to complete both stages in one prompt. After that, AI should run the test, follow up with the @test result (eg. fix the code if there is error).
   (let* ((function-name (which-function))
          (cycle-stage (completing-read
                        "Select TDD stage: "

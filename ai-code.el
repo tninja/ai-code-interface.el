@@ -301,16 +301,6 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
       (when (stringp text)
         (substring-no-properties text)))))
 
-;; DONE: Improve multiple session switching experience, for any ai backend use ai-code-backends-infra.el
-;; - file in git repo should have attached session
-;;   - Initially it was associated by sending any prompt to session (could be any send prompt command from menu, such as C-c a c, C-c a q, C-c a <SPC>, etc), triggered from that file buffer, or C-c a z from that file buffer
-;;   - The associated ai session can be changed after C-c a z is pressed on that file buffer, and then target ai session re-selected
-;;   - If the corresponding associated buffer doesn't exist (has been killed), let user know and choose the target ai session again
-
-;; DONE: Multiple session support: when a file buffer already have an existing associated ai session, C-c a z key triggered session select list, the associated session should be pre-selected in the session list (top), and if user select another session, the file buffer should be re-associated with the newly selected session.
-
-;; DONE: The current behavior: In repo X, I opened two ai-coding sessions s1 and s2. Then I opened a file f1 in repo X, and send a command through C-c a x, it directly send command to s2. I think it is wrong. Since f1 hasn't been associate with any session, it should ask me to select target session. If I choose s1, next time I send command from f1, it should directly send to s1 without asking, until I want to switch to s2 by C-c a z in f1 and select s2, then next time I send command from f1, it should directly send to s2.
-
 ;;;###autoload
 (defun ai-code-send-command (arg)
   "Read a prompt from the user and send it to the AI service.
@@ -420,7 +410,6 @@ Shows the current backend label to the right."
     ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
     ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
     ;; Use plist style to provide a dynamic description function.
-    ;; DONE: I want ai-code-select-backend (and ai-code--select-backend-description) should keep same backend for the git repo which already started ai-code-cli session, unless user explicitly want to switch in side that git repo. Eg. switch backend in git repo B should not switch backend in git repo A which already has a session, and next time user start session in repo A, it should use the same backend as before. This will be more intelligent and user friendly, and also avoid the problem that user switch backend in one repo but forget to switch back when work on another repo which already has session.
     ("s" ai-code-select-backend :description ai-code--select-backend-description)
     ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
     ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
@@ -464,15 +453,6 @@ Shows the current backend label to the right."
     ("m" "Debug python MCP server" ai-code-debug-mcp)
     ("N" "Toggle notifications" ai-code-notifications-toggle)]])
 
-
-
-;; DONE: When in an ai-coding session (e.g., with -backends-infra.el code) and using evil-mode,
-;; pressing SPC in normal state will trigger ai-code-send-command.
-;; Fixed implementation moved to ai-code-backends-infra.el:
-;;   - `ai-code-backends-infra--evil-spc-command' - intercepts SPC in AI session buffers
-;;   - `ai-code-backends-infra-evil-setup' - call with (with-eval-after-load 'evil ...)
-
-;; (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 
 (provide 'ai-code)
 
