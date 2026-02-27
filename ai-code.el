@@ -164,7 +164,7 @@ with a newline separator."
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("Test driven development: Write test first" . tdd)
-    ("Do not run tests" . nil))
+    ("Do not run tests" . no-test))
   "Choices for resolving the auto test suffix when `ai-code-auto-test-type` is `ask-me`.")
 
 (defun ai-code--read-auto-test-type-choice ()
@@ -240,6 +240,7 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
   (pcase type
     ('test-after-change ai-code-test-after-code-change-suffix)
     ('tdd (ai-code--test-after-code-change--resolve-tdd-suffix))
+    ('no-test "Do not run any test.")
     (_ nil)))
 
 (defun ai-code--resolve-auto-test-suffix-for-send (&optional prompt-text)

@@ -107,27 +107,28 @@
   (let ((ai-code--auto-test-type-ask-choices
          '(("Run tests after code change" . test-after-change)
            ("Test driven development: Write test first" . tdd)
-           ("Do not run test" . nil))))
+           ("Do not run test" . no-test))))
     (cl-letf (((symbol-function 'completing-read)
                (lambda (&rest _args) "Do not run test")))
-      (should (eq nil (ai-code--read-auto-test-type-choice))))))
+      (should (eq 'no-test (ai-code--read-auto-test-type-choice))))))
 
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-no-test ()
-  "Test that ask-me can resolve to no test suffix."
+  "Test that ask-me can resolve to explicit no-test suffix."
   (let ((ai-code-auto-test-type 'ask-me))
     (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
-               (lambda () nil)))
-      (should (eq nil (ai-code--resolve-auto-test-suffix-for-send))))))
+               (lambda () 'no-test)))
+      (should (equal "Do not run any test."
+                     (ai-code--resolve-auto-test-suffix-for-send))))))
 
-(ert-deftest ai-code-test-write-prompt-ask-me-no-test-does-not-append-auto-test-suffix ()
-  "Test that ask-me no-test choice does not append auto test suffix when sending prompt."
+(ert-deftest ai-code-test-write-prompt-ask-me-no-test-appends-explicit-no-test-instruction ()
+  "Test that ask-me no-test choice appends explicit no-test instruction."
   (let ((sent-command nil)
         (ai-code-auto-test-type 'ask-me)
         (ai-code-use-prompt-suffix t)
         (ai-code-prompt-suffix "BASE SUFFIX")
         (ai-code-auto-test-suffix "SHOULD NOT APPEAR"))
     (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
-               (lambda () nil))
+               (lambda () 'no-test))
               ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                (lambda () nil))
               ((symbol-function 'ai-code-cli-send-command)
@@ -136,6 +137,7 @@
                (lambda (&rest _args) nil)))
       (ai-code--write-prompt-to-file-and-send "Implement feature")
       (should (string-match-p "BASE SUFFIX" sent-command))
+      (should (string-match-p "Do not run any test\\." sent-command))
       (should-not (string-match-p "SHOULD NOT APPEAR" sent-command)))))
 
 (provide 'test_ai-code)
