@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Add explicit no-test prompt in auto test choices
 - Fix: region-start-line missing, by limon
 - Fix: ai-code-prompt-send-block
 - Feat: Add repo-local backend affinity to persist AI code backend per Git repo
