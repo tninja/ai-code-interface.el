@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Fix: region-start-line missing, by limon
+- Fix: ai-code-prompt-send-block
 - Feat: Add repo-local backend affinity to persist AI code backend per Git repo
 
 ** 1.52
