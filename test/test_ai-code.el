@@ -12,6 +12,8 @@
 (require 'cl-lib)
 (require 'ai-code)
 
+(defvar ai-code--tdd-run-test-after-each-stage-instruction)
+
 (ert-deftest ai-code-test-set-auto-test-type-tdd-updates-suffix ()
   "Test that setting auto test type to tdd updates the suffix text."
   (let ((ai-code-auto-test-suffix "old")
@@ -19,6 +21,32 @@
         (ai-code--tdd-test-pattern-instruction nil))
     (ai-code--apply-auto-test-type 'tdd)
     (should (string-match-p "Follow TDD principles" ai-code-auto-test-suffix))))
+
+(ert-deftest ai-code-test-resolve-tdd-suffix-includes-stage-test-summary-requirement ()
+  "Test that TDD suffix asks to run test after each stage and summarize result."
+  (let ((ai-code--tdd-test-pattern-instruction ""))
+    (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
+      (should (string-match-p "Run test after each stage" suffix))
+      (should (string-match-p "summary of test result" suffix)))))
+
+(ert-deftest ai-code-test-resolve-tdd-suffix-reuses-shared-each-stage-instruction ()
+  "Test that TDD suffix can reuse shared each-stage instruction when available."
+  (let ((ai-code--tdd-test-pattern-instruction "")
+        (ai-code--tdd-run-test-after-each-stage-instruction
+         " SHARED_EACH_STAGE_TEST_INSTRUCTION"))
+    (should (string-match-p "SHARED_EACH_STAGE_TEST_INSTRUCTION"
+                            (ai-code--test-after-code-change--resolve-tdd-suffix)))))
+
+(ert-deftest ai-code-test-resolve-tdd-suffix-does-not-depend-on-helper-function ()
+  "Test that TDD suffix resolution does not depend on a separate helper function."
+  (let ((ai-code--tdd-test-pattern-instruction "")
+        (ai-code--tdd-run-test-after-each-stage-instruction
+         " SHARED_EACH_STAGE_TEST_INSTRUCTION"))
+    (cl-letf (((symbol-function 'ai-code--test-after-code-change--resolve-tdd-each-stage-instruction)
+               (lambda ()
+                 (ert-fail "Should not call helper function."))))
+      (should (string-match-p "SHARED_EACH_STAGE_TEST_INSTRUCTION"
+                              (ai-code--test-after-code-change--resolve-tdd-suffix))))))
 
 (ert-deftest ai-code-test-resolve-auto-test-type-for-send ()
   "Test that send-time type resolution is consistent across mode values."

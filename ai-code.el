@@ -156,11 +156,13 @@ with a newline separator."
 
 (defun ai-code--test-after-code-change--resolve-tdd-suffix ()
   "Return the TDD-style suffix for test-after-code-change prompts."
-  (let ((pattern (when (and (boundp 'ai-code--tdd-test-pattern-instruction)
-                            (stringp ai-code--tdd-test-pattern-instruction))
-                   ai-code--tdd-test-pattern-instruction)))
-    (concat "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error)."
-            (or pattern ""))))
+  (let ((pattern (or ai-code--tdd-test-pattern-instruction ""))
+        (each-stage-instruction
+         (or ai-code--tdd-run-test-after-each-stage-instruction
+             " Run test after each stage and output the summary of test result.")))
+    (concat "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code."
+            each-stage-instruction
+            pattern)))
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
@@ -275,6 +277,7 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 
 (defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
+  ;; DONE: for Red + Green prompt, on top of your previous change, we want to make sure: 1. Run test after each stage, and output the summary of test result. Can we share the prompt with the change you just made?
   :type '(choice (const :tag "Use test after code change prompt" test-after-change)
                  (const :tag "Use TDD Red+Green prompt" tdd)
                  (const :tag "Ask every time" ask-me)
