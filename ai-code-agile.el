@@ -584,6 +584,14 @@ If no such buffer is found, report a user-error."
   "\nFollow the test-code pattern in the current project. Write the test-code in the test-file. If the test-file does not exist, create it using the same test-filename pattern used in this repository."
   "Instruction appended to TDD prompts to enforce the project's test pattern.")
 
+(defconst ai-code--tdd-run-test-after-this-stage-instruction
+  " Run test after this stage and output the summary of test result. List the public API / log key / config key change if there is."
+  "Instruction appended to single-stage TDD prompts.")
+
+(defconst ai-code--tdd-run-test-after-each-stage-instruction
+  " Run test after each stage and output the summary of test result. List the public API / log key / config key change if there is."
+  "Instruction appended to multi-stage TDD prompts.")
+
 (defun ai-code--tdd-red-stage (function-name)
   "Handle the Red stage of TDD for FUNCTION-NAME: Write a failing test."
   (let ((test-pattern-instruction ai-code--tdd-test-pattern-instruction))
@@ -607,10 +615,11 @@ If no such buffer is found, report a user-error."
                               "Describe the feature to test: ") "Implement test functions using test cases described in the comments."))
              (file-info (ai-code--get-context-files-string))
              (tdd-instructions
-              (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code.%s"
+             (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code.%s"
                       feature-desc
                       file-info
-                      test-pattern-instruction)))
+                      (concat ai-code--tdd-run-test-after-this-stage-instruction
+                              test-pattern-instruction))))
         (ai-code--insert-prompt tdd-instructions)))))
 
 (defun ai-code--tdd-source-function-context-p (function-name)
@@ -651,9 +660,10 @@ If no such buffer is found, report a user-error."
                         "Implement test functions using test cases described in the comments."))
          (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s\nFollow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error).%s"
+          (format "%s%s\nFollow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error).%s%s"
                   feature-desc
                   file-info
+                  ai-code--tdd-run-test-after-each-stage-instruction
                   ai-code--tdd-test-pattern-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
@@ -667,9 +677,10 @@ If no such buffer is found, report a user-error."
                         "Implement test functions using test cases described in the comments."))
          (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s\nFollow TDD principles - write the failing test first, then implement the minimal code to make it pass, and then refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error).%s"
+          (format "%s%s\nFollow TDD principles - write the failing test first, then implement the minimal code to make it pass, and then refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error).%s%s"
                   feature-desc
                   file-info
+                  ai-code--tdd-run-test-after-each-stage-instruction
                   ai-code--tdd-test-pattern-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
@@ -690,8 +701,10 @@ to fix code."
          (implementation-desc (ai-code-read-string "Implementation instruction: " initial-input))
          (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s\nFollow TDD principles - implement the code needed to make the test pass."
-                  implementation-desc file-info)))
+          (format "%s%s\nFollow TDD principles - implement the code needed to make the test pass.%s"
+                  implementation-desc
+                  file-info
+                  ai-code--tdd-run-test-after-this-stage-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--run-test-ai-assisted ()
@@ -764,7 +777,7 @@ Works with both source code and test files that have been added to ai-code."
                               (format "1. Red (Write test for %s)" function-name)
                             "1. Red (Write failing test)"))
          ;; DONE: append choice: Red + Green + Blue (One prompt) - write failing test, make it pass and refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods.
-         ;; TODO: for Red + Green + Blue, on top of your previous change, we want to make sure: 1. Run test after each stage, and output the summary of test result; 2. List the public API / log key / config key change if there is. This is likely to be a prompt change, and it should apply to: Red + Green, Red, Green choices
+         ;; DONE: for Red + Green + Blue, on top of your previous change, we want to make sure: 1. Run test after each stage, and output the summary of test result; 2. List the public API / log key / config key change if there is. This is likely to be a prompt change, and it should apply to: Red + Green, Red, Green choices
          (cycle-stage (completing-read
                        "Select TDD stage: "
                        (list "0. Run unit-tests"
