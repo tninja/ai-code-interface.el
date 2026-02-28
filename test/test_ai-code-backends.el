@@ -230,6 +230,16 @@
       (should (string-match-p "superpowers" sent-command))
       (should (string-match-p "skill" sent-command)))))
 
+(ert-deftest ai-code-test-install-skills-errors-on-non-callable-symbol ()
+  "Backend with :install-skills as undefined symbol signals user-error."
+  (let* ((ai-code-backends '((test-backend
+                               :label "Test Backend"
+                               :install-skills ai-code-test-nonexistent-install-fn
+                               :cli "test")))
+         (ai-code-selected-backend 'test-backend))
+    (should-error (ai-code-install-backend-skills)
+                  :type 'user-error)))
+
 (ert-deftest ai-code-test-claude-code-backend-has-install-skills ()
   "Claude Code backend spec should have :install-skills set to the dedicated function."
   (let ((spec (ai-code--backend-spec 'claude-code)))

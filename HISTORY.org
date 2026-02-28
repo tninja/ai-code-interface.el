@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Add menu item to install skills for current selected AI coding CLI; with per-backend :install-skills support and generic AI-prompt fallback
 - Chore: Red stage allow write test for function under cursor, add test coverage for new TDD helper functions
 - Chore: Add explicit no-test prompt in auto test choices
 - Fix: region-start-line missing, by limon

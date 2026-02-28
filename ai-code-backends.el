@@ -212,6 +212,7 @@ so the CLI itself handles the installation details."
      :config  "~/.gemini/settings.json"
      :agent-file "GEMINI.md"
      :upgrade "npm install -g @google/gemini-cli"
+     :install-skills nil
      :cli     "gemini")
     (github-copilot-cli
      :label "GitHub Copilot CLI"
@@ -221,7 +222,9 @@ so the CLI itself handles the installation details."
      :send    ai-code-github-copilot-cli-send-command
      :resume  ai-code-github-copilot-cli-resume
      :config  "~/.copilot/mcp-config.json"
+     :agent-file nil
      :upgrade "npm install -g @github/copilot"
+     :install-skills nil
      :cli     "copilot")
     (codex
      :label "OpenAI Codex CLI"
@@ -233,6 +236,7 @@ so the CLI itself handles the installation details."
      :config  "~/.codex/config.toml"
      :agent-file "AGENTS.md"
      :upgrade "npm install -g @openai/codex@latest"
+     :install-skills nil
      :cli     "codex")
     (opencode
      :label "Opencode"
@@ -242,7 +246,9 @@ so the CLI itself handles the installation details."
      :send    ai-code-opencode-send-command
      :resume  ai-code-opencode-resume
      :config  "~/.config/opencode/opencode.jsonc"
+     :agent-file nil
      :upgrade "npm i -g opencode-ai@latest"
+     :install-skills nil
      :cli     "opencode")
     (grok
      :label "Grok CLI"
@@ -252,7 +258,9 @@ so the CLI itself handles the installation details."
      :send    ai-code-grok-cli-send-command
      :resume  ai-code-grok-cli-resume
      :config  "~/.config/grok/config.json"
+     :agent-file nil
      :upgrade "bun add -g @vibe-kit/grok-cli"
+     :install-skills nil
      :cli     "grok")
     (cursor
      :label "Cursor CLI"
@@ -262,7 +270,9 @@ so the CLI itself handles the installation details."
      :send    ai-code-cursor-cli-send-command
      :resume  ai-code-cursor-cli-resume
      :config  "~/.cursor"
+     :agent-file nil
      :upgrade "cursor-agent update"
+     :install-skills nil
      :cli     "cursor-agent")
     (kiro
      :label "Kiro CLI"
@@ -272,7 +282,9 @@ so the CLI itself handles the installation details."
      :send    ai-code-kiro-cli-send-command
      :resume  ai-code-kiro-cli-resume
      :config  "~/.kiro/settings/cli.json"
+     :agent-file nil
      :upgrade "kiro-cli update"
+     :install-skills nil
      :cli     "kiro-cli")
     (codebuddy
      :label "CodeBuddy Code"
@@ -282,7 +294,9 @@ so the CLI itself handles the installation details."
      :send    ai-code-codebuddy-cli-send-command
      :resume  ai-code-codebuddy-cli-resume
      :config  "~/.codebuddy"
+     :agent-file nil
      :upgrade "codebuddy update"
+     :install-skills nil
      :cli     "codebuddy")
     (aider
      :label "Aider CLI"
@@ -292,7 +306,9 @@ so the CLI itself handles the installation details."
      :send    ai-code-aider-cli-send-command
      :resume  nil
      :config  "~/.aider.conf.yml"
+     :agent-file nil
      :upgrade nil
+     :install-skills nil
      :cli     "aider")
     (agent-shell      ; external backend, requires agent-shell package
      :label "agent-shell"
@@ -302,9 +318,10 @@ so the CLI itself handles the installation details."
      :send    ai-code-agent-shell-send-command
      :resume  ai-code-agent-shell-resume
      :config  nil
+     :agent-file nil
      :upgrade nil
-     :cli     "agent-shell"
-     :agent-file nil)
+     :install-skills nil
+     :cli     "agent-shell")
     (claude-code-ide ; external backend, requires claude-code-ide.el package
      :label "claude-code-ide.el"
      :require claude-code-ide
@@ -315,6 +332,7 @@ so the CLI itself handles the installation details."
      :config  "~/.claude.json"
      :agent-file "CLAUDE.md"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
+     :install-skills nil
      :cli     "claude")
     (claude-code-el ; external backend, requires claude-code.el package
      :label "claude-code.el"
@@ -326,6 +344,7 @@ so the CLI itself handles the installation details."
      :config  "~/.claude.json"
      :agent-file "CLAUDE.md"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
+     :install-skills nil
      :cli     "claude"))
   "Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
@@ -518,7 +537,7 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
           (user-error "Upgrade command for backend '%s' is not defined"
                       label))))))
 
-(defun ai-code-install-backend-skills--fallback (label)
+(defun ai-code--install-backend-skills-fallback (label)
   "Fallback skills installation for backend LABEL.
 Prompt user for a skills repository URL and ask the AI CLI session
 to read the repo README and install the skills."
@@ -540,6 +559,7 @@ skills repository URL."
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
     (if (not spec)
         (user-error "No backend is currently selected")
+      (ai-code--ensure-backend-loaded spec)
       (let* ((plist (cdr spec))
              (install-skills (plist-get plist :install-skills))
              (label (ai-code-current-backend-label)))
@@ -550,8 +570,11 @@ skills repository URL."
          ((and install-skills (symbolp install-skills) (fboundp install-skills))
           (funcall install-skills)
           (message "Running skills installation for %s" label))
+         ((and install-skills (symbolp install-skills) (not (fboundp install-skills)))
+          (user-error "Backend '%s' declares :install-skills function '%s' but it is not callable"
+                      label install-skills))
          (t
-          (ai-code-install-backend-skills--fallback label)))))))
+          (ai-code--install-backend-skills-fallback label)))))))
 
 (provide 'ai-code-backends)
 
