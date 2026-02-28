@@ -159,7 +159,7 @@ with a newline separator."
   (let ((pattern (or ai-code--tdd-test-pattern-instruction ""))
         (each-stage-instruction
          (or ai-code--tdd-run-test-after-each-stage-instruction
-             " Run test after each stage and output the summary of test result.")))
+             " Run test after each stage and output the summary of test result. List the public API / log key / config key change if there is.")))
     (concat "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass. Only update test and source code."
             each-stage-instruction
             pattern)))
