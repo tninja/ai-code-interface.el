@@ -776,8 +776,6 @@ Works with both source code and test files that have been added to ai-code."
          (red-stage-label (if use-write-test-stage
                               (format "1. Red (Write test for %s)" function-name)
                             "1. Red (Write failing test)"))
-         ;; DONE: append choice: Red + Green + Blue (One prompt) - write failing test, make it pass and refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods.
-         ;; DONE: for Red + Green + Blue, on top of your previous change, we want to make sure: 1. Run test after each stage, and output the summary of test result; 2. List the public API / log key / config key change if there is. This is likely to be a prompt change, and it should apply to: Red + Green, Red, Green choices
          (cycle-stage (completing-read
                        "Select TDD stage: "
                        (list "0. Run unit-tests"
