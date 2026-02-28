@@ -80,6 +80,42 @@
               ai-code-selected-backend saved-backend
               ai-code-cli saved-cli)))))
 
+(ert-deftest ai-code-test-cli-resume-zero-arg-resume-fn ()
+  "Ensure resume works for backends with zero-argument resume functions (e.g. claude-code-ide-resume)."
+  (let* ((backend-key 'test-backend-zero-arg)
+         (ai-code-backends `((,backend-key
+                              :label "Test Backend Zero Arg"
+                              :start ai-code-test-start
+                              :switch ai-code-test-switch
+                              :send ai-code-test-send
+                              :resume ai-code-test-resume-zero-arg
+                              :cli "test")))
+         (saved-start ai-code--cli-start-fn)
+         (saved-switch ai-code--cli-switch-fn)
+         (saved-send ai-code--cli-send-fn)
+         (saved-resume ai-code--cli-resume-fn)
+         (saved-backend ai-code-selected-backend)
+         (saved-cli (and (boundp 'ai-code-cli) ai-code-cli))
+         (resume-called nil))
+    (cl-letf (((symbol-function 'ai-code-test-start) (lambda (&optional _arg)))
+              ((symbol-function 'ai-code-test-switch) (lambda (&optional _arg)))
+              ((symbol-function 'ai-code-test-send) (lambda (&optional _arg)))
+              ((symbol-function 'ai-code-test-resume-zero-arg)
+               (lambda ()
+                 (interactive)
+                 (setq resume-called t))))
+      (unwind-protect
+          (progn
+            (ai-code--apply-backend backend-key)
+            (should (progn (ai-code-cli-resume nil) t))
+            (should resume-called))
+        (setq ai-code--cli-start-fn saved-start
+              ai-code--cli-switch-fn saved-switch
+              ai-code--cli-send-fn saved-send
+              ai-code--cli-resume-fn saved-resume
+              ai-code-selected-backend saved-backend
+              ai-code-cli saved-cli)))))
+
 (ert-deftest ai-code-test-agent-shell-backend-spec-contract ()
   "Ensure the agent-shell backend entry exposes required integration keys."
   (let ((spec (ai-code--backend-spec 'agent-shell)))

@@ -439,11 +439,8 @@ Sets backend dispatch functions and updates `ai-code-cli'."
             ai-code--cli-resume-fn (if resume
                                       (lambda (&optional arg)
                                         (interactive "P")
-                                        (let* ((prefix (or arg current-prefix-arg))
-                                               (current-prefix-arg prefix))
-                                          (if (called-interactively-p 'interactive)
-                                              (call-interactively resume)
-                                            (funcall resume prefix))))
+                                        (let ((current-prefix-arg (or arg current-prefix-arg)))
+                                          (call-interactively resume)))
                                     #'ai-code--unsupported-resume))
       (setq ai-code-cli cli
             ai-code-selected-backend key)
