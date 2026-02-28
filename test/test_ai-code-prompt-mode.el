@@ -801,7 +801,7 @@ and ensures everything is cleaned up afterward."
              (let ((candidates (ai-code--prompt-filepath-candidates)))
                ;; Both dired directories should be included in candidates
                (should (member "@src/" candidates))
-               (should (member "test/" candidates))
+               (should (member "@test/" candidates))
                ;; Test file should also be included
                (should (member "@file.el" candidates))
                ;; Dired directories should come before buffer files
