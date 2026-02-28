@@ -277,7 +277,6 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 
 (defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
-  ;; DONE: for Red + Green prompt, on top of your previous change, we want to make sure: 1. Run test after each stage, and output the summary of test result. Can we share the prompt with the change you just made?
   :type '(choice (const :tag "Use test after code change prompt" test-after-change)
                  (const :tag "Use TDD Red+Green prompt" tdd)
                  (const :tag "Ask every time" ask-me)
