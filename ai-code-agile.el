@@ -615,7 +615,7 @@ If no such buffer is found, report a user-error."
                               "Describe the feature to test: ") "Implement test functions using test cases described in the comments."))
              (file-info (ai-code--get-context-files-string))
              (tdd-instructions
-             (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code.%s"
+              (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code.%s"
                       feature-desc
                       file-info
                       (concat ai-code--tdd-run-test-after-this-stage-instruction
