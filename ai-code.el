@@ -156,34 +156,13 @@ with a newline separator."
 
 (defun ai-code--test-after-code-change--resolve-tdd-suffix ()
   "Return the TDD-style suffix for test-after-code-change prompts."
-  (let ((pattern (or ai-code--tdd-test-pattern-instruction ""))
-        (each-stage-instruction
-         (or ai-code--tdd-run-test-after-each-stage-instruction
-             " Run test after each stage and output the summary of test result."))
-        (base (or ai-code--tdd-red-green-base-instruction
-                  "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass"))
-        (tail (or ai-code--tdd-red-green-tail-instruction
-                  ". Only update test and source code. Run the tests and follow up with the test result (fix code if there is error).")))
-    (concat base tail each-stage-instruction pattern)))
-
-(defun ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix ()
-  "Return the TDD+refactoring suffix for test-after-code-change prompts."
-  (let ((pattern (or ai-code--tdd-test-pattern-instruction ""))
-        (each-stage-instruction
-         (or ai-code--tdd-run-test-after-each-stage-instruction
-             " Run test after each stage and output the summary of test result."))
-        (base (or ai-code--tdd-red-green-base-instruction
-                  "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass"))
-        (refactoring 
-                     ", and then refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods.")
-        (tail (or ai-code--tdd-red-green-tail-instruction
-                  ". Only update test and source code. Run the tests and follow up with the test result (fix code if there is error).")))
-    (concat base ai-code--tdd-with-refactoring-extension-instruction tail each-stage-instruction pattern)))
+  (concat ai-code--tdd-red-green-base-instruction
+          ai-code--tdd-run-test-after-each-stage-instruction
+          ai-code--tdd-test-pattern-instruction))
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("Test driven development: Write test first" . tdd)
-    ;; DONE: Add new option: Test driven development with refactoring. It basically add same prompt used by ai-code--tdd-red-green-blue-stage
     ("Test driven development with refactoring" . tdd-with-refactoring)
     ("Do not run tests" . no-test))
   "Choices for resolving the auto test suffix when `ai-code-auto-test-type` is `ask-me`.")

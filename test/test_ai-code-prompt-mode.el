@@ -698,7 +698,7 @@ and ensures everything is cleaned up afterward."
            
            (let ((result (ai-code--recent-buffer-paths (file-truename git-root))))
              ;; Should include the dired directory
-             (should (member "testdir/" result))))
+             (should (member "@testdir/" result))))
        
        ;; Cleanup
        (when (buffer-live-p dired-buf) (kill-buffer dired-buf))
@@ -734,7 +734,7 @@ and ensures everything is cleaned up afterward."
              (let ((result (ai-code--current-frame-dired-paths (file-truename git-root))))
                ;; Should include both dired directories
                (should (member "@src/" result))
-               (should (member "test/" result)))))
+               (should (member "@test/" result)))))
        
        ;; Cleanup
        (when (buffer-live-p dired-buf-1) (kill-buffer dired-buf-1))
