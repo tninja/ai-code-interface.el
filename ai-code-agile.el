@@ -657,6 +657,22 @@ If no such buffer is found, report a user-error."
                   ai-code--tdd-test-pattern-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
+(defun ai-code--tdd-red-green-blue-stage (function-name)
+  "Handle the Red + Green + Blue stage for FUNCTION-NAME in one prompt."
+  ;; (ai-code--ensure-test-buffer-visible)
+  (let* ((feature-desc (ai-code-read-string
+                        (if function-name
+                            (format "Describe the feature to test for '%s': " function-name)
+                          "Describe the feature to test: ")
+                        "Implement test functions using test cases described in the comments."))
+         (file-info (ai-code--get-context-files-string))
+         (tdd-instructions
+          (format "%s%s\nFollow TDD principles - write the failing test first, then implement the minimal code to make it pass, and then refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods. Only update test and source code. Run the tests and follow up with the test result (fix code if there is error).%s"
+                  feature-desc
+                  file-info
+                  ai-code--tdd-test-pattern-instruction)))
+    (ai-code--insert-prompt tdd-instructions)))
+
 (defun ai-code--tdd-green-stage (function-name)
   "Handle the Green stage of TDD for FUNCTION-NAME: Make the test pass.
 If current file is a test file (contains \\='test\\=' in name), provide prompt
@@ -747,13 +763,16 @@ Works with both source code and test files that have been added to ai-code."
          (red-stage-label (if use-write-test-stage
                               (format "1. Red (Write test for %s)" function-name)
                             "1. Red (Write failing test)"))
+         ;; DONE: append choice: Red + Green + Blue (One prompt) - write failing test, make it pass and refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods.
+         ;; TODO: for Red + Green + Blue, on top of your previous change, we want to make sure: 1. Run test after each stage, and output the summary of test result; 2. List the public API / log key / config key change if there is. This is likely to be a prompt change, and it should apply to: Red + Green, Red, Green choices
          (cycle-stage (completing-read
                        "Select TDD stage: "
                        (list "0. Run unit-tests"
                              red-stage-label
                              "2. Green (Make test pass)"
-                             "3. Refactor (Improve code quality)"
-                             "4. Red + Green (One prompt)")
+                             "3. Blue (Refactor, improve code quality)"
+                             "4. Red + Green (One prompt)"
+                             "5. Red + Green + Blue (One prompt)")
                        nil t))
          (stage-num (string-to-number (substring cycle-stage 0 1))))
     (cond
@@ -769,7 +788,9 @@ Works with both source code and test files that have been added to ai-code."
      ;; Refactor stage - call the main refactoring function in TDD mode
      ((= stage-num 3) (ai-code-refactor-book-method t))
      ;; Red + Green combined in one prompt
-     ((= stage-num 4) (ai-code--tdd-red-green-stage function-name)))))
+     ((= stage-num 4) (ai-code--tdd-red-green-stage function-name))
+     ;; Red + Green + Blue combined in one prompt
+     ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name)))))
 
 (provide 'ai-code-agile)
 ;;; ai-code-agile.el ends here

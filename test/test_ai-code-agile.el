@@ -109,5 +109,52 @@
         (ai-code--write-test "my-function")
         (should (string-match-p "TDD" captured-prompt))))))
 
+;;; Tests for ai-code-tdd-cycle
+
+(ert-deftest ai-code-test-tdd-cycle-includes-red-green-blue-choice ()
+  "Verify TDD cycle stage choices include Red + Green + Blue option."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (captured-choices)
+      (cl-letf (((symbol-function 'which-function) (lambda () "my-function"))
+                ((symbol-function 'ai-code--tdd-source-function-context-p) (lambda (_) nil))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _)
+                   (setq captured-choices collection)
+                   "0. Run unit-tests"))
+                ((symbol-function 'ai-code-run-test) (lambda () t)))
+        (ai-code-tdd-cycle)
+        (should (member "5. Red + Green + Blue (One prompt)" captured-choices))))))
+
+(ert-deftest ai-code-test-tdd-cycle-stage-5-dispatches-red-green-blue-handler ()
+  "Verify selecting stage 5 dispatches to Red + Green + Blue handler."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let ((called-function-name nil))
+      (cl-letf (((symbol-function 'which-function) (lambda () "my-function"))
+                ((symbol-function 'ai-code--tdd-source-function-context-p) (lambda (_) nil))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) "5. Red + Green + Blue (One prompt)"))
+                ((symbol-function 'ai-code--tdd-red-green-blue-stage)
+                 (lambda (function-name) (setq called-function-name function-name))))
+        (ai-code-tdd-cycle)
+        (should (equal called-function-name "my-function"))))))
+
+(ert-deftest ai-code-test-tdd-red-green-blue-stage-prompt-includes-xp-rules ()
+  "Verify Red + Green + Blue prompt includes TDD flow and XP simplicity rules."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial _candidates) initial))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () ""))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text) (setq captured-prompt text))))
+        (ai-code--tdd-red-green-blue-stage "my-function")
+        (should (string-match-p "write the failing test first, then implement the minimal code to make it pass, and then refactor" captured-prompt))
+        (should (string-match-p "carefully review the code change (include test)" captured-prompt))
+        (should (string-match-p "XP Simplicity Rules" captured-prompt))))))
+
 (provide 'test_ai-code-agile)
 ;;; test_ai-code-agile.el ends here
