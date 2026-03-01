@@ -601,7 +601,7 @@ If no such buffer is found, report a user-error."
   "Trailing instruction shared by Red+Green style TDD prompts.")
 
 (defconst ai-code--tdd-with-refactoring-extension-instruction
-  ", and then refactor in one step for advanced users who are familiar with TDD and want to leverage AI more efficiently. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods."
+  ", and then refactor to improve code quality. In refactor staging, carefully review the code change (include test) just made, find the best opportunity to refactor the code toward XP Simplicity Rules: 1. Pass all tests, 2. express the intent of the code clearly, 3. minimize duplication, 4. maximize cohesion/minimize classes and methods."
   "Refactoring extension shared by Red+Green+Blue style TDD prompts.")
 
 (defun ai-code--tdd-red-stage (function-name)

@@ -157,6 +157,15 @@ with a newline separator."
 (defun ai-code--test-after-code-change--resolve-tdd-suffix ()
   "Return the TDD-style suffix for test-after-code-change prompts."
   (concat ai-code--tdd-red-green-base-instruction
+          ai-code--tdd-red-green-tail-instruction
+          ai-code--tdd-run-test-after-each-stage-instruction
+          ai-code--tdd-test-pattern-instruction))
+
+(defun ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix ()
+  "Return the TDD+refactoring suffix for test-after-code-change prompts."
+  (concat ai-code--tdd-red-green-base-instruction
+          ai-code--tdd-with-refactoring-extension-instruction
+          ai-code--tdd-red-green-tail-instruction
           ai-code--tdd-run-test-after-each-stage-instruction
           ai-code--tdd-test-pattern-instruction))
 

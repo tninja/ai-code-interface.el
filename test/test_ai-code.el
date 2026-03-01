@@ -28,7 +28,9 @@
         (ai-code-auto-test-type nil)
         (ai-code--tdd-test-pattern-instruction ""))
     (ai-code--apply-auto-test-type 'tdd-with-refactoring)
-    (should (string-match-p "and then refactor in one step" ai-code-auto-test-suffix))
+    (should (string-match-p
+             (regexp-quote ai-code--tdd-with-refactoring-extension-instruction)
+             ai-code-auto-test-suffix))
     (should (string-match-p "XP Simplicity Rules" ai-code-auto-test-suffix))))
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-includes-stage-test-summary-requirement ()
@@ -164,7 +166,9 @@
     (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
                (lambda () 'tdd-with-refactoring)))
       (let ((suffix (ai-code--resolve-auto-test-suffix-for-send)))
-        (should (string-match-p "and then refactor in one step" suffix))
+        (should (string-match-p
+                 (regexp-quote ai-code--tdd-with-refactoring-extension-instruction)
+                 suffix))
         (should (string-match-p "XP Simplicity Rules" suffix))))))
 
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-no-test ()
