@@ -172,7 +172,7 @@ with a newline separator."
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("Test driven development: Write test first" . tdd)
-    ("Test driven development with refactoring" . tdd-with-refactoring)
+    ("Test driven development, follow up with refactoring" . tdd-with-refactoring)
     ("Do not run tests" . no-test))
   "Choices for resolving the auto test suffix when `ai-code-auto-test-type` is `ask-me`.")
 
