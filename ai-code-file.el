@@ -365,12 +365,20 @@ is active; otherwise run the current file."
   "Build or test the current project based on user choice.
 If user chooses to build, check for build.sh in the project root
 and send to AI for execution. Otherwise, ask AI to generate a build command.
-If user chooses to test, call `ai-code-run-test'."
+If user chooses to test the whole project, call `ai-code-test-project'.
+If user chooses scoped testing, call `ai-code-run-test'."
   (interactive)
-  (let ((action (completing-read "Choose action: " '("Build project" "Test on scope") nil t)))
+  (let ((action (completing-read "Choose action: " '("Build project" "Test project" "Test on scope") nil t)))
     (cond
      ((string= action "Build project") (ai-code-build-project))
+     ((string= action "Test project") (ai-code-test-project))
      ((string= action "Test on scope") (ai-code-run-test)))))
+
+(defun ai-code--project-root ()
+  "Return the current project root using Projectile first, then Git."
+  (or (and (fboundp 'projectile-project-root)
+           (ignore-errors (projectile-project-root)))
+      (ai-code--git-root)))
 
 ;;;###autoload
 (defun ai-code-build-project ()
@@ -378,9 +386,7 @@ If user chooses to test, call `ai-code-run-test'."
 Check for build.sh in the project root and send to AI for execution.
 Otherwise, ask AI to generate a build command."
   (interactive)
-  (let* ((proj-root (or (and (fboundp 'projectile-project-root)
-                             (ignore-errors (projectile-project-root)))
-                        (ai-code--git-root)))
+  (let* ((proj-root (ai-code--project-root))
          (build-script (when proj-root (expand-file-name "build.sh" proj-root)))
          (repo-context (ai-code--format-repo-context-info))
          (error-handling-instruction
@@ -402,6 +408,26 @@ Otherwise, ask AI to generate a build command."
                     (when proj-root (format "\nProject root: %s" proj-root))
                     (when repo-context (concat "\n" repo-context))
                     error-handling-instruction)))
+         (prompt (ai-code-read-string "Send to AI: " initial-input)))
+    (ai-code--insert-prompt prompt)))
+
+;;;###autoload
+(defun ai-code-test-project ()
+  "Ask AI to run test on the whole project and provide failure analysis."
+  (interactive)
+  (let* ((proj-root (ai-code--project-root))
+         (repo-context (ai-code--format-repo-context-info))
+         (failure-follow-up
+          (concat "\n\nIf test fails:"
+                  "\n1. Analyze the test results to identify failing tests and failure points"
+                  "\n2. Investigate likely root causes by checking related source and test files"
+                  "\n3. Explain what failed and why in clear terms"
+                  "\n4. Provide specific code fix suggestions for user approval before making any changes"))
+         (initial-input
+          (concat "Run test on the whole project and report the results."
+                  (when proj-root (format "\nProject root: %s" proj-root))
+                  (when repo-context (concat "\n" repo-context))
+                  failure-follow-up))
          (prompt (ai-code-read-string "Send to AI: " initial-input)))
     (ai-code--insert-prompt prompt)))
 
