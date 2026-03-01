@@ -152,9 +152,10 @@
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (text) (setq captured-prompt text))))
         (ai-code--tdd-red-green-blue-stage "my-function")
-        (should (string-match-p "write the failing test first, then implement the minimal code to make it pass, and then refactor" captured-prompt))
-        (should (string-match-p "carefully review the code change (include test)" captured-prompt))
-        (should (string-match-p "XP Simplicity Rules" captured-prompt))))))
+        (should (string-match-p "write the failing test first, then implement the minimal code to make it pass" captured-prompt))
+        (should (string-match-p "After that, refactor only the code you just changed" captured-prompt))
+        (should (string-match-p "first review the code diff (including tests)" captured-prompt))
+        (should (string-match-p "highest-impact cleanup" captured-prompt))))))
 
 (ert-deftest ai-code-test-tdd-red-stage-prompt-includes-test-run-and-change-summary ()
   "Verify Red stage prompt asks to run test and summarize key changes."

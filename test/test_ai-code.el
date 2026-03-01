@@ -31,7 +31,7 @@
     (should (string-match-p
              (regexp-quote ai-code--tdd-with-refactoring-extension-instruction)
              ai-code-auto-test-suffix))
-    (should (string-match-p "XP Simplicity Rules" ai-code-auto-test-suffix))))
+    (should (string-match-p "highest-impact cleanup" ai-code-auto-test-suffix))))
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-includes-stage-test-summary-requirement ()
   "Test that TDD suffix asks to run test after each stage and summarize result."
@@ -169,7 +169,7 @@
         (should (string-match-p
                  (regexp-quote ai-code--tdd-with-refactoring-extension-instruction)
                  suffix))
-        (should (string-match-p "XP Simplicity Rules" suffix))))))
+        (should (string-match-p "highest-impact cleanup" suffix))))))
 
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-no-test ()
   "Test that ask-me can resolve to explicit no-test suffix."

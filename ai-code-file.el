@@ -17,6 +17,7 @@
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
 
+
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--get-context-files-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))

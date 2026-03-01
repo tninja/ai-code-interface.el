@@ -12,6 +12,9 @@
 (require 'cl-lib)
 
 (unless (featurep 'magit)
+  (defun magit-toplevel (&optional _dir) nil)
+  (defun magit-get-current-branch () nil)
+  (defun magit-git-lines (&rest _args) nil)
   (provide 'magit))
 
 (require 'ai-code-agent-shell)
