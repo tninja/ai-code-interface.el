@@ -203,7 +203,7 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
          (condition-case err
              (if (require 'gptel nil t)
                  (let* ((raw-answer (ai-code-call-gptel-sync
-                                     (concat "Classify whether this user prompt requests code changes in a repository.\n"
+                                     (concat "Classify whether this user prompt requests program code changes in a repository.\n"
                                              "Reply with exactly one token: CODE_CHANGE or NOT_CODE_CHANGE.\n"
                                              "Treat edit/refactor/implement/fix/add/remove/update/tests as CODE_CHANGE.\n"
                                              "Treat explain/summarize/discuss/review without editing as NOT_CODE_CHANGE.\n\n"
