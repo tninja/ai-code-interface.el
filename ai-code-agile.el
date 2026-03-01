@@ -593,11 +593,11 @@ If no such buffer is found, report a user-error."
   "Instruction appended to multi-stage TDD prompts.")
 
 (defconst ai-code--tdd-red-green-base-instruction
-  "Follow TDD principles - write the failing test first, then implement the minimal code to make it pass"
+  " Follow TDD principles - write the failing test first, then implement the minimal code to make it pass"
   "Base instruction shared by Red+Green style TDD prompts.")
 
 (defconst ai-code--tdd-red-green-tail-instruction
-  ". Only update test and source code. Run the tests and follow up with the test result (fix code if there is error)."
+  " Only update test and source code. Run the tests and follow up with the test result (fix code if there is error)."
   "Trailing instruction shared by Red+Green style TDD prompts.")
 
 (defconst ai-code--tdd-with-refactoring-extension-instruction
