@@ -40,6 +40,50 @@ Candidate values:
           (truename (file-truename file)))
       (string-prefix-p ignore-dir truename))))
 
+(defun ai-code--pull-or-review-action-choice ()
+  "Prompt user for action in `ai-code-pull-or-review-diff-file'."
+  (let* ((action-alist '(("Use GitHub MCP server" . github-mcp)
+                         ("Use gh CLI tool" . gh-cli)
+                         ("Generate diff file" . diff-file)))
+         (raw-choice (completing-read "Select review source: "
+                                      action-alist
+                                      nil t nil nil "Generate diff file")))
+    (if (consp raw-choice)
+        (cdr raw-choice)
+      (cdr (assoc raw-choice action-alist)))))
+
+(defun ai-code--build-pr-review-init-prompt (review-source pr-url)
+  "Build PR review initial prompt for REVIEW-SOURCE with PR-URL."
+  (let ((source-instruction
+         (ai-code--pull-or-review-source-instruction review-source)))
+    (format "Review pull request: %s
+
+%s
+
+Review Steps:
+1. Requirement Fit: Verify the PR implementation against requirements.
+2. Code Quality: Check code quality, security, and performance concerns.
+3. Findings: For each issue include location, issue, fix suggestion, and priority.
+
+Provide an overall assessment at the end."
+            pr-url source-instruction)))
+
+(defun ai-code--pull-or-review-source-instruction (review-source)
+  "Return source instruction string for REVIEW-SOURCE."
+  (pcase review-source
+    ('github-mcp
+     "Use github mcp server to fetch pull request details and review comments.")
+    ('gh-cli
+     "Use gh cli tool to fetch pull request details and review comments.")
+    (_ "Review this pull request.")))
+
+(defun ai-code--pull-or-review-pr-with-source (review-source)
+  "Ask for PR URL and send review prompt for REVIEW-SOURCE to AI."
+  (let* ((pr-url (ai-code-read-string "Pull request URL: "))
+         (init-prompt (ai-code--build-pr-review-init-prompt review-source pr-url))
+         (prompt (ai-code-read-string "Enter review prompt: " init-prompt)))
+    (ai-code--insert-prompt prompt)))
+
 ;;;###autoload
 (defun ai-code-pull-or-review-diff-file ()
   "Review a diff file with AI Code or generate one if not viewing a diff.
@@ -60,7 +104,12 @@ Provide overall assessment.
 **Requirement**: " file-name))
              (prompt (ai-code-read-string "Enter review prompt (type requirement at end): " init-prompt)))
         (ai-code--insert-prompt prompt))
-    (ai-code--magit-generate-feature-branch-diff-file)))
+    ;; DONE: In this else branch, ask user to choose from one of this: 1. use github mcp server to review the given PR url; 2. use gh cli tool to review the given PR url; 3. generate diff file (current existing logic).
+    ;; DONE: For 1 and 2, user will need to provide the PR url, it will be used to generate prompt with either github mcp server, or gh cli tool, after user review the prompt (just like other command), and send to AI.
+    (pcase (ai-code--pull-or-review-action-choice)
+      ('github-mcp (ai-code--pull-or-review-pr-with-source 'github-mcp))
+      ('gh-cli (ai-code--pull-or-review-pr-with-source 'gh-cli))
+      (_ (ai-code--magit-generate-feature-branch-diff-file)))))
 
 (defun ai-code--validate-git-repository ()
   "Validate that current directory is in a git repository.
