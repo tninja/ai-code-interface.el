@@ -185,7 +185,8 @@ When .gitignore is missing some entries, they should be added."
   (pcase-let ((`(,captured-prompt ,diff-called)
                (ai-code-test--run-pull-or-review-diff-file "Use GitHub MCP server"
                                                            "https://github.com/acme/demo/pull/123")))
-    (should (string-match-p "github mcp server" (downcase captured-prompt)))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use GitHub MCP server" captured-prompt)))
     (should (string-match-p "https://github.com/acme/demo/pull/123" captured-prompt))
     (should-not diff-called)))
 
@@ -194,7 +195,8 @@ When .gitignore is missing some entries, they should be added."
   (pcase-let ((`(,captured-prompt ,diff-called)
                (ai-code-test--run-pull-or-review-diff-file "Use gh CLI tool"
                                                            "https://github.com/acme/demo/pull/456")))
-    (should (string-match-p "gh cli" (downcase captured-prompt)))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use gh CLI tool" captured-prompt)))
     (should (string-match-p "https://github.com/acme/demo/pull/456" captured-prompt))
     (should-not diff-called)))
 
@@ -211,7 +213,8 @@ When .gitignore is missing some entries, they should be added."
                (ai-code-test--run-pull-or-review-diff-file "Use GitHub MCP server"
                                                            "https://github.com/acme/demo/pull/789"
                                                            "Check unresolved feedback")))
-    (should (string-match-p "github mcp server" (downcase captured-prompt)))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use GitHub MCP server" captured-prompt)))
     (should (string-match-p "unresolved feedback" (downcase captured-prompt)))
     (should (string-match-p "no need to make code change" (downcase captured-prompt)))
     (should-not diff-called)))
@@ -222,10 +225,18 @@ When .gitignore is missing some entries, they should be added."
                (ai-code-test--run-pull-or-review-diff-file "Use gh CLI tool"
                                                            "https://github.com/acme/demo/pull/790"
                                                            "Check unresolved feedback")))
-    (should (string-match-p "gh cli tool" (downcase captured-prompt)))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use gh CLI tool" captured-prompt)))
     (should (string-match-p "unresolved feedback" (downcase captured-prompt)))
     (should (string-match-p "no need to make code change" (downcase captured-prompt)))
     (should-not diff-called)))
+
+(ert-deftest ai-code-test-build-pr-review-init-prompt-uses-fallback-for-unknown-source ()
+  "Unknown review source should use the fallback instruction."
+  (let ((prompt (ai-code--build-pr-review-init-prompt
+                 'unknown-source
+                 "https://github.com/acme/demo/pull/999")))
+    (should (string-match-p "Review this pull request\\." prompt))))
 
 (defun ai-code-test--run-pull-or-review-diff-file (choice pr-url &optional review-mode-choice)
   "Run `ai-code-pull-or-review-diff-file' with CHOICE and optional PR-URL.

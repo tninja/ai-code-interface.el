@@ -45,12 +45,10 @@ Candidate values:
   (let* ((action-alist '(("Use GitHub MCP server" . github-mcp)
                          ("Use gh CLI tool" . gh-cli)
                          ("Generate diff file" . diff-file)))
-         (raw-choice (completing-read "Select review source: "
-                                      action-alist
-                                      nil t nil nil "Generate diff file")))
-    (if (consp raw-choice)
-        (cdr raw-choice)
-      (cdr (assoc raw-choice action-alist)))))
+         (choice (completing-read "Select review source: "
+                                  action-alist
+                                  nil t nil nil "Use GitHub MCP server")))
+    (alist-get choice action-alist nil nil #'string=)))
 
 (defun ai-code--build-pr-review-init-prompt (review-source pr-url)
   "Build PR review initial prompt for REVIEW-SOURCE with PR-URL."
@@ -87,9 +85,9 @@ Feedback Check Steps:
   "Return source instruction string for REVIEW-SOURCE."
   (pcase review-source
     ('github-mcp
-     "Use github mcp server to fetch pull request details and review comments.")
+     "Use GitHub MCP server to fetch pull request details and review comments.")
     ('gh-cli
-     "Use gh cli tool to fetch pull request details and review comments.")
+     "Use gh CLI tool to fetch pull request details and review comments.")
     (_ "Review this pull request.")))
 
 (defun ai-code--pull-or-review-pr-with-source (review-source)
@@ -104,12 +102,10 @@ Feedback Check Steps:
   "Prompt user to choose PR analysis mode."
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
                               ("Check unresolved feedback" . check-feedback)))
-         (raw-review-mode (completing-read "Select PR analysis mode: "
-                                           review-mode-alist
-                                           nil t nil nil "Review the PR")))
-    (or (if (consp raw-review-mode)
-            (cdr raw-review-mode)
-          (cdr (assoc raw-review-mode review-mode-alist)))
+         (review-mode (completing-read "Select PR analysis mode: "
+                                       review-mode-alist
+                                       nil t nil nil "Review the PR")))
+    (or (alist-get review-mode review-mode-alist nil nil #'string=)
         'review-pr)))
 
 (defun ai-code--build-pr-init-prompt (review-source pr-url review-mode)
@@ -140,9 +136,7 @@ Provide overall assessment.
 **Requirement**: " file-name))
              (prompt (ai-code-read-string "Enter review prompt (type requirement at end): " init-prompt)))
         (ai-code--insert-prompt prompt))
-    ;; DONE: In this else branch, ask user to choose from one of this: 1. use github mcp server to review the given PR url; 2. use gh cli tool to review the given PR url; 3. generate diff file (current existing logic).
-    ;; DONE: For 1 and 2, user will need to provide the PR url, it will be used to generate prompt with either github mcp server, or gh cli tool, after user review the prompt (just like other command), and send to AI.
-    ;; DONE: when user choose github-mcp or gh-cli, after entering url of PR, it will ask user if they want AI to 1. review the PR, or 2. check the feedback. I saw you already have code for 1. review the PR, but I think you also need to add code for 2. check the feedback, in that case, AI will need to look into the unresolved feedback of that PR, and tell user if each feedback make sense (no need to make code change).
+    ;; For non-diff files, let user choose PR review via MCP/gh CLI or keep diff generation.
     (pcase (ai-code--pull-or-review-action-choice)
       ('github-mcp (ai-code--pull-or-review-pr-with-source 'github-mcp))
       ('gh-cli (ai-code--pull-or-review-pr-with-source 'gh-cli))
