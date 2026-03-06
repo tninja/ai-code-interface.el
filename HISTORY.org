@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Modernize PR review tool
 
 ** 1.55
 - Feat: Provide Red + Green + Blue solution in code change follow up and tdd-cycle as one command
