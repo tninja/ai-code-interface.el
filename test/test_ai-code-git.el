@@ -205,14 +205,41 @@ When .gitignore is missing some entries, they should be added."
     (should diff-called)
     (should-not captured-prompt)))
 
-(defun ai-code-test--run-pull-or-review-diff-file (choice pr-url)
+(ert-deftest ai-code-test-pull-or-review-diff-file-check-feedback-github-mcp ()
+  "When choosing feedback mode with GitHub MCP, prompt should target unresolved feedback."
+  (pcase-let ((`(,captured-prompt ,diff-called)
+               (ai-code-test--run-pull-or-review-diff-file "Use GitHub MCP server"
+                                                           "https://github.com/acme/demo/pull/789"
+                                                           "Check unresolved feedback")))
+    (should (string-match-p "github mcp server" (downcase captured-prompt)))
+    (should (string-match-p "unresolved feedback" (downcase captured-prompt)))
+    (should (string-match-p "no need to make code change" (downcase captured-prompt)))
+    (should-not diff-called)))
+
+(ert-deftest ai-code-test-pull-or-review-diff-file-check-feedback-gh-cli ()
+  "When choosing feedback mode with gh CLI, prompt should target unresolved feedback."
+  (pcase-let ((`(,captured-prompt ,diff-called)
+               (ai-code-test--run-pull-or-review-diff-file "Use gh CLI tool"
+                                                           "https://github.com/acme/demo/pull/790"
+                                                           "Check unresolved feedback")))
+    (should (string-match-p "gh cli tool" (downcase captured-prompt)))
+    (should (string-match-p "unresolved feedback" (downcase captured-prompt)))
+    (should (string-match-p "no need to make code change" (downcase captured-prompt)))
+    (should-not diff-called)))
+
+(defun ai-code-test--run-pull-or-review-diff-file (choice pr-url &optional review-mode-choice)
   "Run `ai-code-pull-or-review-diff-file' with CHOICE and optional PR-URL.
+REVIEW-MODE-CHOICE is used for review mode selection when prompted.
 Return (CAPTURED-PROMPT DIFF-CALLED)."
-  (let ((captured-prompt nil)
-        (diff-called nil))
+  (let* ((captured-prompt nil)
+         (diff-called nil)
+         (completing-read-results (delq nil (list choice review-mode-choice))))
     (with-temp-buffer
       (cl-letf (((symbol-function 'completing-read)
-                 (lambda (&rest _args) choice))
+                 (lambda (&rest _args)
+                   (let ((selected (car completing-read-results)))
+                     (setq completing-read-results (cdr completing-read-results))
+                     selected)))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (prompt &optional initial-input _candidate-list)
                    (if (string-prefix-p "Pull request URL" prompt)
