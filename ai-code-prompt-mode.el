@@ -564,7 +564,8 @@ TASK-NAME and TASK-URL are used to initialize new files."
     (setq task-file (concat task-file ".org")))
   (find-file-other-window task-file)
   (unless (file-exists-p task-file)
-    (ai-code--initialize-task-file-content task-name task-url))
+    (ai-code--initialize-task-file-content task-name task-url)
+    (save-buffer))
   (message "Opened task file: %s" task-file))
 
 (defun ai-code--select-task-target-directory (ai-code-files-dir current-dir)
@@ -584,20 +585,53 @@ Returns the selected directory path."
         ai-code-files-dir
       current-dir)))
 
+(defun ai-code--task-file-candidates (ai-code-files-dir)
+  "Return task file completion candidates under AI-CODE-FILES-DIR."
+  (sort
+   (delete-dups
+    (append
+     (when (file-directory-p ai-code-files-dir)
+       (mapcar
+        (lambda (file)
+          (file-relative-name file ai-code-files-dir))
+        (directory-files-recursively ai-code-files-dir "\\.org\\'")))
+     '("scratch.org")))
+   #'string-lessp))
+
+(defun ai-code--read-task-name (task-file-candidates)
+  "Read a task name with completion from TASK-FILE-CANDIDATES."
+  (completing-read
+   "Task name (empty to open task directory): "
+   task-file-candidates
+   nil nil))
+
+(defun ai-code--existing-task-file-path (task-name task-file-candidates ai-code-files-dir)
+  "Return the full path for TASK-NAME when it is in TASK-FILE-CANDIDATES."
+  (when (member task-name task-file-candidates)
+    (expand-file-name task-name ai-code-files-dir)))
+
 ;;;###autoload
 (defun ai-code-create-or-open-task-file ()
   "Create or open an AI task file.
 Prompts for a task name. If empty, opens the task directory.
 If non-empty, optionally prompts for a URL, generates a filename
 using GPTel, and creates the task file."
+  ;; DONE: task-name reading should have existing .org file under .ai.code.files/ as completion candidates, but also allow free input for new tasks
+  ;; if the task-name is an existing file under .ai.code.files/, open it directly
+  ;; scratch.org should be a candidate as well. and if selected and not existed, it will be created without going through the filename generation and confirmation step, since the name is already confirmed by user selection. It should have the template content as well, since it is a new file.
   (interactive)
-  (let ((task-name (read-string "Task name (empty to open task directory): ")))
-    (if (string-empty-p task-name)
-        (let ((ai-code-files-dir (ai-code--ensure-files-directory)))
-          (dired-other-window ai-code-files-dir)
-          (message "Opened task directory: %s" ai-code-files-dir))
+  (let* ((ai-code-files-dir (ai-code--ensure-files-directory))
+         (task-file-candidates (ai-code--task-file-candidates ai-code-files-dir))
+         (task-name (ai-code--read-task-name task-file-candidates))
+         (existing-task-file (ai-code--existing-task-file-path task-name task-file-candidates ai-code-files-dir)))
+    (cond
+     ((string-empty-p task-name)
+      (dired-other-window ai-code-files-dir)
+      (message "Opened task directory: %s" ai-code-files-dir))
+     (existing-task-file
+      (ai-code--open-or-create-task-file existing-task-file task-name task-name ""))
+     (t
       (let* ((task-url (read-string "URL (optional, press Enter to skip): "))
-             (ai-code-files-dir (ai-code--ensure-files-directory))
              (generated-filename (ai-code--generate-task-filename task-name))
              (confirmed-filename (read-string "Confirm task filename (end with / to create subdirectory): " generated-filename))
              (current-dir (expand-file-name default-directory))
@@ -610,7 +644,7 @@ using GPTel, and creates the task file."
                 (make-directory subdir t))
               (dired-other-window subdir)
               (message "Opened directory: %s" subdir))
-          (ai-code--open-or-create-task-file task-file confirmed-filename task-name task-url))))))
+          (ai-code--open-or-create-task-file task-file confirmed-filename task-name task-url)))))))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist
