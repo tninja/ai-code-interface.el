@@ -587,16 +587,43 @@ Returns the selected directory path."
 
 (defun ai-code--task-file-candidates (ai-code-files-dir)
   "Return task file completion candidates under AI-CODE-FILES-DIR."
-  (sort
-   (delete-dups
-    (append
-     (when (file-directory-p ai-code-files-dir)
-       (mapcar
-        (lambda (file)
-          (file-relative-name file ai-code-files-dir))
-        (directory-files-recursively ai-code-files-dir "\\.org\\'")))
-     '("scratch.org")))
-   #'string-lessp))
+  (let ((task-files
+         (when (file-directory-p ai-code-files-dir)
+           (sort
+            (directory-files-recursively ai-code-files-dir "\\.org\\'")
+            #'ai-code--task-file-more-recent-p))))
+    (ai-code--task-file-candidates-with-scratch
+     (delq
+      nil
+      (mapcar
+       (lambda (file)
+         (ai-code--task-file-candidate-name file ai-code-files-dir))
+       task-files)))))
+
+(defun ai-code--task-file-candidate-name (file ai-code-files-dir)
+  "Return the candidate name for FILE under AI-CODE-FILES-DIR."
+  (let ((relative-file (file-relative-name file ai-code-files-dir)))
+    (unless (string= relative-file ai-code-prompt-file-name)
+      relative-file)))
+
+(defun ai-code--task-file-more-recent-p (file-a file-b)
+  "Return non-nil when FILE-A is newer than FILE-B."
+  (time-less-p
+   (file-attribute-modification-time (file-attributes file-b))
+   (file-attribute-modification-time (file-attributes file-a))))
+
+(defun ai-code--task-file-candidates-with-scratch (candidates)
+  "Return CANDIDATES with a missing scratch.org inserted in fifth position."
+  (if (member "scratch.org" candidates)
+      candidates
+    (let ((prefix nil)
+          (rest candidates)
+          (index 0))
+      (while (and rest (< index 4))
+        (push (car rest) prefix)
+        (setq rest (cdr rest))
+        (setq index (1+ index)))
+      (append (nreverse prefix) '("scratch.org") rest))))
 
 (defun ai-code--read-task-name (task-file-candidates)
   "Read a task name with completion from TASK-FILE-CANDIDATES."
@@ -616,9 +643,6 @@ Returns the selected directory path."
 Prompts for a task name. If empty, opens the task directory.
 If non-empty, optionally prompts for a URL, generates a filename
 using GPTel, and creates the task file."
-  ;; DONE: task-name reading should have existing .org file under .ai.code.files/ as completion candidates, but also allow free input for new tasks
-  ;; if the task-name is an existing file under .ai.code.files/, open it directly
-  ;; scratch.org should be a candidate as well. and if selected and not existed, it will be created without going through the filename generation and confirmation step, since the name is already confirmed by user selection. It should have the template content as well, since it is a new file.
   (interactive)
   (let* ((ai-code-files-dir (ai-code--ensure-files-directory))
          (task-file-candidates (ai-code--task-file-candidates ai-code-files-dir))

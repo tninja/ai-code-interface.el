@@ -404,6 +404,55 @@ and ensures everything is cleaned up afterward."
        (when (file-directory-p files-dir)
          (delete-directory files-dir t))))))
 
+(ert-deftest ai-code-test-task-file-candidates-sort-by-modified-time-with-missing-scratch ()
+  "Test that task candidates follow modified time and missing scratch.org is fifth."
+  (ai-code-with-test-repo
+   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
+          (file-names '("task-1.org"
+                        "task-2.org"
+                        "task-3.org"
+                        "task-4.org"
+                        "task-5.org"
+                        "task-6.org"))
+          (base-time (current-time)))
+     (make-directory files-dir t)
+     (cl-loop for file-name in file-names
+              for offset from 0
+              do (let ((file (expand-file-name file-name files-dir)))
+                   (with-temp-file file
+                     (insert file-name))
+                   (set-file-times file
+                                   (time-subtract base-time
+                                                  (seconds-to-time (* offset 60))))))
+     (should
+      (equal (ai-code--task-file-candidates files-dir)
+             '("task-1.org"
+               "task-2.org"
+               "task-3.org"
+               "task-4.org"
+               "scratch.org"
+               "task-5.org"
+               "task-6.org"))))
+   (when (file-directory-p (expand-file-name ".ai.code.files" git-root))
+     (delete-directory (expand-file-name ".ai.code.files" git-root) t))))
+
+(ert-deftest ai-code-test-task-file-candidates-excludes-prompt-file ()
+  "Test that task candidates exclude `ai-code-prompt-file-name`."
+  (ai-code-with-test-repo
+   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
+          (task-file (expand-file-name "task-1.org" files-dir))
+          (prompt-file (expand-file-name ai-code-prompt-file-name files-dir)))
+     (make-directory files-dir t)
+     (with-temp-file task-file
+       (insert "task"))
+     (with-temp-file prompt-file
+       (insert "prompt"))
+     (should
+      (equal (ai-code--task-file-candidates files-dir)
+             '("task-1.org" "scratch.org"))))
+   (when (file-directory-p (expand-file-name ".ai.code.files" git-root))
+     (delete-directory (expand-file-name ".ai.code.files" git-root) t))))
+
 (ert-deftest ai-code-test-initialize-task-file-content-includes-branch ()
   "Test that ai-code--initialize-task-file-content inserts #+BRANCH when branch is available."
   (cl-letf (((symbol-function 'magit-get-current-branch)
