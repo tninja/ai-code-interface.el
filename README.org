@@ -203,6 +203,46 @@ If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has
 The status command only proves the Emacs side is wired.
 The real proof is that the started agent returns your current project path, buffer context, or current-file symbols from those tools.
 
+***** Add New MCP function
+
+# DONE: how do we add a new emacs mcp function and make it available inside ai coding
+#   agent, just like other mcp function you showed on README? update here
+
+1. Define an Emacs Lisp function.
+
+#+begin_src emacs-lisp
+(defun ai-code-mcp-current-buffer-name ()
+  "Return the current buffer name for the active MCP session."
+  (buffer-name (current-buffer)))
+#+end_src
+
+2. Register it as an MCP tool before you start the AI agent session:
+
+#+begin_src emacs-lisp
+(require 'ai-code-mcp-server)
+
+(ai-code-mcp-make-tool
+ :function #'ai-code-mcp-current-buffer-name
+ :name "current_buffer_name"
+ :description "Return the current Emacs buffer name."
+ :args nil)
+#+end_src
+
+3. Start =codex= or =github-copilot-cli= with =C-c a a=.
+If the agent session is already running, restart it after registering the new tool.
+
+4. Ask the agent to use the tool, for example:
+- use =current_buffer_name= and tell me the current Emacs buffer name
+
+5. If you want to verify from Emacs first, run:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-dispatch "tools/list")
+#+end_src
+
+If =current_buffer_name= appears in the tool list, Emacs has registered it.
+If the started agent can call it and returns the expected buffer name, the tool is available inside the AI coding agent.
+
 ***** Use the MCP Core Directly from Elisp
 
 If you want to use the MCP core without an AI CLI, you can still call it directly:
