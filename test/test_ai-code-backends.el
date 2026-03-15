@@ -129,6 +129,19 @@
     (should (eq (plist-get (cdr spec) :send) 'ai-code-agent-shell-send-command))
     (should (eq (plist-get (cdr spec) :resume) 'ai-code-agent-shell-resume))))
 
+(ert-deftest ai-code-test-eca-backend-spec-contract ()
+  "Ensure the eca backend entry exposes required integration keys."
+  (let ((spec (ai-code--backend-spec 'eca)))
+    (should spec)
+    (should (eq (plist-get (cdr spec) :require) 'ai-code-eca))
+    (should (eq (plist-get (cdr spec) :start) 'ai-code-eca-start))
+    (should (eq (plist-get (cdr spec) :switch) 'ai-code-eca-switch))
+    (should (eq (plist-get (cdr spec) :send) 'ai-code-eca-send))
+    (should (eq (plist-get (cdr spec) :resume) 'ai-code-eca-resume))
+    (should (eq (plist-get (cdr spec) :upgrade) 'ai-code-eca-upgrade))
+    (should (eq (plist-get (cdr spec) :install-skills) 'ai-code-eca-install-skills))
+    (should (null (plist-get (cdr spec) :cli)))))
+
 (ert-deftest ai-code-test-backend-selection-keeps-repo-session-backend ()
   "Switching backend in one repo should not overwrite started backend in another repo."
   (let* ((ai-code-backends

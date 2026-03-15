@@ -532,6 +532,24 @@ everything is cleaned up afterward."
                       :type 'user-error)))
     (should (null compilation-called))))
 
+(ert-deftest ai-code-test-apply-prompt-on-current-file-errors-for-eca-backend ()
+  "Ensure `ai-code-apply-prompt-on-current-file' rejects the eca backend."
+  (let ((compilation-called nil)
+        (ai-code-selected-backend 'eca)
+        (ai-code-cli nil)
+        (ai-code-sed-command "sed"))
+    (cl-letf (((symbol-function 'ai-code-read-string)
+               (lambda (&rest _args) "Refactor this"))
+              ((symbol-function 'compilation-start)
+               (lambda (&rest _args)
+                 (setq compilation-called t)
+                 nil)))
+      (with-temp-buffer
+        (setq buffer-file-name "/tmp/sample.py")
+        (should-error (ai-code-apply-prompt-on-current-file)
+                      :type 'user-error)))
+    (should (null compilation-called))))
+
 ;;; Tests for ai-code--git-root
 
 (ert-deftest ai-code-test-git-root-returns-truename ()

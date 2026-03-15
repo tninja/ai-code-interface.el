@@ -121,7 +121,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 ** Key Features
 
 - *Transient-Driven Hub (`C-c a`)*: One keystroke opens a contextual transient menu that groups every capability (CLI control, code actions, agile workflows, utilities) so you never need to memorize scattered keybindings.
-- *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), install backend skills (`S`), edit backend configs (`g`), open backend agent file (`G`), and run prompts against the current file (`|`). It support multiple sessions per project.
+- *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), install backend skills (`S`), edit backend configs (`g`), open backend agent file (`G`), and run prompts against the current file (`|`). It supports multiple sessions per project. The `S` entry is especially useful for installing shared skill packs such as [[https://github.com/obra/superpowers][obra/superpowers]].
 - *Context-Aware Code Actions*: The menu exposes dedicated entries for changing code (`c`), implementing TODOs (`i`), asking questions (`q`), explaining code (`x`), sending free-form commands (`<SPC>`), and refreshing AI context (`@`). Each command automatically captures the surrounding function, region, or clipboard contents (via `C-u`) to keep prompts precise.
 - *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
 - *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), capture session notes straight into Org (`n`), and toggle desktop notifications (`N`) to get alerted when AI responses are ready in background sessions.
@@ -215,6 +215,9 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
    - The selection updates the start/switch/send commands and, for CLI backends, the CLI used by `ai-code-apply-prompt-on-current-file`.
    - Press `C-c a` then `S` (`ai-code-install-backend-skills`) to install backend skills for the currently selected backend.
      - If a backend does not define its own installer, `S` falls back to prompting the active AI CLI to read a skills repository README and perform setup.
+     - The default suggested repository is [[https://github.com/obra/superpowers][obra/superpowers]], which is a very useful starting point for adding reusable coding skills to supported CLIs.
+     - A practical workflow is: press `C-c a`, then `S`, keep the default URL, and let the backend read the repository README and install the skills it describes.
+     - Those skills pair well with this package's existing harness-oriented workflows, especially the `ai-code-auto-test-type` feedback loop, `ai-code-tdd-cycle`, and `ai-code-pull-or-review-diff-file` code review flow.
 
    Natively supported options:
    - [[https://github.com/anthropics/claude-code][Claude Code]] (`[[./ai-code-claude-code.el][ai-code-claude-code.el]]`)
@@ -245,7 +248,14 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
      #+begin_src emacs-lisp
      (ai-code-set-backend 'eca)
      #+end_src
-     Note: =ai-code-apply-prompt-on-current-file= is CLI-pipe based and does not have special integration with =eca=; its behavior depends on the configured AI coding CLI.
+     Optionally, load =[[./eca-ext.el][eca-ext.el]]= (bundled with this package) for session multiplexing,
+     ai-code-menu integration, workspace management, auto project/session syncing,
+     shared context, and programmatic context management (file, clipboard, cursor, repo-map):
+     #+begin_src emacs-lisp
+     (require 'eca-ext)
+     #+end_src
+     Note: =ai-code-apply-prompt-on-current-file= is CLI-pipe based and is not supported
+     when =eca= is the active backend.
 
 **** agent-shell backend setup
      Install [[https://github.com/xenodium/agent-shell][agent-shell]] and its dependency [[https://github.com/xenodium/acp.el][acp.el]], then configure one of the ACP agent providers in agent-shell (for example Codex, Gemini, Opencode, etc.).

@@ -326,9 +326,9 @@ so the CLI itself handles the installation details."
      :resume  ai-code-eca-resume
      :config  "~/.config/eca/config.json"
      :agent-file "AGENTS.md"
-     :upgrade nil
-     :install-skills nil
-     :cli     "eca")
+     :upgrade ai-code-eca-upgrade
+     :install-skills ai-code-eca-install-skills
+     :cli     nil)
     (agent-shell      ; external backend, requires agent-shell package
      :label "agent-shell"
      :require ai-code-agent-shell
@@ -538,7 +538,10 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
 
 ;;;###autoload
 (defun ai-code-upgrade-backend ()
-  "Run the upgrade command for the currently selected backend."
+  "Run the upgrade command for the currently selected backend.
+If the backend defines an :upgrade property, use it:
+  - string: run as a shell command via `compile'.
+  - symbol: call the function."
   (interactive)
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
     (if (not spec)
@@ -546,12 +549,19 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
       (let* ((plist   (cdr spec))
              (upgrade (plist-get plist :upgrade))
              (label   (ai-code-current-backend-label)))
-        (if upgrade
-            (progn
-              (compile upgrade)
-              (message "Running upgrade command for %s" label))
+        (cond
+         ((stringp upgrade)
+          (compile upgrade)
+          (message "Running upgrade command for %s" label))
+         ((and upgrade (symbolp upgrade) (fboundp upgrade))
+          (funcall upgrade)
+          (message "Running upgrade for %s" label))
+         ((and upgrade (symbolp upgrade) (not (fboundp upgrade)))
+          (user-error "Backend '%s' declares :upgrade function '%s' but it is not callable"
+                      label upgrade))
+         (t
           (user-error "Upgrade command for backend '%s' is not defined"
-                      label))))))
+                      label)))))))
 
 (defun ai-code--install-backend-skills-fallback (label)
   "Fallback skills installation for backend LABEL.

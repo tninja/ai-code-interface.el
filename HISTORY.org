@@ -3,6 +3,9 @@
 
 ** Main branch change
 - Chore: Add Investigate Issue Mode for Reviews
+- Feat: Sync ECA integration with latest upstream bridge/ext changes: ai-code-menu integration, workspace management, auto project/session syncing, shared context helpers, and session health utilities
+- Feat: Improve ECA backend: smarter chat-buffer handling, graceful resume, context management (file/clipboard/cursor/repo-map), session multiplexing via eca-ext.el, upgrade and install-skills support, contributed by davidwuchn
+- Fix: Block ai-code-apply-prompt-on-current-file for eca backend (like agent-shell)
 - Fix: Avoid eat reflow suppression on session buffers, by Silex
 - Feat: Enable shared multiline terminal input in Emacs sessions and GitHub Copilot CLI compatibility, reported and verified by EricZJonsson
 - Feat: Add ECA (https://eca.dev/) as an external backend, contributed by davidwuchn
