@@ -187,7 +187,28 @@ It currently provides:
 (ai-code-mcp-builtins-setup)
 #+end_src
 
-Registered tools are stored in =ai-code-mcp-server-tools=.
+***** How Do I Know Setup Worked?
+
+Check the registered tool names:
+
+#+begin_src emacs-lisp
+(mapcar (lambda (tool) (plist-get tool :name))
+        ai-code-mcp-server-tools)
+#+end_src
+
+You should see:
+- ="project_info"=
+- ="imenu_list_symbols"=
+- ="xref_find_references"=
+- ="treesit_info"=
+
+You can also check the MCP-facing view:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-dispatch "tools/list")
+#+end_src
+
+If setup worked, the result contains those tool names under =tools=.
 
 ***** Register a Custom Tool
 
@@ -205,27 +226,9 @@ Use =ai-code-mcp-make-tool= to expose your own Emacs function:
           :description "Absolute or project-relative file path.")))
 #+end_src
 
-***** Dispatch MCP Methods from Elisp
+***** How Do I Know the Tools Actually Work?
 
-You can inspect registered tools:
-
-#+begin_src emacs-lisp
-(ai-code-mcp-dispatch "initialize")
-(ai-code-mcp-dispatch "tools/list")
-#+end_src
-
-You can also call a tool directly:
-
-#+begin_src emacs-lisp
-(ai-code-mcp-dispatch
- "tools/call"
- '((name . "project_info")
-   (arguments . ())))
-#+end_src
-
-***** Use Session-Aware Project Context
-
-If a tool should run with a specific project root and active buffer, register a session first:
+Call a tool directly:
 
 #+begin_src emacs-lisp
 (let ((session-id "demo-session"))
@@ -237,7 +240,38 @@ If a tool should run with a specific project root and active buffer, register a 
        (arguments . ())))))
 #+end_src
 
-For lower-level integrations, =ai-code-mcp-with-session-context= executes arbitrary Lisp forms with the registered session buffer and project directory.
+If this returns a =content= field whose text includes your project path, buffer name, and file count, then the tool is working inside Emacs.
+
+You can test other tools the same way:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-dispatch
+ "tools/call"
+ `((name . "imenu_list_symbols")
+   (arguments . ((file_path . ,(buffer-file-name))))))
+#+end_src
+
+For lower-level integrations, =ai-code-mcp-with-session-context= runs arbitrary Lisp forms with the registered session buffer and project directory.
+
+***** Can Codex CLI or Another AI Agent Use These Tools?
+
+Not automatically yet.
+
+What you can prove today:
+- the tools are registered in Emacs
+- the MCP core exposes them through =tools/list=
+- the tools run correctly through =tools/call=
+
+What you cannot prove from =ai-code-mcp-builtins-setup= alone:
+- that Codex CLI is connected to this MCP core
+- that Codex CLI has discovered these tools
+- that Codex CLI can invoke them over a transport
+
+Reason: the current implementation is only the MCP core inside Emacs. It does not yet start a standalone Streamable HTTP server or install a Codex-specific MCP adapter by itself.
+
+So the practical rule is:
+- if =tools/list= and =tools/call= work, the Emacs-side MCP core is ready
+- an AI agent such as Codex CLI can use these tools only after a transport/adapter layer connects that agent to this core
 
 ***** Current Scope
 
