@@ -9,54 +9,14 @@
 
 ;;; Commentary:
 ;; ECA backend bridge for ai-code with:
-;;   - Session management (list, switch, create, dashboard)
-;;   - Workspace management (list, add, remove, sync projects)
+;;   - Session management (list, switch, which)
+;;   - Workspace management (add, list, remove, sync)
 ;;   - Context commands (file, cursor, repo-map, clipboard)
-;;   - Shared context (cross-session sharing)
-;;   - Multi-Project Mode (auto-switch, auto-sync, mode-line)
-;;   - ai-code-menu integration (transient)
-;;   - Health verification and context synchronization
+;;   - Shared context with auto-apply on session switch
+;;   - Integrated into ai-code-menu (C-c a) when ECA selected
 ;;
-;; MULTI-PROJECT WORKFLOWS:
-;;
-;; Two approaches for working with multiple projects:
-;;
-;; 1. SINGLE SESSION, MULTIPLE WORKSPACES (recommended):
-;;    - All projects in one ECA session
-;;    - AI sees context from all projects
-;;    - Use: M-x ai-code-eca-multi-project-mode to enable auto-switch/sync
-;;    - Use: M-x ai-code-eca-add-workspace-folder to add projects
-;;
-;; 2. MULTIPLE SESSIONS:
-;;    - Separate ECA session per project
-;;    - Isolated context per project
-;;    - Use: M-x ai-code-eca-switch-session to switch between sessions
-;;    - Share common context: M-x ai-code-eca-share-file
-;;
-;; ai-code-menu Integration (primary UX):
-;;   All commands accessible via M-x ai-code-menu (C-c a) when ECA is selected:
-;;
-;;   ECA Workspace              ECA Context         ECA Shared Context
-;;     wm - Multi-Project Mode    cf - File           F - Share file
-;;     wa - Add folder            cc - Cursor         R - Share repo map
-;;     wA - Add to ALL            cr - Repo map       p - Apply shared
-;;     wl - List folders          cy - Clipboard      c - Clear shared
-;;     wr - Remove folder         cs - Start sync
-;;     ws - Sync projects         cS - Stop sync
-;;     wd - Dashboard
-;;     wt - Toggle auto-switch
-;;
-;;   ECA Sessions
-;;     s? - Which session?
-;;     sl - List sessions
-;;     ss - Switch session
-;;     sv - Verify health
-;;     su - Upgrade ECA
-;;
-;; Usage:
-;;   (require 'ai-code-eca)
-;;   M-x ai-code-menu (when ECA is selected)
-;;   M-x ai-code-eca-multi-project-mode (enable multi-project workflows)
+;; When ECA is selected as the ai-code backend, ECA items appear
+;; directly in ai-code-menu under the "ECA" group.
 
 ;;; Code:
 
@@ -93,10 +53,21 @@
 (declare-function eca-share-repo-map-context "eca-ext" (project-root))
 (declare-function eca-apply-shared-context "eca-ext" (session))
 (declare-function eca-clear-shared-context "eca-ext" ())
-(declare-function eca-session-dashboard "eca-ext" ())
 
 (declare-function transient-append-suffix "transient" (prefix loc suffix &optional face))
 (declare-function transient-remove-suffix "transient" (prefix suffix))
+
+;;; Customization
+
+(defvar eca-auto-switch-session nil
+  "If non-nil, auto-switch ECA session based on project.")
+
+(defcustom eca-auto-apply-shared-context t
+  "If non-nil, automatically apply shared context when switching ECA sessions."
+  :type 'boolean
+  :group 'ai-code)
+
+;;; Core Commands
 
 ;;;###autoload
 (defun ai-code-eca-start (&optional arg)
@@ -134,26 +105,11 @@ With FORCE-PROMPT (prefix arg), force new session."
           (eca-chat-send-prompt session line))
       (user-error "No ECA session. Run M-x ai-code-eca-start first"))))
 
-;;;###autoload
-(defun ai-code-eca-resume (&optional arg)
-  "Resume an ECA session.
-With prefix ARG, force new session."
-  (interactive "P")
-  (ai-code-eca--ensure-available)
-  (if arg
-      (ai-code-eca-start '(16))
-    (let ((session (eca-session)))
-      (if session
-          (progn
-            (eca-chat-open session)
-            (pop-to-buffer (eca-chat--get-last-buffer session)))
-        (ai-code-eca-start nil)))))
-
 (defun ai-code-eca--ensure-available ()
   "Ensure ECA package and functions are available."
   (unless (require 'eca nil t)
     (user-error "ECA not available. Install with: M-x package-install RET eca RET"))
-  (dolist (fn '(eca eca-session eca-chat-open eca-chat-send-prompt eca-chat--get-last-buffer))
+  (dolist (fn '(eca eca-session eca-chat-open eca-chat--get-last-buffer))
     (unless (fboundp fn)
       (user-error "ECA missing function: %s. Reinstall eca package" fn))))
 
@@ -177,7 +133,13 @@ With prefix ARG, force new session."
   (interactive)
   (let ((sessions (ai-code-eca-get-sessions)))
     (if sessions
-        (message "ECA sessions: %s" (mapconcat #'identity sessions ", "))
+        (message "ECA sessions: %s"
+                 (mapconcat (lambda (s)
+                              (format "#%d: %s (%d chats)"
+                                      (plist-get s :id)
+                                      (string-join (plist-get s :workspace-folders) ", ")
+                                      (plist-get s :chat-count)))
+                            sessions " | "))
       (message "No ECA sessions found"))))
 
 (defun ai-code-eca-switch-session (&optional session-id)
@@ -193,7 +155,10 @@ With prefix ARG, force new session."
   (interactive)
   (let ((session (eca-session)))
     (if session
-        (message "Current ECA session: %s" session)
+        (let ((id (eca--session-id session))
+              (folders (eca--session-workspace-folders session)))
+          (message "ECA session %d: %s" id
+                   (if folders (mapconcat #'identity folders ", ") "no workspace")))
       (message "No active ECA session"))))
 
 ;;; Workspace Management
@@ -215,12 +180,49 @@ With prefix ARG, force new session."
       (message "No workspace folders"))))
 
 (defun ai-code-eca-remove-workspace-folder (folder)
-  "Remove FOLDER from ECA workspace."
+  "Remove FOLDER from ECA workspace.
+Prevents removal of the last folder to keep session context."
   (interactive
-   (list (require 'eca-ext nil t)
-         (completing-read "Remove folder: " (eca-list-workspace-folders) nil t)))
+   (let* ((folders (eca-list-workspace-folders)))
+     (when (= (length folders) 1)
+       (user-error "Cannot remove last workspace folder - session needs at least one"))
+     (list (completing-read "Remove folder: " folders nil t))))
   (require 'eca-ext nil t)
   (eca-remove-workspace-folder folder))
+
+;;;###autoload
+(defun ai-code-eca-sync-project-workspaces ()
+  "Sync current project roots to ECA session workspace.
+Adds any project roots not already in the workspace."
+  (interactive)
+  (let ((session (eca-session)))
+    (unless session
+      (user-error "No ECA session active"))
+    (let* ((project-roots (or (when (fboundp 'projectile-project-root)
+                                (ignore-errors (list (projectile-project-root))))
+                              (when (fboundp 'project-roots)
+                                (ignore-errors (project-roots (project-current))))
+                              (when buffer-file-name
+                                (list (file-name-directory buffer-file-name)))))
+           (existing (eca-list-workspace-folders session))
+           (added 0))
+      (dolist (root project-roots)
+        (let ((root (expand-file-name root)))
+          (unless (member root existing)
+            (eca-add-workspace-folder root session)
+            (cl-incf added))))
+      (if (> added 0)
+          (message "Added %d project roots to session %d workspace"
+                   added (eca--session-id session))
+        (message "All project roots already in session %d workspace"
+                 (eca--session-id session))))))
+
+;;;###autoload
+(defun ai-code-eca-add-workspace-folder-all-sessions (folder)
+  "Add FOLDER to all active ECA sessions.
+Useful for shared libraries that should be available in all projects."
+  (interactive "DAdd to all sessions: ")
+  (eca-add-workspace-folder-all-sessions folder))
 
 ;;; Context Commands
 
@@ -273,186 +275,61 @@ With prefix ARG, force new session."
       (eca-chat-add-clipboard-context session clip-content)
       (eca-info "Added clipboard context (%d chars)" (length clip-content)))))
 
-;;; Shared Context
+;;; Shared Context (auto-applies on session switch)
 
-(defun ai-code-eca-share-file (file-path)
-  "Share FILE-PATH across ECA sessions."
-  (interactive "fShare file: ")
-  (require 'eca-ext nil t)
-  (unless (fboundp 'eca-share-file-context)
-    (user-error "Shared context requires eca-ext.el"))
-  (eca-share-file-context file-path)
-  (message "Shared file: %s" file-path))
+(advice-add 'eca-switch-to-session :after
+            (lambda (&rest _)
+              (when (and eca-auto-apply-shared-context
+                         (fboundp 'eca-apply-shared-context)
+                         (fboundp 'eca-session))
+                (let ((session (eca-session)))
+                  (when session
+                    (condition-case nil
+                        (eca-apply-shared-context session)
+                      (error nil)))))))
 
-(defun ai-code-eca-share-repo-map ()
-  "Share repo map across ECA sessions."
-  (interactive)
-  (require 'eca-ext nil t)
-  (unless (fboundp 'eca-share-repo-map-context)
-    (user-error "Shared context requires eca-ext.el"))
-  (eca-share-repo-map-context default-directory)
-  (message "Shared repo map"))
+;;; Menu Integration - Dynamic ECA group in ai-code-menu
 
-(defun ai-code-eca-apply-shared-context ()
-  "Apply shared context to current ECA session."
-  (interactive)
-  (require 'eca-ext nil t)
-  (unless (fboundp 'eca-apply-shared-context)
-    (user-error "Shared context requires eca-ext.el"))
-  (let ((session (eca-session)))
-    (when session
-      (eca-apply-shared-context session)
-      (message "Applied shared context"))))
+(defvar ai-code-eca--menu-group-added nil
+  "Track whether ECA group has been added to ai-code-menu.")
 
-(defun ai-code-eca-clear-shared-context ()
-  "Clear shared context."
-  (interactive)
-  (require 'eca-ext nil t)
-  (unless (fboundp 'eca-clear-shared-context)
-    (user-error "Shared context requires eca-ext.el"))
-  (eca-clear-shared-context)
-  (message "Cleared shared context"))
-
-;;; Health & Upgrade
-
-(defun ai-code-eca-verify-health ()
-  "Verify ECA session health."
-  (interactive)
-  (let ((session (eca-session)))
-    (if session
-        (message "ECA session healthy: %s" session)
-      (message "No active ECA session"))))
-
-(defun ai-code-eca-upgrade ()
-  "Upgrade ECA package."
-  (interactive)
-  (if (package-installed-p 'eca)
-      (progn
-        (package-refresh-contents)
-        (package-install 'eca)
-        (message "ECA upgraded. Restart Emacs or re-evaluate."))
-    (user-error "ECA is not installed")))
-
-(defun ai-code-eca-install-skills ()
-  "Install skills for ECA by prompting for a skills repo URL."
-  (interactive)
-  (let* ((url (read-string "Skills repo URL for ECA: "
-                           nil nil
-                           "https://github.com/obra/superpowers"))
-         (prompt (format "Install the skill from %s for this ECA session." url)))
-    (ai-code-eca-send prompt)))
-
-(defun ai-code-eca-dashboard ()
-  "Open ECA session dashboard."
-  (interactive)
-  (require 'eca-ext nil t)
-  (unless (fboundp 'eca-session-dashboard)
-    (user-error "Dashboard requires eca-ext.el"))
-  (eca-session-dashboard))
-
-;;; Multi-Project Mode
-
-(defvar ai-code-eca-context-sync-interval 60
-  "Seconds between automatic ECA context sync operations.")
-
-(defvar ai-code-eca-auto-switch-backend t
-  "If non-nil, keep ai-code backend in sync with ECA session switches.")
-
-(defvar ai-code-eca-context-sync-timer nil
-  "Timer for automatic context synchronization.")
-
-(defvar ai-code-eca-mode-line-indicator nil
-  "Mode-line indicator for ECA session.")
-
-;;;###autoload
-(define-minor-mode ai-code-eca-multi-project-mode
-  "Minor mode for multi-project ECA workflows."
-  :global t
-  :group 'ai-code-eca
-  (if ai-code-eca-multi-project-mode
-      (progn
-        (when ai-code-eca-context-sync-interval
-          (setq ai-code-eca-context-sync-timer
-                (run-with-timer ai-code-eca-context-sync-interval
-                                ai-code-eca-context-sync-interval
-                                #'ai-code-eca--sync-context)))
-        (message "ECA multi-project mode enabled"))
-    (when ai-code-eca-context-sync-timer
-      (cancel-timer ai-code-eca-context-sync-timer)
-      (setq ai-code-eca-context-sync-timer nil))
-    (message "ECA multi-project mode disabled")))
-
-(defun ai-code-eca--sync-context ()
-  "Sync context for multi-project mode."
-  (let ((session (eca-session)))
-    (when session
-      (message "ECA context sync for session: %s" session))))
-
-;;; Transient Menu
-
-;;;###autoload
-(transient-define-prefix ai-code-eca-menu ()
-  "ECA commands menu."
-  ["ECA Workspace"
-   ("wm" "Multi-Project Mode" ai-code-eca-multi-project-mode)
-   ("wa" "Add folder" ai-code-eca-add-workspace-folder)
-   ("wl" "List folders" ai-code-eca-list-workspace-folders)
-   ("wr" "Remove folder" ai-code-eca-remove-workspace-folder)
-   ("wd" "Dashboard" ai-code-eca-dashboard)]
-  ["ECA Context"
-   ("cf" "File" ai-code-eca-add-file-context)
-   ("cc" "Cursor" ai-code-eca-add-cursor-context)
-   ("cr" "Repo map" ai-code-eca-add-repo-map-context)
-   ("cy" "Clipboard" ai-code-eca-add-clipboard-context)]
-  ["ECA Shared Context"
-   ("F" "Share file" ai-code-eca-share-file)
-   ("R" "Share repo map" ai-code-eca-share-repo-map)
-   ("p" "Apply shared" ai-code-eca-apply-shared-context)
-   ("c" "Clear shared" ai-code-eca-clear-shared-context)]
-  ["ECA Sessions"
-   ("?" "Which session?" ai-code-eca-which-session)
-   ("L" "List sessions" ai-code-eca-list-sessions)
-   ("w" "Switch session" ai-code-eca-switch-session)
-   ("v" "Verify health" ai-code-eca-verify-health)
-   ("u" "Upgrade ECA" ai-code-eca-upgrade)])
-
-(defvar ai-code-eca--menu-suffixes-added nil
-  "Track whether ECA menu has been added to ai-code-menu.")
-
-(defun ai-code-eca--add-menu-suffixes ()
-  "Add ECA submenu to ai-code-menu."
-  (when (and (boundp 'ai-code-selected-backend)
-             (eq ai-code-selected-backend 'eca)
-             (not ai-code-eca--menu-suffixes-added)
-             (featurep 'transient))
+(defun ai-code-eca--add-menu-group ()
+  "Add ECA group to ai-code-menu."
+  (when (and (featurep 'transient)
+             (not ai-code-eca--menu-group-added))
     (condition-case err
         (progn
-          (transient-append-suffix 'ai-code-menu "N"
-            '("E" "ECA commands" ai-code-eca-menu))
-          (setq ai-code-eca--menu-suffixes-added t)
-          (message "ECA menu items added to ai-code-menu"))
+          ;; Use coordinate list: '(0 -1) = last item at top level
+          (transient-append-suffix 'ai-code-menu '(0 -1)
+            ["ECA"
+             ("?" "Which session" ai-code-eca-which-session)
+             ("W" "Switch session" ai-code-eca-switch-session)
+             ("A" "Add folder" ai-code-eca-add-workspace-folder)
+             ("L" "List folders" ai-code-eca-list-workspace-folders)
+             ("D" "Remove folder" ai-code-eca-remove-workspace-folder)
+             ("F" "Add file context" ai-code-eca-add-file-context)
+             ("Y" "Add cursor context" ai-code-eca-add-cursor-context)
+             ("M" "Add repo map" ai-code-eca-add-repo-map-context)
+             ("B" "Add clipboard" ai-code-eca-add-clipboard-context)])
+          (setq ai-code-eca--menu-group-added t))
       (error
-       (message "Failed to add ECA menu items: %s" (error-message-string err))))))
+       (message "Failed to add ECA group: %s" (error-message-string err))))))
 
-(defun ai-code-eca--remove-menu-suffixes ()
-  "Remove ECA submenu from ai-code-menu."
-  (when (and ai-code-eca--menu-suffixes-added
-             (featurep 'transient))
-    (condition-case err
+(defun ai-code-eca--remove-menu-group ()
+  "Remove ECA group from ai-code-menu."
+  (when ai-code-eca--menu-group-added
+    (condition-case nil
         (progn
-          (transient-remove-suffix 'ai-code-menu "E")
-          (setq ai-code-eca--menu-suffixes-added nil))
-      (error
-       (message "Failed to remove ECA menu items: %s" (error-message-string err))))))
+          (transient-remove-suffix 'ai-code-menu "?")
+          (setq ai-code-eca--menu-group-added nil))
+      (error nil))))
 
-;; Hook into ai-code-menu
 (with-eval-after-load 'ai-code
   (advice-add 'ai-code-set-backend :after
               (lambda (backend)
                 (if (eq backend 'eca)
-                    (ai-code-eca--add-menu-suffixes)
-                  (when ai-code-eca--menu-suffixes-added
-                    (ai-code-eca--remove-menu-suffixes))))))
+                    (ai-code-eca--add-menu-group)
+                  (ai-code-eca--remove-menu-group)))))
 
 (provide 'ai-code-eca)
 
