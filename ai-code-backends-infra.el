@@ -754,7 +754,8 @@ any error output left behind by the CLI."
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
-                                                                     env-vars multiline-input-sequence)
+                                                                     env-vars multiline-input-sequence
+                                                                     post-start-fn)
   "Toggle or create a terminal session.
 WORKING-DIR is the directory for the session.
 BUFFER-NAME is the terminal buffer name.
@@ -768,7 +769,9 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name.
 ENV-VARS is a list of additional environment variable strings (e.g., \"VAR=value\")
 passed to the terminal session on creation.
 MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' to send
-that sequence inside the session buffer."
+that sequence inside the session buffer.
+POST-START-FN is called with (BUFFER PROCESS INSTANCE-NAME) after a new
+session starts successfully."
   (setq process-table (or process-table ai-code-backends-infra--processes))
   (ai-code-backends-infra--cleanup-dead-processes process-table)
   (let* ((existing-buffers (and prefix
@@ -829,8 +832,10 @@ that sequence inside the session buffer."
                   event)
                  (when cleanup-fn
                    (funcall cleanup-fn))))
-               (ai-code-backends-infra--configure-session-buffer
-                new-buffer escape-fn multiline-input-sequence)
+              (ai-code-backends-infra--configure-session-buffer
+               new-buffer escape-fn multiline-input-sequence)
+               (when post-start-fn
+                 (funcall post-start-fn new-buffer process resolved-instance))
                (with-current-buffer new-buffer
                  (add-hook 'kill-buffer-hook
                            (lambda ()

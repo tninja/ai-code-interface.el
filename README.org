@@ -166,119 +166,57 @@ The generated prompt will include the function/region scope, visible file list, 
   - [[https://github.com/crystaldba/postgres-mcp][Postgresql MCP]] / Sqlite MCP
   - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
 
-**** Built-in Emacs MCP Tools Core
+**** Built-in Emacs MCP Tools
 
-This package now includes a transport-agnostic MCP tools core for exposing Emacs features to backend adapters and Lisp-side integrations. The current implementation focuses on the reusable server core, not on a standalone HTTP server process.
+AI Code includes an Emacs MCP server with these built-in tools:
+- =project_info=
+- =imenu_list_symbols=
+- =xref_find_references=
+- =treesit_info=
 
-It currently provides:
-- tool registration API
-- MCP dispatch for =initialize=, =tools/list=, and =tools/call=
-- session-aware project context
-- built-in common Emacs tools:
-  - =project_info=
-  - =imenu_list_symbols=
-  - =xref_find_references=
-  - =treesit_info=
+***** Use It with Codex CLI
 
-***** Enable the Built-in Tool Set
+Set the backend to =codex= and start a session with =C-c a a=. AI Code will:
+- start a local Emacs MCP HTTP server
+- register the current project/buffer as the MCP session context
+- inject a session-scoped MCP config into that Codex session automatically
+
+Today this auto-wiring is enabled for =codex=. The adapter layer is designed so other backends can be added later.
+
+If you disabled it before, enable it again with:
+
+#+begin_src emacs-lisp
+(setq ai-code-mcp-agent-enabled-backends '(codex))
+#+end_src
+
+***** Make Sure It Works
+
+1. Start Codex with =C-c a a= from the file or project you want to work on.
+2. Switch to the Codex buffer and run:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-agent-buffer-status)
+#+end_src
+
+If it works, you will get a plist with =:backend codex=, a =:session-id=, and a local =:server-url=.
+
+Then ask Codex to use one of the Emacs tools, for example:
+- use =project_info= and tell me the current project info
+- use =imenu_list_symbols= for the current file
+
+If Codex can answer with your current project path, buffer context, or symbols from the current file, then the active agent session is using the Emacs MCP tools.
+
+***** Use the MCP Core Directly from Elisp
+
+If you want to use the MCP core without an AI CLI, you can still call it directly:
 
 #+begin_src emacs-lisp
 (require 'ai-code-mcp-server)
 (ai-code-mcp-builtins-setup)
-#+end_src
-
-***** How Do I Know Setup Worked?
-
-Check the registered tool names:
-
-#+begin_src emacs-lisp
-(mapcar (lambda (tool) (plist-get tool :name))
-        ai-code-mcp-server-tools)
-#+end_src
-
-You should see:
-- ="project_info"=
-- ="imenu_list_symbols"=
-- ="xref_find_references"=
-- ="treesit_info"=
-
-You can also check the MCP-facing view:
-
-#+begin_src emacs-lisp
 (ai-code-mcp-dispatch "tools/list")
 #+end_src
 
-If setup worked, the result contains those tool names under =tools=.
-
-***** Register a Custom Tool
-
-Use =ai-code-mcp-make-tool= to expose your own Emacs function:
-
-#+begin_src emacs-lisp
-(ai-code-mcp-make-tool
- :function (lambda (file_path)
-             (with-current-buffer (find-file-noselect file_path t)
-               (count-lines (point-min) (point-max))))
- :name "count_lines"
- :description "Count the number of lines in a file."
- :args '((:name "file_path"
-          :type string
-          :description "Absolute or project-relative file path.")))
-#+end_src
-
-***** How Do I Know the Tools Actually Work?
-
-Call a tool directly:
-
-#+begin_src emacs-lisp
-(let ((session-id "demo-session"))
-  (ai-code-mcp-register-session session-id default-directory (current-buffer))
-  (let ((ai-code-mcp--current-session-id session-id))
-    (ai-code-mcp-dispatch
-     "tools/call"
-     '((name . "project_info")
-       (arguments . ())))))
-#+end_src
-
-If this returns a =content= field whose text includes your project path, buffer name, and file count, then the tool is working inside Emacs.
-
-You can test other tools the same way:
-
-#+begin_src emacs-lisp
-(ai-code-mcp-dispatch
- "tools/call"
- `((name . "imenu_list_symbols")
-   (arguments . ((file_path . ,(buffer-file-name))))))
-#+end_src
-
-For lower-level integrations, =ai-code-mcp-with-session-context= runs arbitrary Lisp forms with the registered session buffer and project directory.
-
-***** Can Codex CLI or Another AI Agent Use These Tools?
-
-Not automatically yet.
-
-What you can prove today:
-- the tools are registered in Emacs
-- the MCP core exposes them through =tools/list=
-- the tools run correctly through =tools/call=
-
-What you cannot prove from =ai-code-mcp-builtins-setup= alone:
-- that Codex CLI is connected to this MCP core
-- that Codex CLI has discovered these tools
-- that Codex CLI can invoke them over a transport
-
-Reason: the current implementation is only the MCP core inside Emacs. It does not yet start a standalone Streamable HTTP server or install a Codex-specific MCP adapter by itself.
-
-So the practical rule is:
-- if =tools/list= and =tools/call= work, the Emacs-side MCP core is ready
-- an AI agent such as Codex CLI can use these tools only after a transport/adapter layer connects that agent to this core
-
-***** Current Scope
-
-This MCP implementation is intentionally small and composable:
-- it provides the reusable MCP core inside Emacs
-- it does not yet start a standalone Streamable HTTP listener on its own
-- it is suitable for backend adapters, tests, and future transport layers
+To expose your own Emacs function as a tool, use =ai-code-mcp-make-tool=.
 
 - [[https://martinfowler.com/articles/exploring-gen-ai/context-engineering-coding-agents.html][Context Engineering for Coding Agents]], recommended by Martin Fowler.
 

@@ -717,6 +717,44 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-toggle-or-create-session-calls-post-start-hook ()
+  "POST-START-FN should receive the created buffer, process, and instance."
+  (let* ((working-dir "/tmp/ai-code-post-start/")
+         (buffer-name "*ai-code-post-start*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'mock-process)
+         (called nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--cleanup-dead-processes)
+                   (lambda (_table) nil))
+                  ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                   (lambda (_buf _dir _cmd _env-vars)
+                     (cons buffer process)))
+                  ((symbol-function 'sleep-for)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'process-live-p)
+                   (lambda (&rest _args) t))
+                  ((symbol-function 'set-process-sentinel)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--toggle-or-create-session
+           working-dir
+           buffer-name
+           (make-hash-table :test 'equal)
+           "echo ok"
+           nil nil nil nil nil nil nil
+           (lambda (created-buffer created-process created-instance)
+             (setq called (list created-buffer created-process created-instance))))
+          (should (equal (list buffer process "default")
+                         called)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here

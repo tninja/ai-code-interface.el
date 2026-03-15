@@ -12,6 +12,7 @@
 
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 
 (defgroup ai-code-codex-cli nil
   "Codex CLI integration via `ai-code-backends-infra'."
@@ -46,17 +47,24 @@ With prefix ARG, prompt for CLI args using
                     ai-code-codex-cli-program-switches
                     arg
                     "Codex"))
-         (command (plist-get resolved :command)))
+         (command (plist-get resolved :command))
+         (mcp-launch (ai-code-mcp-agent-prepare-launch 'codex working-dir command))
+         (launch-command (or (plist-get mcp-launch :command) command))
+         (cleanup-fn (plist-get mcp-launch :cleanup-fn))
+         (post-start-fn (plist-get mcp-launch :post-start-fn)))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil
      ai-code-codex-cli--processes
-     command
+     launch-command
      #'ai-code-codex-cli-send-escape
-     nil
+     cleanup-fn
      nil
      ai-code-codex-cli--session-prefix
-     nil)))
+     nil
+     nil
+     nil
+     post-start-fn)))
 
 ;;;###autoload
 (defun ai-code-codex-cli-switch-to-buffer (&optional force-prompt)
