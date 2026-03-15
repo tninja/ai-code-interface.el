@@ -12,6 +12,7 @@
 
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 
 (defgroup ai-code-github-copilot-cli nil
   "GitHub Copilot CLI integration via `ai-code-backends-infra'."
@@ -61,19 +62,26 @@ With prefix ARG, prompt for CLI args using
                     ai-code-github-copilot-cli-program-switches
                     arg
                     "Copilot"))
-         (command (plist-get resolved :command)))
+         (command (plist-get resolved :command))
+         (mcp-launch (ai-code-mcp-agent-prepare-launch 'github-copilot-cli
+                                                       working-dir
+                                                       command))
+         (launch-command (or (plist-get mcp-launch :command) command))
+         (cleanup-fn (plist-get mcp-launch :cleanup-fn))
+         (post-start-fn (plist-get mcp-launch :post-start-fn)))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil
      ai-code-github-copilot-cli--processes
-     command
+     launch-command
      #'ai-code-github-copilot-cli-send-escape
-     nil
+     cleanup-fn
      nil
      ai-code-github-copilot-cli--session-prefix
      nil
      ai-code-github-copilot-cli-extra-env-vars
-     ai-code-github-copilot-cli-multiline-input-sequence)))
+     ai-code-github-copilot-cli-multiline-input-sequence
+     post-start-fn)))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-switch-to-buffer (&optional force-prompt)
