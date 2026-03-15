@@ -1,0 +1,57 @@
+;;; test_ai-code-mcp-http-server.el --- Tests for ai-code-mcp-http-server -*- lexical-binding: t; -*-
+
+;; Author: Kang Tu <tninja@gmail.com>
+;; SPDX-License-Identifier: Apache-2.0
+
+;;; Commentary:
+;; Tests for the ai-code-mcp-http-server module.
+
+;;; Code:
+
+(require 'ert)
+(require 'json)
+(require 'cl-lib)
+(unless (featurep 'magit)
+  (defun magit-toplevel (&optional _dir) nil)
+  (defun magit-get-current-branch () nil)
+  (defun magit-git-lines (&rest _args) nil)
+  (provide 'magit))
+(require 'ai-code-mcp-server)
+(require 'ai-code-mcp-http-server nil t)
+
+(ert-deftest ai-code-test-mcp-http-server-tools-call-uses-session-context ()
+  "HTTP MCP transport should dispatch `tools/call' with the session path."
+  (should (fboundp 'ai-code-mcp-dispatch))
+  (should (fboundp 'ai-code-mcp-http-server--json-rpc-response))
+  (let* ((project-dir (make-temp-file "ai-code-mcp-http-" t))
+         (buffer (generate-new-buffer " *ai-code-mcp-http-project*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp-server-tools nil)
+         (session-id "session-http"))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "main.el" project-dir)
+            (insert "(message \"hello\")\n"))
+          (ai-code-mcp-builtins-setup)
+          (ai-code-mcp-register-session session-id project-dir buffer)
+          (let* ((result (ai-code-mcp-http-server--json-rpc-response
+                          (format "/mcp/%s" session-id)
+                          (json-encode
+                           '((jsonrpc . "2.0")
+                             (id . 1)
+                             (method . "tools/call")
+                             (params . ((name . "project_info")
+                                        (arguments . ((dummy . :json-false)))))))))
+                 (content (alist-get 'content (alist-get 'result result)))
+                 (text (alist-get 'text (car content))))
+            (should (string-match-p "Project:" text))
+            (should (string-match-p (regexp-quote project-dir) text))
+            (should (string-match-p "Files: 1" text))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (ignore-errors
+        (delete-directory project-dir t)))))
+
+(provide 'test_ai-code-mcp-http-server)
+
+;;; test_ai-code-mcp-http-server.el ends here

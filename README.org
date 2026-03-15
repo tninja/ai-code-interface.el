@@ -174,37 +174,34 @@ AI Code includes an Emacs MCP server with these built-in tools:
 - =xref_find_references=
 - =treesit_info=
 
-***** Use It with Codex CLI
+***** Use It with an AI CLI
 
-Set the backend to =codex= and start a session with =C-c a a=. AI Code will:
+Set the backend to =codex= or =github-copilot-cli= and start a session with =C-c a a=. AI Code will:
 - start a local Emacs MCP HTTP server
 - register the current project/buffer as the MCP session context
-- inject a session-scoped MCP config into that Codex session automatically
+- inject a session-scoped MCP config into that agent session automatically
 
-Today this auto-wiring is enabled for =codex=. The adapter layer is designed so other backends can be added later.
+Today this auto-wiring is enabled for =codex= and =github-copilot-cli=. The adapter layer is designed so other backends can be added later.
 
 If you disabled it before, enable it again with:
 
 #+begin_src emacs-lisp
-(setq ai-code-mcp-agent-enabled-backends '(codex))
+(setq ai-code-mcp-agent-enabled-backends '(codex github-copilot-cli))
 #+end_src
 
 ***** Make Sure It Works
 
-1. Start Codex with =C-c a a= from the file or project you want to work on.
-2. Switch to the Codex buffer and run:
+1. Start =codex= or =github-copilot-cli= with =C-c a a= from the file or project you want to work on.
+2. Switch to the agent buffer and run =M-x ai-code-mcp-agent-show-buffer-status=.
 
-#+begin_src emacs-lisp
-(ai-code-mcp-agent-buffer-status)
-#+end_src
+If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has attached MCP to this session.
 
-If it works, you will get a plist with =:backend codex=, a =:session-id=, and a local =:server-url=.
-
-Then ask Codex to use one of the Emacs tools, for example:
+3. Then ask the agent to use one of the Emacs tools, for example:
 - use =project_info= and tell me the current project info
 - use =imenu_list_symbols= for the current file
 
-If Codex can answer with your current project path, buffer context, or symbols from the current file, then the active agent session is using the Emacs MCP tools.
+The status command only proves the Emacs side is wired.
+The real proof is that the started agent returns your current project path, buffer context, or current-file symbols from those tools.
 
 ***** Use the MCP Core Directly from Elisp
 
