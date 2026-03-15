@@ -10,6 +10,7 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'json)
 (require 'seq)
 (require 'project)
 (unless (featurep 'magit)
@@ -120,6 +121,21 @@
                        "treesit_info"
                        "xref_find_references")
                      tool-names)))))
+
+(ert-deftest ai-code-test-mcp-tools-list-encodes-empty-input-schema-properties ()
+  "No-argument tools should encode empty schema properties as an object."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-builtins-setup)
+    (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
+           (project-tool (seq-find
+                          (lambda (tool)
+                            (equal "project_info" (alist-get 'name tool)))
+                          (alist-get 'tools tools-result)))
+           (encoded (json-encode tools-result)))
+      (should project-tool)
+      (should (string-match-p
+               "\"properties\":{}"
+               encoded)))))
 
 (ert-deftest ai-code-test-mcp-project-info-uses-session-project-dir ()
   "Project info should report the session project directory."

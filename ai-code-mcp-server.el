@@ -279,11 +279,16 @@ Required keys are `:function', `:name', and `:description'."
   `((name . ,(plist-get tool :name))
     (description . ,(plist-get tool :description))
     (inputSchema . ((type . "object")
-                    (properties . ,(ai-code-mcp--args-to-schema
-                                    (plist-get tool :args)))
+                    (properties . ,(or (ai-code-mcp--args-to-schema
+                                        (plist-get tool :args))
+                                       (ai-code-mcp--empty-object)))
                     (required . ,(vconcat
                                   (ai-code-mcp--required-args
                                    (plist-get tool :args))))))))
+
+(defun ai-code-mcp--empty-object ()
+  "Return an empty JSON object placeholder."
+  (make-hash-table :test 'equal))
 
 (defun ai-code-mcp--args-to-schema (arg-specs)
   "Convert ARG-SPECS into an alist keyed by argument symbols."

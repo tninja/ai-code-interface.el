@@ -52,6 +52,25 @@
       (ignore-errors
         (delete-directory project-dir t)))))
 
+(ert-deftest ai-code-test-mcp-http-server-notification-returns-accepted ()
+  "Notification requests should return HTTP 202 with an empty body."
+  (let ((captured-response nil))
+    (cl-letf (((symbol-function 'ai-code-mcp-http-server--send-response)
+               (lambda (_process code content-type body)
+                 (setq captured-response
+                       (list :code code
+                             :content-type content-type
+                             :body body)))))
+      (ai-code-mcp-http-server--handle-post
+       nil
+       (list :path "/mcp/session-http"
+             :body (json-encode
+                    '((jsonrpc . "2.0")
+                      (method . "notifications/initialized")
+                      (params . ((dummy . :json-false)))))))
+      (should (equal 202 (plist-get captured-response :code)))
+      (should (equal "" (plist-get captured-response :body))))))
+
 (provide 'test_ai-code-mcp-http-server)
 
 ;;; test_ai-code-mcp-http-server.el ends here

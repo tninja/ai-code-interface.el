@@ -143,7 +143,7 @@ When nil, an available port is selected automatically."
           (plist-get request :path)
           (plist-get request :body))))
     (if (null response)
-        (ai-code-mcp-http-server--send-response process 200 "application/json" "")
+        (ai-code-mcp-http-server--send-accepted process)
       (ai-code-mcp-http-server--send-json
        process
        200
@@ -189,6 +189,10 @@ Returns nil for notifications."
      "application/json"
      (json-encode payload))))
 
+(defun ai-code-mcp-http-server--send-accepted (process)
+  "Send an empty HTTP 202 Accepted response on PROCESS."
+  (ai-code-mcp-http-server--send-response process 202 "text/plain" ""))
+
 (defun ai-code-mcp-http-server--send-response (process code content-type body)
   "Send an HTTP response with CODE, CONTENT-TYPE, and BODY on PROCESS."
   (let* ((payload (or body ""))
@@ -206,6 +210,7 @@ Returns nil for notifications."
 (defun ai-code-mcp-http-server--reason (code)
   "Return the HTTP reason phrase for CODE."
   (alist-get code '((200 . "OK")
+                    (202 . "Accepted")
                     (404 . "Not Found")
                     (500 . "Internal Server Error"))
              "OK"))
