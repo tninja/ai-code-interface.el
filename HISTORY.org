@@ -1,5 +1,6 @@
 
 * Release history
+- Feat: Add ai-code MCP server and tests, referring feature inside claude-code-ide.el
 
 ** Main branch change
 - Fix: Avoid eat reflow suppression on session buffers, by Silex
