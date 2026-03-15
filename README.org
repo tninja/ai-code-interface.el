@@ -166,6 +166,86 @@ The generated prompt will include the function/region scope, visible file list, 
   - [[https://github.com/crystaldba/postgres-mcp][Postgresql MCP]] / Sqlite MCP
   - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
 
+**** Built-in Emacs MCP Tools Core
+
+This package now includes a transport-agnostic MCP tools core for exposing Emacs features to backend adapters and Lisp-side integrations. The current implementation focuses on the reusable server core, not on a standalone HTTP server process.
+
+It currently provides:
+- tool registration API
+- MCP dispatch for =initialize=, =tools/list=, and =tools/call=
+- session-aware project context
+- built-in common Emacs tools:
+  - =project_info=
+  - =imenu_list_symbols=
+  - =xref_find_references=
+  - =treesit_info=
+
+***** Enable the Built-in Tool Set
+
+#+begin_src emacs-lisp
+(require 'ai-code-mcp-server)
+(ai-code-mcp-builtins-setup)
+#+end_src
+
+Registered tools are stored in =ai-code-mcp-server-tools=.
+
+***** Register a Custom Tool
+
+Use =ai-code-mcp-make-tool= to expose your own Emacs function:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-make-tool
+ :function (lambda (file_path)
+             (with-current-buffer (find-file-noselect file_path t)
+               (count-lines (point-min) (point-max))))
+ :name "count_lines"
+ :description "Count the number of lines in a file."
+ :args '((:name "file_path"
+          :type string
+          :description "Absolute or project-relative file path.")))
+#+end_src
+
+***** Dispatch MCP Methods from Elisp
+
+You can inspect registered tools:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-dispatch "initialize")
+(ai-code-mcp-dispatch "tools/list")
+#+end_src
+
+You can also call a tool directly:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-dispatch
+ "tools/call"
+ '((name . "project_info")
+   (arguments . ())))
+#+end_src
+
+***** Use Session-Aware Project Context
+
+If a tool should run with a specific project root and active buffer, register a session first:
+
+#+begin_src emacs-lisp
+(let ((session-id "demo-session"))
+  (ai-code-mcp-register-session session-id default-directory (current-buffer))
+  (let ((ai-code-mcp--current-session-id session-id))
+    (ai-code-mcp-dispatch
+     "tools/call"
+     '((name . "project_info")
+       (arguments . ())))))
+#+end_src
+
+For lower-level integrations, =ai-code-mcp-with-session-context= executes arbitrary Lisp forms with the registered session buffer and project directory.
+
+***** Current Scope
+
+This MCP implementation is intentionally small and composable:
+- it provides the reusable MCP core inside Emacs
+- it does not yet start a standalone Streamable HTTP listener on its own
+- it is suitable for backend adapters, tests, and future transport layers
+
 - [[https://martinfowler.com/articles/exploring-gen-ai/context-engineering-coding-agents.html][Context Engineering for Coding Agents]], recommended by Martin Fowler.
 
 *** Harness Engineering Practice
