@@ -205,9 +205,6 @@ The real proof is that the started agent returns your current project path, buff
 
 ***** Add New MCP function
 
-# DONE: how do we add a new emacs mcp function and make it available inside ai coding
-#   agent, just like other mcp function you showed on README? update here
-
 1. Define an Emacs Lisp function.
 
 #+begin_src emacs-lisp

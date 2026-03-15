@@ -71,6 +71,29 @@
       (should (equal 202 (plist-get captured-response :code)))
       (should (equal "" (plist-get captured-response :body))))))
 
+(ert-deftest ai-code-test-mcp-http-server-errors-keep-request-id ()
+  "JSON-RPC errors should preserve the originating request id."
+  (let ((captured-payload nil)
+        (captured-code nil))
+    (cl-letf (((symbol-function 'ai-code-mcp-http-server--send-json)
+               (lambda (_process code payload)
+                 (setq captured-code code)
+                 (setq captured-payload payload))))
+      (ai-code-mcp-http-server--handle-request
+       nil
+       (list :method "POST"
+             :path "/mcp/session-http"
+             :body (json-encode
+                    '((jsonrpc . "2.0")
+                      (id . 17)
+                      (method . "unknown/method")
+                      (params . ((dummy . :json-false)))))))
+      (should (equal 500 captured-code))
+      (should (equal 17 (alist-get 'id captured-payload)))
+      (should (equal -32603
+                     (alist-get 'code
+                                (alist-get 'error captured-payload)))))))
+
 (provide 'test_ai-code-mcp-http-server)
 
 ;;; test_ai-code-mcp-http-server.el ends here

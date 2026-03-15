@@ -1,6 +1,6 @@
 
 * Release history
-- Feat: Add ai-code MCP server and tests, referring feature inside claude-code-ide.el
+- Feat: Add an Emacs MCP server with built-in tools and agent integration for Codex CLI and GitHub Copilot CLI
 
 ** Main branch change
 - Fix: Avoid eat reflow suppression on session buffers, by Silex

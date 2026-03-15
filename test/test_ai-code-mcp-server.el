@@ -122,10 +122,23 @@
                        "xref_find_references")
                      tool-names)))))
 
+(ert-deftest ai-code-test-mcp-tools-list-registers-builtins-by-default ()
+  "Tools list should expose built-in tools without manual setup."
+  (let ((ai-code-mcp-server-tools nil))
+    (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
+           (tool-names (sort (mapcar (lambda (tool)
+                                       (alist-get 'name tool))
+                                     (alist-get 'tools tools-result))
+                             #'string<)))
+      (should (equal '("imenu_list_symbols"
+                       "project_info"
+                       "treesit_info"
+                       "xref_find_references")
+                     tool-names)))))
+
 (ert-deftest ai-code-test-mcp-tools-list-encodes-empty-input-schema-properties ()
   "No-argument tools should encode empty schema properties as an object."
   (let ((ai-code-mcp-server-tools nil))
-    (ai-code-mcp-builtins-setup)
     (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
            (project-tool (seq-find
                           (lambda (tool)
@@ -136,6 +149,41 @@
       (should (string-match-p
                "\"properties\":{}"
                encoded)))))
+
+(ert-deftest ai-code-test-mcp-tools-call-runs-inside-session-context ()
+  "Tool calls should run with the registered session buffer and directory."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (session-id "session-tools-call")
+        (project-dir (make-temp-file "ai-code-mcp-tools-call-" t))
+        (session-buffer (generate-new-buffer " *ai-code-mcp-tools-call*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer session-buffer
+            (rename-buffer "session-context-buffer" t))
+          (ai-code-mcp-register-session session-id project-dir session-buffer)
+          (ai-code-mcp-make-tool
+           :function (lambda ()
+                       (format "buffer=%s dir=%s"
+                               (buffer-name (current-buffer))
+                               default-directory))
+           :name "session_probe"
+           :description "Report session buffer and directory."
+           :args nil)
+          (with-temp-buffer
+            (let* ((ai-code-mcp--current-session-id session-id)
+                   (result (ai-code-mcp-dispatch
+                            "tools/call"
+                            '((name . "session_probe")
+                              (arguments . ()))))
+                   (text (ai-code-test-mcp--content-text result)))
+              (should (string-match-p "buffer=session-context-buffer" text))
+              (should (string-match-p
+                       (regexp-quote (file-name-as-directory project-dir))
+                       text)))))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
 
 (ert-deftest ai-code-test-mcp-project-info-uses-session-project-dir ()
   "Project info should report the session project directory."

@@ -132,7 +132,7 @@ When nil, an available port is selected automatically."
     (error
      (ai-code-mcp-http-server--send-json-error
       process
-      nil
+      (ai-code-mcp-http-server--request-id request)
       -32603
       (format "Internal error: %s" (error-message-string err))))))
 
@@ -162,6 +162,14 @@ Returns nil for notifications."
       `((jsonrpc . "2.0")
         (id . ,id)
         (result . ,(ai-code-mcp-dispatch method params))))))
+
+(defun ai-code-mcp-http-server--request-id (request)
+  "Extract the JSON-RPC request id from REQUEST."
+  (when-let ((body (plist-get request :body)))
+    (condition-case nil
+        (alist-get 'id
+                   (json-parse-string body :object-type 'alist))
+      (error nil))))
 
 (defun ai-code-mcp-http-server--session-id-from-path (path)
   "Extract session id from PATH."

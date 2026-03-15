@@ -166,6 +166,11 @@ Required keys are `:function', `:name', and `:description'."
   (dolist (tool ai-code-mcp--builtin-tool-specs)
     (apply #'ai-code-mcp-make-tool tool)))
 
+(defun ai-code-mcp--ensure-builtins ()
+  "Ensure built-in MCP tools are registered."
+  (unless (ai-code-mcp--find-tool-spec "project_info")
+    (ai-code-mcp-builtins-setup)))
+
 (defun ai-code-mcp-project-info ()
   "Return a short textual description of the active project context."
   (let* ((project-dir (ai-code-mcp--project-directory))
@@ -242,26 +247,37 @@ Required keys are `:function', `:name', and `:description'."
 
 (defun ai-code-mcp--tools-list ()
   "Return MCP tools/list response."
+  (ai-code-mcp--ensure-builtins)
   `((tools . ,(mapcar #'ai-code-mcp--tool-to-mcp
                       ai-code-mcp-server-tools))))
 
 (defun ai-code-mcp--tools-call (params)
   "Return MCP tools/call response for PARAMS."
+  (ai-code-mcp--ensure-builtins)
   (let* ((tool-name (alist-get 'name params))
          (arguments (or (alist-get 'arguments params) '()))
          (tool (ai-code-mcp--find-tool tool-name))
-         (result (apply (plist-get tool :function)
-                        (ai-code-mcp--validate-args arguments
-                                                    (plist-get tool :args)))))
+         (result (ai-code-mcp--call-tool tool arguments)))
     `((content . (((type . "text")
                    (text . ,(ai-code-mcp--format-result result))))))))
 
 (defun ai-code-mcp--find-tool (tool-name)
   "Return the tool spec matching TOOL-NAME."
-  (or (cl-find-if (lambda (tool)
-                    (equal (plist-get tool :name) tool-name))
-                  ai-code-mcp-server-tools)
+  (or (ai-code-mcp--find-tool-spec tool-name)
       (error "Unknown tool: %s" tool-name)))
+
+(defun ai-code-mcp--find-tool-spec (tool-name)
+  "Return the tool spec matching TOOL-NAME, or nil."
+  (cl-find-if (lambda (tool)
+                (equal (plist-get tool :name) tool-name))
+              ai-code-mcp-server-tools))
+
+(defun ai-code-mcp--call-tool (tool arguments)
+  "Run TOOL with validated ARGUMENTS inside the active session context."
+  (ai-code-mcp-with-session-context ai-code-mcp--current-session-id
+    (apply (plist-get tool :function)
+           (ai-code-mcp--validate-args arguments
+                                       (plist-get tool :args)))))
 
 (defun ai-code-mcp--validate-args (arguments arg-specs)
   "Return ordered ARGUMENTS validated against ARG-SPECS."
