@@ -11,6 +11,8 @@
 (require 'ert)
 (require 'cl-lib)
 
+(setq load-prefer-newer t)
+
 (require 'eca-ext)
 
 (ert-deftest eca-ext-test-workspace-folder-for-file-matches-parent ()
@@ -64,6 +66,38 @@
       (should (equal file-calls '("/tmp/a.txt")))
       (should (equal repo-map-calls '(t)))
       (should (equal workspace-adds '("/tmp/project"))))))
+
+(ert-deftest eca-ext-test-clipboard-context-uses-make-temp-file ()
+  "Ensure clipboard context uses `make-temp-file' in the temp directory."
+  (let (make-temp-file-args registered-path added-context opened-session)
+    (cl-letf (((symbol-function 'eca-assert-session-running) (lambda (_session) t))
+              ((symbol-function 'make-temp-file)
+               (lambda (&rest args)
+                 (setq make-temp-file-args args)
+                 "/tmp/eca-clipboard-test.txt"))
+              ((symbol-function 'with-temp-file)
+               (lambda (file &rest body)
+                 (setq registered-path file)
+                 (eval `(progn ,@body))))
+              ((symbol-function 'eca--register-temp-file)
+               (lambda (file session)
+                 (setq registered-path (cons file session))))
+              ((symbol-function 'eca-chat--get-last-buffer) (lambda (_session) (current-buffer)))
+              ((symbol-function 'eca-chat--with-current-buffer)
+               (lambda (_buffer &rest _body) nil))
+              ((symbol-function 'eca-chat--add-context)
+               (lambda (context)
+                 (setq added-context context)))
+              ((symbol-function 'eca-chat-open)
+               (lambda (session)
+                 (setq opened-session session)))
+              ((symbol-function 'eca-info) (lambda (&rest _args) nil)))
+      (let ((temporary-file-directory "/tmp/"))
+        (eca-chat-add-clipboard-context 'mock-session "secret")
+        (should (equal make-temp-file-args '("/tmp/eca-clipboard-" nil ".txt")))
+        (should (equal registered-path '("/tmp/eca-clipboard-test.txt" . mock-session)))
+        (should (equal added-context '(:type "file" :path "/tmp/eca-clipboard-test.txt")))
+        (should (eq opened-session 'mock-session))))))
 
 (provide 'test_eca-ext)
 

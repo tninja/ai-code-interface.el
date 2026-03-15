@@ -2,6 +2,17 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'subr-x)
+
+(setq load-prefer-newer t)
+
+(unless (featurep 'magit)
+  (defun magit-toplevel (&optional _dir) nil)
+  (defun magit-get-current-branch () nil)
+  (defun magit-git-lines (&rest _args) nil)
+  (provide 'magit))
+
+(require 'ai-code-eca)
 
 (ert-deftest ai-code-test-eca-backend-registered ()
   "ECA should be registered in ai-code-backends."
@@ -46,6 +57,24 @@
         (ai-code-eca--menu-suffixes-added nil))
     (ai-code-eca--add-menu-suffixes)
     (should-not ai-code-eca--menu-suffixes-added)))
+
+(ert-deftest ai-code-test-eca-list-sessions-formats-plist-sessions ()
+  "Ensure ECA session listings handle plist session metadata."
+  (let (message-text)
+    (cl-letf (((symbol-function 'eca-list-sessions)
+               (lambda ()
+                 (list (list :id 1
+                             :status 'ready
+                             :workspace-folders '("/repo" "/lib")
+                             :chat-count 2))))
+              ((symbol-function 'message)
+               (lambda (fmt &rest args)
+                 (setq message-text (apply #'format fmt args)))))
+      (ai-code-eca-list-sessions)
+      (should (string-match-p "Session 1" message-text))
+      (should (string-match-p "/repo, /lib" message-text))
+      (should (string-match-p "ready" message-text))
+      (should (string-match-p "2 chats" message-text)))))
 
 (provide 'test_ai-code-eca)
 

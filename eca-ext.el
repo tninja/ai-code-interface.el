@@ -305,18 +305,10 @@ Return nil if FILE-PATH does not belong to any workspace folder."
 (defun eca-chat-add-clipboard-context (session content)
   "Add CONTENT as a temporary file context to SESSION."
   (eca-assert-session-running session)
-  (let* ((temp-dir (file-name-as-directory
-                    (or (bound-and-true-p eca-config-directory)
-                        (expand-file-name "~/.eca"))))
-         (tmp-subdir (expand-file-name "tmp" temp-dir))
-         (temp-file (expand-file-name
-                     (format "clipboard-%d-%d-%d.txt"
-                             (emacs-pid)
-                             (floor (float-time))
-                             (random 1000000))
-                     tmp-subdir)))
-    (unless (file-directory-p tmp-subdir)
-      (make-directory tmp-subdir t))
+  (let ((temp-file (make-temp-file
+                    (expand-file-name "eca-clipboard-" temporary-file-directory)
+                    nil
+                    ".txt")))
     (with-temp-file temp-file
       (insert content))
     (eca--register-temp-file temp-file session)

@@ -9,13 +9,13 @@
 
 ;;; Commentary:
 ;; ECA backend bridge for ai-code with:
-;;   - Session management (list, switch, create, dashboard)
-;;   - Workspace management (list, add, remove, sync projects)
+;;   - Session management (list, switch, dashboard)
+;;   - Workspace management (list, add, remove)
 ;;   - Context commands (file, cursor, repo-map, clipboard)
 ;;   - Shared context (cross-session sharing)
-;;   - Multi-Project Mode (auto-switch, auto-sync, mode-line)
+;;   - Multi-project mode with periodic sync timer
 ;;   - ai-code-menu integration (transient)
-;;   - Health verification and context synchronization
+;;   - Backend upgrade and basic session health reporting
 ;;
 ;; MULTI-PROJECT WORKFLOWS:
 ;;
@@ -39,18 +39,15 @@
 ;;   ECA Workspace              ECA Context         ECA Shared Context
 ;;     wm - Multi-Project Mode    cf - File           F - Share file
 ;;     wa - Add folder            cc - Cursor         R - Share repo map
-;;     wA - Add to ALL            cr - Repo map       p - Apply shared
 ;;     wl - List folders          cy - Clipboard      c - Clear shared
-;;     wr - Remove folder         cs - Start sync
-;;     ws - Sync projects         cS - Stop sync
+;;     wr - Remove folder
 ;;     wd - Dashboard
-;;     wt - Toggle auto-switch
 ;;
 ;;   ECA Sessions
 ;;     s? - Which session?
 ;;     sl - List sessions
 ;;     ss - Switch session
-;;     sv - Verify health
+;;     sv - Report session health
 ;;     su - Upgrade ECA
 ;;
 ;; Usage:
@@ -172,12 +169,21 @@ With prefix ARG, force new session."
   (when (fboundp 'eca-list-sessions)
     (eca-list-sessions)))
 
+(defun ai-code-eca--format-session-summary (session)
+  "Return a display string for ECA SESSION plist."
+  (format "Session %s: %s (%s) - %s chats"
+          (or (plist-get session :id) "?")
+          (string-join (or (plist-get session :workspace-folders) '()) ", ")
+          (or (plist-get session :status) "unknown")
+          (or (plist-get session :chat-count) 0)))
+
 (defun ai-code-eca-list-sessions ()
   "List ECA sessions."
   (interactive)
   (let ((sessions (ai-code-eca-get-sessions)))
     (if sessions
-        (message "ECA sessions: %s" (mapconcat #'identity sessions ", "))
+        (message "ECA sessions: %s"
+                 (mapconcat #'ai-code-eca--format-session-summary sessions " | "))
       (message "No ECA sessions found"))))
 
 (defun ai-code-eca-switch-session (&optional session-id)
