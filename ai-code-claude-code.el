@@ -14,6 +14,7 @@
 
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 
 (defgroup ai-code-claude-code nil
   "Claude Code CLI integration via `ai-code-backends-infra'."
@@ -54,19 +55,24 @@ With prefix ARG, prompt for CLI args using
                     ai-code-claude-code-program-switches
                     arg
                     "Claude Code"))
-         (command (plist-get resolved :command)))
+         (command (plist-get resolved :command))
+         (mcp-launch (ai-code-mcp-agent-prepare-launch 'claude-code working-dir command))
+         (launch-command (or (plist-get mcp-launch :command) command))
+         (cleanup-fn (plist-get mcp-launch :cleanup-fn))
+         (post-start-fn (plist-get mcp-launch :post-start-fn)))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil
      ai-code-claude-code--processes
-     command
+     launch-command
      #'ai-code-claude-code-send-escape
-     nil
+     cleanup-fn
      nil
      ai-code-claude-code--session-prefix
      nil
      nil
-     ai-code-claude-code-multiline-input-sequence)))
+     ai-code-claude-code-multiline-input-sequence
+     post-start-fn)))
 
 ;;;###autoload
 (defun ai-code-claude-code-switch-to-buffer (&optional force-prompt)

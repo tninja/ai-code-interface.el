@@ -176,22 +176,22 @@ AI Code includes an Emacs MCP server with these built-in tools:
 
 ***** Use It with an AI CLI
 
-Set the backend to =codex= or =github-copilot-cli= and start a session with =C-c a a=. AI Code will:
+Set the backend to =claude-code=, =codex=, or =github-copilot-cli= and start a session with =C-c a a=. AI Code will:
 - start a local Emacs MCP HTTP server
 - register the current project/buffer as the MCP session context
 - inject a session-scoped MCP config into that agent session automatically
 
-Today this auto-wiring is enabled for =codex= and =github-copilot-cli=. The adapter layer is designed so other backends can be added later.
+Today this auto-wiring is enabled for =claude-code=, =codex=, and =github-copilot-cli=. The adapter layer is designed so other backends can be added later.
 
 If you disabled it before, enable it again with:
 
 #+begin_src emacs-lisp
-(setq ai-code-mcp-agent-enabled-backends '(codex github-copilot-cli))
+(setq ai-code-mcp-agent-enabled-backends '(claude-code codex github-copilot-cli))
 #+end_src
 
 ***** Make Sure It Works
 
-1. Start =codex= or =github-copilot-cli= with =C-c a a= from the file or project you want to work on.
+1. Start =claude-code=, =codex=, or =github-copilot-cli= with =C-c a a= from the file or project you want to work on.
 2. Switch to the agent buffer and run =M-x ai-code-mcp-agent-show-buffer-status=.
 
 If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has attached MCP to this session.
@@ -225,7 +225,7 @@ The real proof is that the started agent returns your current project path, buff
  :args nil)
 #+end_src
 
-3. Start =codex= or =github-copilot-cli= with =C-c a a=.
+3. Start =claude-code=, =codex=, or =github-copilot-cli= with =C-c a a=.
 If the agent session is already running, restart it after registering the new tool.
 
 4. Ask the agent to use the tool, for example:

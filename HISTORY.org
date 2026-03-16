@@ -1,8 +1,9 @@
 
 * Release history
-- Feat: Add an Emacs MCP server with built-in tools and agent integration for Codex CLI and GitHub Copilot CLI
 
 ** Main branch change
+- Chore: Add Claude Code support for Emacs MCP server 
+- Feat: Add an Emacs MCP server with built-in tools and agent integration for Codex CLI and GitHub Copilot CLI
 
 ** 1.60
 - Chore: Add Investigate Issue Mode for Reviews

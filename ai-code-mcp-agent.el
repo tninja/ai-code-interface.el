@@ -18,7 +18,7 @@
   :group 'tools
   :prefix "ai-code-mcp-agent-")
 
-(defcustom ai-code-mcp-agent-enabled-backends '(codex github-copilot-cli)
+(defcustom ai-code-mcp-agent-enabled-backends '(codex github-copilot-cli claude-code)
   "Backends that should receive automatic Emacs MCP integration."
   :type '(repeat symbol)
   :group 'ai-code-mcp-agent)
@@ -113,6 +113,11 @@
              " --additional-mcp-config "
              (shell-quote-argument
               (ai-code-mcp-agent--copilot-config-json url))))
+    ('claude-code
+     (let ((config-file (ai-code-mcp-agent--claude-code-config-file url)))
+       (concat command
+               " --mcp-config "
+               (shell-quote-argument config-file))))
     (_ command)))
 
 (defun ai-code-mcp-agent--copilot-config-json (url)
@@ -122,6 +127,17 @@
       . ((,ai-code-mcp-agent--server-name
           . ((type . "http")
              (url . ,url))))))))
+
+(defun ai-code-mcp-agent--claude-code-config-file (url)
+  "Write a Claude Code MCP config file for URL and return its path."
+  (let ((config-file (make-temp-file "ai-code-mcp-claude-code-" nil ".json")))
+    (with-temp-file config-file
+      (insert (json-encode
+               `((mcpServers
+                  . ((,ai-code-mcp-agent--server-name
+                      . ((type . "http")
+                         (url . ,url)))))))))
+    config-file))
 
 (provide 'ai-code-mcp-agent)
 
