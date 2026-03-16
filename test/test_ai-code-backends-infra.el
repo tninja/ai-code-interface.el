@@ -108,8 +108,8 @@
         (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
       (fmakunbound handler))))
 
-(ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-eat-toggle ()
-  "Respect `ai-code-backends-infra-eat-preserve-position' for eat backend."
+(ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-eat-disabled ()
+  "Never install reflow advice for eat backend."
   (let ((handler 'ai-code-backends-infra--test-resize-eat))
     (fset handler (lambda (&rest args) args))
     (unwind-protect
@@ -125,8 +125,8 @@
                 (ai-code-backends-infra-prevent-reflow-glitch t)
                 (ai-code-backends-infra-eat-preserve-position t))
             (ai-code-backends-infra--sync-reflow-filter-advice)
-            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                                     handler))))
+            (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                         handler))))
       (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter handler)
         (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
       (fmakunbound handler))))
@@ -644,6 +644,116 @@
       (dolist (buf (list source session-a session-b))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-toggle-or-create-session-passes-env-vars ()
+  "ENV-VARS are forwarded to `ai-code-backends-infra--create-terminal-session'."
+  (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))
+         (working-dir "/tmp/ai-code-env-vars/")
+         (buffer-name "*ai-code-env-vars*")
+         (buffer (get-buffer-create buffer-name))
+         (captured-env-vars :not-set))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--cleanup-dead-processes)
+                   (lambda (_table) nil))
+                  ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                   (lambda (_buf _dir _cmd env-vars)
+                     (setq captured-env-vars env-vars)
+                     (cons buffer 'mock-process)))
+                  ((symbol-function 'sleep-for)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'process-live-p)
+                   (lambda (&rest _args) t))
+                  ((symbol-function 'set-process-sentinel)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--toggle-or-create-session
+           working-dir
+           buffer-name
+           nil
+           "echo hi"
+           nil nil nil nil nil
+           '("TERM_PROGRAM=vscode" "MY_VAR=1"))
+          (should (equal captured-env-vars '("TERM_PROGRAM=vscode" "MY_VAR=1"))))
+       (when (buffer-live-p buffer)
+         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-toggle-or-create-session-binds-multiline-input ()
+  "MULTILINE-INPUT-SEQUENCE binds Shift+Enter and Ctrl+Enter in session buffers."
+  (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))
+         (working-dir "/tmp/ai-code-multiline/")
+         (buffer-name "*ai-code-multiline*")
+         (buffer (get-buffer-create buffer-name))
+         (calls nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--cleanup-dead-processes)
+                   (lambda (_table) nil))
+                  ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                   (lambda (_buf _dir _cmd _env-vars)
+                     (cons buffer 'mock-process)))
+                  ((symbol-function 'sleep-for)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'process-live-p)
+                   (lambda (&rest _args) t))
+                  ((symbol-function 'set-process-sentinel)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                   (lambda (string)
+                     (push string calls))))
+          (ai-code-backends-infra--toggle-or-create-session
+           working-dir
+           buffer-name
+           nil
+           "echo hi"
+           nil nil nil nil nil
+           nil
+           "\\\r\n")
+          (with-current-buffer buffer
+            (call-interactively (key-binding (kbd "S-<return>")))
+            (call-interactively (key-binding (kbd "C-<return>"))))
+          (should (equal (nreverse calls) '("\\\r\n" "\\\r\n"))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-toggle-or-create-session-calls-post-start-hook ()
+  "POST-START-FN should receive the created buffer, process, and instance."
+  (let* ((working-dir "/tmp/ai-code-post-start/")
+         (buffer-name "*ai-code-post-start*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'mock-process)
+         (called nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--cleanup-dead-processes)
+                   (lambda (_table) nil))
+                  ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                   (lambda (_buf _dir _cmd _env-vars)
+                     (cons buffer process)))
+                  ((symbol-function 'sleep-for)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'process-live-p)
+                   (lambda (&rest _args) t))
+                  ((symbol-function 'set-process-sentinel)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--toggle-or-create-session
+           working-dir
+           buffer-name
+           (make-hash-table :test 'equal)
+           "echo ok"
+           nil nil nil nil nil nil nil
+           (lambda (created-buffer created-process created-instance)
+             (setq called (list created-buffer created-process created-instance))))
+          (should (equal (list buffer process "default")
+                         called)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (provide 'test_ai-code-backends-infra)
 

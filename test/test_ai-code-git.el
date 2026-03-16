@@ -231,6 +231,20 @@ When .gitignore is missing some entries, they should be added."
     (should (string-match-p "no need to make code change" (downcase captured-prompt)))
     (should-not diff-called)))
 
+(ert-deftest ai-code-test-pull-or-review-diff-file-investigate-issue-github-mcp ()
+  "When choosing issue investigation mode, prompt should analyze an issue without code changes."
+  (pcase-let ((`(,captured-prompt ,diff-called)
+               (ai-code-test--run-pull-or-review-diff-file "Use GitHub MCP server"
+                                                           "https://github.com/acme/demo/issues/42"
+                                                           "Investigate issue")))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use GitHub MCP server" captured-prompt)))
+    (should (string-match-p "https://github.com/acme/demo/issues/42" captured-prompt))
+    (should (string-match-p "investigate issue" (downcase captured-prompt)))
+    (should (string-match-p "repository as context" (downcase captured-prompt)))
+    (should (string-match-p "no need to make code change" (downcase captured-prompt)))
+    (should-not diff-called)))
+
 (ert-deftest ai-code-test-build-pr-review-init-prompt-uses-fallback-for-unknown-source ()
   "Unknown review source should use the fallback instruction."
   (let ((prompt (ai-code--build-pr-review-init-prompt
@@ -310,7 +324,7 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
                      selected)))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (prompt &optional initial-input _candidate-list)
-                   (if (string-prefix-p "Pull request URL" prompt)
+                   (if (string-match-p "URL:" prompt)
                        pr-url
                      initial-input)))
                 ((symbol-function 'ai-code--insert-prompt)

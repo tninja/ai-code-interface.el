@@ -217,10 +217,11 @@ buffer.  It constructs a shell command:
 sed \"1i <prompt>: \" <file> | <ai-code-cli>
 and runs it in a compilation buffer."
   (interactive)
-  (when (eq (and (boundp 'ai-code-selected-backend)
-                 ai-code-selected-backend)
-            'agent-shell)
-    (user-error "Backend 'agent-shell' does not support piping file content via ai-code-cli"))
+  (when (memq (and (boundp 'ai-code-selected-backend)
+                   ai-code-selected-backend)
+              '(agent-shell eca))
+    (user-error "Backend '%s' does not support piping file content via ai-code-cli"
+                ai-code-selected-backend))
   (let* ((prompt (ai-code-read-string "Prompt: "))
          (suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type

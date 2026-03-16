@@ -87,28 +87,59 @@ Feedback Check Steps:
 4. No need to make code change. Provide analysis only."
             pr-url source-instruction)))
 
-(defun ai-code--pull-or-review-source-instruction (review-source)
-  "Return source instruction string for REVIEW-SOURCE."
-  (pcase review-source
-    ('github-mcp
-     "Use GitHub MCP server to fetch pull request details and review comments.")
-    ('gh-cli
-     "Use gh CLI tool to fetch pull request details and review comments.")
-    (_ "Review this pull request.")))
+(defun ai-code--build-issue-investigation-init-prompt (review-source issue-url)
+  "Build issue investigation prompt for REVIEW-SOURCE with ISSUE-URL."
+  (let ((source-instruction
+         (ai-code--pull-or-review-source-instruction review-source 'investigate-issue)))
+    (format "Investigate issue: %s
+
+%s
+
+Issue Investigation Steps:
+1. Understand the issue description, reproduction details, and expected behavior.
+2. Analyze relevant code in this repository as context and identify likely root causes.
+3. Provide concrete insights on how to fix it, including likely files or areas to change.
+4. No need to make code change. Provide analysis only."
+            issue-url source-instruction)))
+
+(defun ai-code--pull-or-review-source-instruction (review-source &optional review-mode)
+  "Return source instruction string for REVIEW-SOURCE and REVIEW-MODE."
+  (if (eq review-mode 'investigate-issue)
+      (pcase review-source
+        ('github-mcp
+         "Use GitHub MCP server to inspect the GitHub issue and relevant repository context.")
+        ('gh-cli
+         "Use gh CLI tool to inspect the GitHub issue and relevant repository context.")
+        (_ "Investigate this GitHub issue using the repository as context."))
+    (pcase review-source
+      ('github-mcp
+       "Use GitHub MCP server to fetch pull request details and review comments.")
+      ('gh-cli
+       "Use gh CLI tool to fetch pull request details and review comments.")
+      (_ "Review this pull request."))))
+
+(defun ai-code--pull-or-review-url-prompt (review-mode)
+  "Return the URL prompt string for REVIEW-MODE."
+  (if (eq review-mode 'investigate-issue)
+      "GitHub issue URL: "
+    "Pull request URL: "))
 
 (defun ai-code--pull-or-review-pr-with-source (review-source)
-  "Ask for PR URL and send review prompt for REVIEW-SOURCE to AI."
-  (let* ((pr-url (ai-code-read-string "Pull request URL: "))
-         (review-mode (ai-code--pull-or-review-pr-mode-choice))
+  "Ask for a target URL and send a prompt for REVIEW-SOURCE to AI."
+  (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice))
+         (url-prompt (ai-code--pull-or-review-url-prompt review-mode))
+         (pr-url (ai-code-read-string url-prompt))
          (init-prompt (ai-code--build-pr-init-prompt review-source pr-url review-mode))
          (prompt (ai-code-read-string "Enter review prompt: " init-prompt)))
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code--pull-or-review-pr-mode-choice ()
-  "Prompt user to choose PR analysis mode."
+  "Prompt user to choose analysis mode for a pull request or issue."
+  ;; DONE: add an option: Investigate issue. This allow AI to check a github issue page, analyze the issue given code inside repo as context, and provide insights on how to fix it, it won't make any real code change until user ask it to.
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
-                              ("Check unresolved feedback" . check-feedback)))
-         (review-mode (completing-read "Select PR analysis mode: "
+                              ("Check unresolved feedback" . check-feedback)
+                              ("Investigate issue" . investigate-issue)))
+         (review-mode (completing-read "Select analysis mode (PR or issue): "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
     (or (alist-get review-mode review-mode-alist nil nil #'string=)
@@ -117,6 +148,8 @@ Feedback Check Steps:
 (defun ai-code--build-pr-init-prompt (review-source pr-url review-mode)
   "Build initial prompt for REVIEW-SOURCE, PR-URL and REVIEW-MODE."
   (pcase review-mode
+    ('investigate-issue
+     (ai-code--build-issue-investigation-init-prompt review-source pr-url))
     ('check-feedback
      (ai-code--build-pr-feedback-check-init-prompt review-source pr-url))
     (_

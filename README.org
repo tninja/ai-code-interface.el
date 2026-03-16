@@ -126,7 +126,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 
 - *Transient-Driven Hub (`C-c a`)*: One keystroke opens a contextual transient menu that groups every capability (CLI control, code actions, agile workflows, utilities) so you never need to memorize scattered keybindings.
   - If the default wide layout does not fit your frame well, set `ai-code-menu-layout` to `two-columns` for a narrower menu with the same commands.
-- *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), install backend skills (`S`), edit backend configs (`g`), open backend agent file (`G`), and run prompts against the current file (`|`). It support multiple sessions per project.
+- *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), install backend skills (`S`), edit backend configs (`g`), open backend agent file (`G`), and run prompts against the current file (`|`). It supports multiple sessions per project. The `S` entry is especially useful for installing shared skill packs such as [[https://github.com/obra/superpowers][obra/superpowers]].
 - *Context-Aware Code Actions*: The menu exposes dedicated entries for changing code (`c`), implementing TODOs (`i`), asking questions (`q`), explaining code (`x`), sending free-form commands (`<SPC>`), and refreshing AI context (`@`). Each command automatically captures the surrounding function, region, or clipboard contents (via `C-u`) to keep prompts precise.
 - *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
 - *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), capture session notes straight into Org (`n`), and toggle desktop notifications (`N`) to get alerted when AI responses are ready in background sessions.
@@ -170,6 +170,92 @@ The generated prompt will include the function/region scope, visible file list, 
   - [[https://github.com/sooperset/mcp-atlassian][Atlassian MCP]]
   - [[https://github.com/crystaldba/postgres-mcp][Postgresql MCP]] / Sqlite MCP
   - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
+
+**** Built-in Emacs MCP Tools
+
+AI Code includes an Emacs MCP server with these built-in tools:
+- =project_info=
+- =imenu_list_symbols=
+- =xref_find_references=
+- =treesit_info=
+
+***** Use It with an AI CLI
+
+Set the backend to =claude-code=, =codex=, or =github-copilot-cli= and start a session with =C-c a a=. AI Code will:
+- start a local Emacs MCP HTTP server
+- register the current project/buffer as the MCP session context
+- inject a session-scoped MCP config into that agent session automatically
+
+Today this auto-wiring is enabled for =claude-code=, =codex=, and =github-copilot-cli=. The adapter layer is designed so other backends can be added later.
+
+If you disabled it before, enable it again with:
+
+#+begin_src emacs-lisp
+(setq ai-code-mcp-agent-enabled-backends '(claude-code codex github-copilot-cli))
+#+end_src
+
+***** Make Sure It Works
+
+1. Start =claude-code=, =codex=, or =github-copilot-cli= with =C-c a a= from the file or project you want to work on.
+2. Switch to the agent buffer and run =M-x ai-code-mcp-agent-show-buffer-status=.
+
+If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has attached MCP to this session.
+
+3. Then ask the agent to use one of the Emacs tools, for example:
+- use =project_info= and tell me the current project info
+- use =imenu_list_symbols= for the current file
+
+The status command only proves the Emacs side is wired.
+The real proof is that the started agent returns your current project path, buffer context, or current-file symbols from those tools.
+
+***** Add New MCP function
+
+1. Define an Emacs Lisp function.
+
+#+begin_src emacs-lisp
+(defun ai-code-mcp-current-buffer-name ()
+  "Return the current buffer name for the active MCP session."
+  (buffer-name (current-buffer)))
+#+end_src
+
+2. Register it as an MCP tool before you start the AI agent session:
+
+#+begin_src emacs-lisp
+(require 'ai-code-mcp-server)
+
+(ai-code-mcp-make-tool
+ :function #'ai-code-mcp-current-buffer-name
+ :name "current_buffer_name"
+ :description "Return the current Emacs buffer name."
+ :args nil)
+#+end_src
+
+3. Start =claude-code=, =codex=, or =github-copilot-cli= with =C-c a a=.
+If the agent session is already running, restart it after registering the new tool.
+
+4. Ask the agent to use the tool, for example:
+- use =current_buffer_name= and tell me the current Emacs buffer name
+
+5. If you want to verify from Emacs first, run:
+
+#+begin_src emacs-lisp
+(ai-code-mcp-dispatch "tools/list")
+#+end_src
+
+If =current_buffer_name= appears in the tool list, Emacs has registered it.
+If the started agent can call it and returns the expected buffer name, the tool is available inside the AI coding agent.
+
+***** Use the MCP Core Directly from Elisp
+
+If you want to use the MCP core without an AI CLI, you can still call it directly:
+
+#+begin_src emacs-lisp
+(require 'ai-code-mcp-server)
+(ai-code-mcp-builtins-setup)
+(ai-code-mcp-dispatch "tools/list")
+#+end_src
+
+To expose your own Emacs function as a tool, use =ai-code-mcp-make-tool=.
 
 - [[https://martinfowler.com/articles/exploring-gen-ai/context-engineering-coding-agents.html][Context Engineering for Coding Agents]], recommended by Martin Fowler.
 
@@ -220,12 +306,19 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
    - The selection updates the start/switch/send commands and, for CLI backends, the CLI used by `ai-code-apply-prompt-on-current-file`.
    - Press `C-c a` then `S` (`ai-code-install-backend-skills`) to install backend skills for the currently selected backend.
      - If a backend does not define its own installer, `S` falls back to prompting the active AI CLI to read a skills repository README and perform setup.
+     - The default suggested repository is [[https://github.com/obra/superpowers][obra/superpowers]], which is a very useful starting point for adding reusable coding skills to supported CLIs.
+     - A practical workflow is: press `C-c a`, then `S`, keep the default URL, and let the backend read the repository README and install the skills it describes.
+     - Those skills pair well with this package's existing harness-oriented workflows, especially the `ai-code-auto-test-type` feedback loop, `ai-code-tdd-cycle`, and `ai-code-pull-or-review-diff-file` code review flow.
 
    Natively supported options:
    - [[https://github.com/anthropics/claude-code][Claude Code]] (`[[./ai-code-claude-code.el][ai-code-claude-code.el]]`)
+     - Binds =Shift+Enter=/=Ctrl+Enter= inside Claude sessions to send Claude's
+       multiline input sequence.
    - [[https://github.com/google-gemini/gemini-cli][Gemini CLI]] (`[[./ai-code-gemini-cli.el][ai-code-gemini-cli.el]]`)
    - [[https://github.com/openai/codex][OpenAI codex CLI]] (`[[./ai-code-codex-cli.el][ai-code-codex-cli.el]]`)
    - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]] (`[[./ai-code-github-copilot-cli.el][ai-code-github-copilot-cli.el]]`)
+     - Sets =TERM_PROGRAM=vscode= by default and binds =Shift+Enter=/=Ctrl+Enter=
+       inside Copilot sessions to emulate Copilot CLI's VS Code multiline setup.
    - [[https://opencode.ai/][Opencode]] (`[[./ai-code-opencode.el][ai-code-opencode.el]]`)
    - [[https://grokcli.io/][Grok CLI]] (`[[./ai-code-grok-cli.el][ai-code-grok-cli.el]]`)
    - [[https://docs.cursor.com/en/cli][Cursor CLI]] (`[[./ai-code-cursor-cli.el][ai-code-cursor-cli.el]]`)
@@ -246,7 +339,14 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
      #+begin_src emacs-lisp
      (ai-code-set-backend 'eca)
      #+end_src
-     Note: =ai-code-apply-prompt-on-current-file= is CLI-pipe based and does not have special integration with =eca=; its behavior depends on the configured AI coding CLI.
+     Optionally, load =[[./eca-ext.el][eca-ext.el]]= (bundled with this package) for session multiplexing,
+     ai-code-menu integration, workspace management, auto project/session syncing,
+     shared context, and programmatic context management (file, clipboard, cursor, repo-map):
+     #+begin_src emacs-lisp
+     (require 'eca-ext)
+     #+end_src
+     Note: =ai-code-apply-prompt-on-current-file= is CLI-pipe based and is not supported
+     when =eca= is the active backend.
 
 **** agent-shell backend setup
      Install [[https://github.com/xenodium/agent-shell][agent-shell]] and its dependency [[https://github.com/xenodium/acp.el][acp.el]], then configure one of the ACP agent providers in agent-shell (for example Codex, Gemini, Opencode, etc.).

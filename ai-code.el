@@ -1,7 +1,7 @@
 ;;; ai-code.el --- Unified interface for AI coding backends such as Codex CLI, Copilot CLI, Claude Code, Gemini CLI, Opencode, Grok CLI, etc -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
-;; Version: 1.55
+;; Version: 1.60
 ;; Package-Requires: ((emacs "28.1") (transient "0.8.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
@@ -114,6 +114,7 @@
 (require 'ai-code-codebuddy-cli)
 (require 'ai-code-file)
 (require 'ai-code-ai)
+(require 'ai-code-mcp-server)
 (require 'ai-code-notifications)
 
 ;; Forward declarations for dynamically defined backend functions

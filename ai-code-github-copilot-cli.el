@@ -12,6 +12,7 @@
 
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 
 (defgroup ai-code-github-copilot-cli nil
   "GitHub Copilot CLI integration via `ai-code-backends-infra'."
@@ -26,6 +27,21 @@
 (defcustom ai-code-github-copilot-cli-program-switches nil
   "Command line switches to pass to GitHub Copilot CLI on startup."
   :type '(repeat string)
+  :group 'ai-code-github-copilot-cli)
+
+(defcustom ai-code-github-copilot-cli-extra-env-vars '("TERM_PROGRAM=vscode")
+  "Extra environment variables passed to the GitHub Copilot CLI terminal session.
+By default, `TERM_PROGRAM=vscode' is set so that Copilot CLI recognizes the
+terminal as VS Code-compatible and enables multiline input support via
+`/terminal-setup' (Shift+Enter and Ctrl+Enter)."
+  :type '(repeat string)
+  :group 'ai-code-github-copilot-cli)
+
+(defcustom ai-code-github-copilot-cli-multiline-input-sequence "\r\n"
+  "Terminal sequence used for multiline input in GitHub Copilot CLI sessions.
+This mirrors the VS Code `workbench.action.terminal.sendSequence' binding
+that `/terminal-setup' installs for Shift+Enter and Ctrl+Enter."
+  :type 'string
   :group 'ai-code-github-copilot-cli)
 
 (defconst ai-code-github-copilot-cli--session-prefix "copilot"
@@ -46,17 +62,26 @@ With prefix ARG, prompt for CLI args using
                     ai-code-github-copilot-cli-program-switches
                     arg
                     "Copilot"))
-         (command (plist-get resolved :command)))
+         (command (plist-get resolved :command))
+         (mcp-launch (ai-code-mcp-agent-prepare-launch 'github-copilot-cli
+                                                       working-dir
+                                                       command))
+         (launch-command (or (plist-get mcp-launch :command) command))
+         (cleanup-fn (plist-get mcp-launch :cleanup-fn))
+         (post-start-fn (plist-get mcp-launch :post-start-fn)))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil
      ai-code-github-copilot-cli--processes
-     command
+     launch-command
      #'ai-code-github-copilot-cli-send-escape
-     nil
+     cleanup-fn
      nil
      ai-code-github-copilot-cli--session-prefix
-     nil)))
+     nil
+     ai-code-github-copilot-cli-extra-env-vars
+     ai-code-github-copilot-cli-multiline-input-sequence
+     post-start-fn)))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-switch-to-buffer (&optional force-prompt)

@@ -98,7 +98,10 @@ Can be either `vterm' or `eat'."
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-eat-preserve-position t
-  "Maintain terminal scroll position when switching windows in eat."
+  "Obsolete compatibility toggle for eat-specific reflow suppression.
+Eat sessions now always use the terminal's native resize and redisplay
+behavior because suppressing reflow can leave the screen stale when a
+window becomes visible again."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
@@ -138,6 +141,9 @@ being sent for the response completion.")
 
 (defvar-local ai-code-backends-infra--session-terminal-backend nil
   "Terminal backend used by the current session buffer.")
+
+(defvar-local ai-code-backends-infra--multiline-input-sequence nil
+  "Terminal sequence sent for multiline input in the current session buffer.")
 
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
@@ -354,6 +360,36 @@ Activity tracking for notifications is handled separately by
      (when (bound-and-true-p eat-terminal)
        (eat-term-send-string eat-terminal "\177")))))
 
+(defun ai-code-backends-infra--terminal-send-multiline-input ()
+  "Send the configured multiline-input sequence for the current session buffer."
+  (interactive)
+  (unless ai-code-backends-infra--multiline-input-sequence
+    (user-error "No multiline input sequence configured for this session"))
+  (ai-code-backends-infra--terminal-send-string
+   ai-code-backends-infra--multiline-input-sequence))
+
+(defun ai-code-backends-infra--configure-multiline-input (sequence)
+  "Configure multiline input keybindings in the current session buffer.
+SEQUENCE is the terminal sequence sent for `S-<return>' and `C-<return>'."
+  (when sequence
+    (setq-local ai-code-backends-infra--multiline-input-sequence sequence)
+    (local-set-key (kbd "S-<return>")
+                   #'ai-code-backends-infra--terminal-send-multiline-input)
+    (local-set-key (kbd "C-<return>")
+                   #'ai-code-backends-infra--terminal-send-multiline-input)))
+
+(defun ai-code-backends-infra--configure-session-buffer (buffer
+                                                         &optional escape-fn
+                                                         multiline-input-sequence)
+  "Configure BUFFER with shared session keybindings.
+ESCAPE-FN is bound to `C-<escape>' when non-nil.
+MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
+  (with-current-buffer buffer
+    (when escape-fn
+      (local-set-key (kbd "C-<escape>") escape-fn))
+    (ai-code-backends-infra--configure-multiline-input
+     multiline-input-sequence)))
+
 ;;; Reflow and Window Management
 
 (defun ai-code-backends-infra--terminal-resize-handler ()
@@ -388,9 +424,7 @@ Activity tracking for notifications is handled separately by
   "Add or remove terminal reflow advice according to current settings."
   (let* ((resize-handler (ai-code-backends-infra--terminal-resize-handler))
          (enabled (and ai-code-backends-infra-prevent-reflow-glitch
-                       (or (eq ai-code-backends-infra-terminal-backend 'vterm)
-                           (and (eq ai-code-backends-infra-terminal-backend 'eat)
-                                ai-code-backends-infra-eat-preserve-position)))))
+                       (eq ai-code-backends-infra-terminal-backend 'vterm))))
     (dolist (handler (cl-copy-list ai-code-backends-infra--reflow-advised-handlers))
       (unless (and enabled (eq handler resize-handler))
         (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
@@ -719,7 +753,9 @@ any error output left behind by the CLI."
 
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
-                                                                     instance-name prefix force-prompt)
+                                                                     instance-name prefix force-prompt
+                                                                     env-vars multiline-input-sequence
+                                                                     post-start-fn)
   "Toggle or create a terminal session.
 WORKING-DIR is the directory for the session.
 BUFFER-NAME is the terminal buffer name.
@@ -729,7 +765,13 @@ ESCAPE-FN is bound to `C-<escape>' inside the session buffer when non-nil.
 CLEANUP-FN is called with no arguments when the process exits.
 INSTANCE-NAME overrides instance selection when non-nil.
 PREFIX enables instance selection when BUFFER-NAME is nil.
-When FORCE-PROMPT is non-nil, always prompt for a new instance name."
+When FORCE-PROMPT is non-nil, always prompt for a new instance name.
+ENV-VARS is a list of additional environment variable strings (e.g., \"VAR=value\")
+passed to the terminal session on creation.
+MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' to send
+that sequence inside the session buffer.
+POST-START-FN is called with (BUFFER PROCESS INSTANCE-NAME) after a new
+session starts successfully."
   (setq process-table (or process-table ai-code-backends-infra--processes))
   (ai-code-backends-infra--cleanup-dead-processes process-table)
   (let* ((existing-buffers (and prefix
@@ -762,11 +804,13 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
             (delete-window (get-buffer-window buffer))
           (progn
             (ai-code-backends-infra--set-session-directory buffer working-dir)
+            (ai-code-backends-infra--configure-session-buffer
+             buffer nil multiline-input-sequence)
             (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
             (ai-code-backends-infra--display-buffer-in-side-window buffer)))
       (let* ((buffer-and-process
               (ai-code-backends-infra--create-terminal-session
-               resolved-buffer-name working-dir command nil))
+               resolved-buffer-name working-dir command env-vars))
              (new-buffer (car buffer-and-process))
              (process (cdr buffer-and-process)))
         (puthash session-key process process-table)
@@ -788,12 +832,13 @@ When FORCE-PROMPT is non-nil, always prompt for a new instance name."
                   event)
                  (when cleanup-fn
                    (funcall cleanup-fn))))
-              (when escape-fn
-                (with-current-buffer new-buffer
-                  (local-set-key (kbd "C-<escape>") escape-fn)))
-              (with-current-buffer new-buffer
-                (add-hook 'kill-buffer-hook
-                          (lambda ()
+              (ai-code-backends-infra--configure-session-buffer
+               new-buffer escape-fn multiline-input-sequence)
+               (when post-start-fn
+                 (funcall post-start-fn new-buffer process resolved-instance))
+               (with-current-buffer new-buffer
+                 (add-hook 'kill-buffer-hook
+                           (lambda ()
                             (ai-code-backends-infra--forget-session-buffer
                              prefix
                              working-dir
