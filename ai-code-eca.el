@@ -380,26 +380,28 @@ SESSION defaults to the current session.  Return the removed folder."
   (let ((sess (or session (eca-session))))
     (unless sess
       (user-error "No ECA session active"))
-    (let* ((folder (expand-file-name folder))
-           (existing (eca--session-workspace-folders sess))
+    (let* ((folder (directory-file-name (expand-file-name folder)))
+           (existing (mapcar #'directory-file-name (eca--session-workspace-folders sess)))
+           (existing-raw (eca--session-workspace-folders sess))
            (session-id (eca--session-id sess)))
       (unless (member folder existing)
         (user-error "Folder not in workspace: %s" folder))
-      (with-no-warnings
-        (setf (eca--session-workspace-folders sess)
-              (remove folder existing)))
-      (when (fboundp 'ai-code-eca-api-notify)
-        (eca-api-notify
-         sess
-         :method "workspace/didChangeWorkspaceFolders"
-         :params (list :event
-                       (list :added []
-                             :removed (vector
-                                       (list :uri (concat "file://" folder)
-                                             :name (file-name-nondirectory
-                                                    (directory-file-name folder))))))))
-      (eca-info "Removed workspace folder from session %d: %s" session-id folder)
-      folder)))
+      (let ((raw-folder (nth (seq-position existing folder) existing-raw)))
+        (with-no-warnings
+          (setf (eca--session-workspace-folders sess)
+                (remove raw-folder existing-raw)))
+        (when (fboundp 'ai-code-eca-api-notify)
+          (eca-api-notify
+           sess
+           :method "workspace/didChangeWorkspaceFolders"
+           :params (list :event
+                         (list :added []
+                               :removed (vector
+                                         (list :uri (concat "file://" raw-folder)
+                                               :name (file-name-nondirectory
+                                                      (directory-file-name raw-folder))))))))
+        (eca-info "Removed workspace folder from session %d: %s" session-id raw-folder)
+        raw-folder))))
 
 (defun ai-code-eca-workspace-folder-for-file (file-path &optional session)
   "Return the workspace folder containing FILE-PATH in SESSION.
@@ -782,7 +784,7 @@ If the project is already present in the workspace, do nothing."
 
 (defun ai-code-eca-apply-shared-context (session)
   "Apply shared context to SESSION."
-  (interactive (list (eca-session)))
+  (interactive (list (or (eca-session) (ai-code-eca-select-session))))
   (unless session
     (user-error "No ECA session active"))
   (let ((files (plist-get ai-code-eca--shared-context :files))
