@@ -48,11 +48,6 @@
 (declare-function transient-append-suffix "transient" (prefix loc suffix &optional face))
 (declare-function transient-remove-suffix "transient" (prefix suffix))
 
-;;; Customization
-
-(defvar ai-code-eca-auto-switch-session nil
-  "If non-nil, auto-switch ECA session based on project.")
-
 ;;; Core Commands
 
 ;;;###autoload
@@ -502,11 +497,6 @@ If the value is `prompt', ask before creating."
                  (const :tag "Disabled" nil))
   :group 'eca)
 
-(defcustom ai-code-eca-auto-sync-workspace t
-  "If non-nil, automatically sync workspace folders when project changes."
-  :type 'boolean
-  :group 'eca)
-
 (defvar ai-code-eca--last-project-root nil
   "Track the last project root seen by ECA auto-switch logic.")
 
@@ -625,34 +615,15 @@ If the project is already present in the workspace, do nothing."
                             (eca--session-id session) root)
                    (eca-chat-open session)))))
             ('prompt
-             (when (y-or-n-p (format "Create ECA session for %s? " root))
-               (let ((session (eca-create-session (list root))))
-                 (when session
-                   (eca-chat-open session)))))))))))
-
-(defun ai-code-eca--auto-sync-workspace-hook (&optional _frame)
-  "Auto-sync the current project's root into the current ECA workspace."
-  (when (and ai-code-eca-auto-sync-workspace
-             buffer-file-name
-             (featurep 'eca)
-             (eca-session))
-    (let* ((project-root (ai-code-eca--file-project-root buffer-file-name)))
-      (when project-root
-        (let* ((root (ai-code-eca--normalize-folder-path project-root))
-               (session (eca-session))
-               (folders (eca--session-workspace-folders session))
-               (in-workspace (member root
-                                     (mapcar #'ai-code-eca--normalize-folder-path
-                                             folders))))
-          (unless in-workspace
-            (eca--session-add-workspace-folder session root)
-            (message "Auto-synced workspace: added %s" root)))))))
+(when (y-or-n-p (format "Create ECA session for %s? " root))
+                (let ((session (eca-create-session (list root))))
+                  (when session
+                    (eca-chat-open session)))))))))))
 
 (with-eval-after-load 'eca
   (add-hook 'find-file-hook #'ai-code-eca--auto-add-workspace-hook)
   (add-hook 'find-file-hook #'ai-code-eca--auto-create-session-hook 90)
-  (add-hook 'window-buffer-change-functions #'ai-code-eca--auto-switch-session-hook)
-  (add-hook 'window-buffer-change-functions #'ai-code-eca--auto-sync-workspace-hook))
+  (add-hook 'window-buffer-change-functions #'ai-code-eca--auto-switch-session-hook))
 
 ;;; Shared Context
 
