@@ -640,29 +640,29 @@ Set to nil to disable stale-file cleanup.")
 (defun ai-code-eca--cleanup-temp-context-files ()
   "Clean up all temporary context files created by ai-code-eca."
   (let ((count 0))
-    (dolist (entry eca--context-temp-files)
+    (dolist (entry ai-code-eca--context-temp-files)
       (dolist (file (cdr entry))
         (condition-case nil
             (when (and file (file-exists-p file))
               (delete-file file)
               (cl-incf count))
           (error nil))))
-    (setq eca--context-temp-files nil)
+    (setq ai-code-eca--context-temp-files nil)
     (when (and (fboundp 'ai-code-eca-info) (> count 0))
       (ai-code-eca-info "Cleaned up %d temporary context files" count))))
 
 (defun ai-code-eca--cleanup-stale-temp-files ()
-  "Clean up temp files older than `eca--temp-file-max-age'."
-  (when eca--temp-file-max-age
+  "Clean up temp files older than `ai-code-eca--temp-file-max-age'."
+  (when ai-code-eca--temp-file-max-age
     (let ((now (float-time))
           (count 0))
-      (dolist (entry eca--context-temp-files)
+      (dolist (entry ai-code-eca--context-temp-files)
         (setcdr entry
                 (cl-remove-if
                  (lambda (file)
                    (when (and file (file-exists-p file))
                      (let ((age (- now (float-time (nth 5 (file-attributes file))))))
-                       (when (> age eca--temp-file-max-age)
+                       (when (> age ai-code-eca--temp-file-max-age)
                          (condition-case nil
                              (delete-file file)
                            (error nil))
@@ -671,7 +671,7 @@ Set to nil to disable stale-file cleanup.")
                  (cdr entry))))
       (when (and (fboundp 'ai-code-eca-info) (> count 0))
         (ai-code-eca-info "Cleaned up %d stale temp files (older than %d hours)"
-                  count (/ eca--temp-file-max-age 3600))))))
+                  count (/ ai-code-eca--temp-file-max-age 3600))))))
 
 (defun ai-code-eca--register-temp-file (file-path &optional session)
   "Register FILE-PATH for cleanup on exit or session end."
@@ -680,16 +680,16 @@ Set to nil to disable stale-file cleanup.")
                     (if (numberp session) session (ai-code-eca--session-id session))
                   (when (boundp 'ai-code-eca--session-id-cache)
                     eca--session-id-cache)))
-           (entry (assoc sid eca--context-temp-files)))
+           (entry (assoc sid ai-code-eca--context-temp-files)))
       (if entry
           (push file-path (cdr entry))
-        (push (cons sid (list file-path)) eca--context-temp-files)))
+        (push (cons sid (list file-path)) ai-code-eca--context-temp-files)))
     file-path))
 
 (defun ai-code-eca--cleanup-session-temp-files (session)
   "Clean up temp files associated with SESSION."
   (let* ((sid (if (numberp session) session (ai-code-eca--session-id session)))
-         (entry (assoc sid eca--context-temp-files))
+         (entry (assoc sid ai-code-eca--context-temp-files))
          (files (cdr entry))
          (count 0))
     (when files
@@ -699,7 +699,7 @@ Set to nil to disable stale-file cleanup.")
               (delete-file file)
               (cl-incf count))
           (error nil)))
-      (setq eca--context-temp-files (assq-delete-all sid eca--context-temp-files))
+      (setq ai-code-eca--context-temp-files (assq-delete-all sid ai-code-eca--context-temp-files))
       (when (and (fboundp 'ai-code-eca-info) (> count 0))
         (ai-code-eca-info "Cleaned up %d temp files for session %s" count sid)))))
 
