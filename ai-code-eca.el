@@ -121,16 +121,19 @@ With FORCE-PROMPT (prefix arg), force new session."
           ;; Use coordinate list: '(0 -1) = last item at top level
           (transient-append-suffix 'ai-code-menu '(0 -1)
             ["ECA"
-             ("?" "Which session" ai-code-eca-which-session)
-             ("E" "New session" ai-code-eca-create-session-for-workspace)
-             ("W" "Switch session" ai-code-eca-switch-session)
-             ("D" "Dashboard" eca-workspaces)
-             ("A" "Add folder" ai-code-eca-add-workspace-folder)
-             ("X" "Remove folder" ai-code-eca-remove-workspace-folder)
-             ("F" "Share file" ai-code-eca-share-file-context)
-             ("M" "Share repo map" ai-code-eca-share-repo-map-context)
-             ("Y" "Clear shared context" ai-code-eca-clear-shared-context)
-             ("B" "Add clipboard" ai-code-eca-chat-add-clipboard-context-now)])
+             ["Session"
+              ("?" "Which session" ai-code-eca-which-session)
+              ("E" "New session" ai-code-eca-create-session-for-workspace)
+              ("W" "Switch session" ai-code-eca-switch-session)
+              ("D" "Dashboard" eca-workspaces)]
+             ["Projects"
+              ("A" "Add project" ai-code-eca-add-workspace-folder)
+              ("X" "Remove project" ai-code-eca-remove-workspace-folder)]
+             ["Context"
+              ("F" "Share file" ai-code-eca-share-file-context)
+              ("M" "Share repo map" ai-code-eca-share-repo-map-context)
+              ("Y" "Clear shared" ai-code-eca-clear-shared-context)
+              ("B" "Add clipboard" ai-code-eca-chat-add-clipboard-context-now)]])
           (setq ai-code-eca--menu-group-added t))
       (error
        (message "Failed to add ECA group: %s" (error-message-string err))))))
