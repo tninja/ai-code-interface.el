@@ -146,6 +146,10 @@ With FORCE-PROMPT (prefix arg), force new session."
 (declare-function (setf eca--session-workspace-folders) "eca-util" (value session))
 (declare-function eca--session-add-workspace-folder "eca-util" (session folder))
 (declare-function eca--session-chats "eca-util" (session))
+(declare-function eca-chat-open "eca-chat" (session))
+(declare-function eca-chat-send-prompt "eca-chat" (session message))
+(declare-function eca-chat--get-last-buffer "eca-chat" (session))
+(declare-function eca-chat--create-buffer "eca-chat" (session))
 (declare-function eca-process-start "eca-process" (session on-ready on-message))
 (declare-function eca--initialize "eca" (session))
 (declare-function eca--handle-message "eca" (session message))
@@ -256,6 +260,12 @@ After creating a new session, use W to switch to it and initialize the chat."
           (setf (eca--session-status session) 'stopped)
           (eca-process-start session
                              (lambda ()
+                               ;; Create fresh chat buffer before initialize
+                               (let ((chat-buf (eca-chat--create-buffer session)))
+                                 (setf (eca--session-last-chat-buffer session) chat-buf)
+                                 (setf (eca--session-chats session) (list (cons 'empty chat-buf)))
+                                 (with-current-buffer chat-buf
+                                   (setq-local eca--session-id-cache (eca--session-id session))))
                                (eca--initialize session))
                              (-partial #'eca--handle-message session))
           (eca-info "Created session %d - use W to switch" (eca--session-id session))
