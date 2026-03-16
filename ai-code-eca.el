@@ -305,6 +305,9 @@ With ARG (C-u), prompt for workspace root and create NEW session."
       (let* ((workspace-root (read-directory-name "Workspace root: "))
              (session (eca-create-session (list workspace-root))))
         (when session
+          ;; Clear any stale references
+          (setf (eca--session-last-chat-buffer session) nil)
+          (setf (eca--session-chats session) '())
           (setq eca--session-id-cache (eca--session-id session))
           (setf (eca--session-status session) 'stopped)
           (eca-process-start session
