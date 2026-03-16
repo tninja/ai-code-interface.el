@@ -383,7 +383,8 @@ END-POS defaults to the current '#' position."
 
 (defun ai-code--comment-filepath-setup ()
   "Ensure comment @ completion is available in the current buffer."
-  (add-hook 'completion-at-point-functions #'ai-code--comment-filepath-capf nil t))
+  (unless (minibufferp)
+    (add-hook 'completion-at-point-functions #'ai-code--comment-filepath-capf nil t)))
 
 ;;;###autoload
 (define-minor-mode ai-code-prompt-filepath-completion-mode
