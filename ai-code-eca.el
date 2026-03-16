@@ -231,18 +231,28 @@ Auto-apply shared context if any."
       (ai-code-eca--apply-shared-context-internal session)
       (eca-chat-open session)
       ;; Fix: ensure eca--session-id-cache is set correctly in the chat buffer
-      ;; and remove buffer from other sessions' chats lists
-      (let ((chat-buf (eca-chat--get-last-buffer session)))
+      ;; and clean up chats lists so each buffer belongs to only one session
+      (let ((chat-buf (eca-chat--get-last-buffer session))
+            (session-id (eca--session-id session)))
         (when (buffer-live-p chat-buf)
           (with-current-buffer chat-buf
-            (setq-local eca--session-id-cache (eca--session-id session)))
-          ;; Remove this buffer from other sessions' chats lists
+            (setq-local eca--session-id-cache session-id))
+          ;; Remove this session's buffer from other sessions' chats lists
           (seq-doseq (other-session (eca-vals eca--sessions))
             (unless (eq other-session session)
               (let ((other-chats (eca--session-chats other-session)))
                 (when (member chat-buf (mapcar #'cdr other-chats))
                   (setf (eca--session-chats other-session)
-                        (cl-remove-if (lambda (pair) (eq (cdr pair) chat-buf)) other-chats))))))))
+                        (cl-remove-if (lambda (pair) (eq (cdr pair) chat-buf)) other-chats)))))))
+        ;; Remove buffers belonging to other sessions from this session's chats list
+        (let ((chats (eca--session-chats session)))
+          (dolist (pair chats)
+            (let ((buf (cdr pair)))
+              (when (and (buffer-live-p buf)
+                         (buffer-local-value 'eca--session-id-cache buf)
+                         (not (eq (buffer-local-value 'eca--session-id-cache buf) session-id)))
+                (setf (eca--session-chats session)
+                      (cl-remove-if (lambda (p) (eq (cdr p) buf)) (eca--session-chats session))))))))
       (pop-to-buffer (eca-chat--get-last-buffer session))
       session)))
 
