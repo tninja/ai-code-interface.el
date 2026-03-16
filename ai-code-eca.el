@@ -179,7 +179,11 @@ With FORCE-PROMPT (prefix arg), force new session."
 (declare-function eca--session-add-workspace-folder "eca-util" (session folder))
 (declare-function eca--session-chats "eca-util" (session))
 (declare-function eca-chat-open "eca-chat" (session))
+(declare-function eca-chat-send-prompt "eca-chat" (session message))
 (declare-function eca-chat--get-last-buffer "eca-chat" (session))
+(declare-function eca-process-start "eca-process" (session on-ready on-message))
+(declare-function eca--initialize "eca" (session))
+(declare-function eca--handle-message "eca" (session message))
 (declare-function eca-chat--add-context "eca-chat" (context-plist))
 (declare-function eca-chat--with-current-buffer "eca-chat" (&rest body))
 (declare-function eca-api-notify "eca-api" (session &rest args))
@@ -280,7 +284,11 @@ Return the new session."
               (eca--session-id session)
               (mapconcat #'identity workspace-roots ", "))
     (when (called-interactively-p 'interactive)
-      (ai-code-eca-switch-to-session (eca--session-id session)))
+      (setf (eca--session-status session) 'stopped)
+      (eca-process-start session
+                         (lambda ()
+                           (eca--initialize session))
+                         (-partial #'eca--handle-message session)))
     session))
 
 ;;; Workspace Management
