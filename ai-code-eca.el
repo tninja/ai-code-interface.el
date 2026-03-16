@@ -277,14 +277,20 @@ Auto-apply shared context if any."
       session)))
 
 (defun ai-code-eca-which-session ()
-  "Show current ECA session info, or list all sessions."
+  "Show current ECA session info, or list all sessions.
+If current buffer is an ECA chat buffer, shows that session."
   (interactive)
-  (let ((current-session (eca-session))
-        (all-sessions (ai-code-eca-list-sessions)))
+  (let* ((chat-session-id (when (string-match-p "^<eca-chat:" (buffer-name))
+                            (string-match "<eca-chat:\\([0-9]+\\):" (buffer-name))
+                            (string-to-number (match-string 1 (buffer-name)))))
+         (session (or (and chat-session-id
+                           (eca-get eca--sessions chat-session-id))
+                      (eca-session)))
+         (all-sessions (ai-code-eca-list-sessions)))
     (cond
-     (current-session
-      (let ((id (eca--session-id current-session))
-            (folders (eca--session-workspace-folders current-session)))
+     (session
+      (let ((id (eca--session-id session))
+            (folders (eca--session-workspace-folders session)))
         (message "Current ECA session %d: %s" id
                  (if folders (mapconcat #'identity folders ", ") "no workspace"))))
      (all-sessions
