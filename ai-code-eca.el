@@ -163,6 +163,7 @@ With FORCE-PROMPT (prefix arg), force new session."
 (require 'subr-x)
 (require 'tabulated-list)
 (require 'eca nil t)
+(require 'eca-process nil t)
 (require 'ai-code-eca-util nil t)
 (require 'ai-code-eca-chat nil t)
 
@@ -262,15 +263,25 @@ Auto-apply shared context if any."
       session)))
 
 (defun ai-code-eca-which-session ()
-  "Show current ECA session info."
+  "Show current ECA session info, or list all sessions."
   (interactive)
-  (let ((session (eca-session)))
-    (if session
-        (let ((id (eca--session-id session))
-              (folders (eca--session-workspace-folders session)))
-          (message "ECA session %d: %s" id
-                   (if folders (mapconcat #'identity folders ", ") "no workspace")))
-      (message "No active ECA session"))))
+  (let ((current-session (eca-session))
+        (all-sessions (ai-code-eca-list-sessions)))
+    (cond
+     (current-session
+      (let ((id (eca--session-id current-session))
+            (folders (eca--session-workspace-folders current-session)))
+        (message "Current ECA session %d: %s" id
+                 (if folders (mapconcat #'identity folders ", ") "no workspace"))))
+     (all-sessions
+      (message "Sessions: %s"
+               (mapconcat (lambda (s)
+                            (format "%d: %s"
+                                    (plist-get s :id)
+                                    (string-join (plist-get s :workspace-folders) ", ")))
+                          all-sessions " | ")))
+     (t
+      (message "No ECA sessions")))))
 
 (defun ai-code-eca-create-session-for-workspace (workspace-roots)
   "Create a new ECA session for WORKSPACE-ROOTS and switch to it.
@@ -280,6 +291,8 @@ Return the new session."
     (unless session
       (user-error "Failed to create ECA session for %s"
                   (mapconcat #'identity workspace-roots ", ")))
+    ;; Set session-id-cache so eca-session can find this session
+    (setq eca--session-id-cache (eca--session-id session))
     (eca-info "Created session %d for %s"
               (eca--session-id session)
               (mapconcat #'identity workspace-roots ", "))
