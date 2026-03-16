@@ -352,8 +352,8 @@ SESSION defaults to the current session.  Return the removed folder."
     (unless sess
       (user-error "No ECA session active"))
     (let* ((folder (directory-file-name (expand-file-name folder)))
-           (existing (mapcar #'directory-file-name (eca--session-workspace-folders sess)))
            (existing-raw (eca--session-workspace-folders sess))
+           (existing (mapcar (lambda (f) (directory-file-name (expand-file-name f))) existing-raw))
            (session-id (eca--session-id sess)))
       (unless (member folder existing)
         (user-error "Folder not in workspace: %s" folder))
