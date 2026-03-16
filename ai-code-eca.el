@@ -48,10 +48,10 @@
 
 ;;; Customization
 
-(defvar ai-code-ai-code-eca-auto-switch-session nil
+(defvar ai-code-eca-auto-switch-session nil
   "If non-nil, auto-switch ECA session based on project.")
 
-(defcustom ai-code-ai-code-eca-auto-apply-shared-context t
+(defcustom ai-code-eca-auto-apply-shared-context t
   "If non-nil, automatically apply shared context when switching ECA sessions."
   :type 'boolean
   :group 'ai-code)
@@ -180,8 +180,8 @@ With FORCE-PROMPT (prefix arg), force new session."
 (require 'ai-code-eca-util nil t)
 (require 'ai-code-eca-chat nil t)
 
-(defvar ai-code-ai-code-eca--sessions nil)
-(defvar ai-code-ai-code-eca--session-id-cache nil)
+(defvar ai-code-eca--sessions nil)
+(defvar ai-code-eca--session-id-cache nil)
 (defvar ai-code-eca-config-directory nil)
 
 (declare-function eca-session "eca-util" ())
@@ -215,7 +215,7 @@ With FORCE-PROMPT (prefix arg), force new session."
   "Return a list of all active ECA sessions.
 Each element is a plist with :id, :status, :workspace-folders, and :chat-count.
 Return nil if ECA has no active sessions."
-  (and (boundp 'ai-code-ai-code-eca--sessions)
+  (and (boundp 'ai-code-eca--sessions)
        ai-code-eca--sessions
        (mapcar (lambda (pair)
                  (let ((session (cdr pair)))
@@ -273,6 +273,17 @@ When called interactively, prompt for session selection."
       (ai-code-eca-chat-open session)
       (pop-to-buffer (ai-code-eca-chat--get-last-buffer session))
       session)))
+
+(defun ai-code-eca-which-session ()
+  "Show current ECA session info."
+  (interactive)
+  (let ((session (eca-session)))
+    (if session
+        (let ((id (eca--session-id session))
+              (folders (eca--session-workspace-folders session)))
+          (message "ECA session %d: %s" id
+                   (if folders (mapconcat #'identity folders ", ") "no workspace")))
+      (message "No active ECA session"))))
 
 (defun ai-code-eca-create-session-for-workspace (workspace-roots)
   "Create a new ECA session for WORKSPACE-ROOTS and switch to it.
@@ -531,7 +542,7 @@ Set to nil to disable stale-file cleanup.")
   (when (and file-path (file-exists-p file-path))
     (let* ((sid (if session
                     (if (numberp session) session (ai-code-eca--session-id session))
-                  (when (boundp 'ai-code-ai-code-eca--session-id-cache)
+                  (when (boundp 'ai-code-eca--session-id-cache)
                     ai-code-eca--session-id-cache)))
            (entry (assoc sid ai-code-eca--context-temp-files)))
       (if entry
@@ -561,7 +572,7 @@ Set to nil to disable stale-file cleanup.")
 
 ;;; Automatic Workspace / Session Management
 
-(defcustom ai-code-ai-code-eca-auto-add-workspace-folder t
+(defcustom ai-code-eca-auto-add-workspace-folder t
   "If non-nil, automatically add a file's project to the current workspace.
 If the value is `prompt', ask before adding."
   :type '(choice (const :tag "Auto add" t)
@@ -569,7 +580,7 @@ If the value is `prompt', ask before adding."
                  (const :tag "Disabled" nil))
   :group 'eca)
 
-(defcustom ai-code-ai-code-eca-auto-switch-session 'prompt
+(defcustom ai-code-eca-auto-switch-session 'prompt
   "If non-nil, automatically switch to the session matching the current project.
 If the value is `prompt', ask before switching."
   :type '(choice (const :tag "Auto switch" t)
@@ -577,7 +588,7 @@ If the value is `prompt', ask before switching."
                  (const :tag "Disabled" nil))
   :group 'eca)
 
-(defcustom ai-code-ai-code-eca-auto-create-session nil
+(defcustom ai-code-eca-auto-create-session nil
   "If non-nil, automatically create or extend sessions for new projects.
 If the value is `prompt', ask before creating."
   :type '(choice (const :tag "Auto create" t)
@@ -585,15 +596,15 @@ If the value is `prompt', ask before creating."
                  (const :tag "Disabled" nil))
   :group 'eca)
 
-(defcustom ai-code-ai-code-eca-auto-sync-workspace t
+(defcustom ai-code-eca-auto-sync-workspace t
   "If non-nil, automatically sync workspace folders when project changes."
   :type 'boolean
   :group 'eca)
 
-(defvar ai-code-ai-code-eca--last-project-root nil
+(defvar ai-code-eca--last-project-root nil
   "Track the last project root seen by ECA auto-switch logic.")
 
-(defvar ai-code-ai-code-eca--shared-context nil
+(defvar ai-code-eca--shared-context nil
   "Plist of shared context items available to all sessions.
 Keys currently used are :files and :repo-maps.
 
