@@ -15,7 +15,9 @@
     (should (plist-get spec :start))
     (should (plist-get spec :switch))
     (should (plist-get spec :send))
-    (should (plist-get spec :resume))))
+    (should (plist-get spec :resume))
+    (should (plist-get spec :upgrade))
+    (should (plist-get spec :install-skills))))
 
 (ert-deftest ai-code-test-eca-add-menu-group-when-eca-selected ()
   "Ensure ECA menu is added when ECA backend is selected."
