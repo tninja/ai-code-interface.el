@@ -37,6 +37,7 @@
 (declare-function eca-chat-open "eca-chat" (session))
 (declare-function eca-chat-send-prompt "eca-chat" (session message))
 (declare-function eca-chat--get-last-buffer "eca-chat" (session))
+(declare-function eca-chat--create-buffer "eca-chat" (session))
 (declare-function eca-info "eca-util" (format-string &rest args))
 (declare-function eca--session-id "eca-util" (session))
 (declare-function eca--session-status "eca-util" (session))
@@ -182,6 +183,7 @@ With FORCE-PROMPT (prefix arg), force new session."
 (declare-function eca-chat-open "eca-chat" (session))
 (declare-function eca-chat-send-prompt "eca-chat" (session message))
 (declare-function eca-chat--get-last-buffer "eca-chat" (session))
+(declare-function eca-chat--create-buffer "eca-chat" (session))
 (declare-function eca-process-start "eca-process" (session on-ready on-message))
 (declare-function eca--initialize "eca" (session))
 (declare-function eca--handle-message "eca" (session message))
@@ -312,6 +314,12 @@ With ARG (C-u), prompt for workspace root and create NEW session."
           (setf (eca--session-status session) 'stopped)
           (eca-process-start session
                              (lambda ()
+                               ;; Create fresh chat buffer before initialize
+                               (let ((chat-buf (eca-chat--create-buffer session)))
+                                 (setf (eca--session-last-chat-buffer session) chat-buf)
+                                 (setf (eca--session-chats session) (list (cons 'empty chat-buf)))
+                                 (with-current-buffer chat-buf
+                                   (setq-local eca--session-id-cache (eca--session-id session))))
                                (eca--initialize session))
                              (-partial #'eca--handle-message session))
           session))
