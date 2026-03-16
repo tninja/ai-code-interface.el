@@ -39,7 +39,6 @@
 (declare-function eca-chat-open "eca-chat" (session))
 (declare-function eca-chat-send-prompt "eca-chat" (session message))
 (declare-function eca-chat--get-last-buffer "eca-chat" (session))
-(declare-function eca-chat--create-buffer "eca-chat" (session))
 (declare-function eca-info "eca-util" (format-string &rest args))
 (declare-function eca--session-id "eca-util" (session))
 (declare-function eca--session-status "eca-util" (session))
@@ -221,68 +220,27 @@ Auto-apply shared context if any."
   (interactive)
   (let ((session (ai-code-eca-select-session session-id)))
     (when session
-      ;; Clear stale buffer reference if pointing to wrong session's buffer
-      (let ((last-buf (eca--session-last-chat-buffer session)))
-        (when (and last-buf
-                   (buffer-live-p last-buf)
-                   (not (string-match-p (format "^<eca-chat:%d:" (eca--session-id session))
-                                        (buffer-name last-buf))))
-          (setf (eca--session-last-chat-buffer session) nil)))
       (ai-code-eca--apply-shared-context-internal session)
       (eca-chat-open session)
-      ;; Fix: ensure eca--session-id-cache is set correctly in the chat buffer
-      ;; and clean up chats lists so each buffer belongs to only one session
-      (let ((chat-buf (eca-chat--get-last-buffer session))
-            (session-id (eca--session-id session)))
-        (when (buffer-live-p chat-buf)
-          (with-current-buffer chat-buf
-            (setq-local eca--session-id-cache session-id))
-          ;; Remove this session's buffer from other sessions' chats lists
-          (seq-doseq (other-session (eca-vals eca--sessions))
-            (unless (eq other-session session)
-              (let ((other-chats (eca--session-chats other-session)))
-                (when (member chat-buf (mapcar #'cdr other-chats))
-                  (setf (eca--session-chats other-session)
-                        (cl-remove-if (lambda (pair) (eq (cdr pair) chat-buf)) other-chats)))))))
-        ;; Remove buffers belonging to other sessions from this session's chats list
-        (let ((chats (eca--session-chats session)))
-          (dolist (pair chats)
-            (let ((buf (cdr pair)))
-              (when (and (buffer-live-p buf)
-                         (buffer-local-value 'eca--session-id-cache buf)
-                         (not (eq (buffer-local-value 'eca--session-id-cache buf) session-id)))
-                (setf (eca--session-chats session)
-                      (cl-remove-if (lambda (p) (eq (cdr p) buf)) (eca--session-chats session))))))))
       (pop-to-buffer (eca-chat--get-last-buffer session))
       session)))
 
 (defun ai-code-eca-create-session-for-workspace (&optional arg)
   "Start ECA session.
-Without ARG, use current project root (reuse existing session if any).
-With ARG (C-u), prompt for workspace root and create NEW session.
-After creating a new session, use W to switch to it and initialize the chat."
+Without ARG, use current project root (reuse existing session if available).
+With ARG (C-u), prompt for workspace root and create NEW session."
   (interactive "P")
   (if (equal arg '(4))
       ;; With C-u: create NEW session for specified workspace
       (let* ((workspace-root (read-directory-name "Workspace root: "))
              (session (eca-create-session (list workspace-root))))
         (when session
-          ;; Ensure clean state for new session
-          (setf (eca--session-last-chat-buffer session) nil)
-          (setf (eca--session-chats session) '())
           (setq eca--session-id-cache (eca--session-id session))
           (setf (eca--session-status session) 'stopped)
           (eca-process-start session
                              (lambda ()
-                               ;; Create fresh chat buffer before initialize
-                               (let ((chat-buf (eca-chat--create-buffer session)))
-                                 (setf (eca--session-last-chat-buffer session) chat-buf)
-                                 (setf (eca--session-chats session) (list (cons 'empty chat-buf)))
-                                 (with-current-buffer chat-buf
-                                   (setq-local eca--session-id-cache (eca--session-id session))))
                                (eca--initialize session))
                              (-partial #'eca--handle-message session))
-          (eca-info "Created session %d - use W to switch" (eca--session-id session))
           session))
     ;; Without C-u: use eca (reuses existing session if available)
     (call-interactively #'eca)))
