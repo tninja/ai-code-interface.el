@@ -151,7 +151,6 @@ With FORCE-PROMPT (prefix arg), force new session."
              ("D" "Remove folder" ai-code-eca-remove-workspace-folder)
              ("F" "Share file" ai-code-eca-share-file-context)
              ("M" "Share repo map" ai-code-eca-share-repo-map-context)
-             ("p" "Apply shared context" ai-code-eca-apply-shared-context)
              ("B" "Add clipboard" ai-code-eca-chat-add-clipboard-context-now)])
           (setq ai-code-eca--menu-group-added t))
       (error
@@ -274,10 +273,12 @@ Return the selected session or nil if canceled."
 
 (defun ai-code-eca-switch-to-session (&optional session-id)
   "Switch to ECA session SESSION-ID and open its last chat buffer.
-When called interactively, prompt for session selection."
+When called interactively, prompt for session selection.
+Auto-apply shared context if any."
   (interactive)
   (let ((session (ai-code-eca-select-session session-id)))
     (when session
+      (ai-code-eca--apply-shared-context-internal session)
       (eca-chat-open session)
       (pop-to-buffer (eca-chat--get-last-buffer session))
       session)))
@@ -782,28 +783,31 @@ If the project is already present in the workspace, do nothing."
            (cl-adjoin root (plist-get ai-code-eca--shared-context :repo-maps) :test #'string=)))
     (message "Shared repo map across all ECA sessions: %s" root)))
 
+(defun ai-code-eca--apply-shared-context-internal (session)
+  "Apply shared context to SESSION without interactive checks."
+  (let ((files (plist-get ai-code-eca--shared-context :files))
+        (repo-maps (plist-get ai-code-eca--shared-context :repo-maps)))
+    (when (or files repo-maps)
+      (dolist (file files)
+        (when (file-exists-p file)
+          (ai-code-eca-chat-add-file-context session file)))
+      (dolist (root repo-maps)
+        (when (file-directory-p root)
+          (unless (member (ai-code-eca--normalize-folder-path root)
+                          (mapcar #'ai-code-eca--normalize-folder-path
+                                  (or (ai-code-eca-list-workspace-folders session) '())))
+            (when (fboundp 'ai-code-eca-add-workspace-folder)
+              (ai-code-eca-add-workspace-folder root session)))
+          (ai-code-eca-chat-add-repo-map-context session)))
+      (message "Applied shared context: %d files, %d repo maps"
+               (length files) (length repo-maps)))))
+
 (defun ai-code-eca-apply-shared-context (session)
   "Apply shared context to SESSION."
   (interactive (list (or (eca-session) (ai-code-eca-select-session))))
   (unless session
     (user-error "No ECA session active"))
-  (let ((files (plist-get ai-code-eca--shared-context :files))
-        (repo-maps (plist-get ai-code-eca--shared-context :repo-maps)))
-    (dolist (file files)
-      (when (file-exists-p file)
-        (ai-code-eca-chat-add-file-context session file)))
-    (dolist (root repo-maps)
-      (when (file-directory-p root)
-        (unless (member (ai-code-eca--normalize-folder-path root)
-                        (mapcar #'ai-code-eca--normalize-folder-path
-                                (or (ai-code-eca-list-workspace-folders session) '())))
-          (when (fboundp 'ai-code-eca-add-workspace-folder)
-            (ai-code-eca-add-workspace-folder root session)))
-        (ai-code-eca-chat-add-repo-map-context session)))
-    (message "Applied shared context to session %d: %d files, %d repo maps"
-             (eca--session-id session)
-             (length files)
-             (length repo-maps))))
+  (ai-code-eca--apply-shared-context-internal session))
 
 (defun ai-code-eca-clear-shared-context ()
   "Clear all shared context items."
