@@ -127,6 +127,16 @@ With FORCE-PROMPT (prefix arg), force new session."
 (defvar ai-code-eca--menu-group-added nil
   "Track whether ECA group has been added to ai-code-menu.")
 
+(declare-function ai-code-eca-which-session "ai-code-eca" ())
+(declare-function ai-code-eca-switch-session "ai-code-eca" (&optional session-id))
+(declare-function ai-code-eca-add-workspace-folder "ai-code-eca" (folder &optional session))
+(declare-function ai-code-eca-list-workspace-folders "ai-code-eca" (&optional session))
+(declare-function ai-code-eca-remove-workspace-folder "ai-code-eca" (folder &optional session))
+(declare-function ai-code-eca-add-file-context "ai-code-eca" (session file-path))
+(declare-function ai-code-eca-add-cursor-context "ai-code-eca" (session file-path position))
+(declare-function ai-code-eca-add-repo-map-context "ai-code-eca" (session))
+(declare-function ai-code-eca-add-clipboard-context "ai-code-eca" (session content))
+
 (defun ai-code-eca--add-menu-group ()
   "Add ECA group to ai-code-menu."
   (when (and (featurep 'transient)
