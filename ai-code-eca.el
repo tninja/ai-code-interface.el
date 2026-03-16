@@ -21,12 +21,16 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'package)
 (require 'subr-x)
+(require 'tabulated-list)
 (require 'ai-code-backends)
 (require 'ai-code-input nil t)
-(require 'eca-ext nil t)
 (require 'transient nil t)
+(require 'eca nil t)
+(require 'eca-util nil t)
+(require 'eca-chat nil t)
 
 (declare-function eca "eca" (&optional arg))
 (declare-function eca-session "eca-util" ())
@@ -39,30 +43,15 @@
 (declare-function eca--session-workspace-folders "eca-util" (session))
 (declare-function eca-chat-add-workspace-root "eca-chat" ())
 
-(declare-function eca-list-sessions "eca-ext" ())
-(declare-function eca-switch-to-session "eca-ext" (&optional session-id))
-(declare-function eca-list-workspace-folders "eca-ext" (&optional session))
-(declare-function eca-add-workspace-folder "eca-ext" (folder &optional session))
-(declare-function eca-add-workspace-folder-all-sessions "eca-ext" (folder))
-(declare-function eca-remove-workspace-folder "eca-ext" (folder &optional session))
-(declare-function eca-chat-add-file-context "eca-ext" (session file-path))
-(declare-function eca-chat-add-repo-map-context "eca-ext" (session))
-(declare-function eca-chat-add-cursor-context "eca-ext" (session file-path position))
-(declare-function eca-chat-add-clipboard-context "eca-ext" (session content))
-(declare-function eca-share-file-context "eca-ext" (file-path))
-(declare-function eca-share-repo-map-context "eca-ext" (project-root))
-(declare-function eca-apply-shared-context "eca-ext" (session))
-(declare-function eca-clear-shared-context "eca-ext" ())
-
 (declare-function transient-append-suffix "transient" (prefix loc suffix &optional face))
 (declare-function transient-remove-suffix "transient" (prefix suffix))
 
 ;;; Customization
 
-(defvar eca-auto-switch-session nil
+(defvar ai-code-eca-auto-switch-session nil
   "If non-nil, auto-switch ECA session based on project.")
 
-(defcustom eca-auto-apply-shared-context t
+(defcustom ai-code-eca-auto-apply-shared-context t
   "If non-nil, automatically apply shared context when switching ECA sessions."
   :type 'boolean
   :group 'ai-code)
@@ -124,7 +113,6 @@ With FORCE-PROMPT (prefix arg), force new session."
 
 (defun ai-code-eca-get-sessions ()
   "Get list of ECA sessions."
-  (require 'eca-ext nil t)
   (when (fboundp 'eca-list-sessions)
     (eca-list-sessions)))
 
@@ -145,7 +133,6 @@ With FORCE-PROMPT (prefix arg), force new session."
 (defun ai-code-eca-switch-session (&optional session-id)
   "Switch to ECA SESSION-ID."
   (interactive)
-  (require 'eca-ext nil t)
   (unless (fboundp 'eca-switch-to-session)
     (user-error "Session switching requires eca-ext.el"))
   (eca-switch-to-session session-id))
@@ -173,7 +160,6 @@ With FORCE-PROMPT (prefix arg), force new session."
 (defun ai-code-eca-list-workspace-folders ()
   "List workspace folders in ECA."
   (interactive)
-  (require 'eca-ext nil t)
   (let ((folders (eca-list-workspace-folders)))
     (if folders
         (message "Workspace folders: %s" (mapconcat #'identity folders "\n"))
@@ -187,7 +173,6 @@ Prevents removal of the last folder to keep session context."
      (when (= (length folders) 1)
        (user-error "Cannot remove last workspace folder - session needs at least one"))
      (list (completing-read "Remove folder: " folders nil t))))
-  (require 'eca-ext nil t)
   (eca-remove-workspace-folder folder))
 
 ;;;###autoload
@@ -229,7 +214,6 @@ Useful for shared libraries that should be available in all projects."
 (defun ai-code-eca-add-file-context (file-path)
   "Add FILE-PATH to ECA context."
   (interactive "fAdd file to ECA context: ")
-  (require 'eca-ext nil t)
   (unless (fboundp 'eca-chat-add-file-context)
     (user-error "Context features require eca-ext.el"))
   (let ((session (eca-session)))
@@ -241,7 +225,6 @@ Useful for shared libraries that should be available in all projects."
 (defun ai-code-eca-add-cursor-context ()
   "Add cursor context to ECA."
   (interactive)
-  (require 'eca-ext nil t)
   (unless (fboundp 'eca-chat-add-cursor-context)
     (user-error "Context features require eca-ext.el"))
   (let ((session (eca-session)))
@@ -253,7 +236,6 @@ Useful for shared libraries that should be available in all projects."
 (defun ai-code-eca-add-repo-map-context ()
   "Add repo map context to ECA."
   (interactive)
-  (require 'eca-ext nil t)
   (unless (fboundp 'eca-chat-add-repo-map-context)
     (user-error "Context features require eca-ext.el"))
   (let ((session (eca-session)))
@@ -265,7 +247,6 @@ Useful for shared libraries that should be available in all projects."
 (defun ai-code-eca-add-clipboard-context ()
   "Add clipboard content to ECA context."
   (interactive)
-  (require 'eca-ext nil t)
   (unless (fboundp 'eca-chat-add-clipboard-context)
     (user-error "Context features require eca-ext.el"))
   (let ((session (eca-session))
@@ -330,6 +311,705 @@ Useful for shared libraries that should be available in all projects."
                 (if (eq backend 'eca)
                     (ai-code-eca--add-menu-group)
                   (ai-code-eca--remove-menu-group)))))
+
+
+;;; ============================================================
+;;; Session Multiplexing & Workspace Management (from eca-ext)
+;;; ============================================================
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'seq)
+(require 'subr-x)
+(require 'tabulated-list)
+(require 'eca nil t)
+(require 'ai-code-eca-util nil t)
+(require 'ai-code-eca-chat nil t)
+
+(defvar ai-code-eca--sessions nil)
+(defvar ai-code-eca--session-id-cache nil)
+(defvar ai-code-eca-config-directory nil)
+
+(declare-function eca-session "eca-util" ())
+(declare-function eca-get "eca-util" (alist key))
+(declare-function eca-info "eca-util" (format-string &rest args))
+(declare-function eca-create-session "eca-util" (workspace-folders))
+(declare-function eca-delete-session "eca-util" (session))
+(declare-function eca-assert-session-running "eca-util" (session))
+(declare-function eca--session-id "eca-util" (session))
+(declare-function eca--session-status "eca-util" (session))
+(declare-function eca--session-workspace-folders "eca-util" (session))
+(declare-function (setf eca--session-workspace-folders) "eca-util" (value session))
+(declare-function eca--session-add-workspace-folder "eca-util" (session folder))
+(declare-function eca--session-chats "eca-util" (session))
+(declare-function eca-chat-open "eca-chat" (session))
+(declare-function eca-chat--get-last-buffer "eca-chat" (session))
+(declare-function eca-chat--add-context "eca-chat" (context-plist))
+(declare-function eca-chat--with-current-buffer "eca-chat" (&rest body))
+(declare-function eca-api-notify "eca-api" (session &rest args))
+(declare-function projectile-project-root "projectile" (&optional dir))
+(declare-function project-current "project" (&optional maybe-prompt dir))
+(declare-function project-root "project" (project))
+
+(defun ai-code-eca-ext--normalize-folder-path (path)
+  "Return PATH as an expanded directory path without a trailing slash."
+  (directory-file-name (expand-file-name path)))
+
+;;; Session Multiplexing
+
+(defun ai-code-eca-list-sessions ()
+  "Return a list of all active ECA sessions.
+Each element is a plist with :id, :status, :workspace-folders, and :chat-count.
+Return nil if ECA has no active sessions."
+  (and (boundp 'ai-code-eca--sessions)
+       eca--sessions
+       (mapcar (lambda (pair)
+                 (let ((session (cdr pair)))
+                   (list :id (ai-code-eca--session-id session)
+                         :status (ai-code-eca--session-status session)
+                         :workspace-folders (ai-code-eca--session-workspace-folders session)
+                         :chat-count (length (ai-code-eca--session-chats session)))))
+               eca--sessions)))
+
+(defun ai-code-eca-select-session (&optional session-id)
+  "Select an ECA session by SESSION-ID or interactively.
+Return the selected session or nil if canceled."
+  (interactive)
+  (let* ((sessions (ai-code-eca-list-sessions))
+         (choices (and sessions
+                       (> (length sessions) 1)
+                       (mapcar (lambda (s)
+                                 (cons (format "Session %d: %s (%s) - %d chats"
+                                               (plist-get s :id)
+                                               (mapconcat #'identity
+                                                          (plist-get s :workspace-folders)
+                                                          ", ")
+                                               (plist-get s :status)
+                                               (plist-get s :chat-count))
+                                       (plist-get s :id)))
+                               sessions)))
+         (session-id
+          (or session-id
+              (if (null sessions)
+                  (progn
+                    (message "No active ECA sessions")
+                    nil)
+                (if (= (length sessions) 1)
+                    (plist-get (car sessions) :id)
+                  (cdr (assoc (completing-read "Select ECA session: " choices nil t)
+                              choices)))))))
+    (when session-id
+      (let ((session (condition-case nil
+                         (ai-code-eca-get eca--sessions session-id)
+                       (error nil))))
+        (if session
+            (progn
+              (setq eca--session-id-cache session-id)
+              (when (called-interactively-p 'interactive)
+                (ai-code-eca-info "Switched to session %d" session-id))
+              session)
+          (user-error "Session %s not found (may have been deleted)" session-id))))))
+
+(defun ai-code-eca-switch-to-session (&optional session-id)
+  "Switch to ECA session SESSION-ID and open its last chat buffer.
+When called interactively, prompt for session selection."
+  (interactive)
+  (let ((session (ai-code-eca-select-session session-id)))
+    (when session
+      (ai-code-eca-chat-open session)
+      (pop-to-buffer (ai-code-eca-chat--get-last-buffer session))
+      session)))
+
+(defun ai-code-eca-create-session-for-workspace (workspace-roots)
+  "Create a new ECA session for WORKSPACE-ROOTS and switch to it.
+Return the new session."
+  (interactive (list (list (read-directory-name "Workspace root: "))))
+  (let ((session (ai-code-eca-create-session workspace-roots)))
+    (unless session
+      (user-error "Failed to create ECA session for %s"
+                  (mapconcat #'identity workspace-roots ", ")))
+    (ai-code-eca-info "Created session %d for %s"
+              (ai-code-eca--session-id session)
+              (mapconcat #'identity workspace-roots ", "))
+    (when (called-interactively-p 'interactive)
+      (ai-code-eca-switch-to-session (ai-code-eca--session-id session)))
+    session))
+
+;;; Workspace Management
+
+(defun ai-code-eca-list-workspace-folders (&optional session)
+  "Return workspace folders for SESSION or the current session."
+  (let ((sess (or session (ai-code-eca-session))))
+    (when sess
+      (ai-code-eca--session-workspace-folders sess))))
+
+(defun ai-code-eca-add-workspace-folder (folder &optional session)
+  "Add FOLDER to SESSION's workspace.
+SESSION defaults to the current session.  Return the expanded folder path."
+  (interactive
+   (let ((session (ai-code-eca-session)))
+     (unless session
+       (user-error "No ECA session active"))
+     (list (read-directory-name "Add workspace folder: ") session)))
+  (let ((sess (or session (ai-code-eca-session))))
+    (unless sess
+      (user-error "No ECA session active"))
+    (let* ((folder (expand-file-name folder))
+           (existing (ai-code-eca--session-workspace-folders sess))
+           (session-id (ai-code-eca--session-id sess)))
+      (unless (file-directory-p folder)
+        (user-error "Directory does not exist: %s" folder))
+      (when (member folder existing)
+        (user-error "Folder already in workspace: %s" folder))
+      (ai-code-eca--session-add-workspace-folder sess folder)
+      (ai-code-eca-info "Added workspace folder to session %d: %s" session-id folder)
+      folder)))
+
+(defalias 'ai-code-eca-chat-add-workspace-folder #'ai-code-eca-add-workspace-folder
+  "Alias for `eca-add-workspace-folder' for discoverability.")
+
+(defun ai-code-eca-add-workspace-folder-all-sessions (folder)
+  "Add FOLDER to every active ECA session."
+  (interactive "DAdd to all sessions: ")
+  (let* ((folder (expand-file-name folder))
+         (sessions (ai-code-eca-list-sessions))
+         (added 0)
+         (skipped 0))
+    (unless sessions
+      (user-error "No active ECA sessions"))
+    (unless (file-directory-p folder)
+      (user-error "Directory does not exist: %s" folder))
+    (dolist (info sessions)
+      (let* ((session-id (plist-get info :id))
+             (session (condition-case nil
+                          (ai-code-eca-get eca--sessions session-id)
+                        (error nil)))
+             (existing (when session (ai-code-eca--session-workspace-folders session))))
+        (if (member folder existing)
+            (cl-incf skipped)
+          (when session
+            (ai-code-eca--session-add-workspace-folder session folder)
+            (cl-incf added)))))
+    (ai-code-eca-info "Added %s to %d session(s), skipped %d (already present)"
+              folder added skipped)))
+
+(defun ai-code-eca-remove-workspace-folder (folder &optional session)
+  "Remove FOLDER from SESSION's workspace.
+SESSION defaults to the current session.  Return the removed folder."
+  (interactive
+   (let* ((session (ai-code-eca-session))
+          (folders (when session (ai-code-eca--session-workspace-folders session))))
+     (unless session
+       (user-error "No ECA session active"))
+     (unless folders
+       (user-error "No workspace folders in session"))
+     (list (completing-read "Remove workspace folder: " folders nil t) session)))
+  (let ((sess (or session (ai-code-eca-session))))
+    (unless sess
+      (user-error "No ECA session active"))
+    (let* ((folder (expand-file-name folder))
+           (existing (ai-code-eca--session-workspace-folders sess))
+           (session-id (ai-code-eca--session-id sess)))
+      (unless (member folder existing)
+        (user-error "Folder not in workspace: %s" folder))
+      (with-no-warnings
+        (setf (ai-code-eca--session-workspace-folders sess)
+              (remove folder existing)))
+      (when (fboundp 'ai-code-eca-api-notify)
+        (ai-code-eca-api-notify
+         sess
+         :method "workspace/didChangeWorkspaceFolders"
+         :params (list :event
+                       (list :added []
+                             :removed (vector
+                                       (list :uri (concat "file://" folder)
+                                             :name (file-name-nondirectory
+                                                    (directory-file-name folder))))))))
+      (ai-code-eca-info "Removed workspace folder from session %d: %s" session-id folder)
+      folder)))
+
+(defun ai-code-eca-workspace-folder-for-file (file-path &optional session)
+  "Return the workspace folder containing FILE-PATH in SESSION.
+Return nil if FILE-PATH does not belong to any workspace folder."
+  (let* ((sess (or session (ai-code-eca-session)))
+         (folders (when sess (ai-code-eca--session-workspace-folders sess)))
+         (file-path (expand-file-name file-path)))
+    (when folders
+      (seq-find (lambda (folder)
+                  (string-prefix-p (file-name-as-directory folder)
+                                   (file-name-as-directory file-path)))
+                folders))))
+
+(defun ai-code-eca-workspace-provenance (file-path &optional session)
+  "Return workspace provenance plist for FILE-PATH in SESSION."
+  (let ((workspace (ai-code-eca-workspace-folder-for-file file-path session)))
+    (when workspace
+      (list :workspace workspace
+            :relative-path (file-relative-name file-path workspace)
+            :folder-name (file-name-nondirectory
+                          (directory-file-name workspace))))))
+
+;;; Context Management
+
+(defun ai-code-eca-chat-add-file-context (session file-path)
+  "Add FILE-PATH as file context to SESSION."
+  (ai-code-eca-assert-session-running session)
+  (let* ((file-path (expand-file-name file-path))
+         (prov (ai-code-eca-workspace-provenance file-path session))
+         (context (list :type "file" :path file-path)))
+    (when prov
+      (setq context (append context (list :workspace prov))))
+    (ai-code-eca-chat--with-current-buffer (ai-code-eca-chat--get-last-buffer session)
+      (ai-code-eca-chat--add-context context)
+      (ai-code-eca-chat-open session))))
+
+(defun ai-code-eca-chat-add-repo-map-context (session)
+  "Add repository map context to SESSION."
+  (ai-code-eca-assert-session-running session)
+  (ai-code-eca-chat--with-current-buffer (ai-code-eca-chat--get-last-buffer session)
+    (ai-code-eca-chat--add-context (list :type "repoMap"))
+    (ai-code-eca-chat-open session)))
+
+(defun ai-code-eca-chat-add-cursor-context (session file-path position)
+  "Add cursor context to SESSION for FILE-PATH at POSITION."
+  (ai-code-eca-assert-session-running session)
+  (ai-code-eca-chat--with-current-buffer (ai-code-eca-chat--get-last-buffer session)
+    (save-restriction
+      (widen)
+      (goto-char position)
+      (let* ((start (line-beginning-position))
+             (line (line-number-at-pos start))
+             (character (- position start))
+             (file-path (expand-file-name file-path))
+             (prov (ai-code-eca-workspace-provenance file-path session))
+             (context (list :type "cursor"
+                            :path file-path
+                            :position (list :start (list :line line :character character)
+                                            :end (list :line line :character character)))))
+        (when prov
+          (setq context (append context (list :workspace prov))))
+        (ai-code-eca-chat--add-context context)))
+    (ai-code-eca-chat-open session)))
+
+(defun ai-code-eca-chat-add-clipboard-context (session content)
+  "Add CONTENT as a temporary file context to SESSION."
+  (ai-code-eca-assert-session-running session)
+  (let* ((temp-dir (file-name-as-directory
+                    (or (bound-and-true-p eca-config-directory)
+                        (expand-file-name "~/.eca"))))
+         (tmp-subdir (expand-file-name "tmp" temp-dir))
+         (temp-file (expand-file-name
+                     (format "clipboard-%d-%d-%d.txt"
+                             (emacs-pid)
+                             (floor (float-time))
+                             (random 1000000))
+                     tmp-subdir)))
+    (unless (file-directory-p tmp-subdir)
+      (make-directory tmp-subdir t))
+    (with-temp-file temp-file
+      (insert content))
+    (ai-code-eca--register-temp-file temp-file session)
+    (ai-code-eca-chat--with-current-buffer (ai-code-eca-chat--get-last-buffer session)
+      (ai-code-eca-chat--add-context (list :type "file" :path temp-file))
+      (ai-code-eca-chat-open session))
+    (ai-code-eca-info "Added clipboard context (%d chars)" (length content))))
+
+(defun ai-code-eca-chat-add-clipboard-context-now ()
+  "Add current clipboard contents as context to the current ECA session."
+  (interactive)
+  (let ((session (ai-code-eca-session)))
+    (if session
+        (let ((clip-content (current-kill 0 t)))
+          (if (and clip-content (not (string-empty-p clip-content)))
+              (ai-code-eca-chat-add-clipboard-context session clip-content)
+            (message "Clipboard is empty")))
+      (user-error "No ECA session active"))))
+
+;;; Temp File Management
+
+(defvar ai-code-eca--context-temp-files nil
+  "List of temporary context files created by eca-ext.
+
+Format: ((session-id . (file-path1 file-path2 ...)) ...).")
+
+(defvar ai-code-eca--temp-file-max-age (* 24 3600)
+  "Max age in seconds before temp files are considered stale.
+Set to nil to disable stale-file cleanup.")
+
+(defun ai-code-eca--cleanup-temp-context-files ()
+  "Clean up all temporary context files created by eca-ext."
+  (let ((count 0))
+    (dolist (entry eca--context-temp-files)
+      (dolist (file (cdr entry))
+        (condition-case nil
+            (when (and file (file-exists-p file))
+              (delete-file file)
+              (cl-incf count))
+          (error nil))))
+    (setq eca--context-temp-files nil)
+    (when (and (fboundp 'ai-code-eca-info) (> count 0))
+      (ai-code-eca-info "Cleaned up %d temporary context files" count))))
+
+(defun ai-code-eca--cleanup-stale-temp-files ()
+  "Clean up temp files older than `eca--temp-file-max-age'."
+  (when eca--temp-file-max-age
+    (let ((now (float-time))
+          (count 0))
+      (dolist (entry eca--context-temp-files)
+        (setcdr entry
+                (cl-remove-if
+                 (lambda (file)
+                   (when (and file (file-exists-p file))
+                     (let ((age (- now (float-time (nth 5 (file-attributes file))))))
+                       (when (> age eca--temp-file-max-age)
+                         (condition-case nil
+                             (delete-file file)
+                           (error nil))
+                         (cl-incf count)
+                         t))))
+                 (cdr entry))))
+      (when (and (fboundp 'ai-code-eca-info) (> count 0))
+        (ai-code-eca-info "Cleaned up %d stale temp files (older than %d hours)"
+                  count (/ eca--temp-file-max-age 3600))))))
+
+(defun ai-code-eca--register-temp-file (file-path &optional session)
+  "Register FILE-PATH for cleanup on exit or session end."
+  (when (and file-path (file-exists-p file-path))
+    (let* ((sid (if session
+                    (if (numberp session) session (ai-code-eca--session-id session))
+                  (when (boundp 'ai-code-eca--session-id-cache)
+                    eca--session-id-cache)))
+           (entry (assoc sid eca--context-temp-files)))
+      (if entry
+          (push file-path (cdr entry))
+        (push (cons sid (list file-path)) eca--context-temp-files)))
+    file-path))
+
+(defun ai-code-eca--cleanup-session-temp-files (session)
+  "Clean up temp files associated with SESSION."
+  (let* ((sid (if (numberp session) session (ai-code-eca--session-id session)))
+         (entry (assoc sid eca--context-temp-files))
+         (files (cdr entry))
+         (count 0))
+    (when files
+      (dolist (file files)
+        (condition-case nil
+            (when (and file (file-exists-p file))
+              (delete-file file)
+              (cl-incf count))
+          (error nil)))
+      (setq eca--context-temp-files (assq-delete-all sid eca--context-temp-files))
+      (when (and (fboundp 'ai-code-eca-info) (> count 0))
+        (ai-code-eca-info "Cleaned up %d temp files for session %s" count sid)))))
+
+(add-hook 'kill-emacs-hook #'ai-code-eca--cleanup-temp-context-files)
+(run-with-timer 3600 3600 #'ai-code-eca--cleanup-stale-temp-files)
+
+;;; Automatic Workspace / Session Management
+
+(defcustom ai-code-eca-auto-add-workspace-folder t
+  "If non-nil, automatically add a file's project to the current workspace.
+If the value is `prompt', ask before adding."
+  :type '(choice (const :tag "Auto add" t)
+                 (const :tag "Prompt before adding" prompt)
+                 (const :tag "Disabled" nil))
+  :group 'eca)
+
+(defcustom ai-code-eca-auto-switch-session 'prompt
+  "If non-nil, automatically switch to the session matching the current project.
+If the value is `prompt', ask before switching."
+  :type '(choice (const :tag "Auto switch" t)
+                 (const :tag "Prompt before switching" prompt)
+                 (const :tag "Disabled" nil))
+  :group 'eca)
+
+(defcustom ai-code-eca-auto-create-session nil
+  "If non-nil, automatically create or extend sessions for new projects.
+If the value is `prompt', ask before creating."
+  :type '(choice (const :tag "Auto create" t)
+                 (const :tag "Prompt before creating" prompt)
+                 (const :tag "Disabled" nil))
+  :group 'eca)
+
+(defcustom ai-code-eca-auto-sync-workspace t
+  "If non-nil, automatically sync workspace folders when project changes."
+  :type 'boolean
+  :group 'eca)
+
+(defvar ai-code-eca--last-project-root nil
+  "Track the last project root seen by ECA auto-switch logic.")
+
+(defvar ai-code-eca--shared-context nil
+  "Plist of shared context items available to all sessions.
+Keys currently used are :files and :repo-maps.
+
+- :files contains a list of absolute file paths.
+- :repo-maps contains a list of absolute repository root directories.")
+
+(defun ai-code-eca-ext--file-project-root (file-path)
+  "Return a project root for FILE-PATH using projectile, project.el, or fallback."
+  (when file-path
+    (or (when (fboundp 'projectile-project-root)
+          (ignore-errors
+            (projectile-project-root (file-name-directory file-path))))
+        (when (fboundp 'project-current)
+          (ignore-errors
+            (let ((proj (project-current nil (file-name-directory file-path))))
+              (when proj
+                (project-root proj)))))
+        (file-name-directory file-path))))
+
+(defun ai-code-eca-ext--session-for-project-root (project-root)
+  "Find the ECA session whose workspace contains PROJECT-ROOT."
+  (let* ((root (ai-code-eca-ext--normalize-folder-path project-root))
+         (sessions (ai-code-eca-list-sessions)))
+    (cl-dolist (info sessions)
+      (let* ((session-id (plist-get info :id))
+             (folders (plist-get info :workspace-folders))
+             (match (cl-find root folders
+                             :test (lambda (lhs rhs)
+                                     (string= lhs (ai-code-eca-ext--normalize-folder-path rhs))))))
+        (when match
+          (cl-return session-id))))))
+
+(defun ai-code-eca-ext--auto-add-workspace-hook ()
+  "Auto-add the current file's project root to the current ECA workspace.
+If the project is already present in the workspace, do nothing."
+  (when (and eca-auto-add-workspace-folder
+             buffer-file-name
+             (featurep 'eca)
+             (ai-code-eca-session))
+    (let* ((project-root (ai-code-eca-ext--file-project-root buffer-file-name))
+           (session (ai-code-eca-session))
+           (workspace-folders (ai-code-eca--session-workspace-folders session))
+           (in-workspace (and project-root
+                              (member (ai-code-eca-ext--normalize-folder-path project-root)
+                                      (mapcar (lambda (folder)
+                                                (ai-code-eca-ext--normalize-folder-path folder))
+                                              workspace-folders)))))
+      (when (and project-root (not in-workspace))
+        (let ((root (ai-code-eca-ext--normalize-folder-path project-root)))
+          (pcase eca-auto-add-workspace-folder
+            ('t
+             (ai-code-eca--session-add-workspace-folder session root)
+             (message "Auto-added project to ECA session %d: %s"
+                      (ai-code-eca--session-id session) root))
+            ('prompt
+             (when (y-or-n-p (format "Add project to ECA workspace? (%s) " root))
+               (ai-code-eca--session-add-workspace-folder session root)))))))))
+
+(defun ai-code-eca-ext--auto-switch-session-hook (&optional _frame)
+  "Auto-switch ECA sessions when the active project changes."
+  (when (and eca-auto-switch-session
+             buffer-file-name
+             (featurep 'eca)
+             (ai-code-eca-list-sessions))
+    (let* ((project-root (ai-code-eca-ext--file-project-root buffer-file-name))
+           (current-session (ignore-errors (ai-code-eca-session)))
+           (current-session-id (when current-session
+                                 (ignore-errors (ai-code-eca--session-id current-session)))))
+      (when (and project-root
+                 (not (string= project-root eca--last-project-root)))
+        (let ((target-session (ai-code-eca-ext--session-for-project-root project-root))
+              (root (ai-code-eca-ext--normalize-folder-path project-root)))
+          (setq eca--last-project-root root)
+          (when (and target-session
+                     (not (eq target-session current-session-id)))
+            (pcase eca-auto-switch-session
+              ('t
+               (ai-code-eca-switch-to-session target-session)
+               (message "Auto-switched to ECA session %d for %s"
+                        target-session root))
+              ('prompt
+               (when (y-or-n-p (format "Switch to session %d for %s? "
+                                       target-session root))
+                 (ai-code-eca-switch-to-session target-session))))))))))
+
+(defun ai-code-eca-ext--auto-create-session-hook ()
+  "Auto-create or extend ECA sessions when visiting a project without one."
+  (when (and eca-auto-create-session
+             buffer-file-name
+             (featurep 'eca))
+    (let* ((project-root (ai-code-eca-ext--file-project-root buffer-file-name))
+           (existing-session (when project-root
+                               (ai-code-eca-ext--session-for-project-root project-root)))
+           (any-sessions (ai-code-eca-list-sessions)))
+      (when (and project-root (not existing-session))
+        (let ((root (ai-code-eca-ext--normalize-folder-path project-root)))
+          (pcase eca-auto-create-session
+            ('t
+             (if any-sessions
+                 (let ((session (ai-code-eca-session)))
+                   (if session
+                       (progn
+                         (ai-code-eca--session-add-workspace-folder session root)
+                         (message "Auto-added %s to current ECA session" root))
+                     (let ((session (ai-code-eca-create-session (list root))))
+                       (when session
+                         (message "Auto-created ECA session %d for %s"
+                                  (ai-code-eca--session-id session) root)))))
+               (let ((session (ai-code-eca-create-session (list root))))
+                 (when session
+                   (message "Auto-created ECA session %d for %s"
+                            (ai-code-eca--session-id session) root)
+                   (ai-code-eca-chat-open session)))))
+            ('prompt
+             (when (y-or-n-p (format "Create ECA session for %s? " root))
+               (let ((session (ai-code-eca-create-session (list root))))
+                 (when session
+                   (ai-code-eca-chat-open session)))))))))))
+
+(defun ai-code-eca-ext--auto-sync-workspace-hook (&optional _frame)
+  "Auto-sync the current project's root into the current ECA workspace."
+  (when (and eca-auto-sync-workspace
+             buffer-file-name
+             (featurep 'eca)
+             (ai-code-eca-session))
+    (let* ((project-root (ai-code-eca-ext--file-project-root buffer-file-name)))
+      (when project-root
+        (let* ((root (ai-code-eca-ext--normalize-folder-path project-root))
+               (session (ai-code-eca-session))
+               (folders (ai-code-eca--session-workspace-folders session))
+               (in-workspace (member root
+                                     (mapcar #'ai-code-eca-ext--normalize-folder-path
+                                             folders))))
+          (unless in-workspace
+            (ai-code-eca--session-add-workspace-folder session root)
+            (message "Auto-synced workspace: added %s" root)))))))
+
+(with-eval-after-load 'eca
+  (add-hook 'find-file-hook #'ai-code-eca-ext--auto-add-workspace-hook)
+  (add-hook 'find-file-hook #'ai-code-eca-ext--auto-create-session-hook 90)
+  (add-hook 'window-buffer-change-functions #'ai-code-eca-ext--auto-switch-session-hook)
+  (add-hook 'window-buffer-change-functions #'ai-code-eca-ext--auto-sync-workspace-hook))
+
+;;; Shared Context
+
+(defun ai-code-eca-share-file-context (file-path)
+  "Add FILE-PATH to the shared context for all ECA sessions."
+  (interactive "fShare file across sessions: ")
+  (let ((file-path (expand-file-name file-path)))
+    (setq eca--shared-context
+          (plist-put
+           eca--shared-context
+           :files
+           (cl-adjoin file-path (plist-get eca--shared-context :files) :test #'string=)))
+    (message "Shared file across all ECA sessions: %s" file-path)))
+
+(defun ai-code-eca-share-repo-map-context (project-root)
+  "Add PROJECT-ROOT repo map to the shared context for all ECA sessions."
+  (interactive "DShare repo map across sessions: ")
+  (let ((root (expand-file-name project-root)))
+    (setq eca--shared-context
+          (plist-put
+           eca--shared-context
+           :repo-maps
+           (cl-adjoin root (plist-get eca--shared-context :repo-maps) :test #'string=)))
+    (message "Shared repo map across all ECA sessions: %s" root)))
+
+(defun ai-code-eca-apply-shared-context (session)
+  "Apply shared context to SESSION."
+  (interactive (list (ai-code-eca-session)))
+  (unless session
+    (user-error "No ECA session active"))
+  (let ((files (plist-get eca--shared-context :files))
+        (repo-maps (plist-get eca--shared-context :repo-maps)))
+    (dolist (file files)
+      (when (file-exists-p file)
+        (ai-code-eca-chat-add-file-context session file)))
+    (dolist (root repo-maps)
+      (when (file-directory-p root)
+        (unless (member (ai-code-eca-ext--normalize-folder-path root)
+                        (mapcar #'ai-code-eca-ext--normalize-folder-path
+                                (or (ai-code-eca-list-workspace-folders session) '())))
+          (when (fboundp 'ai-code-eca-add-workspace-folder)
+            (ai-code-eca-add-workspace-folder root session)))
+        (ai-code-eca-chat-add-repo-map-context session)))
+    (message "Applied shared context to session %d: %d files, %d repo maps"
+             (ai-code-eca--session-id session)
+             (length files)
+             (length repo-maps))))
+
+(defun ai-code-eca-clear-shared-context ()
+  "Clear all shared context items."
+  (interactive)
+  (setq eca--shared-context nil)
+  (message "Cleared shared context"))
+
+;;; Session Dashboard
+
+(defvar ai-code-eca-session-dashboard-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'ai-code-eca-session-dashboard-switch)
+    (define-key map (kbd "d") #'ai-code-eca-session-dashboard-delete)
+    (define-key map (kbd "w") #'ai-code-eca-session-dashboard-list-folders)
+    (define-key map (kbd "g") #'ai-code-eca-session-dashboard-refresh)
+    (define-key map (kbd "q") #'quit-window)
+    map)
+  "Keymap for the ECA session dashboard.")
+
+(define-derived-mode eca-session-dashboard-mode tabulated-list-mode "ECA Sessions"
+  "Major mode for viewing and managing ECA sessions."
+  (setq tabulated-list-format [("ID" 4 t)
+                               ("Status" 12 t)
+                               ("Workspaces" 40 t)
+                               ("Chats" 6 t)])
+  (setq tabulated-list-sort-key (cons "ID" nil))
+  (tabulated-list-init-header))
+
+(defun ai-code-eca-session-dashboard ()
+  "Open a dashboard showing all ECA sessions."
+  (interactive)
+  (let ((buffer (get-buffer-create "*ECA Sessions*")))
+    (with-current-buffer buffer
+      (ai-code-eca-session-dashboard-mode)
+      (ai-code-eca-session-dashboard-refresh))
+    (pop-to-buffer buffer)))
+
+(defun ai-code-eca-session-dashboard-refresh ()
+  "Refresh the session dashboard."
+  (interactive)
+  (let ((sessions (ai-code-eca-list-sessions)))
+    (setq tabulated-list-entries
+          (mapcar (lambda (info)
+                    (list (plist-get info :id)
+                          (vector (number-to-string (plist-get info :id))
+                                  (format "%s" (plist-get info :status))
+                                  (string-join (plist-get info :workspace-folders) ", ")
+                                  (number-to-string (plist-get info :chat-count)))))
+                  sessions))
+    (tabulated-list-print t)))
+
+(defun ai-code-eca-session-dashboard-switch ()
+  "Switch to the ECA session on the current dashboard line."
+  (interactive)
+  (let ((session-id (tabulated-list-get-id)))
+    (when session-id
+      (ai-code-eca-switch-to-session session-id)
+      (quit-window))))
+
+(defun ai-code-eca-session-dashboard-delete ()
+  "Delete the ECA session on the current dashboard line."
+  (interactive)
+  (let ((session-id (tabulated-list-get-id)))
+    (when (and session-id
+               (y-or-n-p (format "Delete session %d? " session-id)))
+      (let ((session (ai-code-eca-get eca--sessions session-id)))
+        (when session
+          (ai-code-eca-delete-session session)
+          (ai-code-eca-session-dashboard-refresh))))))
+
+(defun ai-code-eca-session-dashboard-list-folders ()
+  "List workspace folders for the ECA session on the current dashboard line."
+  (interactive)
+  (let ((session-id (tabulated-list-get-id)))
+    (when session-id
+      (let* ((session (ai-code-eca-get eca--sessions session-id))
+             (folders (when session (ai-code-eca--session-workspace-folders session))))
+        (message "Session %d workspaces: %s" session-id
+                 (string-join folders " | "))))))
+
 
 (provide 'ai-code-eca)
 
