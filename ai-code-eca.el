@@ -123,12 +123,12 @@ With FORCE-PROMPT (prefix arg), force new session."
             ["ECA"
              ("?" "Which session" ai-code-eca-which-session)
              ("W" "Switch session" ai-code-eca-switch-session)
-             ("d" "Dashboard" eca-workspaces)
+             ("D" "Dashboard" eca-workspaces)
              ("A" "Add folder" ai-code-eca-add-workspace-folder)
-             ("D" "Remove folder" ai-code-eca-remove-workspace-folder)
+             ("X" "Remove folder" ai-code-eca-remove-workspace-folder)
              ("F" "Share file" ai-code-eca-share-file-context)
              ("M" "Share repo map" ai-code-eca-share-repo-map-context)
-             ("X" "Clear shared context" ai-code-eca-clear-shared-context)
+             ("Y" "Clear shared context" ai-code-eca-clear-shared-context)
              ("B" "Add clipboard" ai-code-eca-chat-add-clipboard-context-now)])
           (setq ai-code-eca--menu-group-added t))
       (error
