@@ -283,26 +283,13 @@ Auto-apply shared context if any."
      (t
       (message "No ECA sessions")))))
 
-(defun ai-code-eca-create-session-for-workspace (workspace-roots)
-  "Create a new ECA session for WORKSPACE-ROOTS and switch to it.
-Return the new session."
-  (interactive (list (list (read-directory-name "Workspace root: "))))
-  (let ((session (eca-create-session workspace-roots)))
-    (unless session
-      (user-error "Failed to create ECA session for %s"
-                  (mapconcat #'identity workspace-roots ", ")))
-    ;; Set session-id-cache so eca-session can find this session
-    (setq eca--session-id-cache (eca--session-id session))
-    (eca-info "Created session %d for %s"
-              (eca--session-id session)
-              (mapconcat #'identity workspace-roots ", "))
-    (when (called-interactively-p 'interactive)
-      (setf (eca--session-status session) 'stopped)
-      (eca-process-start session
-                         (lambda ()
-                           (eca--initialize session))
-                         (-partial #'eca--handle-message session)))
-    session))
+(defun ai-code-eca-create-session-for-workspace (&optional arg)
+  "Start ECA session.
+Without ARG, use current project root.
+With ARG (C-u), prompt for workspace root."
+  (interactive "P")
+  (let ((current-prefix-arg arg))
+    (call-interactively #'eca)))
 
 ;;; Workspace Management
 
