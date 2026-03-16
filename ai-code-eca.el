@@ -51,11 +51,6 @@
 (defvar ai-code-eca-auto-switch-session nil
   "If non-nil, auto-switch ECA session based on project.")
 
-(defcustom ai-code-eca-auto-apply-shared-context t
-  "If non-nil, automatically apply shared context when switching ECA sessions."
-  :type 'boolean
-  :group 'ai-code)
-
 ;;; Core Commands
 
 ;;;###autoload
@@ -101,26 +96,6 @@ With FORCE-PROMPT (prefix arg), force new session."
   (dolist (fn '(eca eca-session eca-chat-open eca-chat--get-last-buffer))
     (unless (fboundp fn)
       (user-error "ECA missing function: %s. Reinstall eca package" fn))))
-
-(defun ai-code-eca--ensure-chat-buffer (session)
-  "Ensure ECA chat buffer for SESSION exists and return it."
-  (let ((buf (eca-chat--get-last-buffer session)))
-    (unless (and buf (get-buffer-window buf))
-      (eca-chat-open session))
-    buf))
-
-;;; Shared Context (auto-applies on session switch)
-
-(advice-add 'ai-code-eca-switch-to-session :after
-            (lambda (&rest _)
-              (when (and ai-code-eca-auto-apply-shared-context
-                         (fboundp 'ai-code-eca-apply-shared-context)
-                         (fboundp 'eca-session))
-                (let ((session (eca-session)))
-                  (when session
-                    (condition-case nil
-                        (ai-code-eca-apply-shared-context session)
-                      (error nil)))))))
 
 ;;; Menu Integration - Dynamic ECA group in ai-code-menu
 
@@ -186,8 +161,6 @@ With FORCE-PROMPT (prefix arg), force new session."
 (require 'eca nil t)
 (require 'ai-code-eca-util nil t)
 (require 'ai-code-eca-chat nil t)
-
-(defvar ai-code-eca-config-directory nil)
 
 (declare-function eca-session "eca-util" ())
 (declare-function eca-get "eca-util" (alist key))
@@ -557,23 +530,6 @@ Set to nil to disable stale-file cleanup.")
           (push file-path (cdr entry))
         (push (cons sid (list file-path)) ai-code-eca--context-temp-files)))
     file-path))
-
-(defun ai-code-eca--cleanup-session-temp-files (session)
-  "Clean up temp files associated with SESSION."
-  (let* ((sid (if (numberp session) session (eca--session-id session)))
-         (entry (assoc sid ai-code-eca--context-temp-files))
-         (files (cdr entry))
-         (count 0))
-    (when files
-      (dolist (file files)
-        (condition-case nil
-            (when (and file (file-exists-p file))
-              (delete-file file)
-              (cl-incf count))
-          (error nil)))
-      (setq ai-code-eca--context-temp-files (assq-delete-all sid ai-code-eca--context-temp-files))
-      (when (and (fboundp 'ai-code-eca-info) (> count 0))
-        (eca-info "Cleaned up %d temp files for session %s" count sid)))))
 
 (add-hook 'kill-emacs-hook #'ai-code-eca--cleanup-temp-context-files)
 (run-with-timer 3600 3600 #'ai-code-eca--cleanup-stale-temp-files)
