@@ -31,6 +31,7 @@
 (require 'eca nil t)
 (require 'eca-util nil t)
 (require 'eca-chat nil t)
+(require 'eca-process nil t)
 
 (declare-function eca "eca" (&optional arg))
 (declare-function eca-session "eca-util" ())
@@ -140,19 +141,8 @@ With FORCE-PROMPT (prefix arg), force new session."
 
 
 ;;; ============================================================
-;;; Session Multiplexing & Workspace Management (from merged ai-code-eca)
+;;; Session Multiplexing & Workspace Management
 ;;; ============================================================
-
-;;; Code:
-
-(require 'cl-lib)
-(require 'seq)
-(require 'subr-x)
-(require 'tabulated-list)
-(require 'eca nil t)
-(require 'eca-process nil t)
-(require 'ai-code-eca-util nil t)
-(require 'ai-code-eca-chat nil t)
 
 (declare-function eca-create-session "eca-util" (workspace-folders))
 (declare-function eca-delete-session "eca-util" (session))
