@@ -128,7 +128,7 @@ With FORCE-PROMPT (prefix arg), force new session."
              ("D" "Remove folder" ai-code-eca-remove-workspace-folder)
              ("F" "Share file" ai-code-eca-share-file-context)
              ("M" "Share repo map" ai-code-eca-share-repo-map-context)
-             ("c" "Clear shared context" ai-code-eca-clear-shared-context)
+             ("X" "Clear shared context" ai-code-eca-clear-shared-context)
              ("B" "Add clipboard" ai-code-eca-chat-add-clipboard-context-now)])
           (setq ai-code-eca--menu-group-added t))
       (error
