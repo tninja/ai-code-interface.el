@@ -35,6 +35,7 @@
 
 (declare-function eca "eca" (&optional arg))
 (declare-function eca-session "eca-util" ())
+(declare-function eca-vals "eca-util" (map))
 (declare-function eca-chat-open "eca-chat" (session))
 (declare-function eca-chat-send-prompt "eca-chat" (session message))
 (declare-function eca-chat--get-last-buffer "eca-chat" (session))
@@ -123,7 +124,7 @@ With FORCE-PROMPT (prefix arg), force new session."
   (when ai-code-eca--menu-group-added
     (condition-case nil
         (progn
-          (transient-remove-suffix 'ai-code-menu "?")
+          (transient-remove-suffix 'ai-code-menu "E")
           (setq ai-code-eca--menu-group-added nil))
       (error nil))))
 
@@ -319,7 +320,7 @@ SESSION defaults to the current session.  Return the removed folder."
         (with-no-warnings
           (setf (eca--session-workspace-folders sess)
                 (remove raw-folder existing-raw)))
-        (when (fboundp 'ai-code-eca-api-notify)
+        (when (fboundp 'eca-api-notify)
           (eca-api-notify
            sess
            :method "workspace/didChangeWorkspaceFolders"
@@ -748,21 +749,42 @@ ECA manages skills as files under ~/.eca/ or project .eca/ directory."
 (defun ai-code-eca-resume (&optional _arg)
   "Resume/switch to ECA chat buffer.
 ARG is ignored (for backend interface compatibility)."
+  (interactive "P")
   (ai-code-eca-switch))
 
 (defun ai-code-eca-upgrade ()
-  "Upgrade ECA binary to the latest version."
+  "Upgrade ECA package.
+
+If installed via package-vc, uses package-vc-upgrade.
+Otherwise uses package.el to refresh and reinstall."
   (interactive)
-  (if (executable-find "eca")
-      (async-shell-command "eca upgrade" "*eca-upgrade*")
-    (user-error "ECA binary not found")))
+  (cond
+   ((and (featurep 'package-vc)
+         (alist-get 'eca package-vc-selected-packages))
+    (message "Upgrading ECA via package-vc...")
+    (package-vc-upgrade 'eca)
+    (message "ECA upgraded. Restart Emacs or re-evaluate for changes."))
+   ((package-installed-p 'eca)
+    (if (y-or-n-p "Refresh package archives and upgrade ECA? ")
+        (progn
+          (package-refresh-contents)
+          (package-install 'eca)
+          (message "ECA upgraded successfully"))
+      (message "Upgrade cancelled")))
+   (t
+    (user-error "ECA is not installed as a package"))))
 
 (defun ai-code-eca-install-skills ()
-  "Install ECA skills."
+  "Install skills for ECA by prompting for a skills repo URL.
+ECA manages skills as files under ~/.eca/ or project .eca/ directory."
   (interactive)
-  (if (executable-find "eca")
-      (async-shell-command "eca skills install" "*eca-skills*")
-    (user-error "ECA binary not found")))
+  (ai-code-eca--ensure-available)
+  (let* ((url (read-string "Skills repo URL for ECA: " nil nil
+                           "https://github.com/obra/superpowers"))
+         (prompt (format
+                  "Install the skill from %s for this ECA session. Read the repository README to understand the installation instructions and follow them. Set up the skill files under the appropriate directory (e.g. ~/.eca/ or the project .eca/ directory) so they are available in future sessions."
+                  url)))
+    (ai-code-eca-send prompt)))
 
 (provide 'ai-code-eca)
 
