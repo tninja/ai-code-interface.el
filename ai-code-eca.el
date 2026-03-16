@@ -300,7 +300,8 @@ Auto-apply shared context if any."
 (defun ai-code-eca-create-session-for-workspace (&optional arg)
   "Start ECA session.
 Without ARG, use current project root (reuse existing session if any).
-With ARG (C-u), prompt for workspace root and create NEW session."
+With ARG (C-u), prompt for workspace root and create NEW session.
+After creating a new session, use W to switch to it and initialize the chat."
   (interactive "P")
   (if (equal arg '(4))
       ;; With C-u: create NEW session for specified workspace
@@ -316,6 +317,7 @@ With ARG (C-u), prompt for workspace root and create NEW session."
                              (lambda ()
                                (eca--initialize session))
                              (-partial #'eca--handle-message session))
+          (eca-info "Created session %d - use W to switch" (eca--session-id session))
           session))
     ;; Without C-u: use eca (reuses existing session if available)
     (call-interactively #'eca)))
