@@ -122,7 +122,7 @@ With FORCE-PROMPT (prefix arg), force new session."
           (transient-append-suffix 'ai-code-menu '(0 -1)
             ["ECA"
              ("?" "Which session" ai-code-eca-which-session)
-             ("E" "New session" ai-code-eca-create-session-for-workspace)
+             ("E" "Start ECA (C-u: pick project)" ai-code-eca-create-session-for-workspace)
              ("W" "Switch session" ai-code-eca-switch-session)
              ("D" "Dashboard" eca-workspaces)
              ("A" "Add project" ai-code-eca-add-workspace-folder)
