@@ -108,8 +108,9 @@ With FORCE-PROMPT (prefix arg), force new session."
 (declare-function ai-code-eca-remove-workspace-folder "ai-code-eca" (folder &optional session))
 (declare-function ai-code-eca-share-file-context "ai-code-eca" (file-path))
 (declare-function ai-code-eca-share-repo-map-context "ai-code-eca" (project-root))
-(declare-function ai-code-eca-apply-shared-context "ai-code-eca" (session))
+(declare-function ai-code-eca-clear-shared-context "ai-code-eca" ())
 (declare-function ai-code-eca-chat-add-clipboard-context-now "ai-code-eca" ())
+(declare-function eca-workspaces "eca" ())
 
 (defun ai-code-eca--add-menu-group ()
   "Add ECA group to ai-code-menu."
@@ -122,10 +123,12 @@ With FORCE-PROMPT (prefix arg), force new session."
             ["ECA"
              ("?" "Which session" ai-code-eca-which-session)
              ("W" "Switch session" ai-code-eca-switch-session)
+             ("d" "Dashboard" eca-workspaces)
              ("A" "Add folder" ai-code-eca-add-workspace-folder)
              ("D" "Remove folder" ai-code-eca-remove-workspace-folder)
              ("F" "Share file" ai-code-eca-share-file-context)
              ("M" "Share repo map" ai-code-eca-share-repo-map-context)
+             ("c" "Clear shared context" ai-code-eca-clear-shared-context)
              ("B" "Add clipboard" ai-code-eca-chat-add-clipboard-context-now)])
           (setq ai-code-eca--menu-group-added t))
       (error
