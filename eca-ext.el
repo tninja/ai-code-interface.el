@@ -722,4 +722,8 @@ If the project is already present in the workspace, do nothing."
 
 (provide 'eca-ext)
 
+;; Local Variables:
+;; package-lint-main-file: "ai-code.el"
+;; End:
+
 ;;; eca-ext.el ends here
