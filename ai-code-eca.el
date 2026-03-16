@@ -235,12 +235,16 @@ With ARG (C-u), prompt for workspace root and create NEW session."
       (let* ((workspace-root (read-directory-name "Workspace root: "))
              (session (eca-create-session (list workspace-root))))
         (when session
-          (setq eca--session-id-cache (eca--session-id session))
-          (setf (eca--session-status session) 'stopped)
-          (eca-process-start session
-                             (lambda ()
-                               (eca--initialize session))
-                             (-partial #'eca--handle-message session))
+          (pcase (eca--session-status session)
+            ('stopped
+             (eca-process-start session
+                                (lambda ()
+                                  (eca--initialize session))
+                                (-partial #'eca--handle-message session)))
+            ('started
+             (eca-chat-open session))
+            ('starting
+             (eca-info "ECA server is already starting")))
           session))
     ;; Without C-u: use eca (reuses existing session if available)
     (call-interactively #'eca)))
