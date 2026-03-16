@@ -771,6 +771,38 @@ ECA manages skills as files under ~/.eca/ or project .eca/ directory."
 (defalias 'ai-code-eca-switch-session 'ai-code-eca-switch-to-session
   "Alias for `ai-code-eca-switch-to-session' for menu compatibility.")
 
+;;; Backend interface functions for ai-code-backends.el
+
+(defun ai-code-eca-send (line)
+  "Send LINE to ECA chat."
+  (interactive "sECA> ")
+  (ai-code-eca--ensure-available)
+  (let ((session (eca-session)))
+    (if session
+        (progn
+          (eca-chat-open session)
+          (eca-chat-send-prompt session line))
+      (user-error "No ECA session. Run M-x ai-code-eca-start first"))))
+
+(defun ai-code-eca-resume (&optional _arg)
+  "Resume/switch to ECA chat buffer.
+ARG is ignored (for backend interface compatibility)."
+  (ai-code-eca-switch))
+
+(defun ai-code-eca-upgrade ()
+  "Upgrade ECA binary to the latest version."
+  (interactive)
+  (if (executable-find "eca")
+      (async-shell-command "eca upgrade" "*eca-upgrade*")
+    (user-error "ECA binary not found")))
+
+(defun ai-code-eca-install-skills ()
+  "Install ECA skills."
+  (interactive)
+  (if (executable-find "eca")
+      (async-shell-command "eca skills install" "*eca-skills*")
+    (user-error "ECA binary not found")))
+
 (provide 'ai-code-eca)
 
 ;;; ai-code-eca.el ends here
