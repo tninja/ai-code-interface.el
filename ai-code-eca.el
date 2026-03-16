@@ -257,6 +257,13 @@ Auto-apply shared context if any."
   (interactive)
   (let ((session (ai-code-eca-select-session session-id)))
     (when session
+      ;; Clear stale buffer reference if pointing to wrong session's buffer
+      (let ((last-buf (eca--session-last-chat-buffer session)))
+        (when (and last-buf
+                   (buffer-live-p last-buf)
+                   (not (string-match-p (format "^<eca-chat:%d:" (eca--session-id session))
+                                        (buffer-name last-buf))))
+          (setf (eca--session-last-chat-buffer session) nil)))
       (ai-code-eca--apply-shared-context-internal session)
       (eca-chat-open session)
       (pop-to-buffer (eca-chat--get-last-buffer session))
