@@ -285,10 +285,22 @@ Auto-apply shared context if any."
 
 (defun ai-code-eca-create-session-for-workspace (&optional arg)
   "Start ECA session.
-Without ARG, use current project root.
-With ARG (C-u), prompt for workspace root."
+Without ARG, use current project root (reuse existing session if any).
+With ARG (C-u), prompt for workspace root and create NEW session."
   (interactive "P")
-  (let ((current-prefix-arg arg))
+  (if (equal arg '(4))
+      ;; With C-u: create NEW session for specified workspace
+      (let* ((workspace-root (read-directory-name "Workspace root: "))
+             (session (eca-create-session (list workspace-root))))
+        (when session
+          (setq eca--session-id-cache (eca--session-id session))
+          (setf (eca--session-status session) 'stopped)
+          (eca-process-start session
+                             (lambda ()
+                               (eca--initialize session))
+                             (-partial #'eca--handle-message session))
+          session))
+    ;; Without C-u: use eca (reuses existing session if available)
     (call-interactively #'eca)))
 
 ;;; Workspace Management
