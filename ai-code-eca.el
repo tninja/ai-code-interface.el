@@ -875,6 +875,11 @@ If the project is already present in the workspace, do nothing."
                  (string-join folders " | "))))))
 
 
+;;; Aliases for menu compatibility
+
+(defalias 'ai-code-eca-switch-session 'ai-code-eca-switch-to-session
+  "Alias for `ai-code-eca-switch-to-session' for menu compatibility.")
+
 (provide 'ai-code-eca)
 
 ;;; ai-code-eca.el ends here
