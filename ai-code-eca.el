@@ -266,6 +266,11 @@ Auto-apply shared context if any."
           (setf (eca--session-last-chat-buffer session) nil)))
       (ai-code-eca--apply-shared-context-internal session)
       (eca-chat-open session)
+      ;; Fix: ensure eca--session-id-cache is set correctly in the chat buffer
+      (let ((chat-buf (eca-chat--get-last-buffer session)))
+        (when (buffer-live-p chat-buf)
+          (with-current-buffer chat-buf
+            (setq-local eca--session-id-cache (eca--session-id session)))))
       (pop-to-buffer (eca-chat--get-last-buffer session))
       session)))
 
