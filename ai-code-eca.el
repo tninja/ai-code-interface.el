@@ -187,8 +187,6 @@ With FORCE-PROMPT (prefix arg), force new session."
 (require 'ai-code-eca-util nil t)
 (require 'ai-code-eca-chat nil t)
 
-(defvar ai-code-eca--sessions nil)
-(defvar ai-code-eca--session-id-cache nil)
 (defvar ai-code-eca-config-directory nil)
 
 (declare-function eca-session "eca-util" ())
@@ -222,15 +220,14 @@ With FORCE-PROMPT (prefix arg), force new session."
   "Return a list of all active ECA sessions.
 Each element is a plist with :id, :status, :workspace-folders, and :chat-count.
 Return nil if ECA has no active sessions."
-  (and (boundp 'ai-code-eca--sessions)
-       ai-code-eca--sessions
-       (mapcar (lambda (pair)
-                 (let ((session (cdr pair)))
-                   (list :id (eca--session-id session)
-                         :status (eca--session-status session)
-                         :workspace-folders (eca--session-workspace-folders session)
-                         :chat-count (length (eca--session-chats session)))))
-               ai-code-eca--sessions)))
+  (and (boundp 'eca--sessions)
+       eca--sessions
+       (mapcar (lambda (session)
+                 (list :id (eca--session-id session)
+                       :status (eca--session-status session)
+                       :workspace-folders (eca--session-workspace-folders session)
+                       :chat-count (length (eca--session-chats session))))
+               (eca-vals eca--sessions))))
 
 (defun ai-code-eca-select-session (&optional session-id)
   "Select an ECA session by SESSION-ID or interactively.
@@ -261,11 +258,11 @@ Return the selected session or nil if canceled."
                               choices)))))))
     (when session-id
       (let ((session (condition-case nil
-                         (eca-get ai-code-eca--sessions session-id)
+                         (eca-get eca--sessions session-id)
                        (error nil))))
         (if session
             (progn
-              (setq ai-code-eca--session-id-cache session-id)
+              (setq eca--session-id-cache session-id)
               (when (called-interactively-p 'interactive)
                 (eca-info "Switched to session %d" session-id))
               session)
@@ -356,7 +353,7 @@ SESSION defaults to the current session.  Return the expanded folder path."
     (dolist (info sessions)
       (let* ((session-id (plist-get info :id))
              (session (condition-case nil
-                          (eca-get ai-code-eca--sessions session-id)
+                          (eca-get eca--sessions session-id)
                         (error nil)))
              (existing (when session (eca--session-workspace-folders session))))
         (if (member folder existing)
@@ -553,8 +550,8 @@ Set to nil to disable stale-file cleanup.")
   (when (and file-path (file-exists-p file-path))
     (let* ((sid (if session
                     (if (numberp session) session (eca--session-id session))
-                  (when (boundp 'ai-code-eca--session-id-cache)
-                    ai-code-eca--session-id-cache)))
+                  (when (boundp 'eca--session-id-cache)
+                    eca--session-id-cache)))
            (entry (assoc sid ai-code-eca--context-temp-files)))
       (if entry
           (push file-path (cdr entry))
@@ -873,7 +870,7 @@ If the project is already present in the workspace, do nothing."
   (let ((session-id (tabulated-list-get-id)))
     (when (and session-id
                (y-or-n-p (format "Delete session %d? " session-id)))
-      (let ((session (eca-get ai-code-eca--sessions session-id)))
+      (let ((session (eca-get eca--sessions session-id)))
         (when session
           (eca-delete-session session)
           (ai-code-eca-session-dashboard-refresh))))))
@@ -883,7 +880,7 @@ If the project is already present in the workspace, do nothing."
   (interactive)
   (let ((session-id (tabulated-list-get-id)))
     (when session-id
-      (let* ((session (eca-get ai-code-eca--sessions session-id))
+      (let* ((session (eca-get eca--sessions session-id))
              (folders (when session (eca--session-workspace-folders session))))
         (message "Session %d workspaces: %s" session-id
                  (string-join folders " | "))))))
