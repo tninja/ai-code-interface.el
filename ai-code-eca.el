@@ -743,59 +743,6 @@ ECA manages skills as files under ~/.eca/ or project .eca/ directory."
 (defalias 'ai-code-eca-switch-session 'ai-code-eca-switch-to-session
   "Alias for `ai-code-eca-switch-to-session' for menu compatibility.")
 
-;;; Backend interface functions for ai-code-backends.el
-
-(defun ai-code-eca-send (line)
-  "Send LINE to ECA chat."
-  (interactive "sECA> ")
-  (ai-code-eca--ensure-available)
-  (let ((session (eca-session)))
-    (if session
-        (progn
-          (eca-chat-open session)
-          (eca-chat-send-prompt session line))
-      (user-error "No ECA session. Run M-x ai-code-eca-start first"))))
-
-(defun ai-code-eca-resume (&optional _arg)
-  "Resume/switch to ECA chat buffer.
-ARG is ignored (for backend interface compatibility)."
-  (interactive "P")
-  (ai-code-eca-switch))
-
-(defun ai-code-eca-upgrade ()
-  "Upgrade ECA package.
-
-If installed via package-vc, uses package-vc-upgrade.
-Otherwise uses package.el to refresh and reinstall."
-  (interactive)
-  (cond
-   ((and (featurep 'package-vc)
-         (alist-get 'eca package-vc-selected-packages))
-    (message "Upgrading ECA via package-vc...")
-    (package-vc-upgrade 'eca)
-    (message "ECA upgraded. Restart Emacs or re-evaluate for changes."))
-   ((package-installed-p 'eca)
-    (if (y-or-n-p "Refresh package archives and upgrade ECA? ")
-        (progn
-          (package-refresh-contents)
-          (package-install 'eca)
-          (message "ECA upgraded successfully"))
-      (message "Upgrade cancelled")))
-   (t
-    (user-error "ECA is not installed as a package"))))
-
-(defun ai-code-eca-install-skills ()
-  "Install skills for ECA by prompting for a skills repo URL.
-ECA manages skills as files under ~/.eca/ or project .eca/ directory."
-  (interactive)
-  (ai-code-eca--ensure-available)
-  (let* ((url (read-string "Skills repo URL for ECA: " nil nil
-                           "https://github.com/obra/superpowers"))
-         (prompt (format
-                  "Install the skill from %s for this ECA session. Read the repository README to understand the installation instructions and follow them. Set up the skill files under the appropriate directory (e.g. ~/.eca/ or the project .eca/ directory) so they are available in future sessions."
-                  url)))
-    (ai-code-eca-send prompt)))
-
 (provide 'ai-code-eca)
 
 ;;; ai-code-eca.el ends here
