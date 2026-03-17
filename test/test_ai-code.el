@@ -10,6 +10,12 @@
 
 (require 'ert)
 (require 'cl-lib)
+
+(unless (fboundp 'transient-define-group)
+  (defmacro transient-define-group (name &rest body)
+    "Minimal fallback for older transient versions used in tests."
+    `(defconst ,name ',body)))
+
 (require 'ai-code)
 
 (defvar ai-code--tdd-run-test-after-each-stage-instruction)
@@ -226,6 +232,32 @@
                  (setq called-fn fn))))
       (ai-code-menu)
       (should (eq called-fn #'ai-code-menu-2-columns)))))
+
+(ert-deftest ai-code-test-package-requires-transient-0-9 ()
+  "Test that ai-code requires Transient 0.9 or newer."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "ai-code.el" default-directory))
+    (should (re-search-forward
+             "Package-Requires: ((emacs \"28\\.1\") (transient \"0\\.9\\.0\")"
+             nil t))))
+
+(ert-deftest ai-code-test-menu-groups-define-four-sections ()
+  "Test that menu sections are defined as reusable transient groups."
+  (dolist (group '(ai-code--menu-ai-cli-session
+                   ai-code--menu-actions-with-context
+                   ai-code--menu-agile-development
+                   ai-code--menu-other-tools))
+    (should (boundp group))
+    (should (symbol-value group))))
+
+(ert-deftest ai-code-test-menu-does-not-keep-duplicated-layout-constants ()
+  "Test that menu definitions do not keep duplicated layout constants."
+  (should-not (boundp 'ai-code--menu-default-layout))
+  (should-not (boundp 'ai-code--menu-2-columns-layout)))
+
+(ert-deftest ai-code-test-menu-definition-does-not-use-custom-macro ()
+  "Test that the menu is not generated through a custom macro."
+  (should-not (macrop 'ai-code--define-menu-prefix)))
 
 (provide 'test_ai-code)
 

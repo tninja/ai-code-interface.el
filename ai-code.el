@@ -2,7 +2,7 @@
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; Version: 1.60
-;; Package-Requires: ((emacs "28.1") (transient "0.8.0") (magit "2.1.0"))
+;; Package-Requires: ((emacs "28.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
 ;; SPDX-License-Identifier: Apache-2.0
@@ -434,102 +434,64 @@ Otherwise switch to AI CLI buffer."
 Shows the current backend label to the right."
   (format "Select Backend (%s)" (ai-code-current-backend-label)))
 
+;; Mirror aider.el's reusable-section approach using `transient-define-group`.
+(transient-define-group ai-code--menu-ai-cli-session
+  ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
+  ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
+  ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
+  ("s" ai-code-select-backend :description ai-code--select-backend-description)
+  ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
+  ("S" "Install skills for backend" ai-code-install-backend-skills)
+  ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
+  ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
+  ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file))
+
+(transient-define-group ai-code--menu-actions-with-context
+  (ai-code--infix-toggle-suffix)
+  ("c" "Code change (C-u: clipboard)" ai-code-code-change)
+  ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
+  ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
+  ("x" "Explain code in scope" ai-code-explain)
+  ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
+  ("@" "Context (add/show/clear)" ai-code-context-action)
+  ("C" "Create file or dir with AI" ai-code-create-file-or-dir)
+  ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action))
+
+(transient-define-group ai-code--menu-agile-development
+  (ai-code--infix-select-code-change-auto-test)
+  ("r" "Refactor Code" ai-code-refactor-book-method)
+  ("t" "Test Driven Development" ai-code-tdd-cycle)
+  ("v" "Pull or Review Code Change" ai-code-pull-or-review-diff-file)
+  ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
+  ("b" "Build / Test (AI follow-up)" ai-code-build-or-test-project)
+  ("K" "Create or open task file" ai-code-create-or-open-task-file)
+  ("n" "Take notes from AI session region" ai-code-take-notes))
+
+(transient-define-group ai-code--menu-other-tools
+  ("." "Init projectile and gtags" ai-code-init-project)
+  ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
+  ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
+  ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
+  ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
+  ("p" "Open prompt history file" ai-code-open-prompt-file)
+  ("m" "Debug python MCP server" ai-code-debug-mcp)
+  ("N" "Toggle notifications" ai-code-notifications-toggle))
+
 (transient-define-prefix ai-code-menu-default ()
   "Default transient menu for AI Code Interface interactive functions."
   ["AI Code Commands"
-   ["AI CLI session"
-    ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
-    ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
-    ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
-    ;; Use plist style to provide a dynamic description function.
-    ("s" ai-code-select-backend :description ai-code--select-backend-description)
-    ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
-    ("S" "Install skills for backend" ai-code-install-backend-skills)
-    ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
-    ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
-    ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)]
-
-   ["AI Code Actions With Context"
-    (ai-code--infix-toggle-suffix)
-    ("c" "Code change (C-u: clipboard)" ai-code-code-change)
-    ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
-    ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
-    ("x" "Explain code in scope" ai-code-explain)
-    ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
-    ("@" "Context (add/show/clear)" ai-code-context-action)
-    ("C" "Create file or dir with AI" ai-code-create-file-or-dir)
-    ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action)]
-
-   ["AI Agile Development With Harness"
-    (ai-code--infix-select-code-change-auto-test)
-    ("r" "Refactor Code"               ai-code-refactor-book-method)
-    ("t" "Test Driven Development"     ai-code-tdd-cycle)
-    ("v" "Pull or Review Code Change"  ai-code-pull-or-review-diff-file)
-    ;; ("b" "Send prompt block to AI" ai-code-prompt-send-block)
-    ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
-    ("b" "Build / Test (AI follow-up)" ai-code-build-or-test-project)
-    ;; ("I" "Insert function name at point" ai-code-insert-function-at-point)
-    ("K" "Create or open task file" ai-code-create-or-open-task-file)
-    ("n" "Take notes from AI session region" ai-code-take-notes)]
-
-   ["Other Tools"
-    ("." "Init projectile and gtags" ai-code-init-project)
-    ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
-    ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
-    ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
-    ;; ("d" "Toggle current buffer dedicated" ai-code-toggle-current-buffer-dedicated)
-    ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
-    ;; ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
-    ("p" "Open prompt history file" ai-code-open-prompt-file)
-    ("m" "Debug python MCP server" ai-code-debug-mcp)
-    ("N" "Toggle notifications" ai-code-notifications-toggle)]])
+   ["AI CLI session" ai-code--menu-ai-cli-session]
+   ["AI Code Actions With Context" ai-code--menu-actions-with-context]
+   ["AI Agile Development With Harness" ai-code--menu-agile-development]
+   ["Other Tools" ai-code--menu-other-tools]])
 
 (transient-define-prefix ai-code-menu-2-columns ()
   "Narrower two-column transient menu for AI Code Interface interactive functions."
   ["AI Code Commands"
-   ["AI CLI session"
-    ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
-    ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
-    ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
-    ;; Use plist style to provide a dynamic description function.
-    ("s" ai-code-select-backend :description ai-code--select-backend-description)
-    ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
-    ("S" "Install skills for backend" ai-code-install-backend-skills)
-    ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
-    ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
-    ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)]
-   ["AI Code Actions With Context"
-    (ai-code--infix-toggle-suffix)
-    ("c" "Code change (C-u: clipboard)" ai-code-code-change)
-    ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
-    ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
-    ("x" "Explain code in scope" ai-code-explain)
-    ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
-    ("@" "Context (add/show/clear)" ai-code-context-action)
-    ("C" "Create file or dir with AI" ai-code-create-file-or-dir)
-    ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action)]]
-  [["AI Agile Development With Harness"
-    (ai-code--infix-select-code-change-auto-test)
-    ("r" "Refactor Code"               ai-code-refactor-book-method)
-    ("t" "Test Driven Development"     ai-code-tdd-cycle)
-    ("v" "Pull or Review Code Change"  ai-code-pull-or-review-diff-file)
-    ;; ("b" "Send prompt block to AI" ai-code-prompt-send-block)
-    ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
-    ("b" "Build / Test (AI follow-up)" ai-code-build-or-test-project)
-    ;; ("I" "Insert function name at point" ai-code-insert-function-at-point)
-    ("K" "Create or open task file" ai-code-create-or-open-task-file)
-    ("n" "Take notes from AI session region" ai-code-take-notes)]
-   ["Other Tools"
-    ("." "Init projectile and gtags" ai-code-init-project)
-    ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
-    ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
-    ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
-    ;; ("d" "Toggle current buffer dedicated" ai-code-toggle-current-buffer-dedicated)
-    ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
-    ;; ("o" "Open Clipboard file dir" ai-code-open-clipboard-file-path-as-dired)
-    ("p" "Open prompt history file" ai-code-open-prompt-file)
-    ("m" "Debug python MCP server" ai-code-debug-mcp)
-    ("N" "Toggle notifications" ai-code-notifications-toggle)]])
+   ["AI CLI session" ai-code--menu-ai-cli-session]
+   ["AI Code Actions With Context" ai-code--menu-actions-with-context]]
+  [["AI Agile Development With Harness" ai-code--menu-agile-development]
+   ["Other Tools" ai-code--menu-other-tools]])
 
 (defun ai-code--menu-prefix-command ()
   "Return the transient prefix command selected by `ai-code-menu-layout`."
