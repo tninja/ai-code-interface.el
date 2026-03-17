@@ -300,6 +300,35 @@ everything is cleaned up afterward."
        (should (string-suffix-p "test_file" created-file))
        (should (file-exists-p created-file))))))
 
+(ert-deftest ai-code-test-create-file-uses-radar-style-prefix ()
+  "Test radar style text uses the same prefix rule as task files."
+  (ai-code-file-with-test-env
+   (let ((created-file nil)
+         (ai-code-task-use-gptel-filename nil))
+     (cl-letf (((symbol-function 'completing-read)
+                (lambda (_prompt _collection &rest _args)
+                  "file"))
+               ((symbol-function 'read-string)
+                (lambda (prompt &optional initial-input)
+                  (cond
+                   ((string-match-p "Describe" prompt)
+                    "rdar://12345 Fix crash on startup")
+                   ((string-match-p "Confirm" prompt)
+                    (should (string= initial-input
+                                     "rdar_12345_rdar_12345_fix_crash_on_startup"))
+                    initial-input))))
+               ((symbol-function 'find-file-other-window)
+                (lambda (file)
+                  (setq created-file file)))
+               ((symbol-function 'message)
+                (lambda (&rest _args) nil)))
+       (ai-code-create-file-or-dir)
+       (should created-file)
+       (should (string-suffix-p
+                "rdar_12345_rdar_12345_fix_crash_on_startup"
+                created-file))
+       (should (file-exists-p created-file))))))
+
 (ert-deftest ai-code-test-create-file-empty-description-error ()
   "Test that empty description raises user-error."
   (ai-code-file-with-test-env

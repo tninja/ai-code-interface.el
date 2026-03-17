@@ -506,6 +506,15 @@ Otherwise, return the current `default-directory`."
       (make-directory ai-code-files-dir t))
     ai-code-files-dir))
 
+(defun ai-code--extract-radar-id (text)
+  "Return radar ID from TEXT, or nil when TEXT has no radar URL."
+  (when (string-match "rdar://\\([0-9]+\\)" (or text ""))
+    (match-string 1 text)))
+
+(defun ai-code--normalize-radar-text (text)
+  "Replace radar URLs in TEXT with the filename-safe radar form."
+  (replace-regexp-in-string "rdar://\\([0-9]+\\)" "rdar_\\1" (or text "")))
+
 (defun ai-code--generate-task-filename (task-name)
   "Generate a task filename from TASK-NAME.
 If `ai-code-task-use-gptel-filename` is non-nil, use GPTel to generate
@@ -513,8 +522,8 @@ a smart filename. Otherwise, use cleaned-up task name directly.
 If TASK-NAME contains `rdar://ID`, use `rdar_ID_` as prefix.
 Otherwise, use `task_YYYYMMDD_` as prefix.
 Returns a filename with .org suffix."
-  (let* ((radar-id (when (string-match "rdar://\\([0-9]+\\)" task-name)
-                     (match-string 1 task-name)))
+  (let* ((radar-id (ai-code--extract-radar-id task-name))
+         (normalized-task-name (ai-code--normalize-radar-text task-name))
          (prefix (if radar-id
                      (format "rdar_%s_" radar-id)
                    (format "task_%s_" (format-time-string "%Y%m%d"))))
@@ -524,9 +533,9 @@ Returns a filename with .org suffix."
               (condition-case nil
                   (ai-code-call-gptel-sync
                    (format "Generate a short English filename (max 60 chars, lowercase, use underscores for spaces, no extension) for this task: %s" task-name))
-                (error (replace-regexp-in-string "[^a-z0-9_]" "_" (downcase task-name))))
+                (error (replace-regexp-in-string "[^a-z0-9_]" "_" (downcase normalized-task-name))))
             ;; Use task name directly (cleaned up)
-            (replace-regexp-in-string "[^a-z0-9_]" "_" (downcase task-name)))))
+            (replace-regexp-in-string "[^a-z0-9_]" "_" (downcase normalized-task-name)))))
     ;; Clean up the generated name
     (setq generated-name (replace-regexp-in-string "[^a-z0-9_]" "_" (downcase generated-name)))
     (setq generated-name (replace-regexp-in-string "_+" "_" generated-name))

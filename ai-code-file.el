@@ -23,6 +23,8 @@
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (prompt))
+(declare-function ai-code--extract-radar-id "ai-code-prompt-mode" (text))
+(declare-function ai-code--normalize-radar-text "ai-code-prompt-mode" (text))
 (declare-function ai-code--resolve-auto-test-suffix-for-send "ai-code")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function projectile-project-root "projectile")
@@ -608,7 +610,7 @@ toggle dedication for every window in the current frame."
 
 (defun ai-code--sanitize-generated-path-name (name)
   "Sanitize generated NAME for file or directory creation."
-  (let ((clean-name (downcase (string-trim (or name "")))))
+  (let ((clean-name (downcase (string-trim (ai-code--normalize-radar-text name)))))
     (setq clean-name (or (car (split-string clean-name "\n" t)) ""))
     (setq clean-name (replace-regexp-in-string "[^a-z0-9._/-]" "_" clean-name))
     (setq clean-name (replace-regexp-in-string "_+" "_" clean-name))
@@ -643,13 +645,17 @@ it in another window."
          (target-type (completing-read "Create target type: "
                                        '("file" "directory")
                                        nil t nil nil "file"))
-         (description (read-string (format "Describe the %s to create: " target-type))))
+         (description (read-string (format "Describe the %s to create: " target-type)))
+         (radar-id (ai-code--extract-radar-id description)))
     (when (string-empty-p (string-trim description))
       (user-error "Description cannot be empty"))
     (let* ((generated-name (if (and (boundp 'ai-code-task-use-gptel-filename)
                                     ai-code-task-use-gptel-filename)
                                (ai-code--generate-file-or-dir-name-with-gptel description target-type)
                              (ai-code--sanitize-generated-path-name description)))
+           (generated-name (if radar-id
+                               (concat (format "rdar_%s_" radar-id) generated-name)
+                             generated-name))
            (fallback-name (if (string-empty-p generated-name)
                               (if (string= target-type "directory")
                                   "new_dir"
