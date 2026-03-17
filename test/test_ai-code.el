@@ -236,10 +236,16 @@
 (ert-deftest ai-code-test-package-requires-transient-0-9 ()
   "Test that ai-code requires Transient 0.9 or newer."
   (with-temp-buffer
-    (insert-file-contents (expand-file-name "ai-code.el" default-directory))
-    (should (re-search-forward
-             "Package-Requires: ((emacs \"28\\.1\") (transient \"0\\.9\\.0\")"
-             nil t))))
+    (let* ((this-file (or load-file-name (buffer-file-name)))
+           (project-root (and this-file
+                              (locate-dominating-file this-file "ai-code.el")))
+           (ai-code-file (and project-root
+                              (expand-file-name "ai-code.el" project-root))))
+      (should ai-code-file)
+      (insert-file-contents ai-code-file)
+      (should (re-search-forward
+               "Package-Requires: ((emacs \"28\\.1\") (transient \"0\\.9\\.0\")"
+               nil t)))))
 
 (ert-deftest ai-code-test-menu-groups-define-four-sections ()
   "Test that menu sections are defined as reusable transient groups."
