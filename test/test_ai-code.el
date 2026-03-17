@@ -11,10 +11,10 @@
 (require 'ert)
 (require 'cl-lib)
 
+(require 'transient)
+
 (unless (fboundp 'transient-define-group)
-  (defmacro transient-define-group (name &rest body)
-    "Minimal fallback for older transient versions used in tests."
-    `(defconst ,name ',body)))
+  (error "ai-code tests require transient-define-group; please install transient >= 0.9.0"))
 
 (require 'ai-code)
 
