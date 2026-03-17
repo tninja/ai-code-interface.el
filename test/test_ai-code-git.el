@@ -245,6 +245,27 @@ When .gitignore is missing some entries, they should be added."
     (should (string-match-p "no need to make code change" (downcase captured-prompt)))
     (should-not diff-called)))
 
+(ert-deftest ai-code-test-pull-or-review-pr-mode-choice-prepare-pr-description ()
+  "Choosing PR description mode should return `prepare-pr-description'."
+  (cl-letf (((symbol-function 'completing-read)
+             (lambda (&rest _args) "Prepare PR description")))
+    (should (eq (ai-code--pull-or-review-pr-mode-choice)
+                'prepare-pr-description))))
+
+(ert-deftest ai-code-test-pull-or-review-diff-file-prepare-pr-description-github-mcp ()
+  "When choosing PR description mode, prompt should ask AI to draft a PR description."
+  (pcase-let ((`(,captured-prompt ,diff-called)
+               (ai-code-test--run-pull-or-review-diff-file "Use GitHub MCP server"
+                                                           "https://github.com/acme/demo/pull/791"
+                                                           "Prepare PR description")))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use GitHub MCP server" captured-prompt)))
+    (should (string-match-p "https://github.com/acme/demo/pull/791" captured-prompt))
+    (should (string-match-p "prepare a pull request description" (downcase captured-prompt)))
+    (should (string-match-p "summary" (downcase captured-prompt)))
+    (should (string-match-p "testing" (downcase captured-prompt)))
+    (should-not diff-called)))
+
 (ert-deftest ai-code-test-build-pr-review-init-prompt-uses-fallback-for-unknown-source ()
   "Unknown review source should use the fallback instruction."
   (let ((prompt (ai-code--build-pr-review-init-prompt

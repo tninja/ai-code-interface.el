@@ -102,6 +102,21 @@ Issue Investigation Steps:
 4. No need to make code change. Provide analysis only."
             issue-url source-instruction)))
 
+(defun ai-code--build-pr-description-init-prompt (review-source pr-url)
+  "Build PR description prompt for REVIEW-SOURCE with PR-URL."
+  (let ((source-instruction
+         (ai-code--pull-or-review-source-instruction review-source)))
+    (format "Prepare a pull request description for: %s
+
+%s
+
+PR Description Steps:
+1. Add a summary of the problem and the approach taken in the PR.
+2. Highlight the most important code changes and user-visible impact.
+3. Add a testing section with relevant verification details.
+4. Format the result as a concise PR description ready to share with reviewers."
+            pr-url source-instruction)))
+
 (defun ai-code--pull-or-review-source-instruction (review-source &optional review-mode)
   "Return source instruction string for REVIEW-SOURCE and REVIEW-MODE."
   (if (eq review-mode 'investigate-issue)
@@ -128,32 +143,34 @@ Issue Investigation Steps:
   "Ask for a target URL and send a prompt for REVIEW-SOURCE to AI."
   (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice))
          (url-prompt (ai-code--pull-or-review-url-prompt review-mode))
-         (pr-url (ai-code-read-string url-prompt))
-         (init-prompt (ai-code--build-pr-init-prompt review-source pr-url review-mode))
+         (target-url (ai-code-read-string url-prompt))
+         (init-prompt (ai-code--build-pr-init-prompt review-source target-url review-mode))
          (prompt (ai-code-read-string "Enter review prompt: " init-prompt)))
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code--pull-or-review-pr-mode-choice ()
   "Prompt user to choose analysis mode for a pull request or issue."
-  ;; DONE: add an option: Investigate issue. This allow AI to check a github issue page, analyze the issue given code inside repo as context, and provide insights on how to fix it, it won't make any real code change until user ask it to.
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
                               ("Check unresolved feedback" . check-feedback)
-                              ("Investigate issue" . investigate-issue)))
+                              ("Investigate issue" . investigate-issue)
+                              ("Prepare PR description" . prepare-pr-description)))
          (review-mode (completing-read "Select analysis mode (PR or issue): "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
     (or (alist-get review-mode review-mode-alist nil nil #'string=)
         'review-pr)))
 
-(defun ai-code--build-pr-init-prompt (review-source pr-url review-mode)
-  "Build initial prompt for REVIEW-SOURCE, PR-URL and REVIEW-MODE."
+(defun ai-code--build-pr-init-prompt (review-source target-url review-mode)
+  "Build initial prompt for REVIEW-SOURCE, TARGET-URL and REVIEW-MODE."
   (pcase review-mode
     ('investigate-issue
-     (ai-code--build-issue-investigation-init-prompt review-source pr-url))
+     (ai-code--build-issue-investigation-init-prompt review-source target-url))
     ('check-feedback
-     (ai-code--build-pr-feedback-check-init-prompt review-source pr-url))
+     (ai-code--build-pr-feedback-check-init-prompt review-source target-url))
+    ('prepare-pr-description
+     (ai-code--build-pr-description-init-prompt review-source target-url))
     (_
-     (ai-code--build-pr-review-init-prompt review-source pr-url))))
+     (ai-code--build-pr-review-init-prompt review-source target-url))))
 
 ;;;###autoload
 (defun ai-code-pull-or-review-diff-file ()
