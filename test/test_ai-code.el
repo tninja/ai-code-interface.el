@@ -256,14 +256,13 @@
     (should (boundp group))
     (should (symbol-value group))))
 
-(ert-deftest ai-code-test-menu-does-not-keep-duplicated-layout-constants ()
-  "Test that menu definitions do not keep duplicated layout constants."
-  (should-not (boundp 'ai-code--menu-default-layout))
-  (should-not (boundp 'ai-code--menu-2-columns-layout)))
-
-(ert-deftest ai-code-test-menu-definition-does-not-use-custom-macro ()
-  "Test that the menu is not generated through a custom macro."
-  (should-not (macrop 'ai-code--define-menu-prefix)))
+(ert-deftest ai-code-test-menu-prefix-commands-are-interactive ()
+  "Test that the main menu and layout-specific menus are defined as commands."
+  (dolist (cmd '(ai-code-menu
+                 ai-code-menu-default
+                 ai-code-menu-2-columns))
+    (should (fboundp cmd))
+    (should (commandp cmd))))
 
 (provide 'test_ai-code)
 
