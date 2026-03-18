@@ -999,5 +999,175 @@
         ;; Should not have sent anything (not a session buffer)
         (should-not terminal-sent)))))
 
+;;; Tests for ai-code--parse-session-link
+
+(ert-deftest ai-code-test-parse-session-link-file-only ()
+  "Test parsing a plain filename with extension."
+  (let ((result (ai-code--parse-session-link "FileABC.java")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should-not (plist-get result :line-start))
+    (should-not (plist-get result :line-end))
+    (should-not (plist-get result :symbol))))
+
+(ert-deftest ai-code-test-parse-session-link-file-with-path ()
+  "Test parsing a filename with a directory path."
+  (let ((result (ai-code--parse-session-link "src/main/Foo.java")))
+    (should result)
+    (should (equal (plist-get result :file) "src/main/Foo.java"))
+    (should-not (plist-get result :line-start))))
+
+(ert-deftest ai-code-test-parse-session-link-file-colon-line ()
+  "Test parsing filename:line format."
+  (let ((result (ai-code--parse-session-link "FileABC.java:42")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should (= (plist-get result :line-start) 42))
+    (should-not (plist-get result :line-end))))
+
+(ert-deftest ai-code-test-parse-session-link-file-github-line ()
+  "Test parsing filename:L42 (GitHub single line) format."
+  (let ((result (ai-code--parse-session-link "FileABC.java:L42")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should (= (plist-get result :line-start) 42))
+    (should-not (plist-get result :line-end))))
+
+(ert-deftest ai-code-test-parse-session-link-file-github-range ()
+  "Test parsing filename:L42-60 (GitHub line range) format."
+  (let ((result (ai-code--parse-session-link "FileABC.java:L42-60")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should (= (plist-get result :line-start) 42))
+    (should (= (plist-get result :line-end) 60))))
+
+(ert-deftest ai-code-test-parse-session-link-symbol ()
+  "Test parsing a plain symbol (no dots, slashes, or colons)."
+  (let ((result (ai-code--parse-session-link "myFunction")))
+    (should result)
+    (should (equal (plist-get result :symbol) "myFunction"))
+    (should-not (plist-get result :file))))
+
+(ert-deftest ai-code-test-parse-session-link-symbol-class ()
+  "Test parsing a class name symbol."
+  (let ((result (ai-code--parse-session-link "MyClass")))
+    (should result)
+    (should (equal (plist-get result :symbol) "MyClass"))))
+
+(ert-deftest ai-code-test-parse-session-link-nil-returns-nil ()
+  "Test that nil input returns nil."
+  (should-not (ai-code--parse-session-link nil)))
+
+(ert-deftest ai-code-test-parse-session-link-empty-returns-nil ()
+  "Test that empty string input returns nil."
+  (should-not (ai-code--parse-session-link "")))
+
+(ert-deftest ai-code-test-parse-session-link-path-with-line ()
+  "Test parsing a full path with line number."
+  (let ((result (ai-code--parse-session-link "src/main/java/Example.java:100")))
+    (should result)
+    (should (equal (plist-get result :file) "src/main/java/Example.java"))
+    (should (= (plist-get result :line-start) 100))
+    (should-not (plist-get result :line-end))))
+
+;;; Tests for ai-code--session-link-text-at-point
+
+(ert-deftest ai-code-test-session-link-text-at-point-filename ()
+  "Test extracting a plain filename at point."
+  (with-temp-buffer
+    (insert "See FileABC.java for details")
+    (goto-char (point-min))
+    (search-forward "FileABC")
+    (should (equal (ai-code--session-link-text-at-point) "FileABC.java"))))
+
+(ert-deftest ai-code-test-session-link-text-at-point-with-line ()
+  "Test extracting filename:line at point."
+  (with-temp-buffer
+    (insert "Modified FileABC.java:42 today")
+    (goto-char (point-min))
+    (search-forward "FileABC")
+    (should (equal (ai-code--session-link-text-at-point) "FileABC.java:42"))))
+
+(ert-deftest ai-code-test-session-link-text-at-point-github-range ()
+  "Test extracting filename:Lstart-end at point."
+  (with-temp-buffer
+    (insert "Check FileABC.java:L10-20 please")
+    (goto-char (point-min))
+    (search-forward "FileABC")
+    (should (equal (ai-code--session-link-text-at-point) "FileABC.java:L10-20"))))
+
+(ert-deftest ai-code-test-session-link-text-at-point-symbol ()
+  "Test extracting a symbol name at point."
+  (with-temp-buffer
+    (insert "The function myFunction handles this")
+    (goto-char (point-min))
+    (search-forward "myFunction")
+    (backward-char 3)
+    (should (equal (ai-code--session-link-text-at-point) "myFunction"))))
+
+;;; Tests for ai-code--find-project-file
+
+(ert-deftest ai-code-test-find-project-file-absolute-path ()
+  "Test that an absolute path is returned as-is when the file exists."
+  (let* ((tmpfile (make-temp-file "ai-code-test-" nil ".el")))
+    (unwind-protect
+        (should (equal (ai-code--find-project-file tmpfile) tmpfile))
+      (when (file-exists-p tmpfile) (delete-file tmpfile)))))
+
+(ert-deftest ai-code-test-find-project-file-absolute-nonexistent ()
+  "Test that nil is returned for a non-existent absolute path."
+  (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _dir) nil)))
+    (should-not (ai-code--find-project-file "/nonexistent/path/file.java"))))
+
+(ert-deftest ai-code-test-find-project-file-relative-to-git-root ()
+  "Test finding a file relative to the git root."
+  (let* ((tmpdir (make-temp-file "ai-code-proj-" t))
+         (subfile (expand-file-name "src/Foo.java" tmpdir)))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory subfile) t)
+          (with-temp-file subfile (insert "// test"))
+          (cl-letf (((symbol-function 'ai-code--git-root)
+                     (lambda (&optional _dir) tmpdir)))
+            (should (equal (ai-code--find-project-file "src/Foo.java") subfile))))
+      (delete-directory tmpdir t))))
+
+(ert-deftest ai-code-test-find-project-file-nil-returns-nil ()
+  "Test that nil filename returns nil."
+  (should-not (ai-code--find-project-file nil)))
+
+;;; Tests for ai-code-session-navigate-link-at-point
+
+(ert-deftest ai-code-test-session-navigate-link-opens-file ()
+  "Test that navigating to a file link opens it in another window."
+  (let* ((tmpfile (make-temp-file "ai-code-nav-" nil ".el"))
+         (opened-file nil))
+    (unwind-protect
+        (progn
+          (with-temp-file tmpfile (insert ";; test\n"))
+          (cl-letf (((symbol-function 'find-file-other-window)
+                     (lambda (f) (setq opened-file f)))
+                    ((symbol-function 'ai-code--find-project-file)
+                     (lambda (f) tmpfile)))
+            (with-temp-buffer
+              (insert (concat "See " (file-name-nondirectory tmpfile)))
+              (goto-char (point-min))
+              (search-forward (file-name-sans-extension
+                               (file-name-nondirectory tmpfile)))
+              (ai-code-session-navigate-link-at-point)
+              (should (equal opened-file tmpfile)))))
+      (when (file-exists-p tmpfile) (delete-file tmpfile)))))
+
+(ert-deftest ai-code-test-session-navigate-link-no-link ()
+  "Test that navigating when no link is at point shows a message."
+  (let ((messages nil))
+    (cl-letf (((symbol-function 'message)
+               (lambda (fmt &rest args) (push (apply #'format fmt args) messages))))
+      (with-temp-buffer
+        (insert "   ")
+        (goto-char (point-min))
+        (ai-code-session-navigate-link-at-point)
+        (should (cl-some (lambda (m) (string-match-p "No code link" m)) messages))))))
+
 (provide 'test_ai-code-input)
 ;;; test_ai-code-input.el ends here

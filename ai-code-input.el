@@ -422,6 +422,143 @@ END-POS defaults to the current '#' position."
   (message "Filepath @ completion is %s"
            (if ai-code-prompt-filepath-completion-mode "enabled" "disabled")))
 
+;;; Code Link Navigation
+
+(defconst ai-code--session-link-chars "A-Za-z0-9_./@-"
+  "Character class for the base part of a code link (filename or symbol).")
+
+(defun ai-code--session-link-text-at-point ()
+  "Extract potential code link text at point.
+Includes the base filename/symbol and an optional :LINE or :LSTART-END suffix.
+Returns the extracted string, or nil if no meaningful text is found."
+  (save-excursion
+    (let* ((start (progn
+                    (skip-chars-backward ai-code--session-link-chars)
+                    (point)))
+           (base-end (progn
+                       (skip-chars-forward ai-code--session-link-chars)
+                       (point)))
+           (end (if (eq (char-after base-end) ?:)
+                    (save-excursion
+                      (goto-char (1+ base-end))
+                      (cond
+                       ;; :Lstart-end or :Lline (GitHub format)
+                       ((eq (char-after) ?L)
+                        (forward-char 1)
+                        (skip-chars-forward "0-9-")
+                        (point))
+                       ;; :line (standard format)
+                       ((and (char-after) (>= (char-after) ?0) (<= (char-after) ?9))
+                        (skip-chars-forward "0-9")
+                        (point))
+                       (t base-end)))
+                  base-end)))
+      (when (> end start)
+        (buffer-substring-no-properties start end)))))
+
+(defun ai-code--parse-session-link (text)
+  "Parse TEXT as a code link and return a plist describing it.
+Recognized formats:
+  filename:Lstart-end  => (:file FILE :line-start N :line-end M)
+  filename:Lline       => (:file FILE :line-start N :line-end nil)
+  filename:line        => (:file FILE :line-start N :line-end nil)
+  filename (with . or /) => (:file FILE :line-start nil :line-end nil)
+  symbol               => (:symbol SYM)
+Returns nil when TEXT does not match any recognized format."
+  (when (and text (not (string-empty-p (string-trim text))))
+    (cond
+     ;; filename:L42-60 (GitHub line range)
+     ((string-match "^\\(.*\\):L\\([0-9]+\\)-\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end (string-to-number (match-string 3 text))))
+     ;; filename:L42 (GitHub single line)
+     ((string-match "^\\(.*\\):L\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end nil))
+     ;; filename:42 (standard file:line)
+     ((string-match "^\\(.*?\\):\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end nil))
+     ;; Path or filename containing . or /
+     ((string-match-p "[./]" text)
+      (list :file text :line-start nil :line-end nil))
+     ;; Plain symbol (word characters only)
+     ((string-match-p "^[A-Za-z_][A-Za-z0-9_$]*$" text)
+      (list :symbol text))
+     (t nil))))
+
+(defun ai-code--search-file-in-project (filename project-root)
+  "Search for FILENAME by its basename under PROJECT-ROOT.
+Returns the absolute path of the first match found, or nil."
+  (let ((basename (file-name-nondirectory filename)))
+    (when (and (stringp basename) (not (string-empty-p basename)))
+      (condition-case nil
+          (car (directory-files-recursively
+                project-root
+                (concat "\\`" (regexp-quote basename) "\\'")
+                nil t))
+        (error nil)))))
+
+(defun ai-code--find-project-file (filename)
+  "Locate FILENAME within the current project.
+Tries the following locations in order:
+  1. Absolute path (if FILENAME is absolute and exists).
+  2. Relative to the git root.
+  3. Relative to `default-directory'.
+  4. Basename search inside the git root.
+Returns the absolute path on success, or nil when the file cannot be found."
+  (when (and filename (not (string-empty-p filename)))
+    (cond
+     ((and (file-name-absolute-p filename) (file-exists-p filename))
+      filename)
+     (t
+      (let ((git-root (ai-code--git-root)))
+        (or (when git-root
+              (let ((abs (expand-file-name filename git-root)))
+                (when (file-exists-p abs) abs)))
+            (let ((abs (expand-file-name filename default-directory)))
+              (when (file-exists-p abs) abs))
+            (when git-root
+              (ai-code--search-file-in-project filename git-root))))))))
+
+;;;###autoload
+(defun ai-code-session-navigate-link-at-point ()
+  "Navigate to the code link at point in AI session windows.
+Handles the following link formats:
+  - filename            open the file
+  - filename:42         open the file and go to line 42
+  - filename:L42-60     open the file and go to line 42
+  - SymbolName          jump to the symbol definition via xref
+Binds to \\[ai-code-session-navigate-link-at-point] inside AI session buffers."
+  (interactive)
+  (let* ((text (ai-code--session-link-text-at-point))
+         (link (and text (ai-code--parse-session-link text))))
+    (if link
+        (let ((file (plist-get link :file))
+              (line-start (plist-get link :line-start))
+              (symbol (plist-get link :symbol)))
+          (cond
+           (file
+            (let ((abs-file (ai-code--find-project-file file)))
+              (if abs-file
+                  (progn
+                    (find-file-other-window abs-file)
+                    (when line-start
+                      ;; line-start is 1-indexed; forward-line uses 0-indexed offset
+                      (goto-char (point-min))
+                      (forward-line (1- line-start)))
+                    (message "Navigated to %s%s" file
+                             (if line-start (format ":%d" line-start) "")))
+                (message "File not found: %s" file))))
+           (symbol
+            (if (fboundp 'xref-find-definitions)
+                (xref-find-definitions symbol)
+              (message "Symbol not found: %s (xref not available)" symbol)))))
+      (message "No code link found at point"))))
+
 (provide 'ai-code-input)
 
 ;;; ai-code-input.el ends here
