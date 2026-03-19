@@ -498,6 +498,9 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 
 (defun ai-code-backends-infra--attached-file-session (prefix source-buffer _working-dir)
   "Return attached session state for PREFIX and SOURCE-BUFFER.
+The working-directory argument is accepted for interface compatibility but
+ignored here because
+an explicit file attachment should win as long as the attached buffer is live.
 Return a cons of (BUFFER . MISSING-P)."
   (let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
     (if (null key)
