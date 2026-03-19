@@ -36,6 +36,8 @@
 (defvar vterm-environment)
 (defvar vterm-kill-buffer-on-exit)
 (defvar vterm-copy-mode)
+(defvar eat-terminal)
+(defvar eat--semi-char-mode)
 
 ;;; Customization
 
@@ -145,6 +147,12 @@ being sent for the response completion.")
 
 (defvar-local ai-code-backends-infra--multiline-input-sequence nil
   "Terminal sequence sent for multiline input in the current session buffer.")
+
+(defvar-local ai-code-backends-infra--terminal-active-cursor-type nil
+  "Cursor type to restore when returning to terminal interaction mode.")
+
+(defvar-local ai-code-backends-infra--navigation-cursor-active nil
+  "Non-nil when Emacs temporarily owns the cursor for output navigation.")
 
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
@@ -310,6 +318,8 @@ returns to normal terminal interaction."
   ;; Flush queued render output when the user exits vterm-copy-mode.
   (add-hook 'vterm-copy-mode-hook
             #'ai-code-backends-infra--vterm-flush-on-copy-mode-exit nil t)
+  ;; Hand cursor ownership to Emacs while browsing frozen terminal output.
+  (ai-code-backends-infra--install-navigation-cursor-sync)
   ;; Install vterm filter advices globally (only once)
   (unless ai-code-backends-infra--vterm-advices-installed
     ;; Always install notification tracker for session buffers
@@ -340,6 +350,36 @@ returns to normal terminal interaction."
   "Return terminal backend for current buffer operations."
   (or ai-code-backends-infra--session-terminal-backend
       ai-code-backends-infra-terminal-backend))
+
+(defun ai-code-backends-infra--terminal-navigation-mode-p ()
+  "Return non-nil when the current terminal buffer is in navigation mode."
+  (pcase (ai-code-backends-infra--current-terminal-backend)
+    ('vterm (bound-and-true-p vterm-copy-mode))
+    ('eat (and (bound-and-true-p eat-terminal)
+               (or buffer-read-only
+                   (not (bound-and-true-p eat--semi-char-mode)))))
+    (_ nil)))
+
+(defun ai-code-backends-infra--sync-terminal-cursor ()
+  "Hand cursor ownership between the terminal and Emacs navigation modes."
+  (if (ai-code-backends-infra--terminal-navigation-mode-p)
+      (unless ai-code-backends-infra--navigation-cursor-active
+        (setq ai-code-backends-infra--terminal-active-cursor-type cursor-type
+              ai-code-backends-infra--navigation-cursor-active t
+              cursor-type t))
+    (when ai-code-backends-infra--navigation-cursor-active
+      (setq cursor-type ai-code-backends-infra--terminal-active-cursor-type
+            ai-code-backends-infra--navigation-cursor-active nil))))
+
+(defun ai-code-backends-infra--install-navigation-cursor-sync ()
+  "Install buffer-local hooks for cursor handoff in terminal navigation modes."
+  (pcase (ai-code-backends-infra--current-terminal-backend)
+    ('vterm
+     (add-hook 'vterm-copy-mode-hook
+               #'ai-code-backends-infra--sync-terminal-cursor nil t))
+    ('eat
+     (add-hook 'post-command-hook
+               #'ai-code-backends-infra--sync-terminal-cursor nil t))))
 
 (defun ai-code-backends-infra--terminal-dispatch (vterm-fn eat-fn)
   "Run VTERM-FN or EAT-FN based on selected terminal backend."
@@ -946,6 +986,7 @@ ENV-VARS is a list of environment variables."
             (local-set-key (kbd "@") #'ai-code--session-handle-at-input))
           (when (fboundp 'ai-code--session-handle-hash-input)
             (local-set-key (kbd "#") #'ai-code--session-handle-hash-input))
+          (ai-code-backends-infra--install-navigation-cursor-sync)
           (setq-local process-environment (append env-vars process-environment))
           (eat-exec buffer buffer-name program nil args)
           ;; Add process filter to track activity for notifications

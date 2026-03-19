@@ -161,6 +161,75 @@
           (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
         (fmakunbound handler)))))
 
+(ert-deftest test-ai-code-backends-infra-sync-terminal-cursor-vterm-copy-mode ()
+  "Show an Emacs cursor in vterm copy mode and restore terminal cursor on exit."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+    (setq-local cursor-type nil)
+    (setq-local vterm-copy-mode t)
+    (ai-code-backends-infra--sync-terminal-cursor)
+    (should (eq cursor-type t))
+    (should ai-code-backends-infra--navigation-cursor-active)
+    (should (null ai-code-backends-infra--terminal-active-cursor-type))
+    (setq-local vterm-copy-mode nil)
+    (ai-code-backends-infra--sync-terminal-cursor)
+    (should-not ai-code-backends-infra--navigation-cursor-active)
+    (should (null cursor-type))))
+
+(ert-deftest test-ai-code-backends-infra-sync-terminal-cursor-eat-emacs-mode ()
+  "Show an Emacs cursor in Eat navigation mode and restore terminal cursor on exit."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'eat)
+    (setq-local eat-terminal t)
+    (setq-local eat--semi-char-mode t)
+    (setq-local buffer-read-only nil)
+    (setq-local cursor-type 'bar)
+    (setq-local buffer-read-only t)
+    (setq-local eat--semi-char-mode nil)
+    (ai-code-backends-infra--sync-terminal-cursor)
+    (should (eq cursor-type t))
+    (should ai-code-backends-infra--navigation-cursor-active)
+    (should (eq ai-code-backends-infra--terminal-active-cursor-type 'bar))
+    (setq-local buffer-read-only nil)
+    (setq-local eat--semi-char-mode t)
+    (ai-code-backends-infra--sync-terminal-cursor)
+    (should-not ai-code-backends-infra--navigation-cursor-active)
+    (should (eq cursor-type 'bar))))
+
+(ert-deftest test-ai-code-backends-infra-configure-vterm-buffer-installs-cursor-sync-hook ()
+  "Configuring a vterm buffer should install copy-mode cursor synchronization."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+    (let ((ai-code-backends-infra--vterm-advices-installed t))
+      (ai-code-backends-infra--configure-vterm-buffer))
+    (should (memq #'ai-code-backends-infra--sync-terminal-cursor
+                  vterm-copy-mode-hook))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-adds-eat-cursor-sync-hook ()
+  "Eat sessions should track navigation-mode cursor handoff locally."
+  (let* ((buffer-name "*test-ai-code-eat-cursor-sync*")
+         (buffer (get-buffer-create buffer-name))
+         (ai-code-backends-infra-terminal-backend 'eat))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   (lambda () nil))
+                  ((symbol-function 'eat-mode)
+                   (lambda () nil))
+                  ((symbol-function 'eat-exec)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'get-buffer-process)
+                   (lambda (_buffer) nil)))
+          (ai-code-backends-infra--create-terminal-session
+           buffer-name
+           default-directory
+           "echo hi"
+           nil)
+          (with-current-buffer buffer
+            (should (memq #'ai-code-backends-infra--sync-terminal-cursor
+                          post-command-hook))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-prefers-session-backend ()
   "Send should use session-local backend even after global backend changes."
   (let ((ai-code-backends-infra-terminal-backend 'eat)
