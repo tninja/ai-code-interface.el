@@ -51,7 +51,7 @@
 (declare-function eca-session "eca-util" ())
 (declare-function eca-vals "eca-util" (map))
 (declare-function eca-chat-open "eca-chat" (session))
-(declare-function eca-chat-send-prompt "eca-chat" (session message))
+(declare-function eca-chat-send-prompt "eca-chat" (message))
 (declare-function eca-chat--get-last-buffer "eca-chat" (session))
 (declare-function eca-info "eca-util" (format-string &rest args))
 (declare-function eca--session-id "eca-util" (session))
@@ -706,7 +706,7 @@ If the project is already present in the workspace, do nothing."
     (if session
         (progn
           (eca-chat-open session)
-          (eca-chat-send-prompt session line))
+          (eca-chat-send-prompt line))
       (user-error "No ECA session. Run M-x ai-code-eca-start first"))))
 
 (defun ai-code-eca-resume (&optional _arg)
