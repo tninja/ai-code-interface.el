@@ -35,6 +35,7 @@
 (defvar vterm-shell)
 (defvar vterm-environment)
 (defvar vterm-kill-buffer-on-exit)
+(defvar vterm-copy-mode)
 
 ;;; Customization
 
@@ -240,7 +241,9 @@ The timer is reset only after meaningful output is observed."
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates.
 Activity tracking for notifications is handled separately by
-`ai-code-backends-infra--vterm-notification-tracker'."
+`ai-code-backends-infra--vterm-notification-tracker'.
+Deferred rendering is suspended while `vterm-copy-mode' is active so that
+scrolling and copying are not disrupted by timer-driven redraws."
   (if (or (not ai-code-backends-infra-vterm-anti-flicker)
           (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
       (funcall orig-fun process input)
@@ -253,7 +256,8 @@ Activity tracking for notifications is handled separately by
              (escape-density (if (> input-length 0) (/ (float escape-count) input-length) 0)))
         (if (or complex-redraw-detected
                 (and (> escape-density 0.3) (>= clear-count 2))
-                ai-code-backends-infra--vterm-render-queue)
+                ai-code-backends-infra--vterm-render-queue
+                (bound-and-true-p vterm-copy-mode))
             (progn
               (setq ai-code-backends-infra--vterm-render-queue
                     (concat ai-code-backends-infra--vterm-render-queue input))
@@ -264,14 +268,28 @@ Activity tracking for notifications is handled separately by
                                  (lambda (buf)
                                    (when (buffer-live-p buf)
                                      (with-current-buffer buf
-                                       (when ai-code-backends-infra--vterm-render-queue
+                                       ;; Clear timer reference regardless of whether we render.
+                                       (setq ai-code-backends-infra--vterm-render-timer nil)
+                                       (when (and ai-code-backends-infra--vterm-render-queue
+                                                  (not (bound-and-true-p vterm-copy-mode)))
                                          (let ((inhibit-redisplay t)
                                                (data ai-code-backends-infra--vterm-render-queue))
-                                           (setq ai-code-backends-infra--vterm-render-queue nil
-                                                 ai-code-backends-infra--vterm-render-timer nil)
+                                           (setq ai-code-backends-infra--vterm-render-queue nil)
                                            (funcall orig-fun (get-buffer-process buf) data))))))
                                  (current-buffer))))
           (funcall orig-fun process input))))))
+
+(defun ai-code-backends-infra--vterm-flush-on-copy-mode-exit ()
+  "Flush any pending render queue when exiting `vterm-copy-mode'.
+Added buffer-locally to `vterm-copy-mode-hook' so that terminal output
+queued while copy mode was active is rendered immediately when the user
+returns to normal terminal interaction."
+  (unless (bound-and-true-p vterm-copy-mode)
+    (when ai-code-backends-infra--vterm-render-queue
+      (when-let ((proc (get-buffer-process (current-buffer))))
+        (let ((data ai-code-backends-infra--vterm-render-queue))
+          (setq ai-code-backends-infra--vterm-render-queue nil)
+          (vterm--filter proc data))))))
 
 (defun ai-code-backends-infra--configure-vterm-buffer ()
   "Configure vterm for enhanced performance."
@@ -289,6 +307,9 @@ Activity tracking for notifications is handled separately by
     (set-process-query-on-exit-flag proc nil)
     (when (fboundp 'process-put)
       (process-put proc 'read-output-max 4096)))
+  ;; Flush queued render output when the user exits vterm-copy-mode.
+  (add-hook 'vterm-copy-mode-hook
+            #'ai-code-backends-infra--vterm-flush-on-copy-mode-exit nil t)
   ;; Install vterm filter advices globally (only once)
   (unless ai-code-backends-infra--vterm-advices-installed
     ;; Always install notification tracker for session buffers
