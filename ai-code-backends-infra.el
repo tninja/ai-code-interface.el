@@ -496,18 +496,17 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
         (puthash key session-buffer ai-code-backends-infra--file-session-map)
       (remhash key ai-code-backends-infra--file-session-map))))
 
-(defun ai-code-backends-infra--attached-file-session (prefix source-buffer working-dir)
-  "Return attached session state for PREFIX, SOURCE-BUFFER and WORKING-DIR.
+(defun ai-code-backends-infra--attached-file-session (prefix source-buffer _working-dir)
+  "Return attached session state for PREFIX and SOURCE-BUFFER.
 Return a cons of (BUFFER . MISSING-P)."
   (let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
     (if (null key)
         (cons nil nil)
       (let* ((attached (gethash key ai-code-backends-infra--file-session-map))
              (valid (and (buffer-live-p attached)
-                         (memq attached
-                               (ai-code-backends-infra--find-session-buffers
-                                prefix
-                                working-dir)))))
+                         (ai-code-backends-infra--parse-session-buffer-name
+                          (buffer-name attached)
+                          prefix))))
         (cond
          (valid
           (cons attached nil))
