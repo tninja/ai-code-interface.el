@@ -219,10 +219,10 @@
                  (lambda () ""))
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (text) (setq captured-prompt text))))
-         (ai-code--tdd-red-green-blue-stage "my-function")
-         (should (string-match-p "Run test after each stage" captured-prompt))
-         (should (string-match-p "summary of test result" captured-prompt))
-         (should (string-match-p "List the public API / log key / config key change if there is" captured-prompt))))))
+        (ai-code--tdd-red-green-blue-stage "my-function")
+        (should (string-match-p "Run test after each stage" captured-prompt))
+        (should (string-match-p "summary of test result" captured-prompt))
+        (should (string-match-p "List the public API / log key / config key change if there is" captured-prompt))))))
 
 (ert-deftest ai-code-test-refactor-book-method-dired-skips-technique-selection ()
   "Verify Dired refactoring jumps straight to suggestion mode."
@@ -269,7 +269,8 @@
          nil)
         (should (string-match-p "Analyze the code context below" captured-prompt))
         (should (string-match-p "Context: Selected files/directories" captured-prompt))
-        (should (string-match-p "\nFiles:\n@src/foo.el\n@test/bar.el" captured-prompt))))))
+        (should (string-match-p "\nFiles:\n@src/foo\\.el\n@test/bar\\.el"
+                                (subst-char-in-string ?\\ ?/ captured-prompt)))))))
 
 (provide 'test_ai-code-agile)
 ;;; test_ai-code-agile.el ends here
