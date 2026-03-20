@@ -478,6 +478,60 @@
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
+(ert-deftest test-ai-code-backends-infra-switch-new-file-prompts-when-multiple-sessions-active ()
+  "A newly opened file should prompt when multiple repo sessions are active."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-multi-active/")
+         (source (generate-new-buffer " *ai-code-source-multi-active*"))
+         (session-a (get-buffer-create "*codex[file-multi-active:a]*"))
+         (session-b (get-buffer-create "*codex[file-multi-active:b]*"))
+         (captured-collection nil)
+         (captured-default nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-multi-active/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
+                     (lambda (_prefix _dir)
+                       (list session-a session-b)))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt collection _predicate _require-match
+                              &optional _initial-input _hist def &rest _)
+                       (setq captured-collection collection)
+                       (setq captured-default def)
+                       "b"))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (_buffer) nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--switch-to-session-buffer
+               nil
+               "missing"
+               prefix
+               working-dir
+               nil)))
+
+          (should (equal captured-collection '("a" "b")))
+          (should (equal captured-default "a"))
+          (should (eq (gethash
+                       (ai-code-backends-infra--file-session-map-key prefix source)
+                       ai-code-backends-infra--file-session-map)
+                      session-b)))
+      (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
 (ert-deftest test-ai-code-backends-infra-switch-force-prompt-prioritizes-attached-session ()
   "Force prompt should place attached file session at the top and as default."
   (let* ((prefix "codex")
