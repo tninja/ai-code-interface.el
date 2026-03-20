@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Support Dired-selected files/directories in refactoring suggestions
 - Feat: Add behavior injection system for AI prompts, by davidwuchn
 - Feat: Add ECA binary upgrade system with auto-update support, by davidwuchn
 - Feat: Add Prepare PR description tool
