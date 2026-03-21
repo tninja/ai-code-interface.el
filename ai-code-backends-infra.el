@@ -518,59 +518,15 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
           (car (ai-code-backends-infra--collect-matching-project-files normalized root)))
          (t nil))))))
 
-(defun ai-code-backends-infra--goto-line-column (line column)
-  "Move point to LINE and optional COLUMN."
-  (let ((max-line (max 1 (line-number-at-pos (point-max)))))
-    (goto-char (point-min))
-    (forward-line (1- (min line max-line))))
-  (when (and column (> column 0))
-    (move-to-column (1- column))))
-
-(defun ai-code-backends-infra--open-session-file-link (data)
-  "Open session file link described by DATA."
-  (let ((file (plist-get data :file))
-        (line (plist-get data :line))
-        (column (plist-get data :column)))
-    (when file
-      (find-file-other-window file)
-      (when line
-        (ai-code-backends-infra--goto-line-column line column)))))
-
-(defun ai-code-backends-infra--open-session-url-link (data)
-  "Open session URL link described by DATA."
-  (when-let ((url (plist-get data :url)))
-    (browse-url url)))
-
-(defun ai-code-backends-infra--follow-session-link-at-point ()
-  "Follow the session link at point."
-  (interactive)
-  (let* ((pos (point))
-         (type (get-text-property pos 'ai-code-session-link-type))
-         (data (get-text-property pos 'ai-code-session-link-data)))
-    (pcase type
-      ('file (ai-code-backends-infra--open-session-file-link data))
-      ('url (ai-code-backends-infra--open-session-url-link data))
-      (_ (user-error "No session link at point")))))
-
-(defun ai-code-backends-infra--follow-session-link-mouse (event)
-  "Follow the session link clicked with mouse EVENT."
-  (interactive "e")
-  (mouse-set-point event)
-  (ai-code-backends-infra--follow-session-link-at-point))
-
-(defun ai-code-backends-infra--apply-session-link-properties (start end type data &optional text)
-  "Apply session link properties from START to END with TYPE and DATA."
+(defun ai-code-backends-infra--apply-session-link-properties (start end &optional text help-echo)
+  "Apply session link properties from START to END."
   (let ((map ai-code-backends-infra--session-link-map))
     (add-text-properties
      start end
      (list 'ai-code-session-link (or text
                                      (buffer-substring-no-properties start end))
-           'ai-code-session-link-type type
-           'ai-code-session-link-data data
            'mouse-face 'highlight
-           'help-echo (if (eq type 'url)
-                          "mouse-1: Open URL"
-                        "mouse-1: Visit file")
+           'help-echo help-echo
            'keymap map
            'follow-link t
            'font-lock-face 'link
@@ -586,12 +542,7 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
              (trimmed-url (replace-regexp-in-string "[.,;:!?]+\\'" "" raw-url))
              (url-end (+ url-start (length trimmed-url))))
         (ai-code-backends-infra--apply-session-link-properties
-         url-start url-end 'url (list :url trimmed-url) trimmed-url)))))
-
-(defun ai-code-backends-infra--file-link-data (path line column)
-  "Return session file link data for PATH, LINE and COLUMN."
-  (when-let ((file (ai-code-backends-infra--resolve-session-file path)))
-    (list :file file :line line :column column)))
+         url-start url-end trimmed-url "mouse-1: Open URL")))))
 
 (defun ai-code-backends-infra--linkify-file-region (start end)
   "Apply file session links between START and END."
@@ -619,19 +570,15 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
       (dolist (pattern patterns)
         (goto-char start)
         (while (re-search-forward (car pattern) end t)
-          (unless (get-text-property (match-beginning 0) 'ai-code-session-link-type)
+          (unless (get-text-property (match-beginning 0) 'ai-code-session-link)
             (let* ((match-start (match-beginning 0))
                    (match-end (match-end 0))
-                   (path (match-string-no-properties (nth 1 pattern)))
-                   (line (when-let ((group (nth 2 pattern)))
-                           (string-to-number (match-string-no-properties group))))
-                   (column (when-let ((group (nth 3 pattern)))
-                             (string-to-number (match-string-no-properties group))))
-                   (data (ai-code-backends-infra--file-link-data path line column)))
-              (when data
+                   (path (match-string-no-properties (nth 1 pattern))))
+              (when (ai-code-backends-infra--resolve-session-file path)
                 (ai-code-backends-infra--apply-session-link-properties
-                 match-start match-end 'file data
-                 (buffer-substring-no-properties match-start match-end))))))))))
+                 match-start match-end
+                 (buffer-substring-no-properties match-start match-end)
+                 "mouse-1: Visit file")))))))))
 
 (defun ai-code-backends-infra--linkify-session-region (start end)
   "Make supported URLs and in-project file references clickable from START to END."
@@ -645,14 +592,12 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
           (let ((pos start))
             (while (< pos end)
               (let ((next (or (next-single-property-change
-                               pos 'ai-code-session-link-type nil end)
+                               pos 'ai-code-session-link nil end)
                               end)))
-                (when (get-text-property pos 'ai-code-session-link-type)
+                (when (get-text-property pos 'ai-code-session-link)
                   (remove-text-properties
                    pos next
                    '(ai-code-session-link nil
-                     ai-code-session-link-type nil
-                     ai-code-session-link-data nil
                      mouse-face nil
                      help-echo nil
                      keymap nil
