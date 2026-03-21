@@ -429,11 +429,21 @@ END-POS defaults to the current '#' position."
 
 ;;; Code Link Navigation
 
-(defconst ai-code--session-link-chars "A-Za-z0-9_./@-"
-  "Character class for the base part of a code link (filename or symbol).")
+(defconst ai-code--session-link-file-base-regexp
+  "@?[[:alnum:]_./~-]*[./][[:alnum:]_./~-]+"
+  "Regexp matching the base path portion of a session file link.
+This intentionally requires either a directory separator or a dot in
+the filename so ordinary prose like \"output\" does not become clickable.")
 
 (defconst ai-code--session-link-file-regexp
-  "@?[[:alnum:]_./-]*[./][[:alnum:]_./-]+\\(?::L?[0-9]+\\(?:-[0-9]+\\)?\\)?"
+  (concat ai-code--session-link-file-base-regexp
+          "\\(?:"
+          ":[0-9]+:[0-9]+"
+          "\\|:[0-9]+"
+          "\\|:L[0-9]+\\(?:-[0-9]+\\)?"
+          "\\|#[Ll][0-9]+\\(?:-[Ll]?[0-9]+\\)?"
+          "\\|([0-9]+\\(?:,[0-9]+\\)?)"
+          "\\)?")
   "Regexp matching clickable file-like session links.")
 
 (defconst ai-code--session-link-symbol-regexp
@@ -459,38 +469,36 @@ END-POS defaults to the current '#' position."
     map)
   "Keymap used for clickable code links in AI session buffers.")
 
+(defun ai-code--session-link-bounds-at-point ()
+  "Return bounds of the clickable session link at point, or nil."
+  (let ((point (point))
+        (line-start (line-beginning-position))
+        (line-end (line-end-position))
+        bounds)
+    (save-excursion
+      (goto-char line-start)
+      (while (and (not bounds)
+                  (re-search-forward ai-code--session-clickable-link-regexp line-end t))
+        (when (and (<= (match-beginning 0) point)
+                   (<= point (match-end 0)))
+          (setq bounds (cons (match-beginning 0) (match-end 0))))))
+    bounds))
+
 (defun ai-code--session-link-text-at-point ()
   "Extract potential code link text at point.
-Includes the base filename/symbol and an optional :LINE or :LSTART-END suffix.
+Includes file references and supported location suffixes at point.
 Returns the extracted string, or nil if no meaningful text is found."
-  (save-excursion
-    (let* ((start (progn
-                    (skip-chars-backward ai-code--session-link-chars)
-                    (point)))
-           (base-end (progn
-                       (skip-chars-forward ai-code--session-link-chars)
-                       (point)))
-           (end (if (eq (char-after base-end) ?:)
-                    (save-excursion
-                      (goto-char (1+ base-end))
-                      (cond
-                       ;; :Lstart-end or :Lline (GitHub format)
-                       ((eq (char-after) ?L)
-                        (forward-char 1)
-                        (skip-chars-forward "0-9-")
-                        (point))
-                       ;; :line (standard format)
-                       ((and (char-after) (>= (char-after) ?0) (<= (char-after) ?9))
-                        (skip-chars-forward "0-9")
-                        (point))
-                       (t base-end)))
-                  base-end)))
-      (when (> end start)
-        (buffer-substring-no-properties start end)))))
+  (when-let ((bounds (ai-code--session-link-bounds-at-point)))
+    (buffer-substring-no-properties (car bounds) (cdr bounds))))
 
 (defun ai-code--parse-session-link (text)
   "Parse TEXT as a code link and return a plist describing it.
 Recognized formats:
+  filename:line:column => (:file FILE :line-start N :column-start C)
+  filename#Lstart-end  => (:file FILE :line-start N :line-end M)
+  filename#Lline       => (:file FILE :line-start N :line-end nil)
+  filename(line,column) => (:file FILE :line-start N :column-start C)
+  filename(line)       => (:file FILE :line-start N :line-end nil)
   filename:Lstart-end  => (:file FILE :line-start N :line-end M)
   filename:Lline       => (:file FILE :line-start N :line-end nil)
   filename:line        => (:file FILE :line-start N :line-end nil)
@@ -499,6 +507,33 @@ Recognized formats:
 Returns nil when TEXT does not match any recognized format."
   (when (and text (not (string-empty-p (string-trim text))))
     (cond
+     ;; filename:42:8 (line + column)
+     ((string-match "^\\(.*?\\):\\([0-9]+\\):\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end nil
+            :column-start (string-to-number (match-string 3 text))))
+     ;; filename#L42-60 (GitHub anchor range)
+     ((string-match "^\\(.*\\)#[Ll]\\([0-9]+\\)-[Ll]?\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end (string-to-number (match-string 3 text))))
+     ;; filename#L42 (GitHub anchor single line)
+     ((string-match "^\\(.*\\)#[Ll]\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end nil))
+     ;; filename(42,8) (editor-style line + column)
+     ((string-match "^\\(.*\\)(\\([0-9]+\\),\\([0-9]+\\))$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end nil
+            :column-start (string-to-number (match-string 3 text))))
+     ;; filename(42) (editor-style line)
+     ((string-match "^\\(.*\\)(\\([0-9]+\\))$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :line-end nil))
      ;; filename:L42-60 (GitHub line range)
      ((string-match "^\\(.*\\):L\\([0-9]+\\)-\\([0-9]+\\)$" text)
       (list :file (match-string 1 text)
@@ -734,6 +769,7 @@ Binds to \\[ai-code-session-navigate-link-at-point] inside AI session buffers."
     (if link
         (let ((file (plist-get link :file))
               (line-start (plist-get link :line-start))
+              (column-start (plist-get link :column-start))
               (symbol (plist-get link :symbol)))
           (cond
            (file
@@ -741,13 +777,19 @@ Binds to \\[ai-code-session-navigate-link-at-point] inside AI session buffers."
               (if abs-file
                   (progn
                     (find-file-other-window abs-file)
-                    (when line-start
-                      ;; line-start is 1-indexed; forward-line uses 0-indexed offset
-                      (goto-char (point-min))
-                      (forward-line (1- line-start)))
-                    (message "Navigated to %s%s" file
-                             (if line-start (format ":%d" line-start) "")))
-                (message "File not found: %s" file))))
+                     (when line-start
+                       ;; line-start is 1-indexed; forward-line uses 0-indexed offset
+                       (goto-char (point-min))
+                       (forward-line (1- line-start))
+                       (when (and column-start (> column-start 0))
+                         (move-to-column (1- column-start))))
+                     (message "Navigated to %s%s" file
+                              (if line-start
+                                  (if column-start
+                                      (format ":%d:%d" line-start column-start)
+                                    (format ":%d" line-start))
+                                "")))
+                 (message "File not found: %s" file))))
             (symbol
              (ai-code--session-navigate-symbol symbol))))
       (message "No code link found at point"))))

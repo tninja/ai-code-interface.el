@@ -1025,6 +1025,15 @@
     (should (= (plist-get result :line-start) 42))
     (should-not (plist-get result :line-end))))
 
+(ert-deftest ai-code-test-parse-session-link-file-colon-line-column ()
+  "Test parsing filename:line:column format."
+  (let ((result (ai-code--parse-session-link "FileABC.java:42:8")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should (= (plist-get result :line-start) 42))
+    (should (= (plist-get result :column-start) 8))
+    (should-not (plist-get result :line-end))))
+
 (ert-deftest ai-code-test-parse-session-link-file-github-line ()
   "Test parsing filename:L42 (GitHub single line) format."
   (let ((result (ai-code--parse-session-link "FileABC.java:L42")))
@@ -1040,6 +1049,32 @@
     (should (equal (plist-get result :file) "FileABC.java"))
     (should (= (plist-get result :line-start) 42))
     (should (= (plist-get result :line-end) 60))))
+
+(ert-deftest ai-code-test-parse-session-link-file-github-anchor-range ()
+  "Test parsing filename#L42-L60 anchor format."
+  (let ((result (ai-code--parse-session-link "FileABC.java#L42-L60")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should (= (plist-get result :line-start) 42))
+    (should (= (plist-get result :line-end) 60))))
+
+(ert-deftest ai-code-test-parse-session-link-file-editor-line-column ()
+  "Test parsing filename(42,8) format."
+  (let ((result (ai-code--parse-session-link "FileABC.java(42,8)")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should (= (plist-get result :line-start) 42))
+    (should (= (plist-get result :column-start) 8))
+    (should-not (plist-get result :line-end))))
+
+(ert-deftest ai-code-test-parse-session-link-file-editor-line ()
+  "Test parsing filename(42) format."
+  (let ((result (ai-code--parse-session-link "FileABC.java(42)")))
+    (should result)
+    (should (equal (plist-get result :file) "FileABC.java"))
+    (should (= (plist-get result :line-start) 42))
+    (should-not (plist-get result :column-start))
+    (should-not (plist-get result :line-end))))
 
 (ert-deftest ai-code-test-parse-session-link-symbol ()
   "Test parsing a plain symbol (no dots, slashes, or colons)."
@@ -1095,6 +1130,22 @@
     (goto-char (point-min))
     (search-forward "FileABC")
     (should (equal (ai-code--session-link-text-at-point) "FileABC.java:L10-20"))))
+
+(ert-deftest ai-code-test-session-link-text-at-point-line-column ()
+  "Test extracting filename:line:column at point."
+  (with-temp-buffer
+    (insert "Inspect FileABC.java:42:8 next")
+    (goto-char (point-min))
+    (search-forward "42")
+    (should (equal (ai-code--session-link-text-at-point) "FileABC.java:42:8"))))
+
+(ert-deftest ai-code-test-session-link-text-at-point-github-anchor-range ()
+  "Test extracting filename#Lstart-end at point."
+  (with-temp-buffer
+    (insert "Review FileABC.java#L10-L20 soon")
+    (goto-char (point-min))
+    (search-forward "L10")
+    (should (equal (ai-code--session-link-text-at-point) "FileABC.java#L10-L20"))))
 
 (ert-deftest ai-code-test-session-link-text-at-point-symbol ()
   "Test extracting a symbol name at point."
@@ -1170,6 +1221,15 @@
       (should (eq (get-text-property link-start 'mouse-face) 'highlight))
       (should (get-text-property link-start 'keymap)))))
 
+(ert-deftest ai-code-test-session-link-refresh-region-adds-github-anchor-properties ()
+  "GitHub #L anchors should become mouse-clickable."
+  (with-temp-buffer
+    (insert "Check src/Foo.java#L42-L60 for context")
+    (ai-code--session-link-refresh-region (point-min) (point-max))
+    (search-backward "src/Foo.java#L42-L60")
+    (should (equal (get-text-property (point) 'ai-code-session-link)
+                   "src/Foo.java#L42-L60"))))
+
 (ert-deftest ai-code-test-session-link-refresh-region-adds-symbol-properties ()
   "CamelCase and camelCase symbols should become mouse-clickable."
   (with-temp-buffer
@@ -1211,9 +1271,31 @@
               (goto-char (point-min))
               (search-forward (file-name-sans-extension
                                (file-name-nondirectory tmpfile)))
-              (ai-code-session-navigate-link-at-point)
-              (should (equal opened-file tmpfile)))))
+               (ai-code-session-navigate-link-at-point)
+               (should (equal opened-file tmpfile)))))
       (when (file-exists-p tmpfile) (delete-file tmpfile)))))
+
+(ert-deftest ai-code-test-session-navigate-link-opens-file-with-column ()
+  "Test that navigating file:line:column moves to the right column."
+  (let ((opened-file nil)
+        (forward-line-calls nil)
+        (move-to-column-calls nil))
+    (cl-letf (((symbol-function 'find-file-other-window)
+               (lambda (f) (setq opened-file f)))
+              ((symbol-function 'ai-code--find-project-file)
+               (lambda (_f) "/tmp/Foo.java"))
+              ((symbol-function 'forward-line)
+               (lambda (n) (push n forward-line-calls)))
+              ((symbol-function 'move-to-column)
+               (lambda (n &optional _force) (push n move-to-column-calls))))
+      (with-temp-buffer
+        (insert "See src/Foo.java:42:8")
+        (goto-char (point-min))
+        (search-forward "42")
+        (ai-code-session-navigate-link-at-point)
+        (should (equal opened-file "/tmp/Foo.java"))
+        (should (equal forward-line-calls '(41)))
+        (should (equal move-to-column-calls '(7)))))))
 
 (ert-deftest ai-code-test-session-navigate-link-no-link ()
   "Test that navigating when no link is at point shows a message."
