@@ -30,6 +30,7 @@
 (declare-function eat-mode "eat" ())
 (declare-function eat-exec "eat" (&rest args))
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
+(declare-function ai-code-setup-session-link-navigation "ai-code-input" ())
 (declare-function ai-code-session-navigate-link-at-point "ai-code-input" ())
 
 ;; Declare vterm dynamic variables for let-binding to work with lexical-binding
@@ -390,6 +391,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
       (local-set-key (kbd "C-<escape>") escape-fn))
     (when (fboundp 'ai-code-session-navigate-link-at-point)
       (local-set-key (kbd "C-c g") #'ai-code-session-navigate-link-at-point))
+    (when (fboundp 'ai-code-setup-session-link-navigation)
+      (ai-code-setup-session-link-navigation))
     (ai-code-backends-infra--configure-multiline-input
      multiline-input-sequence)))
 

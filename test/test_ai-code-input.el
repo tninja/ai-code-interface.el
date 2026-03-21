@@ -1127,7 +1127,9 @@
         (progn
           (make-directory (file-name-directory subfile) t)
           (with-temp-file subfile (insert "// test"))
-          (cl-letf (((symbol-function 'ai-code--git-root)
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) nil))
+                    ((symbol-function 'ai-code--git-root)
                      (lambda (&optional _dir) tmpdir)))
             (should (equal (ai-code--find-project-file "src/Foo.java") subfile))))
       (delete-directory tmpdir t))))
@@ -1135,6 +1137,61 @@
 (ert-deftest ai-code-test-find-project-file-nil-returns-nil ()
   "Test that nil filename returns nil."
   (should-not (ai-code--find-project-file nil)))
+
+(ert-deftest ai-code-test-find-project-file-strips-at-prefix ()
+  "Test finding a file when the session link starts with @."
+  (let* ((tmpdir (make-temp-file "ai-code-proj-at-" t))
+         (subfile (expand-file-name "src/Foo.java" tmpdir)))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory subfile) t)
+          (with-temp-file subfile (insert "// test"))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) tmpdir))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional _dirs) (list "src/Foo.java"))))
+            (should (equal (ai-code--find-project-file "@src/Foo.java") subfile))))
+      (delete-directory tmpdir t))))
+
+(ert-deftest ai-code-test-session-link-refresh-region-adds-file-properties ()
+  "File links should become mouse-clickable after refresh."
+  (with-temp-buffer
+    (insert "See src/Foo.java:42 for details")
+    (ai-code--session-link-refresh-region (point-min) (point-max))
+    (search-backward "src/Foo.java:42")
+    (let ((link-start (point))
+          (link-end (+ (point) (1- (length "src/Foo.java:42")))))
+      (should (equal (get-text-property link-start 'ai-code-session-link)
+                     "src/Foo.java:42"))
+      (should (equal (get-text-property link-end 'ai-code-session-link)
+                     "src/Foo.java:42"))
+      (should (eq (get-text-property link-start 'mouse-face) 'highlight))
+      (should (get-text-property link-start 'keymap)))))
+
+(ert-deftest ai-code-test-session-link-refresh-region-adds-symbol-properties ()
+  "CamelCase and camelCase symbols should become mouse-clickable."
+  (with-temp-buffer
+    (insert "Use MyClass and myFunction here")
+    (ai-code--session-link-refresh-region (point-min) (point-max))
+    (search-backward "MyClass")
+    (should (equal (get-text-property (point) 'ai-code-session-link)
+                   "MyClass"))
+    (search-forward "myFunction")
+    (backward-char (length "myFunction"))
+    (should (equal (get-text-property (point) 'ai-code-session-link)
+                   "myFunction"))))
+
+(ert-deftest ai-code-test-session-link-refresh-region-skips-plain-words ()
+  "Plain prose should not become clickable session links."
+  (with-temp-buffer
+    (insert "open the file and check this output")
+    (ai-code--session-link-refresh-region (point-min) (point-max))
+    (goto-char (point-min))
+    (search-forward "output")
+    (backward-char (length "output"))
+    (should-not (get-text-property (point) 'ai-code-session-link))))
 
 ;;; Tests for ai-code-session-navigate-link-at-point
 
@@ -1168,6 +1225,39 @@
         (goto-char (point-min))
         (ai-code-session-navigate-link-at-point)
         (should (cl-some (lambda (m) (string-match-p "No code link" m)) messages))))))
+
+(ert-deftest ai-code-test-session-navigate-link-symbol-prefers-helm-gtags ()
+  "Symbol navigation should use Helm-Gtags when available."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'helm-gtags-dwim)
+               (lambda () (setq called 'helm-gtags)))
+              ((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir) nil))
+              ((symbol-function 'ai-code--git-root)
+               (lambda (&optional _dir) default-directory))
+              ((symbol-function 'require)
+               (lambda (feature &optional _filename _noerror)
+                 (if (eq feature 'helm-gtags) t (require feature nil t)))))
+      (with-temp-buffer
+        (insert "MyClass")
+        (goto-char (point-min))
+        (ai-code-session-navigate-link-at-point)
+        (should (eq called 'helm-gtags))))))
+
+(ert-deftest ai-code-test-session-navigate-link-at-mouse ()
+  "Mouse navigation should move point to the clicked link and navigate."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'select-window) (lambda (_window) nil))
+              ((symbol-function 'ai-code-session-navigate-link-at-point)
+               (lambda () (setq called (point)))))
+      (with-temp-buffer
+        (insert "See Foo.java")
+        (goto-char (point-min))
+        (let ((target (+ (point-min) 5))
+              (window (selected-window)))
+          (ai-code-session-navigate-link-at-mouse
+           (list 'mouse-1 (list window target '(0 . 0) 0)))
+          (should (= called target)))))))
 
 (provide 'test_ai-code-input)
 ;;; test_ai-code-input.el ends here

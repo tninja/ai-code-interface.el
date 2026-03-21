@@ -714,6 +714,23 @@
             (call-interactively (key-binding (kbd "S-<return>")))
             (call-interactively (key-binding (kbd "C-<return>"))))
           (should (equal (nreverse calls) '("\\\r\n" "\\\r\n"))))
+       (when (buffer-live-p buffer)
+         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-configure-session-buffer-enables-link-navigation ()
+  "Session buffer setup should enable keyboard and mouse link navigation hooks."
+  (let ((buffer (generate-new-buffer " *ai-code-session-links*"))
+        (setup-called nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-setup-session-link-navigation)
+                   (lambda () (setq setup-called t)))
+                  ((symbol-function 'ai-code-session-navigate-link-at-point)
+                   (lambda () (interactive))))
+          (ai-code-backends-infra--configure-session-buffer buffer)
+          (with-current-buffer buffer
+            (should setup-called)
+            (should (eq (key-binding (kbd "C-c g"))
+                        #'ai-code-session-navigate-link-at-point))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

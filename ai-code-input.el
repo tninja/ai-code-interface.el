@@ -17,6 +17,11 @@
 (require 'subr-x)
 
 (declare-function helm-comp-read "helm-mode" (prompt collection &rest args))
+(declare-function helm-gtags-dwim "helm-gtags" ())
+(declare-function projectile-project-root "projectile" ())
+(declare-function project-current "project" (&optional maybe-prompt dir))
+(declare-function project-files "project" (project &optional dirs))
+(declare-function project-root "project" (project))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
@@ -427,6 +432,33 @@ END-POS defaults to the current '#' position."
 (defconst ai-code--session-link-chars "A-Za-z0-9_./@-"
   "Character class for the base part of a code link (filename or symbol).")
 
+(defconst ai-code--session-link-file-regexp
+  "@?[[:alnum:]_./-]*[./][[:alnum:]_./-]+\\(?::L?[0-9]+\\(?:-[0-9]+\\)?\\)?"
+  "Regexp matching clickable file-like session links.")
+
+(defconst ai-code--session-link-symbol-regexp
+  "\\_<\\(?:[A-Z][A-Za-z0-9_$]*\\|[[:lower:]_][A-Za-z0-9_$]*[A-Z][A-Za-z0-9_$]*\\)\\_>"
+  "Regexp matching clickable symbol-like session links.")
+
+(defconst ai-code--session-clickable-link-regexp
+  (concat "\\(?:" ai-code--session-link-file-regexp
+          "\\)\\|\\(?:" ai-code--session-link-symbol-regexp "\\)")
+  "Regexp matching session text that should become mouse-clickable.")
+
+(defvar-local ai-code--session-link-refresh-timer nil
+  "Idle timer used to refresh clickable links in the current session buffer.")
+
+(defvar-local ai-code--session-link-pending-bounds nil
+  "Pending (START . END) region to rescan for clickable links.")
+
+(defvar ai-code--session-link-keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mouse-1] #'ai-code-session-navigate-link-at-mouse)
+    (define-key map [mouse-2] #'ai-code-session-navigate-link-at-mouse)
+    (define-key map (kbd "RET") #'ai-code-session-navigate-link-at-point)
+    map)
+  "Keymap used for clickable code links in AI session buffers.")
+
 (defun ai-code--session-link-text-at-point ()
   "Extract potential code link text at point.
 Includes the base filename/symbol and an optional :LINE or :LSTART-END suffix.
@@ -490,39 +522,202 @@ Returns nil when TEXT does not match any recognized format."
       (list :symbol text))
      (t nil))))
 
+(defun ai-code--session-project-root ()
+  "Return the best available project root for the current session."
+  (or (when-let ((project (ignore-errors (project-current nil default-directory))))
+        (expand-file-name (project-root project)))
+      (when (fboundp 'projectile-project-root)
+        (ignore-errors
+          (let ((root (projectile-project-root)))
+            (when root
+              (expand-file-name root)))))
+      (ai-code--git-root)
+      (expand-file-name default-directory)))
+
+(defun ai-code--normalize-session-link-file (filename)
+  "Normalize session link FILENAME for project lookup."
+  (when (stringp filename)
+    (string-remove-prefix "@" filename)))
+
 (defun ai-code--search-file-in-project (filename project-root)
   "Search for FILENAME by its basename under PROJECT-ROOT.
-Returns the absolute path of the first match found, or nil."
+Returns a de-duplicated list of absolute matches."
   (let ((basename (file-name-nondirectory filename)))
     (when (and (stringp basename) (not (string-empty-p basename)))
       (condition-case nil
-          (car (directory-files-recursively
-                project-root
-                (concat "\\`" (regexp-quote basename) "\\'")
-                nil t))
+          (delete-dups
+           (directory-files-recursively
+            project-root
+            (concat "\\`" (regexp-quote basename) "\\'")
+            nil t))
         (error nil)))))
+
+(defun ai-code--project-file-candidates (filename)
+  "Return possible project file matches for FILENAME."
+  (when-let* ((raw filename)
+              (filename (ai-code--normalize-session-link-file raw))
+              ((not (string-empty-p filename))))
+    (let* ((root (ai-code--session-project-root))
+           (project (ignore-errors (project-current nil root)))
+           (project-files
+            (when project
+              (mapcar (lambda (file)
+                        (if (file-name-absolute-p file)
+                            file
+                          (expand-file-name file (project-root project))))
+                      (project-files project))))
+           (exact-root (expand-file-name filename root))
+           (exact-default (expand-file-name filename default-directory))
+           (matches
+            (append
+             (when (and (file-name-absolute-p filename) (file-exists-p filename))
+               (list filename))
+             (when (file-exists-p exact-root)
+               (list exact-root))
+             (when (file-exists-p exact-default)
+               (list exact-default))
+             (cl-remove-if-not
+              (lambda (file)
+                (or (string= (file-relative-name file root) filename)
+                    (string= (file-name-nondirectory file)
+                             (file-name-nondirectory filename))))
+              project-files)
+             (ai-code--search-file-in-project filename root))))
+      (delete-dups matches))))
+
+(defun ai-code--read-session-link-candidate (prompt candidates)
+  "Read one item from CANDIDATES using PROMPT."
+  (let* ((choices (delete-dups (copy-sequence candidates)))
+         (default (car choices)))
+    (if (and (fboundp 'helm-comp-read)
+             (or (featurep 'helm)
+                 (require 'helm nil t)))
+        (helm-comp-read prompt choices :must-match t :initial-input default)
+      (completing-read prompt choices nil t nil nil default))))
 
 (defun ai-code--find-project-file (filename)
   "Locate FILENAME within the current project.
 Tries the following locations in order:
   1. Absolute path (if FILENAME is absolute and exists).
-  2. Relative to the git root.
+  2. Relative to the current project root.
   3. Relative to `default-directory'.
-  4. Basename search inside the git root.
+  4. Project file matches and basename search inside the project root.
 Returns the absolute path on success, or nil when the file cannot be found."
-  (when (and filename (not (string-empty-p filename)))
+  (when-let ((candidates (ai-code--project-file-candidates filename)))
+    (if (= (length candidates) 1)
+        (car candidates)
+      (ai-code--read-session-link-candidate
+       (format "Choose file for %s: " filename)
+       candidates))))
+
+(defun ai-code--session-navigate-symbol (symbol)
+  "Navigate to SYMBOL using the best available project-aware backend."
+  (let ((default-directory (ai-code--session-project-root)))
     (cond
-     ((and (file-name-absolute-p filename) (file-exists-p filename))
-      filename)
+     ((and (fboundp 'helm-gtags-dwim)
+           (or (featurep 'helm-gtags)
+               (require 'helm-gtags nil t)))
+      (helm-gtags-dwim))
+     ((fboundp 'xref-find-definitions)
+      (xref-find-definitions symbol))
      (t
-      (let ((git-root (ai-code--git-root)))
-        (or (when git-root
-              (let ((abs (expand-file-name filename git-root)))
-                (when (file-exists-p abs) abs)))
-            (let ((abs (expand-file-name filename default-directory)))
-              (when (file-exists-p abs) abs))
-            (when git-root
-              (ai-code--search-file-in-project filename git-root))))))))
+      (message "Symbol not found: %s (no navigation backend available)" symbol)))))
+
+(defun ai-code--session-link-help-echo (text)
+  "Return help text for clickable session link TEXT."
+  (format "mouse-1: navigate to %s" text))
+
+(defun ai-code--session-link-put-properties (start end text)
+  "Make TEXT between START and END clickable in the current buffer."
+  (add-text-properties
+   start end
+   `(ai-code-session-link ,text
+                          mouse-face highlight
+                          help-echo ,(ai-code--session-link-help-echo text)
+                          follow-link t
+                          keymap ,ai-code--session-link-keymap)))
+
+(defun ai-code--session-link-clear-properties (start end)
+  "Remove clickable-link properties previously applied between START and END."
+  (let ((pos start))
+    (while (< pos end)
+      (let ((next (or (next-single-property-change pos 'ai-code-session-link nil end)
+                      end)))
+        (when (get-text-property pos 'ai-code-session-link)
+          (remove-list-of-text-properties
+           pos next
+           '(ai-code-session-link mouse-face help-echo follow-link keymap)))
+        (setq pos next)))))
+
+(defun ai-code--session-link-refresh-region (start end)
+  "Refresh clickable session links between START and END."
+  (when (< start end)
+    (with-silent-modifications
+      (let ((inhibit-read-only t)
+            (case-fold-search nil))
+        (ai-code--session-link-clear-properties start end)
+        (save-excursion
+          (goto-char start)
+          (while (re-search-forward ai-code--session-clickable-link-regexp end t)
+            (let* ((match-start (match-beginning 0))
+                   (match-end (match-end 0))
+                   (text (match-string-no-properties 0))
+                   (link (ai-code--parse-session-link text)))
+              (when link
+                (ai-code--session-link-put-properties
+                 match-start
+                 match-end
+                 text)))))))))
+
+(defun ai-code--session-link-schedule-refresh (start end _len)
+  "Schedule clickable-link refresh for changed text between START and END."
+  (when (and (ai-code-backends-infra--session-buffer-p (current-buffer))
+             (<= start end))
+    (save-excursion
+      (let ((region (cons (progn (goto-char start) (line-beginning-position))
+                          (progn (goto-char end) (line-end-position)))))
+        (setq ai-code--session-link-pending-bounds
+              (let ((pending ai-code--session-link-pending-bounds))
+                (if pending
+                    (cons (min (car pending) (car region))
+                          (max (cdr pending) (cdr region)))
+                  region)))))
+    (when (timerp ai-code--session-link-refresh-timer)
+      (cancel-timer ai-code--session-link-refresh-timer))
+    (let ((buffer (current-buffer)))
+      (setq ai-code--session-link-refresh-timer
+            (run-with-idle-timer
+             0.1 nil
+             (lambda (buf)
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (when-let ((bounds ai-code--session-link-pending-bounds))
+                     (setq ai-code--session-link-pending-bounds nil
+                           ai-code--session-link-refresh-timer nil)
+                     (ai-code--session-link-refresh-region
+                      (car bounds)
+                      (cdr bounds))))))
+             buffer)))))
+
+(defun ai-code-setup-session-link-navigation ()
+  "Enable clickable code links in the current AI session buffer."
+  (remove-hook 'after-change-functions #'ai-code--session-link-schedule-refresh t)
+  (add-hook 'after-change-functions #'ai-code--session-link-schedule-refresh nil t)
+  (setq-local ai-code--session-link-pending-bounds
+              (cons (point-min) (point-max)))
+  (ai-code--session-link-refresh-region (point-min) (point-max)))
+
+(defun ai-code-session-navigate-link-at-mouse (event)
+  "Navigate to the session link clicked by mouse EVENT."
+  (interactive "e")
+  (let* ((start (event-start event))
+         (window (posn-window start))
+         (position (posn-point start)))
+    (when (window-live-p window)
+      (select-window window)
+      (when (integer-or-marker-p position)
+        (goto-char position)
+        (ai-code-session-navigate-link-at-point)))))
 
 ;;;###autoload
 (defun ai-code-session-navigate-link-at-point ()
@@ -553,10 +748,8 @@ Binds to \\[ai-code-session-navigate-link-at-point] inside AI session buffers."
                     (message "Navigated to %s%s" file
                              (if line-start (format ":%d" line-start) "")))
                 (message "File not found: %s" file))))
-           (symbol
-            (if (fboundp 'xref-find-definitions)
-                (xref-find-definitions symbol)
-              (message "Symbol not found: %s (xref not available)" symbol)))))
+            (symbol
+             (ai-code--session-navigate-symbol symbol))))
       (message "No code link found at point"))))
 
 (provide 'ai-code-input)
