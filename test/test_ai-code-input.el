@@ -1095,6 +1095,14 @@
     (should result)
     (should (equal (plist-get result :symbol) "ai-code--find-project-file"))))
 
+(ert-deftest ai-code-test-parse-session-link-url ()
+  "Test parsing an http/https URL."
+  (let ((result (ai-code--parse-session-link "https://example.com/docs?q=1")))
+    (should result)
+    (should (equal (plist-get result :url) "https://example.com/docs?q=1"))
+    (should-not (plist-get result :file))
+    (should-not (plist-get result :symbol))))
+
 (ert-deftest ai-code-test-parse-session-link-nil-returns-nil ()
   "Test that nil input returns nil."
   (should-not (ai-code--parse-session-link nil)))
@@ -1170,6 +1178,15 @@
     (search-forward "find-project")
     (should (equal (ai-code--session-link-text-at-point)
                    "ai-code--find-project-file"))))
+
+(ert-deftest ai-code-test-session-link-text-at-point-url ()
+  "Test extracting an http/https URL at point."
+  (with-temp-buffer
+    (insert "Visit https://example.com/docs?q=1 today")
+    (goto-char (point-min))
+    (search-forward "example.com")
+    (should (equal (ai-code--session-link-text-at-point)
+                   "https://example.com/docs?q=1"))))
 
 ;;; Tests for ai-code--find-project-file
 
@@ -1267,8 +1284,20 @@
                      "myFunction"))
       (search-forward "ai-code--find-project-file")
       (backward-char (length "ai-code--find-project-file"))
-      (should (equal (get-text-property (point) 'ai-code-session-link)
-                     "ai-code--find-project-file")))))
+       (should (equal (get-text-property (point) 'ai-code-session-link)
+                      "ai-code--find-project-file")))))
+
+(ert-deftest ai-code-test-session-link-refresh-region-adds-url-properties ()
+  "HTTP URLs should become mouse-clickable."
+  (with-temp-buffer
+    (insert "Docs: https://example.com/docs?q=1")
+    (ai-code--session-link-refresh-region (point-min) (point-max))
+    (search-backward "https://example.com/docs?q=1")
+    (should (equal (get-text-property (point) 'ai-code-session-link)
+                   "https://example.com/docs?q=1"))
+    (should (eq (get-text-property (point) 'font-lock-face) 'link))
+    (should (string-match-p "mouse-1: open"
+                            (get-text-property (point) 'help-echo)))))
 
 (ert-deftest ai-code-test-project-symbol-exists-p-finds-project-definition ()
   "Symbol validation should accept definitions inside the current repo."
@@ -1411,6 +1440,18 @@
         (goto-char (point-min))
         (ai-code-session-navigate-link-at-point)
         (should (equal called "MyClass"))))))
+
+(ert-deftest ai-code-test-session-navigate-link-opens-url ()
+  "URL navigation should use browse-url."
+  (let ((opened-url nil))
+    (cl-letf (((symbol-function 'browse-url)
+               (lambda (url &optional _new-window) (setq opened-url url))))
+      (with-temp-buffer
+        (insert "Visit https://example.com/docs?q=1")
+        (goto-char (point-min))
+        (search-forward "example.com")
+        (ai-code-session-navigate-link-at-point)
+        (should (equal opened-url "https://example.com/docs?q=1"))))))
 
 (ert-deftest ai-code-test-session-navigate-link-at-mouse ()
   "Mouse navigation should move point to the clicked link and navigate."

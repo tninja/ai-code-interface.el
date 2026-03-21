@@ -16,6 +16,7 @@
 (require 'magit)
 (require 'subr-x)
 
+(declare-function browse-url "browse-url" (url &optional new-window))
 (declare-function helm-comp-read "helm-mode" (prompt collection &rest args))
 (declare-function project-current "project" (&optional maybe-prompt dir))
 (declare-function project-files "project" (project &optional dirs))
@@ -445,12 +446,17 @@ the filename so ordinary prose like \"output\" does not become clickable.")
           "\\)?")
   "Regexp matching clickable file-like session links.")
 
+(defconst ai-code--session-link-url-regexp
+  "https?://[^][\"'`()<>[:space:]]+"
+  "Regexp matching clickable http/https session links.")
+
 (defconst ai-code--session-link-symbol-regexp
   "\\(?:\\_<\\(?:[A-Z][A-Za-z0-9_$]*\\|[[:lower:]_][A-Za-z0-9_$]*[A-Z][A-Za-z0-9_$]*\\)\\_>\\|[A-Za-z_][A-Za-z0-9_$]*\\(?:-+[A-Za-z0-9_$]+\\)+\\)"
   "Regexp matching clickable symbol-like session links.")
 
 (defconst ai-code--session-clickable-link-regexp
-  (concat "\\(?:" ai-code--session-link-file-regexp
+  (concat "\\(?:" ai-code--session-link-url-regexp
+          "\\)\\|\\(?:" ai-code--session-link-file-regexp
           "\\)\\|\\(?:" ai-code--session-link-symbol-regexp "\\)")
   "Regexp matching session text that should become mouse-clickable.")
 
@@ -503,6 +509,8 @@ Returns the extracted string, or nil if no meaningful text is found."
 (defun ai-code--parse-session-link (text)
   "Parse TEXT as a code link and return a plist describing it.
 Recognized formats:
+  http://example.com   => (:url URL)
+  https://example.com  => (:url URL)
   filename:line:column => (:file FILE :line-start N :column-start C)
   filename#Lstart-end  => (:file FILE :line-start N :line-end M)
   filename#Lline       => (:file FILE :line-start N :line-end nil)
@@ -516,6 +524,9 @@ Recognized formats:
 Returns nil when TEXT does not match any recognized format."
   (when (and text (not (string-empty-p (string-trim text))))
     (cond
+     ;; http://example.com (URL)
+     ((string-match-p "\\`https?://" text)
+      (list :url text))
      ;; filename:42:8 (line + column)
      ((string-match "^\\(.*?\\):\\([0-9]+\\):\\([0-9]+\\)$" text)
       (list :file (match-string 1 text)
@@ -677,10 +688,11 @@ Returns the absolute path on success, or nil when the file cannot be found."
     (if (not (eq cached :missing))
         cached
       (puthash text
-               (cond
-                ((plist-get link :file)
-                 (and (ai-code--project-file-candidates (plist-get link :file)) t))
-                ((plist-get link :symbol)
+                (cond
+                 ((plist-get link :url) t)
+                 ((plist-get link :file)
+                  (and (ai-code--project-file-candidates (plist-get link :file)) t))
+                 ((plist-get link :symbol)
                  (and (ai-code--project-symbol-exists-p (plist-get link :symbol)) t))
                 (t nil))
                cache))))
@@ -694,7 +706,9 @@ Returns the absolute path on success, or nil when the file cannot be found."
 
 (defun ai-code--session-link-help-echo (text)
   "Return help text for clickable session link TEXT."
-  (format "mouse-1: navigate to %s" text))
+  (if (string-match-p "\\`https?://" text)
+      (format "mouse-1: open %s" text)
+    (format "mouse-1: navigate to %s" text)))
 
 (defun ai-code--session-link-put-properties (start end text)
   "Make TEXT between START and END clickable in the current buffer."
@@ -796,6 +810,7 @@ Returns the absolute path on success, or nil when the file cannot be found."
 (defun ai-code-session-navigate-link-at-point ()
   "Navigate to the code link at point in AI session windows.
 Handles the following link formats:
+  - http(s)://...      open the URL via `browse-url'
   - filename            open the file
   - filename:42         open the file and go to line 42
   - filename:L42-60     open the file and go to line 42
@@ -805,11 +820,15 @@ Binds to \\[ai-code-session-navigate-link-at-point] inside AI session buffers."
   (let* ((text (ai-code--session-link-text-at-point))
          (link (and text (ai-code--parse-session-link text))))
     (if link
-        (let ((file (plist-get link :file))
+        (let ((url (plist-get link :url))
+              (file (plist-get link :file))
               (line-start (plist-get link :line-start))
               (column-start (plist-get link :column-start))
               (symbol (plist-get link :symbol)))
           (cond
+           (url
+            (browse-url url)
+            (message "Opened URL: %s" url))
            (file
             (let ((abs-file (ai-code--find-project-file file)))
               (if abs-file
