@@ -12,6 +12,49 @@
 (require 'project)
 (require 'subr-x)
 
+(declare-function ai-code-session-navigate-link-at-mouse "ai-code-input" (event))
+(declare-function ai-code-session-navigate-link-at-point "ai-code-input" ())
+
+(defvar ai-code-backends-infra--session-directory nil
+  "Session working directory set by ai-code-backends-infra buffers.")
+
+(defvar ai-code-session-link--keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mouse-1] #'ai-code-session-navigate-link-at-mouse)
+    (define-key map [mouse-2] #'ai-code-session-navigate-link-at-mouse)
+    (define-key map (kbd "RET") #'ai-code-session-navigate-link-at-point)
+    map)
+  "Keymap used for clickable session links.")
+
+(defconst ai-code-session-link--linkify-min-tail-width 512
+  "Minimum number of tail characters to rescan for session links.")
+
+(defconst ai-code-session-link--url-pattern-regexp
+  "\\(https?://[^][(){}<>\"' \t\n]+\\)"
+  "Regexp matching http/https URLs in session buffers.")
+
+(defconst ai-code-session-link--file-patterns
+  '(
+    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)#L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
+     1 2 nil)
+    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
+     1 2 nil)
+    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\):\\([0-9]+\\)\\>"
+     1 2 3)
+    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)-\\([0-9]+\\)\\>"
+     1 2 nil)
+    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)\\>"
+     1 2 nil)
+    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)\\>"
+     1 nil nil))
+  "Patterns used to detect file-like session links.")
+
+(defvar-local ai-code-session-link--linkify-timer nil
+  "Timer used to re-linkify recent terminal output after redraw settles.")
+
+(defvar-local ai-code-session-link--pending-tail-width 0
+  "Pending tail width to rescan when delayed session linkification runs.")
+
 (defun ai-code-session-link--normalize-file (filename)
   "Normalize session link FILENAME for project lookup."
   (when (stringp filename)
@@ -60,6 +103,139 @@
          (or (string= (file-relative-name file project-root) relative-path)
              (string= (file-name-nondirectory file) basename)))
        project-files))))
+
+(defun ai-code-session-link--project-root-for-paths ()
+  "Return the current session project root directory with trailing slash."
+  (let ((root (or ai-code-backends-infra--session-directory
+                  (and (fboundp 'project-current)
+                       (when-let ((project (project-current nil default-directory)))
+                         (expand-file-name (project-root project))))
+                  default-directory)))
+    (and root (file-name-as-directory (expand-file-name root)))))
+
+(defun ai-code-session-link--resolve-session-file (path)
+  "Resolve PATH to an absolute file inside the current project."
+  (let* ((root (ai-code-session-link--project-root-for-paths))
+         (normalized (ai-code-session-link--normalize-file path)))
+    (when (and root normalized)
+      (let* ((project-files (ai-code-session-link--project-files root))
+             (candidate (if (file-name-absolute-p normalized)
+                            (expand-file-name normalized)
+                          (expand-file-name normalized root))))
+        (cond
+         ((ai-code-session-link--in-project-file-p candidate root project-files) candidate)
+         ((not (file-name-absolute-p normalized))
+          (car (ai-code-session-link--matching-project-files normalized root project-files)))
+         (t nil))))))
+
+(defun ai-code-session-link--apply-properties (start end &optional text help-echo)
+  "Apply session link properties from START to END."
+  (add-text-properties
+   start end
+   (list 'ai-code-session-link (or text
+                                   (buffer-substring-no-properties start end))
+         'mouse-face 'highlight
+         'help-echo help-echo
+         'keymap ai-code-session-link--keymap
+         'follow-link t
+         'font-lock-face 'link
+         'face 'link)))
+
+(defun ai-code-session-link--linkify-url-region (start end)
+  "Apply URL session links between START and END."
+  (save-excursion
+    (goto-char start)
+    (while (re-search-forward ai-code-session-link--url-pattern-regexp end t)
+      (let* ((url-start (match-beginning 1))
+             (raw-url (match-string-no-properties 1))
+             (trimmed-url (replace-regexp-in-string "[.,;:!?]+\\'" "" raw-url))
+             (url-end (+ url-start (length trimmed-url))))
+        (ai-code-session-link--apply-properties
+         url-start url-end trimmed-url "mouse-1: Open URL")))))
+
+(defun ai-code-session-link--linkify-file-region (start end)
+  "Apply file session links between START and END."
+  (save-excursion
+    (dolist (pattern ai-code-session-link--file-patterns)
+      (goto-char start)
+      (while (re-search-forward (car pattern) end t)
+        (unless (get-text-property (match-beginning 0) 'ai-code-session-link)
+          (let* ((match-start (match-beginning 0))
+                 (match-end (match-end 0))
+                 (path (match-string-no-properties (nth 1 pattern))))
+            (when (ai-code-session-link--resolve-session-file path)
+              (ai-code-session-link--apply-properties
+               match-start match-end
+               (buffer-substring-no-properties match-start match-end)
+               "mouse-1: Visit file"))))))))
+
+(defun ai-code-session-link--linkify-session-region (start end)
+  "Make supported URLs and in-project file references clickable from START to END."
+  (when (< start end)
+    (let ((inhibit-read-only t))
+      (save-excursion
+        (save-restriction
+          (widen)
+          (setq start (max (point-min) start)
+                end (min (point-max) end))
+          (let ((pos start))
+            (while (< pos end)
+              (let ((next (or (next-single-property-change
+                               pos 'ai-code-session-link nil end)
+                              end)))
+                (when (get-text-property pos 'ai-code-session-link)
+                  (remove-text-properties
+                   pos next
+                   '(ai-code-session-link nil
+                     mouse-face nil
+                     help-echo nil
+                     keymap nil
+                     follow-link nil
+                     font-lock-face nil
+                     face nil)))
+                (setq pos next))))
+          (ai-code-session-link--linkify-url-region start end)
+          (ai-code-session-link--linkify-file-region start end))))))
+
+(defun ai-code-session-link--recent-output-tail-width (output)
+  "Return the tail width to rescan after OUTPUT."
+  (max ai-code-session-link--linkify-min-tail-width
+       (* 2 (length (or output "")))))
+
+(defun ai-code-session-link--flush-scheduled-linkify ()
+  "Apply any delayed session linkification pending in the current buffer."
+  (let ((tail-width ai-code-session-link--pending-tail-width))
+    (setq ai-code-session-link--pending-tail-width 0
+          ai-code-session-link--linkify-timer nil)
+    (when (> tail-width 0)
+      (let ((end (point-max)))
+        (ai-code-session-link--linkify-session-region
+         (max (point-min) (- end tail-width))
+         end)))))
+
+(defun ai-code-session-link--schedule-linkify-recent-output (buffer output)
+  "Linkify recent OUTPUT in BUFFER after terminal redraw settles."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq ai-code-session-link--pending-tail-width
+            (max ai-code-session-link--pending-tail-width
+                 (ai-code-session-link--recent-output-tail-width output)))
+      (unless ai-code-session-link--linkify-timer
+        (setq ai-code-session-link--linkify-timer
+              (run-at-time
+               0 nil
+               (lambda (buf)
+                 (when (buffer-live-p buf)
+                   (with-current-buffer buf
+                     (ai-code-session-link--flush-scheduled-linkify))))
+               buffer))))))
+
+(defun ai-code-session-link--linkify-recent-output (output)
+  "Linkify the recent tail of the current session buffer after OUTPUT."
+  (let* ((visible-width (ai-code-session-link--recent-output-tail-width output))
+         (end (point-max))
+         (start (max (point-min) (- end visible-width))))
+    (ai-code-session-link--linkify-session-region start end)))
 
 (provide 'ai-code-session-link)
 

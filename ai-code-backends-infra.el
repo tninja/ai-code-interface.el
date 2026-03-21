@@ -32,9 +32,6 @@
 (declare-function eat-mode "eat" ())
 (declare-function eat-exec "eat" (&rest args))
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
-(declare-function ai-code-session-navigate-link-at-mouse "ai-code-input" (event))
-(declare-function ai-code-session-navigate-link-at-point "ai-code-input" ())
-
 ;; Declare vterm dynamic variables for let-binding to work with lexical-binding
 (defvar vterm-shell)
 (defvar vterm-environment)
@@ -149,62 +146,8 @@ being sent for the response completion.")
 (defvar-local ai-code-backends-infra--multiline-input-sequence nil
   "Terminal sequence sent for multiline input in the current session buffer.")
 
-(defvar ai-code-backends-infra--session-link-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [mouse-1] #'ai-code-session-navigate-link-at-mouse)
-    (define-key map [mouse-2] #'ai-code-session-navigate-link-at-mouse)
-    (define-key map (kbd "RET") #'ai-code-session-navigate-link-at-point)
-    map)
-  "Keymap used for clickable session links.")
-
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
-
-(defconst ai-code-backends-infra--linkify-min-tail-width 512
-  "Minimum number of tail characters to rescan for session links.")
-
-(defconst ai-code-backends-infra--url-pattern-regexp
-  "\\(https?://[^][(){}<>\"' \t\n]+\\)"
-  "Regexp matching http/https URLs in session buffers.")
-
-(defvar-local ai-code-backends-infra--session-linkify-timer nil
-  "Timer used to re-linkify recent terminal output after redraw settles.")
-
-(defvar-local ai-code-backends-infra--session-linkify-tail-width 0
-  "Pending tail width to rescan when delayed session linkification runs.")
-
-(defun ai-code-backends-infra--linkify-tail-width (output)
-  "Return the tail width to rescan after OUTPUT."
-  (max ai-code-backends-infra--linkify-min-tail-width
-       (* 2 (length (or output "")))))
-
-(defun ai-code-backends-infra--flush-scheduled-linkify ()
-  "Apply any delayed session linkification pending in the current buffer."
-  (let ((tail-width ai-code-backends-infra--session-linkify-tail-width))
-    (setq ai-code-backends-infra--session-linkify-tail-width 0
-          ai-code-backends-infra--session-linkify-timer nil)
-    (when (> tail-width 0)
-      (let ((end (point-max)))
-        (ai-code-backends-infra--linkify-session-region
-         (max (point-min) (- end tail-width))
-         end)))))
-
-(defun ai-code-backends-infra--schedule-linkify-recent-output (buffer output)
-  "Linkify recent OUTPUT in BUFFER after terminal redraw settles."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (setq ai-code-backends-infra--session-linkify-tail-width
-            (max ai-code-backends-infra--session-linkify-tail-width
-                 (ai-code-backends-infra--linkify-tail-width output)))
-      (unless ai-code-backends-infra--session-linkify-timer
-        (setq ai-code-backends-infra--session-linkify-timer
-              (run-at-time
-               0 nil
-               (lambda (buf)
-                 (when (buffer-live-p buf)
-                   (with-current-buffer buf
-                     (ai-code-backends-infra--flush-scheduled-linkify))))
-               buffer))))))
 
 (defcustom ai-code-backends-infra-idle-delay 5.0
   "Delay in seconds of inactivity before considering response complete.
@@ -296,7 +239,7 @@ The timer is reset only after meaningful output is observed."
   (prog1
       (funcall orig-fun process input)
     (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
-      (ai-code-backends-infra--schedule-linkify-recent-output
+      (ai-code-session-link--schedule-linkify-recent-output
        (process-buffer process)
        input))))
 
@@ -452,7 +395,7 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
       (local-set-key (kbd "C-<escape>") escape-fn))
     (ai-code-backends-infra--configure-multiline-input
      multiline-input-sequence)
-    (ai-code-backends-infra--linkify-session-region (point-min) (point-max))))
+    (ai-code-session-link--linkify-session-region (point-min) (point-max))))
 
 ;;; Reflow and Window Management
 
@@ -467,131 +410,6 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
   "Check if BUFFER belongs to an AI session."
   (when-let ((name (if (stringp buffer) buffer (buffer-name buffer))))
     (string-match-p "\\`\\*.*\\[.*\\].*\\*\\'" name)))
-
-(defun ai-code-backends-infra--project-root-for-paths ()
-  "Return the current session's project root directory with trailing slash."
-  (let ((root (or ai-code-backends-infra--session-directory
-                  (and (fboundp 'project-current)
-                       (when-let ((project (project-current nil default-directory)))
-                         (expand-file-name (project-root project))))
-                  default-directory)))
-    (and root (file-name-as-directory (expand-file-name root)))))
-
-(defun ai-code-backends-infra--in-project-file-p (file root)
-  "Return non-nil when FILE exists and belongs to ROOT."
-  (ai-code-session-link--in-project-file-p file root))
-
-(defun ai-code-backends-infra--resolve-session-file (path)
-  "Resolve PATH to an absolute file inside the current project."
-  (let* ((root (ai-code-backends-infra--project-root-for-paths))
-         (normalized (ai-code-session-link--normalize-file path)))
-    (when (and root normalized)
-      (let* ((project-files (ai-code-session-link--project-files root))
-             (candidate (if (file-name-absolute-p normalized)
-                            (expand-file-name normalized)
-                          (expand-file-name normalized root))))
-        (cond
-         ((ai-code-session-link--in-project-file-p candidate root project-files) candidate)
-         ((not (file-name-absolute-p normalized))
-          (car (ai-code-session-link--matching-project-files normalized root project-files)))
-         (t nil))))))
-
-(defun ai-code-backends-infra--apply-session-link-properties (start end &optional text help-echo)
-  "Apply session link properties from START to END."
-  (let ((map ai-code-backends-infra--session-link-map))
-    (add-text-properties
-     start end
-     (list 'ai-code-session-link (or text
-                                     (buffer-substring-no-properties start end))
-           'mouse-face 'highlight
-           'help-echo help-echo
-           'keymap map
-           'follow-link t
-           'font-lock-face 'link
-           'face 'link))))
-
-(defun ai-code-backends-infra--linkify-url-region (start end)
-  "Apply URL session links between START and END."
-  (save-excursion
-    (goto-char start)
-    (while (re-search-forward ai-code-backends-infra--url-pattern-regexp end t)
-      (let* ((url-start (match-beginning 1))
-             (raw-url (match-string-no-properties 1))
-             (trimmed-url (replace-regexp-in-string "[.,;:!?]+\\'" "" raw-url))
-             (url-end (+ url-start (length trimmed-url))))
-        (ai-code-backends-infra--apply-session-link-properties
-         url-start url-end trimmed-url "mouse-1: Open URL")))))
-
-(defun ai-code-backends-infra--linkify-file-region (start end)
-  "Apply file session links between START and END."
-  (let ((patterns
-         '(
-           ;; GitHub/code-review format: path#L42 or path#L42-L60
-           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)#L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
-            1 2 nil)
-           ;; Claude/Copilot style: path:L42 or path:L42-L60
-           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
-            1 2 nil)
-           ;; Compiler/linter style: path:line:column
-           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\):\\([0-9]+\\)\\>"
-            1 2 3)
-           ;; Range style: path:42-60
-           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)-\\([0-9]+\\)\\>"
-            1 2 nil)
-           ;; Basic file+line style: path:42
-           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)\\>"
-            1 2 nil)
-           ;; Bare file path, including @path references emitted by AI tools.
-           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)\\>"
-            1 nil nil))))
-    (save-excursion
-      (dolist (pattern patterns)
-        (goto-char start)
-        (while (re-search-forward (car pattern) end t)
-          (unless (get-text-property (match-beginning 0) 'ai-code-session-link)
-            (let* ((match-start (match-beginning 0))
-                   (match-end (match-end 0))
-                   (path (match-string-no-properties (nth 1 pattern))))
-              (when (ai-code-backends-infra--resolve-session-file path)
-                (ai-code-backends-infra--apply-session-link-properties
-                 match-start match-end
-                 (buffer-substring-no-properties match-start match-end)
-                 "mouse-1: Visit file")))))))))
-
-(defun ai-code-backends-infra--linkify-session-region (start end)
-  "Make supported URLs and in-project file references clickable from START to END."
-  (when (< start end)
-    (let ((inhibit-read-only t))
-      (save-excursion
-        (save-restriction
-          (widen)
-          (setq start (max (point-min) start)
-                end (min (point-max) end))
-          (let ((pos start))
-            (while (< pos end)
-              (let ((next (or (next-single-property-change
-                               pos 'ai-code-session-link nil end)
-                              end)))
-                (when (get-text-property pos 'ai-code-session-link)
-                  (remove-text-properties
-                   pos next
-                   '(ai-code-session-link nil
-                     mouse-face nil
-                     help-echo nil
-                     keymap nil
-                     follow-link nil
-                     font-lock-face nil
-                     face nil)))
-                (setq pos next))))
-          (ai-code-backends-infra--linkify-url-region start end)
-          (ai-code-backends-infra--linkify-file-region start end))))))
-
-(defun ai-code-backends-infra--linkify-recent-output (output)
-  "Linkify the recent tail of the current session buffer after OUTPUT."
-  (let* ((visible-width (ai-code-backends-infra--linkify-tail-width output))
-         (end (point-max))
-         (start (max (point-min) (- end visible-width))))
-    (ai-code-backends-infra--linkify-session-region start end)))
 
 (defun ai-code-backends-infra--terminal-reflow-filter (original-fn &rest args)
   "Filter terminal reflows to prevent height-only resize triggers."
@@ -1122,7 +940,7 @@ ENV-VARS is a list of environment variables."
                    (with-current-buffer (process-buffer process)
                      (when (ai-code-backends-infra--output-meaningful-p output)
                        (ai-code-backends-infra--note-meaningful-output))
-                    (ai-code-backends-infra--linkify-recent-output output))))))
+                    (ai-code-session-link--linkify-recent-output output))))))
            (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 

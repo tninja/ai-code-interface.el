@@ -12,6 +12,8 @@
 (require 'cl-lib)
 (require 'ai-code-session-link)
 
+(defvar ai-code-backends-infra--session-directory)
+
 (ert-deftest ai-code-session-link-test-normalize-file-removes-session-prefixes ()
   "Normalization should trim whitespace and remove session-only prefixes."
   (should (equal (ai-code-session-link--normalize-file " @src/Foo.java ")
@@ -56,6 +58,145 @@
                          (list file)))
           (should (equal (ai-code-session-link--matching-project-files "Foo.java" root)
                          (list file))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-file-and-url ()
+  "Linkify supported in-project file references and URLs."
+  (let* ((root (make-temp-file "ai-code-session-links-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir))
+         (outside-file (expand-file-name "Elsewhere.java" temporary-file-directory)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-temp-file outside-file
+            (insert "class Elsewhere {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert (format "src/FileABC.java\nsrc/FileABC.java:42\nsrc/FileABC.java:L42-L60\nsrc/FileABC.java#L42-L60\nsrc/FileABC.java:42:7\n%s\nhttps://example.com/path\n"
+                            outside-file))
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java:42"))
+            (search-forward-regexp "src/FileABC\\.java:L42-L60")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java:L42-L60"))
+            (search-forward-regexp "src/FileABC\\.java#L42-L60")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java#L42-L60"))
+            (search-forward-regexp "src/FileABC\\.java:42:7")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java:42:7"))
+            (search-forward-regexp (regexp-quote outside-file))
+            (let ((outside-pos (match-beginning 0)))
+              (should-not (ai-code-session-link--in-project-file-p outside-file root))
+              (should-not (get-text-property outside-pos 'ai-code-session-link)))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "https://example.com/path"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (erase-buffer)
+            (insert "Visit https://example.com/docs, please.")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "https://example\\.com/docs")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "https://example.com/docs"))
+            (goto-char (match-end 0))
+            (should-not (get-text-property (point) 'ai-code-session-link))))
+      (when (file-exists-p outside-file)
+        (delete-file outside-file))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-matches-unique-project-basename ()
+  "Linkify basename references when they uniquely match a project file."
+  (let* ((root (make-temp-file "ai-code-session-links-basename-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "Foo.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class Foo {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "Foo.java:42\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "Foo\\.java:42")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "Foo.java:42"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-read-only-text ()
+  "Linkification should work on read-only terminal output."
+  (let* ((root (make-temp-file "ai-code-session-links-read-only-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/FileABC.java:42\nhttps://example.com/path\n")
+            (add-text-properties (point-min) (point-max) '(read-only t))
+            (should
+             (condition-case nil
+                 (progn
+                   (ai-code-session-link--linkify-session-region (point-min) (point-max))
+                   t)
+               (text-read-only nil)))
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java:42"))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "https://example.com/path"))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-adds-visible-session-link-properties ()
+  "Session links should expose visible link styling and unified navigation data."
+  (let* ((root (make-temp-file "ai-code-visible-session-links-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/FileABC.java:42\nhttps://example.com/path\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java:42"))
+            (should (eq (get-text-property (match-beginning 0) 'font-lock-face) 'link))
+            (should (eq (lookup-key (get-text-property (match-beginning 0) 'keymap) [mouse-1])
+                        'ai-code-session-navigate-link-at-mouse))
+            (should (eq (lookup-key (get-text-property (match-beginning 0) 'keymap) [mouse-2])
+                        'ai-code-session-navigate-link-at-mouse))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "https://example.com/path"))
+            (should (eq (get-text-property (match-beginning 0) 'font-lock-face) 'link))))
       (when (file-directory-p root)
         (delete-directory root t)))))
 
