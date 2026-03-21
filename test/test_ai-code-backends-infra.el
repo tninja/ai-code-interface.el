@@ -41,18 +41,18 @@
   (let* ((root (make-temp-file "ai-code-session-links-" t))
          (src-dir (expand-file-name "src" root))
          (file (expand-file-name "FileABC.java" src-dir))
-         (outside (expand-file-name "Elsewhere.java" temporary-file-directory)))
+         (outside-file (expand-file-name "Elsewhere.java" temporary-file-directory)))
     (unwind-protect
         (progn
           (make-directory src-dir t)
           (with-temp-file file
             (insert "class FileABC {}\n"))
-          (with-temp-file outside
+          (with-temp-file outside-file
             (insert "class Elsewhere {}\n"))
           (with-temp-buffer
             (setq-local ai-code-backends-infra--session-directory root)
             (insert (format "src/FileABC.java\nsrc/FileABC.java:42\nsrc/FileABC.java:L42-L60\nsrc/FileABC.java#L42-L60\nsrc/FileABC.java:42:7\n%s\nhttps://example.com/path\n"
-                            outside))
+                            outside-file))
             (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
             (goto-char (point-min))
             (search-forward-regexp "src/FileABC\\.java")
@@ -72,15 +72,25 @@
             (search-forward-regexp "src/FileABC\\.java:42:7")
             (should (= (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :column)
                        7))
-            (search-forward-regexp (regexp-quote outside))
+            (search-forward-regexp (regexp-quote outside-file))
+            (should-not (ai-code-backends-infra--in-project-file-p outside-file root))
             (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-type))
             (search-forward-regexp "https://example\\.com/path")
             (should (eq (get-text-property (match-beginning 0) 'ai-code-session-link-type) 'url))
             (should (equal (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :url)
                            "https://example.com/path"))
-            (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
-      (when (file-exists-p outside)
-        (delete-file outside))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (erase-buffer)
+            (insert "Visit https://example.com/docs, please.")
+            (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "https://example\\.com/docs")
+            (should (equal (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :url)
+                           "https://example.com/docs"))
+            (goto-char (match-end 0))
+            (should-not (get-text-property (point) 'ai-code-session-link-type))))
+      (when (file-exists-p outside-file)
+        (delete-file outside-file))
       (when (file-directory-p root)
         (delete-directory root t)))))
 
@@ -88,7 +98,7 @@
   "Open linked files at the referenced line and column."
   (let* ((root (make-temp-file "ai-code-follow-file-" t))
          (file (expand-file-name "lib/example.py" root))
-         (opened nil)
+         (opened-file nil)
          (line nil)
          (column nil))
     (unwind-protect
@@ -103,14 +113,14 @@
             (goto-char (point-min))
             (cl-letf (((symbol-function 'find-file-other-window)
                        (lambda (target)
-                         (setq opened target)
+                         (setq opened-file target)
                          (current-buffer)))
                       ((symbol-function 'ai-code-backends-infra--goto-line-column)
                        (lambda (target-line target-column)
                          (setq line target-line
                                column target-column))))
               (ai-code-backends-infra--follow-session-link-at-point))
-            (should (equal opened file))
+            (should (equal opened-file file))
             (should (= line 3))
             (should (= column 2))))
       (when (file-directory-p root)

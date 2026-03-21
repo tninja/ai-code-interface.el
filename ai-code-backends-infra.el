@@ -126,9 +126,6 @@ window becomes visible again."
 (defvar ai-code-backends-infra--reflow-advised-handlers nil
   "Resize handlers currently advised with reflow filter.")
 
-(defvar ai-code-backends-infra--project-files-cache (make-hash-table :test 'equal)
-  "Hash table mapping project roots to absolute project file lists.")
-
 (defvar-local ai-code-backends-infra--idle-timer nil
   "Timer for detecting idle state (response completion).")
 
@@ -158,6 +155,13 @@ being sent for the response completion.")
 
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
+
+(defconst ai-code-backends-infra--linkify-min-tail-width 512
+  "Minimum number of tail characters to rescan for session links.")
+
+(defconst ai-code-backends-infra--url-pattern-regexp
+  "\\(https?://[^][(){}<>\"' \t\n]+\\)"
+  "Regexp matching http/https URLs in session buffers.")
 
 (defcustom ai-code-backends-infra-idle-delay 5.0
   "Delay in seconds of inactivity before considering response complete.
@@ -430,15 +434,12 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
     (and root (file-name-as-directory (expand-file-name root)))))
 
 (defun ai-code-backends-infra--project-files (root)
-  "Return cached absolute project files for ROOT."
-  (or (gethash root ai-code-backends-infra--project-files-cache)
-      (let ((files (when (file-directory-p root)
-                     (or (ignore-errors
-                           (when-let ((project (project-current nil root)))
-                             (project-files project)))
-                         (directory-files-recursively root ".*" t)))))
-        (puthash root files ai-code-backends-infra--project-files-cache)
-        files)))
+  "Return absolute project files for ROOT."
+  (when (file-directory-p root)
+    (or (ignore-errors
+          (when-let ((project (project-current nil root)))
+            (project-files project)))
+        (directory-files-recursively root ".*" t))))
 
 (defun ai-code-backends-infra--in-project-file-p (file root)
   "Return non-nil when FILE exists and belongs to ROOT."
@@ -476,8 +477,9 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 
 (defun ai-code-backends-infra--goto-line-column (line column)
   "Move point to LINE and optional COLUMN."
-  (goto-char (point-min))
-  (forward-line (max 0 (1- line)))
+  (let ((max-line (max 1 (line-number-at-pos (point-max)))))
+    (goto-char (point-min))
+    (forward-line (1- (min line max-line))))
   (when (and column (> column 0))
     (move-to-column (1- column))))
 
@@ -532,12 +534,13 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
   "Apply URL session links between START and END."
   (save-excursion
     (goto-char start)
-    (while (re-search-forward "\\(https?://[^][(){}<>\"' \t\n]+\\)" end t)
-      (let ((url-start (match-beginning 1))
-            (url-end (match-end 1))
-            (url (match-string-no-properties 1)))
+    (while (re-search-forward ai-code-backends-infra--url-pattern-regexp end t)
+      (let* ((url-start (match-beginning 1))
+             (raw-url (match-string-no-properties 1))
+             (trimmed-url (replace-regexp-in-string "[.,;:!?]+\\'" "" raw-url))
+             (url-end (+ url-start (length trimmed-url))))
         (ai-code-backends-infra--apply-session-link-properties
-         url-start url-end 'url (list :url url))))))
+         url-start url-end 'url (list :url trimmed-url))))))
 
 (defun ai-code-backends-infra--file-link-data (path line column)
   "Return session file link data for PATH, LINE and COLUMN."
@@ -547,16 +550,23 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 (defun ai-code-backends-infra--linkify-file-region (start end)
   "Apply file session links between START and END."
   (let ((patterns
-         '(("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)#L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
+         '(
+           ;; GitHub/code-review format: path#L42 or path#L42-L60
+           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)#L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
             1 2 nil)
+           ;; Claude/Copilot style: path:L42 or path:L42-L60
            ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
             1 2 nil)
+           ;; Compiler/linter style: path:line:column
            ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\):\\([0-9]+\\)\\>"
             1 2 3)
+           ;; Range style: path:42-60
            ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)-\\([0-9]+\\)\\>"
             1 2 nil)
+           ;; Basic file+line style: path:42
            ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)\\>"
             1 2 nil)
+           ;; Bare file path, including @path references emitted by AI tools.
            ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)\\>"
             1 nil nil))))
     (save-excursion
@@ -605,7 +615,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 
 (defun ai-code-backends-infra--linkify-recent-output (output)
   "Linkify the recent tail of the current session buffer after OUTPUT."
-  (let* ((visible-width (max 512 (* 2 (length (or output "")))))
+  (let* ((visible-width (max ai-code-backends-infra--linkify-min-tail-width
+                             (* 2 (length (or output "")))))
          (end (point-max))
          (start (max (point-min) (- end visible-width))))
     (ai-code-backends-infra--linkify-session-region start end)))
