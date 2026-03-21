@@ -1050,6 +1050,33 @@
         (should (= line 41))
         (should (= column 7))))))
 
+(ert-deftest ai-code-test-session-navigate-link-at-point-opens-file-range-link-from-session-link-property ()
+  "Session link navigation should open range-style file links using the first line."
+  (let (opened-file line column)
+    (cl-letf (((symbol-function 'find-file-other-window)
+               (lambda (file)
+                 (setq opened-file file)
+                 (current-buffer)))
+              ((symbol-function 'ai-code--find-project-file)
+               (lambda (_file)
+                 "/tmp/ai-code-backends-infra.el"))
+              ((symbol-function 'forward-line)
+               (lambda (n)
+                 (setq line n)))
+              ((symbol-function 'move-to-column)
+               (lambda (n &optional _force)
+                 (setq column n)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (with-temp-buffer
+        (insert "See ai-code-backends-infra.el:479-499 for details")
+        (add-text-properties 5 37 '(ai-code-session-link "ai-code-backends-infra.el:479-499"))
+        (goto-char 10)
+        (ai-code-session-navigate-link-at-point)
+        (should (equal opened-file "/tmp/ai-code-backends-infra.el"))
+        (should (= line 478))
+        (should-not column)))))
+
 (ert-deftest ai-code-test-session-navigate-link-at-point-opens-url-from-session-link-property ()
   "Session link navigation should open web URLs from clickable link text."
   (let (opened-url)

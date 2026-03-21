@@ -524,7 +524,7 @@ END-POS defaults to the current '#' position."
      ((string-match "^\\(.*\\):L\\([0-9]+\\)$" text)
       (list :file (match-string 1 text)
             :line-start (string-to-number (match-string 2 text))))
-     ((string-match "^\\(.*?\\):\\([0-9]+\\)$" text)
+     ((string-match "^\\(.*?\\):\\([0-9]+\\)\\(?:-\\([0-9]+\\)\\)?$" text)
       (list :file (match-string 1 text)
             :line-start (string-to-number (match-string 2 text))))
      ((string-match-p "[./]" text)
