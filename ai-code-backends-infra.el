@@ -31,6 +31,8 @@
 (declare-function eat-mode "eat" ())
 (declare-function eat-exec "eat" (&rest args))
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
+(declare-function ai-code-session-navigate-link-at-mouse "ai-code-input" (event))
+(declare-function ai-code-session-navigate-link-at-point "ai-code-input" ())
 
 ;; Declare vterm dynamic variables for let-binding to work with lexical-binding
 (defvar vterm-shell)
@@ -148,8 +150,9 @@ being sent for the response completion.")
 
 (defvar ai-code-backends-infra--session-link-map
   (let ((map (make-sparse-keymap)))
-    (define-key map [mouse-1] #'ai-code-backends-infra--follow-session-link-mouse)
-    (define-key map (kbd "RET") #'ai-code-backends-infra--follow-session-link-at-point)
+    (define-key map [mouse-1] #'ai-code-session-navigate-link-at-mouse)
+    (define-key map [mouse-2] #'ai-code-session-navigate-link-at-mouse)
+    (define-key map (kbd "RET") #'ai-code-session-navigate-link-at-point)
     map)
   "Keymap used for clickable session links.")
 
@@ -162,6 +165,45 @@ being sent for the response completion.")
 (defconst ai-code-backends-infra--url-pattern-regexp
   "\\(https?://[^][(){}<>\"' \t\n]+\\)"
   "Regexp matching http/https URLs in session buffers.")
+
+(defvar-local ai-code-backends-infra--session-linkify-timer nil
+  "Timer used to re-linkify recent terminal output after redraw settles.")
+
+(defvar-local ai-code-backends-infra--session-linkify-tail-width 0
+  "Pending tail width to rescan when delayed session linkification runs.")
+
+(defun ai-code-backends-infra--linkify-tail-width (output)
+  "Return the tail width to rescan after OUTPUT."
+  (max ai-code-backends-infra--linkify-min-tail-width
+       (* 2 (length (or output "")))))
+
+(defun ai-code-backends-infra--flush-scheduled-linkify ()
+  "Apply any delayed session linkification pending in the current buffer."
+  (let ((tail-width ai-code-backends-infra--session-linkify-tail-width))
+    (setq ai-code-backends-infra--session-linkify-tail-width 0
+          ai-code-backends-infra--session-linkify-timer nil)
+    (when (> tail-width 0)
+      (let ((end (point-max)))
+        (ai-code-backends-infra--linkify-session-region
+         (max (point-min) (- end tail-width))
+         end)))))
+
+(defun ai-code-backends-infra--schedule-linkify-recent-output (buffer output)
+  "Linkify recent OUTPUT in BUFFER after terminal redraw settles."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq ai-code-backends-infra--session-linkify-tail-width
+            (max ai-code-backends-infra--session-linkify-tail-width
+                 (ai-code-backends-infra--linkify-tail-width output)))
+      (unless ai-code-backends-infra--session-linkify-timer
+        (setq ai-code-backends-infra--session-linkify-timer
+              (run-at-time
+               0 nil
+               (lambda (buf)
+                 (when (buffer-live-p buf)
+                   (with-current-buffer buf
+                     (ai-code-backends-infra--flush-scheduled-linkify))))
+               buffer))))))
 
 (defcustom ai-code-backends-infra-idle-delay 5.0
   "Delay in seconds of inactivity before considering response complete.
@@ -253,8 +295,9 @@ The timer is reset only after meaningful output is observed."
   (prog1
       (funcall orig-fun process input)
     (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
-      (with-current-buffer (process-buffer process)
-        (ai-code-backends-infra--linkify-recent-output input)))))
+      (ai-code-backends-infra--schedule-linkify-recent-output
+       (process-buffer process)
+       input))))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates.
@@ -515,12 +558,14 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
   (mouse-set-point event)
   (ai-code-backends-infra--follow-session-link-at-point))
 
-(defun ai-code-backends-infra--apply-session-link-properties (start end type data)
+(defun ai-code-backends-infra--apply-session-link-properties (start end type data &optional text)
   "Apply session link properties from START to END with TYPE and DATA."
   (let ((map ai-code-backends-infra--session-link-map))
     (add-text-properties
      start end
-     (list 'ai-code-session-link-type type
+     (list 'ai-code-session-link (or text
+                                     (buffer-substring-no-properties start end))
+           'ai-code-session-link-type type
            'ai-code-session-link-data data
            'mouse-face 'highlight
            'help-echo (if (eq type 'url)
@@ -528,6 +573,7 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
                         "mouse-1: Visit file")
            'keymap map
            'follow-link t
+           'font-lock-face 'link
            'face 'link))))
 
 (defun ai-code-backends-infra--linkify-url-region (start end)
@@ -540,7 +586,7 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
              (trimmed-url (replace-regexp-in-string "[.,;:!?]+\\'" "" raw-url))
              (url-end (+ url-start (length trimmed-url))))
         (ai-code-backends-infra--apply-session-link-properties
-         url-start url-end 'url (list :url trimmed-url))))))
+         url-start url-end 'url (list :url trimmed-url) trimmed-url)))))
 
 (defun ai-code-backends-infra--file-link-data (path line column)
   "Return session file link data for PATH, LINE and COLUMN."
@@ -584,7 +630,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
                    (data (ai-code-backends-infra--file-link-data path line column)))
               (when data
                 (ai-code-backends-infra--apply-session-link-properties
-                 match-start match-end 'file data)))))))))
+                 match-start match-end 'file data
+                 (buffer-substring-no-properties match-start match-end))))))))))
 
 (defun ai-code-backends-infra--linkify-session-region (start end)
   "Make supported URLs and in-project file references clickable from START to END."
@@ -603,12 +650,14 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
                 (when (get-text-property pos 'ai-code-session-link-type)
                   (remove-text-properties
                    pos next
-                   '(ai-code-session-link-type nil
+                   '(ai-code-session-link nil
+                     ai-code-session-link-type nil
                      ai-code-session-link-data nil
                      mouse-face nil
                      help-echo nil
                      keymap nil
                      follow-link nil
+                     font-lock-face nil
                      face nil)))
                 (setq pos next))))
           (ai-code-backends-infra--linkify-url-region start end)
@@ -616,8 +665,7 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 
 (defun ai-code-backends-infra--linkify-recent-output (output)
   "Linkify the recent tail of the current session buffer after OUTPUT."
-  (let* ((visible-width (max ai-code-backends-infra--linkify-min-tail-width
-                             (* 2 (length (or output "")))))
+  (let* ((visible-width (ai-code-backends-infra--linkify-tail-width output))
          (end (point-max))
          (start (max (point-min) (- end visible-width))))
     (ai-code-backends-infra--linkify-session-region start end)))

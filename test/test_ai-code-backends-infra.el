@@ -122,6 +122,54 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest test-ai-code-backends-infra-vterm-notification-tracker-relinks-after-redraw ()
+  "Re-linkify vterm output when a later redraw strips custom properties."
+  (let* ((root (make-temp-file "ai-code-vterm-redraw-links-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir))
+         (buffer (generate-new-buffer "*codex[session-links]*"))
+         (process 'fake-process)
+         (output "src/FileABC.java:42\nhttps://example.com/path\n"))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (cl-letf (((symbol-function 'process-buffer)
+                       (lambda (_process) buffer)))
+              (ai-code-backends-infra--vterm-notification-tracker
+               (lambda (_process _input)
+                 (let ((inhibit-read-only t))
+                   (erase-buffer)
+                   (insert output)
+                   ;; Simulate a later vterm redraw that rewrites the rendered text.
+                   (run-at-time
+                    0 nil
+                    (lambda (buf text)
+                      (when (buffer-live-p buf)
+                        (with-current-buffer buf
+                          (let ((inhibit-read-only t))
+                            (erase-buffer)
+                            (insert text)))))
+                    buffer output)))
+               process
+               output))
+            (sleep-for 0.02)
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (eq (get-text-property (match-beginning 0) 'ai-code-session-link-type) 'file))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (goto-char (point-min))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (eq (get-text-property (match-beginning 0) 'ai-code-session-link-type) 'url))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest test-ai-code-backends-infra-follow-session-file-link-at-point ()
   "Open linked files at the referenced line and column."
   (let* ((root (make-temp-file "ai-code-follow-file-" t))
@@ -989,6 +1037,48 @@
              (setq called (list created-buffer created-process created-instance))))
           (should (equal (list buffer process "default")
                          called)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-linkify-session-region-adds-visible-session-link-properties ()
+  "Session links should expose visible link styling and unified navigation data."
+  (let* ((root (make-temp-file "ai-code-visible-session-links-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/FileABC.java:42\nhttps://example.com/path\n")
+            (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java:42"))
+            (should (eq (get-text-property (match-beginning 0) 'font-lock-face) 'link))
+            (should (eq (lookup-key (get-text-property (match-beginning 0) 'keymap) [mouse-1])
+                        'ai-code-session-navigate-link-at-mouse))
+            (should (eq (lookup-key (get-text-property (match-beginning 0) 'keymap) [mouse-2])
+                        'ai-code-session-navigate-link-at-mouse))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "https://example.com/path"))
+            (should (eq (get-text-property (match-beginning 0) 'font-lock-face) 'link))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest test-ai-code-backends-infra-configure-session-buffer-does-not-bind-manual-navigation ()
+  "Configuring a session buffer should not add a manual `C-c g' navigation feature."
+  (let ((buffer (generate-new-buffer "*ai-code-session-config*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--linkify-session-region)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--configure-session-buffer buffer)
+          (with-current-buffer buffer
+            (should-not (key-binding (kbd "C-c g")))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
