@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Add clickable in-repo file and URL links in AI session buffers
 
 ** 1.62
 - Fix: Preserve AI session reuse for attached and newly opened files when lookup context changes
