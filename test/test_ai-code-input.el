@@ -1270,6 +1270,44 @@
       (should (equal (get-text-property (point) 'ai-code-session-link)
                      "ai-code--find-project-file")))))
 
+(ert-deftest ai-code-test-project-symbol-exists-p-finds-project-definition ()
+  "Symbol validation should accept definitions inside the current repo."
+  (let* ((tmpdir (make-temp-file "ai-code-symbol-proj-" t))
+         (source (expand-file-name "test-definitions.el" tmpdir)))
+    (unwind-protect
+        (progn
+          (with-temp-file source
+            (insert "(defun ai-code--find-project-file () t)\n"))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) tmpdir))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional _dirs)
+                       (list "test-definitions.el"))))
+            (should (ai-code--project-symbol-exists-p
+                     "ai-code--find-project-file"))))
+      (delete-directory tmpdir t))))
+
+(ert-deftest ai-code-test-project-symbol-exists-p-rejects-usage-only ()
+  "Symbol validation should reject bare usages without a definition."
+  (let* ((tmpdir (make-temp-file "ai-code-symbol-usage-" t))
+         (source (expand-file-name "usage.el" tmpdir)))
+    (unwind-protect
+        (progn
+          (with-temp-file source
+            (insert "(message ai-code--find-project-file)\n"))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) tmpdir))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional _dirs)
+                       (list "usage.el"))))
+            (should-not (ai-code--project-symbol-exists-p
+                         "ai-code--find-project-file"))))
+      (delete-directory tmpdir t))))
+
 (ert-deftest ai-code-test-session-link-refresh-region-skips-unresolvable-file ()
   "Unresolvable file links should not become clickable."
   (cl-letf (((symbol-function 'ai-code--project-file-candidates)
@@ -1357,23 +1395,22 @@
         (ai-code-session-navigate-link-at-point)
         (should (cl-some (lambda (m) (string-match-p "No code link" m)) messages))))))
 
-(ert-deftest ai-code-test-session-navigate-link-symbol-prefers-helm-gtags ()
-  "Symbol navigation should use Helm-Gtags when available."
+(ert-deftest ai-code-test-session-navigate-link-symbol-uses-xref ()
+  "Symbol navigation should use built-in xref."
   (let ((called nil))
-    (cl-letf (((symbol-function 'helm-gtags-dwim)
-               (lambda () (setq called 'helm-gtags)))
+    (cl-letf (((symbol-function 'xref-find-definitions)
+               (lambda (identifier) (setq called identifier)))
               ((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir) nil))
               ((symbol-function 'ai-code--git-root)
                (lambda (&optional _dir) default-directory))
-              ((symbol-function 'require)
-               (lambda (feature &optional _filename _noerror)
-                 (if (eq feature 'helm-gtags) t (require feature nil t)))))
+              ((symbol-function 'ai-code--project-symbol-exists-p)
+               (lambda (symbol) (equal symbol "MyClass"))))
       (with-temp-buffer
         (insert "MyClass")
         (goto-char (point-min))
         (ai-code-session-navigate-link-at-point)
-        (should (eq called 'helm-gtags))))))
+        (should (equal called "MyClass"))))))
 
 (ert-deftest ai-code-test-session-navigate-link-at-mouse ()
   "Mouse navigation should move point to the clicked link and navigate."

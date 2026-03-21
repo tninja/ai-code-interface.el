@@ -17,11 +17,10 @@
 (require 'subr-x)
 
 (declare-function helm-comp-read "helm-mode" (prompt collection &rest args))
-(declare-function helm-gtags-dwim "helm-gtags" ())
-(declare-function projectile-project-root "projectile" ())
 (declare-function project-current "project" (&optional maybe-prompt dir))
 (declare-function project-files "project" (project &optional dirs))
 (declare-function project-root "project" (project))
+(declare-function xref-find-definitions "xref" (identifier))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
@@ -464,6 +463,13 @@ the filename so ordinary prose like \"output\" does not become clickable.")
 (defconst ai-code--session-link-symbol-search-max-bytes (* 1024 1024)
   "Maximum file size, in bytes, to scan when validating symbol links.")
 
+(defconst ai-code--session-symbol-definition-pattern-templates
+  '("^(\\(?:cl-\\)?def\\(?:un\\|macro\\|subst\\|generic\\|method\\|var\\|const\\|custom\\|group\\|face\\)\\s-+'?%s\\_>"
+    "^(ert-deftest\\s-+'?%s\\_>"
+    "^[[:space:]]*\\(?:export[[:space:]]+\\)?\\(?:async[[:space:]]+\\)?\\(?:class\\|struct\\|enum\\|interface\\|trait\\|type\\|def\\|function\\|fn\\)\\s-+%s\\_>"
+    "^[[:space:]]*func\\s-+\\(?:([^)]*)\\s-*\\)?%s\\s-*(")
+  "Conservative regexp templates used to validate in-project symbol definitions.")
+
 (defvar ai-code--session-link-keymap
   (let ((map (make-sparse-keymap)))
     (define-key map [mouse-1] #'ai-code-session-navigate-link-at-mouse)
@@ -564,11 +570,6 @@ Returns nil when TEXT does not match any recognized format."
   "Return the best available project root for the current session."
   (or (when-let ((project (ignore-errors (project-current nil default-directory))))
         (expand-file-name (project-root project)))
-      (when (fboundp 'projectile-project-root)
-        (ignore-errors
-          (let ((root (projectile-project-root)))
-            (when root
-              (expand-file-name root)))))
       (ai-code--git-root)
       (expand-file-name default-directory)))
 
@@ -577,18 +578,14 @@ Returns nil when TEXT does not match any recognized format."
   (when (stringp filename)
     (string-remove-prefix "@" filename)))
 
-(defun ai-code--search-file-in-project (filename project-root)
-  "Search for FILENAME by its basename under PROJECT-ROOT.
-Returns a de-duplicated list of absolute matches."
-  (let ((basename (file-name-nondirectory filename)))
-    (when (and (stringp basename) (not (string-empty-p basename)))
-      (condition-case nil
-          (delete-dups
-           (directory-files-recursively
-            project-root
-            (concat "\\`" (regexp-quote basename) "\\'")
-            nil t))
-        (error nil)))))
+(defun ai-code--session-project-files (root)
+  "Return absolute tracked files for the current session project under ROOT."
+  (when-let ((project (ignore-errors (project-current nil root))))
+    (mapcar (lambda (file)
+              (if (file-name-absolute-p file)
+                  file
+                (expand-file-name file (project-root project))))
+            (project-files project))))
 
 (defun ai-code--project-file-candidates (filename)
   "Return possible project file matches for FILENAME."
@@ -596,16 +593,10 @@ Returns a de-duplicated list of absolute matches."
               (filename (ai-code--normalize-session-link-file raw))
               ((not (string-empty-p filename))))
     (let* ((root (ai-code--session-project-root))
-           (project (ignore-errors (project-current nil root)))
-           (project-files
-            (when project
-              (mapcar (lambda (file)
-                        (if (file-name-absolute-p file)
-                            file
-                          (expand-file-name file (project-root project))))
-                      (project-files project))))
+           (project-files (ai-code--session-project-files root))
            (exact-root (expand-file-name filename root))
            (exact-default (expand-file-name filename default-directory))
+           (basename (file-name-nondirectory filename))
            (matches
             (append
              (when (and (file-name-absolute-p filename) (file-exists-p filename))
@@ -614,23 +605,18 @@ Returns a de-duplicated list of absolute matches."
                (list exact-root))
              (when (file-exists-p exact-default)
                (list exact-default))
-             (cl-remove-if-not
-              (lambda (file)
-                (or (string= (file-relative-name file root) filename)
-                    (string= (file-name-nondirectory file)
-                             (file-name-nondirectory filename))))
-              project-files)
-             (ai-code--search-file-in-project filename root))))
+              (cl-remove-if-not
+               (lambda (file)
+                 (or (string= (file-relative-name file root) filename)
+                     (string= (file-name-nondirectory file) basename)))
+               project-files))))
       (delete-dups matches))))
 
 (defun ai-code--read-session-link-candidate (prompt candidates)
   "Read one item from CANDIDATES using PROMPT."
   (let* ((choices (delete-dups (copy-sequence candidates)))
          (default (car choices)))
-    (if (and (fboundp 'helm-comp-read)
-             (or (featurep 'helm)
-                 (require 'helm nil t)))
-        (helm-comp-read prompt choices :must-match t :initial-input default)
+    (when choices
       (completing-read prompt choices nil t nil nil default))))
 
 (defun ai-code--find-project-file (filename)
@@ -650,43 +636,40 @@ Returns the absolute path on success, or nil when the file cannot be found."
 
 (defun ai-code--project-files-for-symbol-search (root)
   "Return project files suitable for symbol search under ROOT."
-  (let ((project (ignore-errors (project-current nil root))))
-    (when project
-      (mapcar (lambda (file)
-                (if (file-name-absolute-p file)
-                    file
-                  (expand-file-name file (project-root project))))
-              (project-files project)))))
+  (ai-code--session-project-files root))
+
+(defun ai-code--session-symbol-definition-regexps (symbol)
+  "Return conservative definition regexps for SYMBOL."
+  (let ((quoted (regexp-quote symbol)))
+    (mapcar (lambda (template) (format template quoted))
+            ai-code--session-symbol-definition-pattern-templates)))
+
+(defun ai-code--file-matches-any-regexp-p (file regexps)
+  "Return non-nil when FILE contains a match for any of REGEXPS."
+  (when (and (file-regular-p file)
+             (let ((attrs (file-attributes file)))
+               (and attrs
+                    (numberp (file-attribute-size attrs))
+                    (<= (file-attribute-size attrs)
+                        ai-code--session-link-symbol-search-max-bytes))))
+    (with-temp-buffer
+      (condition-case nil
+          (progn
+            (insert-file-contents file)
+            (cl-some (lambda (regexp)
+                       (goto-char (point-min))
+                       (re-search-forward regexp nil t))
+                     regexps))
+        (error nil)))))
 
 (defun ai-code--project-symbol-exists-p (symbol)
   "Return non-nil when SYMBOL can be resolved in the current project."
   (when (and (stringp symbol) (not (string-empty-p symbol)))
-    (or (let ((sym (intern-soft symbol)))
-          (and sym
-               (or (fboundp sym)
-                   (boundp sym)
-                   (facep sym)
-                   (featurep sym)
-                   (custom-variable-p sym))))
-        (when-let ((root (ai-code--session-project-root)))
-          (let ((regexp (concat "\\(?:^\\|[^[:alnum:]_$-]\\)"
-                                (regexp-quote symbol)
-                                "\\(?:$\\|[^[:alnum:]_$-]\\)")))
-            (cl-some
-             (lambda (file)
-               (when (and (file-regular-p file)
-                          (let ((attrs (file-attributes file)))
-                            (and attrs
-                                 (numberp (file-attribute-size attrs))
-                                 (<= (file-attribute-size attrs)
-                                     ai-code--session-link-symbol-search-max-bytes))))
-                 (with-temp-buffer
-                   (condition-case nil
-                       (progn
-                         (insert-file-contents file)
-                         (re-search-forward regexp nil t))
-                     (error nil)))))
-             (ai-code--project-files-for-symbol-search root)))))))
+    (when-let ((root (ai-code--session-project-root)))
+      (let ((regexps (ai-code--session-symbol-definition-regexps symbol)))
+        (cl-some (lambda (file)
+                   (ai-code--file-matches-any-regexp-p file regexps))
+                 (ai-code--project-files-for-symbol-search root))))))
 
 (defun ai-code--session-link-valid-p (text link cache)
   "Return non-nil when LINK parsed from TEXT resolves in the current project."
@@ -703,17 +686,11 @@ Returns the absolute path on success, or nil when the file cannot be found."
                cache))))
 
 (defun ai-code--session-navigate-symbol (symbol)
-  "Navigate to SYMBOL using the best available project-aware backend."
+  "Navigate to SYMBOL using built-in xref support."
   (let ((default-directory (ai-code--session-project-root)))
-    (cond
-     ((and (fboundp 'helm-gtags-dwim)
-           (or (featurep 'helm-gtags)
-               (require 'helm-gtags nil t)))
-      (helm-gtags-dwim))
-     ((fboundp 'xref-find-definitions)
-      (xref-find-definitions symbol))
-     (t
-      (message "Symbol not found: %s (no navigation backend available)" symbol)))))
+    (if (fboundp 'xref-find-definitions)
+        (xref-find-definitions symbol)
+      (message "Cannot navigate to symbol: %s (xref not available)" symbol))))
 
 (defun ai-code--session-link-help-echo (text)
   "Return help text for clickable session link TEXT."
