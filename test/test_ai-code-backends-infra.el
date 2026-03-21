@@ -94,6 +94,34 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest test-ai-code-backends-infra-linkify-session-region-read-only-text ()
+  "Linkification should work on read-only terminal output."
+  (let* ((root (make-temp-file "ai-code-session-links-read-only-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/FileABC.java:42\nhttps://example.com/path\n")
+            (add-text-properties (point-min) (point-max) '(read-only t))
+            (should
+             (condition-case nil
+                 (progn
+                   (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
+                   t)
+               (text-read-only nil)))
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (eq (get-text-property (match-beginning 0) 'ai-code-session-link-type) 'file))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (eq (get-text-property (match-beginning 0) 'ai-code-session-link-type) 'url))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest test-ai-code-backends-infra-follow-session-file-link-at-point ()
   "Open linked files at the referenced line and column."
   (let* ((root (make-temp-file "ai-code-follow-file-" t))

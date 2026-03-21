@@ -589,29 +589,30 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 (defun ai-code-backends-infra--linkify-session-region (start end)
   "Make supported URLs and in-project file references clickable from START to END."
   (when (< start end)
-    (save-excursion
-      (save-restriction
-        (widen)
-        (setq start (max (point-min) start)
-              end (min (point-max) end))
-        (let ((pos start))
-          (while (< pos end)
-            (let ((next (or (next-single-property-change
-                             pos 'ai-code-session-link-type nil end)
-                            end)))
-              (when (get-text-property pos 'ai-code-session-link-type)
-                (remove-text-properties
-                 pos next
-                 '(ai-code-session-link-type nil
-                   ai-code-session-link-data nil
-                   mouse-face nil
-                   help-echo nil
-                   keymap nil
-                   follow-link nil
-                   face nil)))
-              (setq pos next))))
-        (ai-code-backends-infra--linkify-url-region start end)
-        (ai-code-backends-infra--linkify-file-region start end)))))
+    (let ((inhibit-read-only t))
+      (save-excursion
+        (save-restriction
+          (widen)
+          (setq start (max (point-min) start)
+                end (min (point-max) end))
+          (let ((pos start))
+            (while (< pos end)
+              (let ((next (or (next-single-property-change
+                               pos 'ai-code-session-link-type nil end)
+                              end)))
+                (when (get-text-property pos 'ai-code-session-link-type)
+                  (remove-text-properties
+                   pos next
+                   '(ai-code-session-link-type nil
+                     ai-code-session-link-data nil
+                     mouse-face nil
+                     help-echo nil
+                     keymap nil
+                     follow-link nil
+                     face nil)))
+                (setq pos next))))
+          (ai-code-backends-infra--linkify-url-region start end)
+          (ai-code-backends-infra--linkify-file-region start end))))))
 
 (defun ai-code-backends-infra--linkify-recent-output (output)
   "Linkify the recent tail of the current session buffer after OUTPUT."
