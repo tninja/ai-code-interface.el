@@ -1023,6 +1023,41 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-test-find-project-file-prefers-existing-absolute-local-path ()
+  "Absolute existing paths should resolve directly without prompting for repo matches."
+  (let* ((project-root (make-temp-file "ai-code-find-project-file-project-" t))
+         (project-file (expand-file-name "src/ai-code-behaviors.el" project-root))
+         (local-root (make-temp-file "ai-code-find-project-file-local-" t))
+         (local-file (expand-file-name "ai-code-behaviors.el" local-root))
+         chooser-called)
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory project-file) t)
+          (with-temp-file project-file
+            (insert "project copy\n"))
+          (with-temp-file local-file
+            (insert "local copy\n"))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir)
+                       'mock-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project)
+                       project-root))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional _dirs)
+                       '("src/ai-code-behaviors.el")))
+                    ((symbol-function 'ai-code--read-session-link-candidate)
+                     (lambda (&rest _args)
+                       (setq chooser-called t)
+                       project-file)))
+            (should (equal (ai-code--find-project-file local-file)
+                           local-file))
+            (should-not chooser-called)))
+      (when (file-directory-p local-root)
+        (delete-directory local-root t))
+      (when (file-directory-p project-root)
+        (delete-directory project-root t)))))
+
 (ert-deftest ai-code-test-session-navigate-link-at-point-opens-file-from-session-link-property ()
   "Session link navigation should open files using the clickable link text at point."
   (let (opened-file line column)

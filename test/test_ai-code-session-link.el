@@ -62,7 +62,7 @@
         (delete-directory root t)))))
 
 (ert-deftest ai-code-session-link-test-linkify-session-region-file-and-url ()
-  "Linkify supported in-project file references and URLs."
+  "Linkify project files, existing local files, and URLs."
   (let* ((root (make-temp-file "ai-code-session-links-" t))
          (src-dir (expand-file-name "src" root))
          (file (expand-file-name "FileABC.java" src-dir))
@@ -99,7 +99,9 @@
             (search-forward-regexp (regexp-quote outside-file))
             (let ((outside-pos (match-beginning 0)))
               (should-not (ai-code-session-link--in-project-file-p outside-file root))
-              (should-not (get-text-property outside-pos 'ai-code-session-link)))
+              (should (equal (get-text-property outside-pos 'ai-code-session-link)
+                             outside-file))
+              (should (eq (get-text-property outside-pos 'face) 'link)))
             (search-forward-regexp "https://example\\.com/path")
             (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
                            "https://example.com/path"))
@@ -137,6 +139,40 @@
             (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
                            "Foo.java:42"))
             (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-supports-existing-local-file-and-directory ()
+  "Linkify existing local file and directory paths, but not missing ones."
+  (let* ((root (make-temp-file "ai-code-session-links-local-paths-" t))
+         (local-file (expand-file-name "tmp/LocalFile.txt" root))
+         (local-dir (expand-file-name "tmp/local-directory" root))
+         (missing-file (expand-file-name "tmp/MissingFile.txt" root)))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory local-file) t)
+          (make-directory local-dir t)
+          (with-temp-file local-file
+            (insert "local file\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory
+                        (expand-file-name "project" root))
+            (insert (format "%s:12\n%s\n%s:9\n"
+                            local-file
+                            local-dir
+                            missing-file))
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp (concat (regexp-quote local-file) ":12"))
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           (format "%s:12" local-file)))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (search-forward-regexp (regexp-quote local-dir))
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           local-dir))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (search-forward-regexp (concat (regexp-quote missing-file) ":9"))
+            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link))))
       (when (file-directory-p root)
         (delete-directory root t)))))
 

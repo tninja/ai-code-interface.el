@@ -566,14 +566,21 @@ END-POS defaults to the current '#' position."
     (when choices
       (completing-read prompt choices nil t nil nil default))))
 
+(defun ai-code--existing-absolute-session-path (filename)
+  "Return an existing absolute local path for FILENAME, or nil."
+  (when-let ((normalized (ai-code-session-link--normalize-file filename)))
+    (when (file-name-absolute-p normalized)
+      (ai-code-session-link--resolve-existing-local-path normalized nil))))
+
 (defun ai-code--find-project-file (filename)
   "Locate FILENAME within the current project."
-  (when-let ((candidates (ai-code--project-file-candidates filename)))
-    (if (= (length candidates) 1)
-        (car candidates)
-      (ai-code--read-session-link-candidate
-       (format "Choose file for %s: " filename)
-       candidates))))
+  (or (ai-code--existing-absolute-session-path filename)
+        (when-let ((candidates (ai-code--project-file-candidates filename)))
+          (if (= (length candidates) 1)
+              (car candidates)
+            (ai-code--read-session-link-candidate
+             (format "Choose file for %s: " filename)
+             candidates)))))
 
 (defun ai-code-session-navigate-link-at-mouse (event)
   "Navigate to the session link clicked by mouse EVENT."

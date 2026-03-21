@@ -33,20 +33,33 @@
   "\\(https?://[^][(){}<>\"' \t\n]+\\)"
   "Regexp matching http/https URLs in session buffers.")
 
+(defconst ai-code-session-link--path-base-regexp
+  "@?[[:alnum:]_./~-]*[./][[:alnum:]_./~-]+"
+  "Regexp matching a local file-like or directory-like path.")
+
+(defun ai-code-session-link--path-pattern (suffix)
+  "Return a session link regexp for `ai-code-session-link--path-base-regexp' plus SUFFIX."
+  (concat "\\(" ai-code-session-link--path-base-regexp "\\)" suffix))
+
 (defconst ai-code-session-link--file-patterns
-  '(
-    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)#L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
-     1 2 nil)
-    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
-     1 2 nil)
-    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\):\\([0-9]+\\)\\>"
-     1 2 3)
-    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)-\\([0-9]+\\)\\>"
-     1 2 nil)
-    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)\\>"
-     1 2 nil)
-    ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)\\>"
-     1 nil nil))
+  (list
+   (list (ai-code-session-link--path-pattern
+          "#L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?")
+         1 2 nil)
+   (list (ai-code-session-link--path-pattern
+          ":L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?")
+         1 2 nil)
+   (list (ai-code-session-link--path-pattern
+          ":\\([0-9]+\\):\\([0-9]+\\)\\>")
+         1 2 3)
+   (list (ai-code-session-link--path-pattern
+          ":\\([0-9]+\\)-\\([0-9]+\\)\\>")
+         1 2 nil)
+   (list (ai-code-session-link--path-pattern
+          ":\\([0-9]+\\)\\>")
+         1 2 nil)
+   (list (ai-code-session-link--path-pattern "\\>")
+         1 nil nil))
   "Patterns used to detect file-like session links.")
 
 (defvar-local ai-code-session-link--linkify-timer nil
@@ -113,20 +126,36 @@
                   default-directory)))
     (and root (file-name-as-directory (expand-file-name root)))))
 
+(defun ai-code-session-link--local-path-candidates (path root)
+  "Return local candidate paths for PATH using ROOT and `default-directory'."
+  (delete-dups
+   (delq nil
+         (list (and (file-name-absolute-p path)
+                    (expand-file-name path))
+               (and root
+                    (expand-file-name path root))
+               (expand-file-name path default-directory)))))
+
+(defun ai-code-session-link--resolve-existing-local-path (path root)
+  "Resolve PATH to an existing local file or directory using ROOT."
+  (seq-find #'file-exists-p
+            (ai-code-session-link--local-path-candidates path root)))
+
 (defun ai-code-session-link--resolve-session-file (path)
-  "Resolve PATH to an absolute file inside the current project."
+  "Resolve PATH to an existing local path or a matching project file."
   (let* ((root (ai-code-session-link--project-root-for-paths))
          (normalized (ai-code-session-link--normalize-file path)))
     (when (and root normalized)
-      (let* ((project-files (ai-code-session-link--project-files root))
-             (candidate (if (file-name-absolute-p normalized)
-                            (expand-file-name normalized)
-                          (expand-file-name normalized root))))
-        (cond
-         ((ai-code-session-link--in-project-file-p candidate root project-files) candidate)
-         ((not (file-name-absolute-p normalized))
-          (car (ai-code-session-link--matching-project-files normalized root project-files)))
-         (t nil))))))
+      (or (ai-code-session-link--resolve-existing-local-path normalized root)
+          (let* ((project-files (ai-code-session-link--project-files root))
+                 (candidate (if (file-name-absolute-p normalized)
+                                (expand-file-name normalized)
+                              (expand-file-name normalized root))))
+            (cond
+             ((ai-code-session-link--in-project-file-p candidate root project-files) candidate)
+             ((not (file-name-absolute-p normalized))
+              (car (ai-code-session-link--matching-project-files normalized root project-files)))
+             (t nil)))))))
 
 (defun ai-code-session-link--apply-properties (start end &optional text help-echo)
   "Apply session link properties from START to END."
