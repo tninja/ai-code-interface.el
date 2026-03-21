@@ -19,6 +19,7 @@
 (require 'project)
 
 ;; Silence native-compiler warnings.
+(declare-function browse-url "browse-url" (url &optional new-window))
 (declare-function vterm "vterm" (&optional buffer-name))
 (declare-function vterm-send-string "vterm" (&rest args))
 (declare-function vterm-send-escape "vterm" ())
@@ -125,6 +126,9 @@ window becomes visible again."
 (defvar ai-code-backends-infra--reflow-advised-handlers nil
   "Resize handlers currently advised with reflow filter.")
 
+(defvar ai-code-backends-infra--project-files-cache (make-hash-table :test 'equal)
+  "Hash table mapping project roots to absolute project file lists.")
+
 (defvar-local ai-code-backends-infra--idle-timer nil
   "Timer for detecting idle state (response completion).")
 
@@ -144,6 +148,13 @@ being sent for the response completion.")
 
 (defvar-local ai-code-backends-infra--multiline-input-sequence nil
   "Terminal sequence sent for multiline input in the current session buffer.")
+
+(defvar ai-code-backends-infra--session-link-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mouse-1] #'ai-code-backends-infra--follow-session-link-mouse)
+    (define-key map (kbd "RET") #'ai-code-backends-infra--follow-session-link-at-point)
+    map)
+  "Keymap used for clickable session links.")
 
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
@@ -235,7 +246,11 @@ The timer is reset only after meaningful output is observed."
     (with-current-buffer (process-buffer process)
       (when (ai-code-backends-infra--output-meaningful-p input)
         (ai-code-backends-infra--note-meaningful-output))))
-  (funcall orig-fun process input))
+  (prog1
+      (funcall orig-fun process input)
+    (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+      (with-current-buffer (process-buffer process)
+        (ai-code-backends-infra--linkify-recent-output input)))))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates.
@@ -388,7 +403,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
     (when escape-fn
       (local-set-key (kbd "C-<escape>") escape-fn))
     (ai-code-backends-infra--configure-multiline-input
-     multiline-input-sequence)))
+     multiline-input-sequence)
+    (ai-code-backends-infra--linkify-session-region (point-min) (point-max))))
 
 ;;; Reflow and Window Management
 
@@ -403,6 +419,196 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
   "Check if BUFFER belongs to an AI session."
   (when-let ((name (if (stringp buffer) buffer (buffer-name buffer))))
     (string-match-p "\\`\\*.*\\[.*\\].*\\*\\'" name)))
+
+(defun ai-code-backends-infra--project-root-for-paths ()
+  "Return the current session's project root directory with trailing slash."
+  (let ((root (or ai-code-backends-infra--session-directory
+                  (and (fboundp 'project-current)
+                       (when-let ((project (project-current nil default-directory)))
+                         (expand-file-name (project-root project))))
+                  default-directory)))
+    (and root (file-name-as-directory (expand-file-name root)))))
+
+(defun ai-code-backends-infra--project-files (root)
+  "Return cached absolute project files for ROOT."
+  (or (gethash root ai-code-backends-infra--project-files-cache)
+      (let ((files (when (file-directory-p root)
+                     (or (ignore-errors
+                           (when-let ((project (project-current nil root)))
+                             (project-files project)))
+                         (directory-files-recursively root ".*" t)))))
+        (puthash root files ai-code-backends-infra--project-files-cache)
+        files)))
+
+(defun ai-code-backends-infra--in-project-file-p (file root)
+  "Return non-nil when FILE exists and belongs to ROOT."
+  (let ((candidate (expand-file-name file)))
+    (and root
+         (file-exists-p candidate)
+         (string-prefix-p root (file-name-directory candidate))
+         (member candidate (ai-code-backends-infra--project-files root)))))
+
+(defun ai-code-backends-infra--collect-matching-project-files (path root)
+  "Return project files in ROOT that match relative PATH."
+  (let ((normalized (replace-regexp-in-string "\\`\\./" "" path)))
+    (cl-remove-if-not
+     (lambda (file)
+       (string= (file-relative-name file root) normalized))
+     (ai-code-backends-infra--project-files root))))
+
+(defun ai-code-backends-infra--resolve-session-file (path)
+  "Resolve PATH to an absolute file inside the current project."
+  (let* ((root (ai-code-backends-infra--project-root-for-paths))
+         (trimmed (string-trim path)))
+    (when (and root (not (string-empty-p trimmed)))
+      (let* ((without-at (if (string-prefix-p "@" trimmed)
+                             (substring trimmed 1)
+                           trimmed))
+             (normalized (replace-regexp-in-string "\\`file://+" "" without-at))
+             (candidate (if (file-name-absolute-p normalized)
+                            (expand-file-name normalized)
+                          (expand-file-name normalized root))))
+        (cond
+         ((ai-code-backends-infra--in-project-file-p candidate root) candidate)
+         ((not (file-name-absolute-p normalized))
+          (car (ai-code-backends-infra--collect-matching-project-files normalized root)))
+         (t nil))))))
+
+(defun ai-code-backends-infra--goto-line-column (line column)
+  "Move point to LINE and optional COLUMN."
+  (goto-char (point-min))
+  (forward-line (max 0 (1- line)))
+  (when (and column (> column 0))
+    (move-to-column (1- column))))
+
+(defun ai-code-backends-infra--open-session-file-link (data)
+  "Open session file link described by DATA."
+  (let ((file (plist-get data :file))
+        (line (plist-get data :line))
+        (column (plist-get data :column)))
+    (when file
+      (find-file-other-window file)
+      (when line
+        (ai-code-backends-infra--goto-line-column line column)))))
+
+(defun ai-code-backends-infra--open-session-url-link (data)
+  "Open session URL link described by DATA."
+  (when-let ((url (plist-get data :url)))
+    (browse-url url)))
+
+(defun ai-code-backends-infra--follow-session-link-at-point ()
+  "Follow the session link at point."
+  (interactive)
+  (let* ((pos (point))
+         (type (get-text-property pos 'ai-code-session-link-type))
+         (data (get-text-property pos 'ai-code-session-link-data)))
+    (pcase type
+      ('file (ai-code-backends-infra--open-session-file-link data))
+      ('url (ai-code-backends-infra--open-session-url-link data))
+      (_ (user-error "No session link at point")))))
+
+(defun ai-code-backends-infra--follow-session-link-mouse (event)
+  "Follow the session link clicked with mouse EVENT."
+  (interactive "e")
+  (mouse-set-point event)
+  (ai-code-backends-infra--follow-session-link-at-point))
+
+(defun ai-code-backends-infra--apply-session-link-properties (start end type data)
+  "Apply session link properties from START to END with TYPE and DATA."
+  (let ((map ai-code-backends-infra--session-link-map))
+    (add-text-properties
+     start end
+     (list 'ai-code-session-link-type type
+           'ai-code-session-link-data data
+           'mouse-face 'highlight
+           'help-echo (if (eq type 'url)
+                          "mouse-1: Open URL"
+                        "mouse-1: Visit file")
+           'keymap map
+           'follow-link t
+           'face 'link))))
+
+(defun ai-code-backends-infra--linkify-url-region (start end)
+  "Apply URL session links between START and END."
+  (save-excursion
+    (goto-char start)
+    (while (re-search-forward "\\(https?://[^][(){}<>\"' \t\n]+\\)" end t)
+      (let ((url-start (match-beginning 1))
+            (url-end (match-end 1))
+            (url (match-string-no-properties 1)))
+        (ai-code-backends-infra--apply-session-link-properties
+         url-start url-end 'url (list :url url))))))
+
+(defun ai-code-backends-infra--file-link-data (path line column)
+  "Return session file link data for PATH, LINE and COLUMN."
+  (when-let ((file (ai-code-backends-infra--resolve-session-file path)))
+    (list :file file :line line :column column)))
+
+(defun ai-code-backends-infra--linkify-file-region (start end)
+  "Apply file session links between START and END."
+  (let ((patterns
+         '(("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)#L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
+            1 2 nil)
+           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):L\\([0-9]+\\)\\(?:-L?\\([0-9]+\\)\\)?"
+            1 2 nil)
+           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\):\\([0-9]+\\)\\>"
+            1 2 3)
+           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)-\\([0-9]+\\)\\>"
+            1 2 nil)
+           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\):\\([0-9]+\\)\\>"
+            1 2 nil)
+           ("\\(@?\\(?:\\.?/\\|/\\)?\\(?:[[:alnum:]_./-]+/\\)*[[:alnum:]_.-]+\\.[[:alnum:]_-]+\\)\\>"
+            1 nil nil))))
+    (save-excursion
+      (dolist (pattern patterns)
+        (goto-char start)
+        (while (re-search-forward (car pattern) end t)
+          (unless (get-text-property (match-beginning 0) 'ai-code-session-link-type)
+            (let* ((match-start (match-beginning 0))
+                   (match-end (match-end 0))
+                   (path (match-string-no-properties (nth 1 pattern)))
+                   (line (when-let ((group (nth 2 pattern)))
+                           (string-to-number (match-string-no-properties group))))
+                   (column (when-let ((group (nth 3 pattern)))
+                             (string-to-number (match-string-no-properties group))))
+                   (data (ai-code-backends-infra--file-link-data path line column)))
+              (when data
+                (ai-code-backends-infra--apply-session-link-properties
+                 match-start match-end 'file data)))))))))
+
+(defun ai-code-backends-infra--linkify-session-region (start end)
+  "Make supported URLs and in-project file references clickable from START to END."
+  (when (< start end)
+    (save-excursion
+      (save-restriction
+        (widen)
+        (setq start (max (point-min) start)
+              end (min (point-max) end))
+        (let ((pos start))
+          (while (< pos end)
+            (let ((next (or (next-single-property-change
+                             pos 'ai-code-session-link-type nil end)
+                            end)))
+              (when (get-text-property pos 'ai-code-session-link-type)
+                (remove-text-properties
+                 pos next
+                 '(ai-code-session-link-type nil
+                   ai-code-session-link-data nil
+                   mouse-face nil
+                   help-echo nil
+                   keymap nil
+                   follow-link nil
+                   face nil)))
+              (setq pos next))))
+        (ai-code-backends-infra--linkify-url-region start end)
+        (ai-code-backends-infra--linkify-file-region start end)))))
+
+(defun ai-code-backends-infra--linkify-recent-output (output)
+  "Linkify the recent tail of the current session buffer after OUTPUT."
+  (let* ((visible-width (max 512 (* 2 (length (or output "")))))
+         (end (point-max))
+         (start (max (point-min) (- end visible-width))))
+    (ai-code-backends-infra--linkify-session-region start end)))
 
 (defun ai-code-backends-infra--terminal-reflow-filter (original-fn &rest args)
   "Filter terminal reflows to prevent height-only resize triggers."
@@ -928,12 +1134,13 @@ ENV-VARS is a list of environment variables."
                (lambda (process output)
                  ;; Call original filter first
                  (when orig-filter
-                   (funcall orig-filter process output))
-                 ;; Then track activity for notifications
-                 (with-current-buffer (process-buffer process)
-                   (when (ai-code-backends-infra--output-meaningful-p output)
-                     (ai-code-backends-infra--note-meaningful-output)))))))
-          (cons buffer (get-buffer-process buffer)))))
+                    (funcall orig-filter process output))
+                  ;; Then track activity for notifications
+                   (with-current-buffer (process-buffer process)
+                     (when (ai-code-backends-infra--output-meaningful-p output)
+                       (ai-code-backends-infra--note-meaningful-output))
+                    (ai-code-backends-infra--linkify-recent-output output))))))
+           (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 
 (defun ai-code-backends-infra--cleanup-dead-processes (table)

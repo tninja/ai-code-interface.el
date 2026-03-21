@@ -34,7 +34,102 @@
         (should-not (ai-code-backends-infra--buffer-user-visible-p buf)))
       (cl-letf (((symbol-function 'get-buffer-window-list)
                  (lambda (&rest _args) (list (selected-window)))))
-        (should (ai-code-backends-infra--buffer-user-visible-p buf))))))
+         (should (ai-code-backends-infra--buffer-user-visible-p buf))))))
+
+(ert-deftest test-ai-code-backends-infra-linkify-session-region-file-and-url ()
+  "Linkify supported in-project file references and URLs."
+  (let* ((root (make-temp-file "ai-code-session-links-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir))
+         (outside (expand-file-name "Elsewhere.java" temporary-file-directory)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-temp-file outside
+            (insert "class Elsewhere {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert (format "src/FileABC.java\nsrc/FileABC.java:42\nsrc/FileABC.java:L42-L60\nsrc/FileABC.java#L42-L60\nsrc/FileABC.java:42:7\n%s\nhttps://example.com/path\n"
+                            outside))
+            (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java")
+            (should (eq (get-text-property (match-beginning 0) 'ai-code-session-link-type) 'file))
+            (should (equal (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :file)
+                           file))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (= (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :line)
+                       42))
+            (search-forward-regexp "src/FileABC\\.java:L42-L60")
+            (should (= (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :line)
+                       42))
+            (search-forward-regexp "src/FileABC\\.java#L42-L60")
+            (should (= (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :line)
+                       42))
+            (search-forward-regexp "src/FileABC\\.java:42:7")
+            (should (= (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :column)
+                       7))
+            (search-forward-regexp (regexp-quote outside))
+            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-type))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (eq (get-text-property (match-beginning 0) 'ai-code-session-link-type) 'url))
+            (should (equal (plist-get (get-text-property (match-beginning 0) 'ai-code-session-link-data) :url)
+                           "https://example.com/path"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
+      (when (file-exists-p outside)
+        (delete-file outside))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest test-ai-code-backends-infra-follow-session-file-link-at-point ()
+  "Open linked files at the referenced line and column."
+  (let* ((root (make-temp-file "ai-code-follow-file-" t))
+         (file (expand-file-name "lib/example.py" root))
+         (opened nil)
+         (line nil)
+         (column nil))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory file) t)
+          (with-temp-file file
+            (insert "line1\nline2\nline3\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "lib/example.py:3:2")
+            (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (cl-letf (((symbol-function 'find-file-other-window)
+                       (lambda (target)
+                         (setq opened target)
+                         (current-buffer)))
+                      ((symbol-function 'ai-code-backends-infra--goto-line-column)
+                       (lambda (target-line target-column)
+                         (setq line target-line
+                               column target-column))))
+              (ai-code-backends-infra--follow-session-link-at-point))
+            (should (equal opened file))
+            (should (= line 3))
+            (should (= column 2))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest test-ai-code-backends-infra-follow-session-url-link-at-point ()
+  "Open linked URLs with `browse-url'."
+  (let (opened-url)
+    (with-temp-buffer
+      (insert "See https://example.com/docs")
+      (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
+      (goto-char (point-min))
+      (search-forward-regexp "https://example\\.com/docs")
+      (goto-char (match-beginning 0))
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url &optional _new-window)
+                   (setq opened-url url))))
+        (ai-code-backends-infra--follow-session-link-at-point))
+      (should (equal opened-url "https://example.com/docs")))))
 
 (ert-deftest test-ai-code-backends-infra-response-seen-visible ()
   "Mark responses as seen without notifying when visible."
