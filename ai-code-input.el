@@ -15,6 +15,7 @@
 (require 'imenu)
 (require 'magit)
 (require 'project)
+(require 'ai-code-session-link)
 (require 'subr-x)
 
 (declare-function browse-url "browse-url" (url &optional new-window))
@@ -537,32 +538,15 @@ END-POS defaults to the current '#' position."
       (ai-code--git-root)
       (expand-file-name default-directory)))
 
-(defun ai-code--normalize-session-link-file (filename)
-  "Normalize session link FILENAME for project lookup."
-  (when (stringp filename)
-    (string-remove-prefix "@" filename)))
-
-(defun ai-code--session-project-files (root)
-  "Return absolute project files under ROOT."
-  (or (when-let ((project (ignore-errors (project-current nil root))))
-        (mapcar (lambda (file)
-                  (if (file-name-absolute-p file)
-                      file
-                    (expand-file-name file (project-root project))))
-                (project-files project)))
-      (when (file-directory-p root)
-        (directory-files-recursively root ".*" t))))
-
 (defun ai-code--project-file-candidates (filename)
   "Return possible project file matches for FILENAME."
   (when-let* ((raw filename)
-              (filename (ai-code--normalize-session-link-file raw))
+              (filename (ai-code-session-link--normalize-file raw))
               ((not (string-empty-p filename))))
     (let* ((root (ai-code--session-project-root))
-           (project-files (ai-code--session-project-files root))
+           (project-files (ai-code-session-link--project-files root))
            (exact-root (expand-file-name filename root))
            (exact-default (expand-file-name filename default-directory))
-           (basename (file-name-nondirectory filename))
            (matches
             (append
              (when (and (file-name-absolute-p filename) (file-exists-p filename))
@@ -571,11 +555,8 @@ END-POS defaults to the current '#' position."
                (list exact-root))
              (when (file-exists-p exact-default)
                (list exact-default))
-             (cl-remove-if-not
-              (lambda (file)
-                (or (string= (file-relative-name file root) filename)
-                    (string= (file-name-nondirectory file) basename)))
-              project-files))))
+             (ai-code-session-link--matching-project-files
+              filename root project-files))))
       (delete-dups matches))))
 
 (defun ai-code--read-session-link-candidate (prompt candidates)

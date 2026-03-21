@@ -82,10 +82,11 @@
             (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-type))
             (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-data))
             (search-forward-regexp (regexp-quote outside-file))
-            (should-not (ai-code-backends-infra--in-project-file-p outside-file root))
-            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link))
-            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-type))
-            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-data))
+            (let ((outside-pos (match-beginning 0)))
+              (should-not (ai-code-backends-infra--in-project-file-p outside-file root))
+              (should-not (get-text-property outside-pos 'ai-code-session-link))
+              (should-not (get-text-property outside-pos 'ai-code-session-link-type))
+              (should-not (get-text-property outside-pos 'ai-code-session-link-data)))
             (search-forward-regexp "https://example\\.com/path")
             (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
                            "https://example.com/path"))
@@ -107,6 +108,28 @@
             (should-not (get-text-property (point) 'ai-code-session-link-data))))
       (when (file-exists-p outside-file)
         (delete-file outside-file))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest test-ai-code-backends-infra-linkify-session-region-matches-unique-project-basename ()
+  "Linkify basename references when they uniquely match a project file."
+  (let* ((root (make-temp-file "ai-code-session-links-basename-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "Foo.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class Foo {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "Foo.java:42\n")
+            (ai-code-backends-infra--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward-regexp "Foo\\.java:42")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "Foo.java:42"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
       (when (file-directory-p root)
         (delete-directory root t)))))
 

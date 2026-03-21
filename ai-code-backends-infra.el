@@ -17,6 +17,7 @@
 
 (require 'cl-lib)
 (require 'project)
+(require 'ai-code-session-link)
 
 ;; Silence native-compiler warnings.
 (declare-function browse-url "browse-url" (url &optional new-window))
@@ -476,46 +477,23 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
                   default-directory)))
     (and root (file-name-as-directory (expand-file-name root)))))
 
-(defun ai-code-backends-infra--project-files (root)
-  "Return absolute project files for ROOT."
-  (when (file-directory-p root)
-    (or (ignore-errors
-          (when-let ((project (project-current nil root)))
-            (project-files project)))
-        (directory-files-recursively root ".*" t))))
-
 (defun ai-code-backends-infra--in-project-file-p (file root)
   "Return non-nil when FILE exists and belongs to ROOT."
-  (let ((candidate (expand-file-name file)))
-    (and root
-         (file-exists-p candidate)
-         (string-prefix-p root (file-name-directory candidate))
-         (member candidate (ai-code-backends-infra--project-files root)))))
-
-(defun ai-code-backends-infra--collect-matching-project-files (path root)
-  "Return project files in ROOT that match relative PATH."
-  (let ((normalized (replace-regexp-in-string "\\`\\./" "" path)))
-    (cl-remove-if-not
-     (lambda (file)
-       (string= (file-relative-name file root) normalized))
-     (ai-code-backends-infra--project-files root))))
+  (ai-code-session-link--in-project-file-p file root))
 
 (defun ai-code-backends-infra--resolve-session-file (path)
   "Resolve PATH to an absolute file inside the current project."
   (let* ((root (ai-code-backends-infra--project-root-for-paths))
-         (trimmed (string-trim path)))
-    (when (and root (not (string-empty-p trimmed)))
-      (let* ((without-at (if (string-prefix-p "@" trimmed)
-                             (substring trimmed 1)
-                           trimmed))
-             (normalized (replace-regexp-in-string "\\`file://+" "" without-at))
+         (normalized (ai-code-session-link--normalize-file path)))
+    (when (and root normalized)
+      (let* ((project-files (ai-code-session-link--project-files root))
              (candidate (if (file-name-absolute-p normalized)
                             (expand-file-name normalized)
                           (expand-file-name normalized root))))
         (cond
-         ((ai-code-backends-infra--in-project-file-p candidate root) candidate)
+         ((ai-code-session-link--in-project-file-p candidate root project-files) candidate)
          ((not (file-name-absolute-p normalized))
-          (car (ai-code-backends-infra--collect-matching-project-files normalized root)))
+          (car (ai-code-session-link--matching-project-files normalized root project-files)))
          (t nil))))))
 
 (defun ai-code-backends-infra--apply-session-link-properties (start end &optional text help-echo)
