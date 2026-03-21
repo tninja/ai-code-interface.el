@@ -1333,8 +1333,60 @@
                     ((symbol-function 'project-files)
                      (lambda (_project &optional _dirs)
                        (list "usage.el"))))
-            (should-not (ai-code--project-symbol-exists-p
-                         "ai-code--find-project-file"))))
+             (should-not (ai-code--project-symbol-exists-p
+                          "ai-code--find-project-file"))))
+       (delete-directory tmpdir t))))
+
+(ert-deftest ai-code-test-project-symbol-definitions-finds-direct-location ()
+  "Symbol lookup should return direct in-project definition locations."
+  (let* ((tmpdir (make-temp-file "ai-code-symbol-loc-" t))
+         (source (expand-file-name "test-definitions.el" tmpdir)))
+    (unwind-protect
+        (progn
+          (with-temp-file source
+            (insert ";; intro\n(defun ai-code--find-project-file () t)\n"))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) tmpdir))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional _dirs)
+                       (list "test-definitions.el"))))
+            (let ((definitions
+                   (ai-code--project-symbol-definitions
+                    "ai-code--find-project-file")))
+              (should (= (length definitions) 1))
+              (should (equal (plist-get (car definitions) :file) source))
+              (should (= (plist-get (car definitions) :line) 2)))))
+      (delete-directory tmpdir t))))
+
+(ert-deftest ai-code-test-project-symbol-definitions-returns-multiple-matches ()
+  "Symbol lookup should return all direct in-project definition locations."
+  (let* ((tmpdir (make-temp-file "ai-code-symbol-multi-" t))
+         (source-a (expand-file-name "a.el" tmpdir))
+         (source-b (expand-file-name "b.el" tmpdir)))
+    (unwind-protect
+        (progn
+          (with-temp-file source-a
+            (insert "(defun ai-code--find-project-file () t)\n"))
+          (with-temp-file source-b
+            (insert "(defun ai-code--find-project-file () nil)\n"))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) tmpdir))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional _dirs)
+                       (list "a.el" "b.el"))))
+            (let ((definitions
+                   (ai-code--project-symbol-definitions
+                    "ai-code--find-project-file")))
+              (should (= (length definitions) 2))
+              (should (equal (mapcar (lambda (entry)
+                                       (file-name-nondirectory
+                                        (plist-get entry :file)))
+                                     definitions)
+                             '("a.el" "b.el"))))))
       (delete-directory tmpdir t))))
 
 (ert-deftest ai-code-test-session-link-refresh-region-skips-unresolvable-file ()
@@ -1424,8 +1476,41 @@
         (ai-code-session-navigate-link-at-point)
         (should (cl-some (lambda (m) (string-match-p "No code link" m)) messages))))))
 
-(ert-deftest ai-code-test-session-navigate-link-symbol-uses-xref ()
-  "Symbol navigation should use built-in xref."
+(ert-deftest ai-code-test-session-navigate-link-symbol-opens-direct-definition ()
+  "Symbol navigation should open direct in-project definitions without xref."
+  (let* ((tmpdir (make-temp-file "ai-code-symbol-nav-" t))
+         (source (expand-file-name "defs.el" tmpdir))
+         (opened-file nil)
+         (xref-called nil))
+    (unwind-protect
+        (progn
+          (with-temp-file source
+            (insert ";; intro\n(defun ai-code--find-project-file () t)\n"))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) tmpdir))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional _dirs) (list "defs.el")))
+                    ((symbol-function 'xref-find-definitions)
+                     (lambda (identifier) (setq xref-called identifier)))
+                    ((symbol-function 'find-file-other-window)
+                     (lambda (file)
+                       (setq opened-file file)
+                       (switch-to-buffer (find-file-noselect file)))))
+            (with-temp-buffer
+              (insert "ai-code--find-project-file")
+              (goto-char (point-min))
+              (ai-code-session-navigate-link-at-point)
+              (should (equal opened-file source))
+              (should-not xref-called)
+              (should (= (line-number-at-pos) 2)))))
+      (when (get-file-buffer source)
+        (kill-buffer (get-file-buffer source)))
+      (delete-directory tmpdir t))))
+
+(ert-deftest ai-code-test-session-navigate-link-symbol-falls-back-to-xref ()
+  "Symbol navigation should fall back to xref when no direct definition is found."
   (let ((called nil))
     (cl-letf (((symbol-function 'xref-find-definitions)
                (lambda (identifier) (setq called identifier)))
@@ -1434,12 +1519,57 @@
               ((symbol-function 'ai-code--git-root)
                (lambda (&optional _dir) default-directory))
               ((symbol-function 'ai-code--project-symbol-exists-p)
-               (lambda (symbol) (equal symbol "MyClass"))))
+               (lambda (symbol) (equal symbol "MyClass")))
+              ((symbol-function 'ai-code--project-symbol-definitions)
+               (lambda (_symbol) nil)))
       (with-temp-buffer
         (insert "MyClass")
         (goto-char (point-min))
         (ai-code-session-navigate-link-at-point)
         (should (equal called "MyClass"))))))
+
+(ert-deftest ai-code-test-session-navigate-link-symbol-selects-multiple-definitions ()
+  "Symbol navigation should prompt when multiple direct definitions exist."
+  (let* ((tmpdir (make-temp-file "ai-code-symbol-select-" t))
+         (first-file (expand-file-name "first.el" tmpdir))
+         (second-file (expand-file-name "second.el" tmpdir))
+         (first `(:file ,first-file :position 1 :line 1))
+         (second `(:file ,second-file :position 1 :line 1))
+         (opened-file nil)
+         (selection-called nil))
+    (unwind-protect
+        (progn
+          (with-temp-file first-file
+            (insert "(defun ai-code--find-project-file () t)\n"))
+          (with-temp-file second-file
+            (insert "(defun ai-code--find-project-file () nil)\n"))
+          (cl-letf (((symbol-function 'ai-code--project-symbol-definitions)
+                     (lambda (_symbol) (list first second)))
+                    ((symbol-function 'ai-code--read-session-link-definition-candidate)
+                     (lambda (symbol candidates)
+                       (setq selection-called (list symbol candidates))
+                       second))
+                    ((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) nil))
+                    ((symbol-function 'ai-code--git-root)
+                     (lambda (&optional _dir) tmpdir))
+                    ((symbol-function 'find-file-other-window)
+                     (lambda (file)
+                       (setq opened-file file)
+                       (switch-to-buffer (find-file-noselect file)))))
+            (with-temp-buffer
+              (insert "ai-code--find-project-file")
+              (goto-char (point-min))
+              (ai-code-session-navigate-link-at-point)
+              (should (equal opened-file second-file))
+              (should (equal selection-called
+                             (list "ai-code--find-project-file"
+                                   (list first second)))))))
+      (when (get-file-buffer first-file)
+        (kill-buffer (get-file-buffer first-file)))
+      (when (get-file-buffer second-file)
+        (kill-buffer (get-file-buffer second-file)))
+      (delete-directory tmpdir t))))
 
 (ert-deftest ai-code-test-session-navigate-link-opens-url ()
   "URL navigation should use browse-url."

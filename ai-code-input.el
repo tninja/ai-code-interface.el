@@ -682,6 +682,58 @@ Returns the absolute path on success, or nil when the file cannot be found."
                    (ai-code--file-matches-any-regexp-p file regexps))
                  (ai-code--project-files-for-symbol-search root))))))
 
+(defun ai-code--project-symbol-definitions (symbol)
+  "Return direct in-project definition locations for SYMBOL.
+Each match is returned as a plist with keys `:file', `:position',
+and `:line', where `:position' is the character offset of the
+definition start inside the file."
+  (when (and (stringp symbol) (not (string-empty-p symbol)))
+    (when-let ((root (ai-code--session-project-root)))
+      (let ((regexps (ai-code--session-symbol-definition-regexps symbol))
+            matches)
+        (dolist (file (ai-code--project-files-for-symbol-search root))
+          (when (and (file-regular-p file)
+                     (let ((attrs (file-attributes file)))
+                       (and attrs
+                            (numberp (file-attribute-size attrs))
+                            (<= (file-attribute-size attrs)
+                                ai-code--session-link-symbol-search-max-bytes))))
+            (with-temp-buffer
+              (condition-case nil
+                  (progn
+                    (insert-file-contents file)
+                    (goto-char (point-min))
+                    (when-let ((position
+                                (cl-some (lambda (regexp)
+                                           (goto-char (point-min))
+                                           (when (re-search-forward regexp nil t)
+                                             (match-beginning 0)))
+                                         regexps)))
+                      (push (list :file file
+                                  :position position
+                                  :line (line-number-at-pos position))
+                            matches)))
+                (error nil)))))
+        (nreverse matches)))))
+
+(defun ai-code--read-session-link-definition-candidate (symbol candidates)
+  "Prompt for one definition from CANDIDATES for SYMBOL.
+Returns the selected candidate plist with `:file', `:position',
+and `:line' keys."
+  (let* ((choices
+          (mapcar (lambda (candidate)
+                    (cons (format "%s:%d"
+                                  (file-relative-name
+                                   (plist-get candidate :file)
+                                   (ai-code--session-project-root))
+                                  (plist-get candidate :line))
+                          candidate))
+                  candidates))
+         (selected (ai-code--read-session-link-candidate
+                    (format "Choose definition for %s: " symbol)
+                    (mapcar #'car choices))))
+    (cdr (assoc selected choices))))
+
 (defun ai-code--session-link-valid-p (text link cache)
   "Return non-nil when LINK parsed from TEXT resolves in the current project."
   (let ((cached (gethash text cache :missing)))
@@ -698,11 +750,30 @@ Returns the absolute path on success, or nil when the file cannot be found."
                cache))))
 
 (defun ai-code--session-navigate-symbol (symbol)
-  "Navigate to SYMBOL using built-in xref support."
-  (let ((default-directory (ai-code--session-project-root)))
-    (if (fboundp 'xref-find-definitions)
-        (xref-find-definitions symbol)
-      (message "Cannot navigate to symbol: %s (xref not available)" symbol))))
+  "Navigate to SYMBOL, preferring direct in-project definitions."
+  (if-let ((definitions (ai-code--project-symbol-definitions symbol)))
+      (let* ((definition (if (= (length definitions) 1)
+                             (car definitions)
+                           (ai-code--read-session-link-definition-candidate
+                            symbol definitions)))
+             (file (plist-get definition :file))
+             (position (plist-get definition :position))
+             (line (plist-get definition :line)))
+        (if (and file position)
+            (progn
+              (find-file-other-window file)
+              (goto-char position)
+              (message "Navigated to %s (%s%s)"
+                       symbol
+                       (file-relative-name file (ai-code--session-project-root))
+                       (if line
+                           (format ":%d" line)
+                         "")))
+          (message "Cannot navigate to symbol: %s" symbol)))
+    (let ((default-directory (ai-code--session-project-root)))
+      (if (fboundp 'xref-find-definitions)
+          (xref-find-definitions symbol)
+        (message "Cannot navigate to symbol: %s (xref not available)" symbol)))))
 
 (defun ai-code--session-link-help-echo (text)
   "Return help text for clickable session link TEXT."
@@ -814,7 +885,8 @@ Handles the following link formats:
   - filename            open the file
   - filename:42         open the file and go to line 42
   - filename:L42-60     open the file and go to line 42
-  - SymbolName          jump to the symbol definition via xref
+  - SymbolName          jump to the direct repo definition
+                        (prompting if multiple), or fall back to xref
 Binds to \\[ai-code-session-navigate-link-at-point] inside AI session buffers."
   (interactive)
   (let* ((text (ai-code--session-link-text-at-point))
