@@ -1089,6 +1089,12 @@
     (should result)
     (should (equal (plist-get result :symbol) "MyClass"))))
 
+(ert-deftest ai-code-test-parse-session-link-symbol-elisp ()
+  "Test parsing a hyphenated Emacs Lisp symbol."
+  (let ((result (ai-code--parse-session-link "ai-code--find-project-file")))
+    (should result)
+    (should (equal (plist-get result :symbol) "ai-code--find-project-file"))))
+
 (ert-deftest ai-code-test-parse-session-link-nil-returns-nil ()
   "Test that nil input returns nil."
   (should-not (ai-code--parse-session-link nil)))
@@ -1156,6 +1162,15 @@
     (backward-char 3)
     (should (equal (ai-code--session-link-text-at-point) "myFunction"))))
 
+(ert-deftest ai-code-test-session-link-text-at-point-symbol-elisp ()
+  "Test extracting a hyphenated Emacs Lisp symbol at point."
+  (with-temp-buffer
+    (insert "Try ai-code--find-project-file in this repo")
+    (goto-char (point-min))
+    (search-forward "find-project")
+    (should (equal (ai-code--session-link-text-at-point)
+                   "ai-code--find-project-file"))))
+
 ;;; Tests for ai-code--find-project-file
 
 (ert-deftest ai-code-test-find-project-file-absolute-path ()
@@ -1208,40 +1223,74 @@
 
 (ert-deftest ai-code-test-session-link-refresh-region-adds-file-properties ()
   "File links should become mouse-clickable after refresh."
-  (with-temp-buffer
-    (insert "See src/Foo.java:42 for details")
-    (ai-code--session-link-refresh-region (point-min) (point-max))
-    (search-backward "src/Foo.java:42")
-    (let ((link-start (point))
-          (link-end (+ (point) (1- (length "src/Foo.java:42")))))
-      (should (equal (get-text-property link-start 'ai-code-session-link)
-                     "src/Foo.java:42"))
-      (should (equal (get-text-property link-end 'ai-code-session-link)
-                     "src/Foo.java:42"))
-      (should (eq (get-text-property link-start 'mouse-face) 'highlight))
-      (should (get-text-property link-start 'keymap)))))
+  (cl-letf (((symbol-function 'ai-code--project-file-candidates)
+             (lambda (_filename) '("/tmp/src/Foo.java"))))
+    (with-temp-buffer
+      (insert "See src/Foo.java:42 for details")
+      (ai-code--session-link-refresh-region (point-min) (point-max))
+      (search-backward "src/Foo.java:42")
+      (let ((link-start (point))
+            (link-end (+ (point) (1- (length "src/Foo.java:42")))))
+        (should (equal (get-text-property link-start 'ai-code-session-link)
+                       "src/Foo.java:42"))
+        (should (equal (get-text-property link-end 'ai-code-session-link)
+                       "src/Foo.java:42"))
+        (should (eq (get-text-property link-start 'mouse-face) 'highlight))
+        (should (eq (get-text-property link-start 'font-lock-face) 'link))
+        (should (get-text-property link-start 'keymap))))))
 
 (ert-deftest ai-code-test-session-link-refresh-region-adds-github-anchor-properties ()
   "GitHub #L anchors should become mouse-clickable."
-  (with-temp-buffer
-    (insert "Check src/Foo.java#L42-L60 for context")
-    (ai-code--session-link-refresh-region (point-min) (point-max))
-    (search-backward "src/Foo.java#L42-L60")
-    (should (equal (get-text-property (point) 'ai-code-session-link)
-                   "src/Foo.java#L42-L60"))))
+  (cl-letf (((symbol-function 'ai-code--project-file-candidates)
+             (lambda (_filename) '("/tmp/src/Foo.java"))))
+    (with-temp-buffer
+      (insert "Check src/Foo.java#L42-L60 for context")
+      (ai-code--session-link-refresh-region (point-min) (point-max))
+      (search-backward "src/Foo.java#L42-L60")
+      (should (equal (get-text-property (point) 'ai-code-session-link)
+                     "src/Foo.java#L42-L60")))))
 
 (ert-deftest ai-code-test-session-link-refresh-region-adds-symbol-properties ()
-  "CamelCase and camelCase symbols should become mouse-clickable."
-  (with-temp-buffer
-    (insert "Use MyClass and myFunction here")
-    (ai-code--session-link-refresh-region (point-min) (point-max))
-    (search-backward "MyClass")
-    (should (equal (get-text-property (point) 'ai-code-session-link)
-                   "MyClass"))
-    (search-forward "myFunction")
-    (backward-char (length "myFunction"))
-    (should (equal (get-text-property (point) 'ai-code-session-link)
-                   "myFunction"))))
+  "Resolvable symbols should become mouse-clickable."
+  (cl-letf (((symbol-function 'ai-code--project-symbol-exists-p)
+             (lambda (symbol)
+               (member symbol '("MyClass" "myFunction" "ai-code--find-project-file")))))
+    (with-temp-buffer
+      (insert "Use MyClass and myFunction and ai-code--find-project-file here")
+      (ai-code--session-link-refresh-region (point-min) (point-max))
+      (search-backward "MyClass")
+      (should (equal (get-text-property (point) 'ai-code-session-link)
+                     "MyClass"))
+      (search-forward "myFunction")
+      (backward-char (length "myFunction"))
+      (should (equal (get-text-property (point) 'ai-code-session-link)
+                     "myFunction"))
+      (search-forward "ai-code--find-project-file")
+      (backward-char (length "ai-code--find-project-file"))
+      (should (equal (get-text-property (point) 'ai-code-session-link)
+                     "ai-code--find-project-file")))))
+
+(ert-deftest ai-code-test-session-link-refresh-region-skips-unresolvable-file ()
+  "Unresolvable file links should not become clickable."
+  (cl-letf (((symbol-function 'ai-code--project-file-candidates)
+             (lambda (_filename) nil)))
+    (with-temp-buffer
+      (insert "See missing/Foo.java:42 for details")
+      (ai-code--session-link-refresh-region (point-min) (point-max))
+      (search-backward "missing/Foo.java:42")
+      (should-not (get-text-property (point) 'ai-code-session-link))
+      (should-not (get-text-property (point) 'font-lock-face)))))
+
+(ert-deftest ai-code-test-session-link-refresh-region-skips-unresolvable-symbol ()
+  "Unresolvable symbols should not become clickable."
+  (cl-letf (((symbol-function 'ai-code--project-symbol-exists-p)
+             (lambda (_symbol) nil)))
+    (with-temp-buffer
+      (insert "Use imaginarySymbolName here")
+      (ai-code--session-link-refresh-region (point-min) (point-max))
+      (search-backward "imaginarySymbolName")
+      (should-not (get-text-property (point) 'ai-code-session-link))
+      (should-not (get-text-property (point) 'font-lock-face)))))
 
 (ert-deftest ai-code-test-session-link-refresh-region-skips-plain-words ()
   "Plain prose should not become clickable session links."

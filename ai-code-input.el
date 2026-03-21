@@ -447,7 +447,7 @@ the filename so ordinary prose like \"output\" does not become clickable.")
   "Regexp matching clickable file-like session links.")
 
 (defconst ai-code--session-link-symbol-regexp
-  "\\_<\\(?:[A-Z][A-Za-z0-9_$]*\\|[[:lower:]_][A-Za-z0-9_$]*[A-Z][A-Za-z0-9_$]*\\)\\_>"
+  "\\(?:\\_<\\(?:[A-Z][A-Za-z0-9_$]*\\|[[:lower:]_][A-Za-z0-9_$]*[A-Z][A-Za-z0-9_$]*\\)\\_>\\|[A-Za-z_][A-Za-z0-9_$]*\\(?:-+[A-Za-z0-9_$]+\\)+\\)"
   "Regexp matching clickable symbol-like session links.")
 
 (defconst ai-code--session-clickable-link-regexp
@@ -460,6 +460,9 @@ the filename so ordinary prose like \"output\" does not become clickable.")
 
 (defvar-local ai-code--session-link-pending-bounds nil
   "Pending (START . END) region to rescan for clickable links.")
+
+(defconst ai-code--session-link-symbol-search-max-bytes (* 1024 1024)
+  "Maximum file size, in bytes, to scan when validating symbol links.")
 
 (defvar ai-code--session-link-keymap
   (let ((map (make-sparse-keymap)))
@@ -550,12 +553,12 @@ Returns nil when TEXT does not match any recognized format."
             :line-start (string-to-number (match-string 2 text))
             :line-end nil))
      ;; Path or filename containing . or /
-     ((string-match-p "[./]" text)
-      (list :file text :line-start nil :line-end nil))
-     ;; Plain symbol (word characters only)
-     ((string-match-p "^[A-Za-z_][A-Za-z0-9_$]*$" text)
-      (list :symbol text))
-     (t nil))))
+      ((string-match-p "[./]" text)
+       (list :file text :line-start nil :line-end nil))
+      ;; Plain or hyphenated symbol
+      ((string-match-p "^[A-Za-z_][A-Za-z0-9_$-]*$" text)
+       (list :symbol text))
+      (t nil))))
 
 (defun ai-code--session-project-root ()
   "Return the best available project root for the current session."
@@ -645,6 +648,60 @@ Returns the absolute path on success, or nil when the file cannot be found."
        (format "Choose file for %s: " filename)
        candidates))))
 
+(defun ai-code--project-files-for-symbol-search (root)
+  "Return project files suitable for symbol search under ROOT."
+  (let ((project (ignore-errors (project-current nil root))))
+    (when project
+      (mapcar (lambda (file)
+                (if (file-name-absolute-p file)
+                    file
+                  (expand-file-name file (project-root project))))
+              (project-files project)))))
+
+(defun ai-code--project-symbol-exists-p (symbol)
+  "Return non-nil when SYMBOL can be resolved in the current project."
+  (when (and (stringp symbol) (not (string-empty-p symbol)))
+    (or (let ((sym (intern-soft symbol)))
+          (and sym
+               (or (fboundp sym)
+                   (boundp sym)
+                   (facep sym)
+                   (featurep sym)
+                   (custom-variable-p sym))))
+        (when-let ((root (ai-code--session-project-root)))
+          (let ((regexp (concat "\\(?:^\\|[^[:alnum:]_$-]\\)"
+                                (regexp-quote symbol)
+                                "\\(?:$\\|[^[:alnum:]_$-]\\)")))
+            (cl-some
+             (lambda (file)
+               (when (and (file-regular-p file)
+                          (let ((attrs (file-attributes file)))
+                            (and attrs
+                                 (numberp (file-attribute-size attrs))
+                                 (<= (file-attribute-size attrs)
+                                     ai-code--session-link-symbol-search-max-bytes))))
+                 (with-temp-buffer
+                   (condition-case nil
+                       (progn
+                         (insert-file-contents file)
+                         (re-search-forward regexp nil t))
+                     (error nil)))))
+             (ai-code--project-files-for-symbol-search root)))))))
+
+(defun ai-code--session-link-valid-p (text link cache)
+  "Return non-nil when LINK parsed from TEXT resolves in the current project."
+  (let ((cached (gethash text cache :missing)))
+    (if (not (eq cached :missing))
+        cached
+      (puthash text
+               (cond
+                ((plist-get link :file)
+                 (and (ai-code--project-file-candidates (plist-get link :file)) t))
+                ((plist-get link :symbol)
+                 (and (ai-code--project-symbol-exists-p (plist-get link :symbol)) t))
+                (t nil))
+               cache))))
+
 (defun ai-code--session-navigate-symbol (symbol)
   "Navigate to SYMBOL using the best available project-aware backend."
   (let ((default-directory (ai-code--session-project-root)))
@@ -667,10 +724,11 @@ Returns the absolute path on success, or nil when the file cannot be found."
   (add-text-properties
    start end
    `(ai-code-session-link ,text
-                          mouse-face highlight
-                          help-echo ,(ai-code--session-link-help-echo text)
-                          follow-link t
-                          keymap ,ai-code--session-link-keymap)))
+                           mouse-face highlight
+                           font-lock-face link
+                           help-echo ,(ai-code--session-link-help-echo text)
+                           follow-link t
+                           keymap ,ai-code--session-link-keymap)))
 
 (defun ai-code--session-link-clear-properties (start end)
   "Remove clickable-link properties previously applied between START and END."
@@ -679,30 +737,33 @@ Returns the absolute path on success, or nil when the file cannot be found."
       (let ((next (or (next-single-property-change pos 'ai-code-session-link nil end)
                       end)))
         (when (get-text-property pos 'ai-code-session-link)
-          (remove-list-of-text-properties
-           pos next
-           '(ai-code-session-link mouse-face help-echo follow-link keymap)))
-        (setq pos next)))))
+           (remove-list-of-text-properties
+            pos next
+            '(ai-code-session-link mouse-face font-lock-face help-echo
+                                   follow-link keymap)))
+         (setq pos next)))))
 
 (defun ai-code--session-link-refresh-region (start end)
   "Refresh clickable session links between START and END."
   (when (< start end)
     (with-silent-modifications
       (let ((inhibit-read-only t)
+            (link-cache (make-hash-table :test 'equal))
             (case-fold-search nil))
         (ai-code--session-link-clear-properties start end)
         (save-excursion
           (goto-char start)
-          (while (re-search-forward ai-code--session-clickable-link-regexp end t)
-            (let* ((match-start (match-beginning 0))
-                   (match-end (match-end 0))
-                   (text (match-string-no-properties 0))
-                   (link (ai-code--parse-session-link text)))
-              (when link
-                (ai-code--session-link-put-properties
-                 match-start
-                 match-end
-                 text)))))))))
+           (while (re-search-forward ai-code--session-clickable-link-regexp end t)
+             (let* ((match-start (match-beginning 0))
+                    (match-end (match-end 0))
+                    (text (match-string-no-properties 0))
+                    (link (ai-code--parse-session-link text)))
+               (when (and link
+                          (ai-code--session-link-valid-p text link link-cache))
+                 (ai-code--session-link-put-properties
+                  match-start
+                  match-end
+                  text)))))))))
 
 (defun ai-code--session-link-schedule-refresh (start end _len)
   "Schedule clickable-link refresh for changed text between START and END."
