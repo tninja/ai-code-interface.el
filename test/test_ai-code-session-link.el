@@ -179,6 +179,55 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-session-link-test-linkify-session-region-prefilters-java-camelcase-symbols ()
+  "Linkify nearby bare CamelCase symbols for Java files."
+  (let* ((root (make-temp-file "ai-code-session-links-java-camelcase-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "UserService.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class UserService {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/UserService.java:1\nUserService\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (forward-line 1)
+            (search-forward "UserService")
+            (let ((symbol-pos (- (point) (length "UserService"))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             "UserService"))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "src/UserService.java:1")))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-prefilters-python-snake-case-symbols ()
+  "Linkify nearby bare snake_case symbols for Python files."
+  (let* ((root (make-temp-file "ai-code-session-links-python-snake-case-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "user_service.py" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "def process_request():\n    return None\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/user_service.py:1\nprocess_request\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward "process_request")
+            (let ((symbol-pos (- (point) (length "process_request"))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             "process_request"))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "src/user_service.py:1")))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest ai-code-session-link-test-linkify-session-region-prefilters-elisp-hyphen-symbols ()
   "Linkify code-like Elisp symbols while skipping nearby prose hyphen words."
   (let* ((root (make-temp-file "ai-code-session-links-elisp-symbols-" t))

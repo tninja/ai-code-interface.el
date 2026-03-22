@@ -69,6 +69,14 @@ terminal output redraw."
   "[[:alpha:]_][[:alnum:]_*!?]*"
   "Regexp matching one conservative code identifier segment.")
 
+(defconst ai-code-session-link--camel-case-symbol-regexp
+  "[[:upper:]][[:alnum:]]+"
+  "Regexp matching a bare CamelCase-style symbol candidate.")
+
+(defconst ai-code-session-link--snake-case-symbol-regexp
+  "_*[[:lower:]][[:lower:][:digit:]]*\\(?:_[[:lower:][:digit:]]+\\)+"
+  "Regexp matching a bare snake_case-style symbol candidate.")
+
 (defconst ai-code-session-link--symbol-candidate-regexp
   (concat
    "\\("
@@ -86,6 +94,10 @@ terminal output redraw."
    "\\|"
    ai-code-session-link--symbol-identifier-regexp
    "\\(?:-[[:alnum:]_*!?]*\\)+"
+   "\\|"
+   ai-code-session-link--camel-case-symbol-regexp
+   "\\|"
+   ai-code-session-link--snake-case-symbol-regexp
    "\\)"
    "\\)")
   "Regexp matching conservative symbol candidates near a file link.")
@@ -262,6 +274,30 @@ terminal output redraw."
        "\\(?:-p\\|-mode\\|-hook\\|-function\\|-command\\|-local\\|\\*\\|\\?\\)\\'"
        candidate)))
 
+(defun ai-code-session-link--java-camel-case-symbol-p (candidate)
+  "Return non-nil when CANDIDATE looks like a Java-style CamelCase symbol."
+  (let ((case-fold-search nil))
+    (and (string-match-p "\\`[[:upper:]][[:alnum:]]*\\'" candidate)
+         (string-match-p "[[:lower:]]" candidate)
+         (string-match-p "[[:upper:]].*[[:upper:]]" candidate))))
+
+(defun ai-code-session-link--python-snake-case-symbol-p (candidate)
+  "Return non-nil when CANDIDATE looks like a Python-style snake_case symbol."
+  (let ((case-fold-search nil))
+    (string-match-p
+     "\\`_*[[:lower:]][[:lower:][:digit:]]*\\(?:_[[:lower:][:digit:]]+\\)+\\'"
+     candidate)))
+
+(defun ai-code-session-link--bare-symbol-candidate-p (candidate file-extension)
+  "Return non-nil when bare CANDIDATE fits FILE-EXTENSION conventions."
+  (or (and (equal file-extension "java")
+           (ai-code-session-link--java-camel-case-symbol-p candidate))
+      (and (member file-extension '("py" "pyi"))
+           (ai-code-session-link--python-snake-case-symbol-p candidate))
+      (and (equal file-extension "el")
+           (string-match-p "-" candidate)
+           (ai-code-session-link--elisp-symbol-candidate-p candidate))))
+
 (defun ai-code-session-link--symbol-file-extension (file-link)
   "Return the file extension associated with FILE-LINK."
   (when-let* ((parsed-link (ai-code-session-link--parse-file-link-text file-link))
@@ -280,9 +316,7 @@ terminal output redraw."
            (string-match-p "::" candidate)
            (string-match-p "#" candidate)
            (string-suffix-p "()" candidate)
-           (and (equal file-extension "el")
-                (string-match-p "-" candidate)
-                (ai-code-session-link--elisp-symbol-candidate-p candidate)))))
+           (ai-code-session-link--bare-symbol-candidate-p candidate file-extension))))
 
 (defun ai-code-session-link--next-nearby-symbol-boundary (start end)
   "Return the next boundary after START for symbol scanning up to END."
@@ -317,15 +351,16 @@ terminal output redraw."
          (scan-end (ai-code-session-link--next-nearby-symbol-boundary scan-start window-end)))
     (when (< scan-start scan-end)
       (save-excursion
-        (goto-char scan-start)
-        (while (re-search-forward ai-code-session-link--symbol-candidate-regexp scan-end t)
-          (let ((symbol-start (match-beginning 1))
-                (symbol-end (match-end 1))
-                (candidate (match-string-no-properties 1)))
-            (when (and (not (get-text-property symbol-start 'ai-code-session-link))
-                       (ai-code-session-link--symbol-candidate-p candidate file-extension))
-              (ai-code-session-link--apply-symbol-properties
-               symbol-start symbol-end candidate file-link))))))))
+        (let ((case-fold-search nil))
+          (goto-char scan-start)
+          (while (re-search-forward ai-code-session-link--symbol-candidate-regexp scan-end t)
+            (let ((symbol-start (match-beginning 1))
+                  (symbol-end (match-end 1))
+                  (candidate (match-string-no-properties 1)))
+              (when (and (not (get-text-property symbol-start 'ai-code-session-link))
+                         (ai-code-session-link--symbol-candidate-p candidate file-extension))
+                (ai-code-session-link--apply-symbol-properties
+                 symbol-start symbol-end candidate file-link)))))))))
 
 (defun ai-code-session-link--linkify-url-region (start end)
   "Apply URL session links between START and END."
@@ -520,7 +555,6 @@ terminal output redraw."
            (start (max (point-min) (- end visible-width))))
       (ai-code-session-link--linkify-session-region start end))))
 
-;; DONE: Given the previous work inside https://github.com/tninja/ai-code-interface.el/pull/244, which already tries to linkify file paths and web url in the output, we want to linkfy symbol inside output path. The design doc is here: @doc/symbol.navigate.design.txt, we want to make sure the underlined symbol must be able to jump to some where. And I don't want to take too many CPU and make output too slow
 
 (provide 'ai-code-session-link)
 
