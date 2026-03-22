@@ -123,6 +123,14 @@ One of high, medium, or low."
   :type '(choice (const high) (const medium) (const low))
   :group 'ai-code-behaviors)
 
+(defcustom ai-code-behaviors-gptel-agent-auto-classify t
+  "When non-nil, auto-classify prompts in gptel-agent buffers.
+When nil, gptel-agent prompts without explicit hashtags use existing
+session state instead of auto-classifying.
+Default is t to enable automatic behavior detection in agent workflows."
+  :type 'boolean
+  :group 'ai-code-behaviors)
+
 (defvar ai-code--behaviors-cache (make-hash-table :test #'equal)
   "Cache for loaded behavior prompts.")
 
@@ -2058,18 +2066,21 @@ Note: Global gptel advice remains installed for other buffers."
 
 (defun ai-code--behaviors-install-gptel-advice ()
   "Install global advice for gptel preset changes.
-Uses `advice-member-p' to ensure advice is installed only once."
-  (when (and (fboundp 'gptel--apply-preset)
-             (not (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
-                                    'gptel--apply-preset)))
-    (advice-add 'gptel--apply-preset :around
-                #'ai-code--behaviors-gptel-preset-change-advice)))
+Uses `advice-member-p' (Emacs 27+) to ensure advice is installed only once.
+On older Emacs versions, advice is always installed (may have duplicates)."
+  (when (fboundp 'gptel--apply-preset)
+    (when (or (not (fboundp 'advice-member-p))
+               (not (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
+                                      'gptel--apply-preset)))
+      (advice-add 'gptel--apply-preset :around
+                  #'ai-code--behaviors-gptel-preset-change-advice))))
 
 (defun ai-code--behaviors-uninstall-gptel-advice ()
   "Remove global advice for gptel preset changes.
 Call this when completely disabling ai-code-behaviors."
-  (when (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
-                          'gptel--apply-preset)
+  (when (and (fboundp 'advice-member-p)
+              (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
+                                'gptel--apply-preset))
     (advice-remove 'gptel--apply-preset
                    #'ai-code--behaviors-gptel-preset-change-advice)))
 
@@ -2763,14 +2774,6 @@ Only injects when `gptel--preset' is `gptel-plan' or `gptel-agent'."
   :type 'boolean
   :group 'ai-code-behaviors)
 
-(defcustom ai-code-behaviors-gptel-agent-auto-classify t
-  "When non-nil, auto-classify prompts in gptel-agent buffers.
-When nil, gptel-agent prompts without explicit hashtags use existing
-session state instead of auto-classifying.
-Default is t to enable automatic behavior detection in agent workflows."
-  :type 'boolean
-  :group 'ai-code-behaviors)
-
 (when ai-code-behaviors-gptel-agent-integration
   (if (featurep 'gptel)
       (ai-code--gptel-agent-setup-transform)
@@ -2931,7 +2934,7 @@ with existing session state, preserving other keys like :custom-suffix."
                           nil t)))
   (let ((bundle-data (assoc bundle-name ai-code--constraint-bundles)))
     (unless bundle-data
-      (error "Unknown constraint bundle: %s" bundle-name))
+      (user-error "Unknown constraint bundle: %s" bundle-name))
     (let* ((constraints (plist-get (cdr bundle-data) :constraints))
            (existing-state (ai-code--behaviors-get-state))
            (new-state (plist-put (copy-sequence existing-state)
