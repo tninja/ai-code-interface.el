@@ -281,9 +281,13 @@ terminal output redraw."
 
 (defun ai-code-session-link--java-camel-case-symbol-p (candidate)
   "Return non-nil when CANDIDATE looks like a Java-style CamelCase symbol."
-  (ai-code-session-link--case-sensitive-match-p
-   (concat "\\`" ai-code-session-link--camel-case-symbol-regexp "\\'")
-   candidate))
+  (and (ai-code-session-link--case-sensitive-match-p
+        (concat "\\`" ai-code-session-link--camel-case-symbol-regexp "\\'")
+        candidate)
+       (ai-code-session-link--case-sensitive-match-p "[[:lower:]]" candidate)
+       (ai-code-session-link--case-sensitive-match-p
+        "[[:upper:]][[:lower:][:digit:]]+[[:upper:]]"
+        candidate)))
 
 (defun ai-code-session-link--snake-case-symbol-p (candidate)
   "Return non-nil when CANDIDATE looks like a bare snake_case symbol."

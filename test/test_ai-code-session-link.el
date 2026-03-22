@@ -204,8 +204,8 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
-(ert-deftest ai-code-session-link-test-linkify-session-region-allows-simple-java-capitalized-symbols ()
-  "Linkify nearby bare Java symbols even when only the first letter is uppercase."
+(ert-deftest ai-code-session-link-test-linkify-session-region-rejects-simple-java-capitalized-symbols ()
+  "Do not linkify nearby bare symbols with only one uppercase character."
   (let* ((root (make-temp-file "ai-code-session-links-java-capitalized-" t))
          (src-dir (expand-file-name "src" root))
          (file (expand-file-name "Builder.java" src-dir)))
@@ -222,10 +222,31 @@
             (forward-line 1)
             (search-forward "Builder")
             (let ((symbol-pos (- (point) (length "Builder"))))
-              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
-                             "Builder"))
-              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
-                             "src/Builder.java:1")))))
+              (should-not (get-text-property symbol-pos 'ai-code-session-symbol-link))
+              (should-not (get-text-property symbol-pos 'ai-code-session-link)))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-rejects-adjacent-uppercase-symbols ()
+  "Do not linkify nearby bare symbols whose uppercase letters are only adjacent."
+  (let* ((root (make-temp-file "ai-code-session-links-adjacent-uppercase-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "xml_parser.py" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class XMLParser:\n    pass\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/xml_parser.py:1\nXMLParser\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (forward-line 1)
+            (search-forward "XMLParser")
+            (let ((symbol-pos (- (point) (length "XMLParser"))))
+              (should-not (get-text-property symbol-pos 'ai-code-session-symbol-link))
+              (should-not (get-text-property symbol-pos 'ai-code-session-link)))))
       (when (file-directory-p root)
         (delete-directory root t)))))
 
