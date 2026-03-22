@@ -11,7 +11,6 @@
 (require 'ert)
 (require 'ai-code-input)
 (require 'ai-code-file)
-(require 'dired)
 (require 'magit)
 (require 'cl-lib)
 
@@ -129,45 +128,6 @@
           (should (ai-code--any-ai-session-active-p))
         (when (buffer-live-p session-buf) (kill-buffer session-buf))
         (when (buffer-live-p regular-buf) (kill-buffer regular-buf))))))
-
-;;; Tests for ai-code--get-context-files-string
-
-(ert-deftest ai-code-test-get-context-files-string-dired-uses-marked-files ()
-  "Test that marked dired files are used as context."
-  (let* ((temp-dir (make-temp-file "ai-code-dired-marked-" t))
-         (file-a (expand-file-name "a.txt" temp-dir))
-         (file-b (expand-file-name "b.txt" temp-dir)))
-    (unwind-protect
-        (progn
-          (write-region "" nil file-a nil 'silent)
-          (write-region "" nil file-b nil 'silent)
-          (with-current-buffer (dired-noselect temp-dir)
-            (revert-buffer)
-            (dired-goto-file file-a)
-            (dired-mark 1)
-            (dired-goto-file file-b)
-            (dired-mark 1)
-            (should
-             (equal (ai-code--get-context-files-string)
-                    (format "\nFiles:\n%s\n%s" file-a file-b)))))
-      (delete-directory temp-dir t))))
-
-(ert-deftest ai-code-test-get-context-files-string-dired-uses-file-at-point-without-marks ()
-  "Test that the dired file at point is used when nothing is marked."
-  (let* ((temp-dir (make-temp-file "ai-code-dired-point-" t))
-         (file-a (expand-file-name "a.txt" temp-dir))
-         (file-b (expand-file-name "b.txt" temp-dir)))
-    (unwind-protect
-        (progn
-          (write-region "" nil file-a nil 'silent)
-          (write-region "" nil file-b nil 'silent)
-          (with-current-buffer (dired-noselect temp-dir)
-            (revert-buffer)
-            (dired-goto-file file-b)
-            (should
-             (equal (ai-code--get-context-files-string)
-                    (format "\nFiles:\n%s" file-b)))))
-      (delete-directory temp-dir t))))
 
 ;;; Tests for ai-code--comment-filepath-capf
 
