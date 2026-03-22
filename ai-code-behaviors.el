@@ -141,6 +141,19 @@ Default is 1 hour. Set to 0 to disable TTL checking."
   :type 'integer
   :group 'ai-code-behaviors)
 
+(defcustom ai-code-behaviors-max-response-size 10240
+  "Maximum GPTel response size in bytes for JSON parsing.
+Responses larger than this are rejected to prevent DoS.
+Default is 10KB. Set to 0 to disable limit."
+  :type 'integer
+  :group 'ai-code-behaviors)
+
+(defcustom ai-code-behaviors-max-brace-depth 50
+  "Maximum nesting depth for JSON brace counting.
+Prevents CPU exhaustion on deeply nested malformed responses."
+  :type 'integer
+  :group 'ai-code-behaviors)
+
 (defun ai-code--git-command-output (&rest args)
   "Run git with ARGS and return trimmed output, or nil on error.
 Uses call-process instead of shell to avoid injection vulnerabilities."
@@ -180,35 +193,37 @@ Key: project root, Value: plist (:original ORIG :processed PROC :behaviors BEH).
 (defun ai-code--behaviors-project-root (&optional buffer)
   "Return git root for BUFFER, or current buffer if nil.
 For gptel-agent buffers, falls back to extracting project from buffer name.
-Returns default-directory if not in a repo."
+Returns nil if not in a project (prevents state leakage between projects)."
   (if (bufferp buffer)
       (with-current-buffer buffer
         (or (and (fboundp 'ai-code--git-root) (ai-code--git-root))
             (and (fboundp 'ai-code--behaviors-extract-project-from-buffer-name)
-                 (ai-code--behaviors-extract-project-from-buffer-name))
-            default-directory))
+                 (ai-code--behaviors-extract-project-from-buffer-name))))
     (or (and (fboundp 'ai-code--git-root) (ai-code--git-root))
         (and (fboundp 'ai-code--behaviors-extract-project-from-buffer-name)
-             (ai-code--behaviors-extract-project-from-buffer-name))
-        default-directory)))
+             (ai-code--behaviors-extract-project-from-buffer-name)))))
 
 (defun ai-code--behaviors--get (key &optional root)
   "Get entry KEY from session states for ROOT.
-If ROOT is nil, use current project root."
-  (plist-get (or (gethash (or root (ai-code--behaviors-project-root))
-                           ai-code--behaviors-session-states)
-                  '(:state nil :preset nil))
-             key))
+If ROOT is nil, use current project root.
+Returns nil if not in a project."
+  (let ((r (or root (ai-code--behaviors-project-root))))
+    (when r
+      (plist-get (or (gethash r ai-code--behaviors-session-states)
+                     '(:state nil :preset nil))
+                 key))))
 
 (defun ai-code--behaviors--set (key value &optional root)
   "Set entry KEY to VALUE in session states for ROOT.
-If ROOT is nil, use current project root."
-  (let* ((r (or root (ai-code--behaviors-project-root)))
-         (entry (or (gethash r ai-code--behaviors-session-states)
-                    '(:state nil :preset nil))))
-    (puthash r (plist-put (copy-tree entry) key value)
-             ai-code--behaviors-session-states)
-    value))
+If ROOT is nil, use current project root.
+Does nothing and returns nil if not in a project (prevents state leakage)."
+  (let ((r (or root (ai-code--behaviors-project-root))))
+    (when r
+      (let ((entry (or (gethash r ai-code--behaviors-session-states)
+                       '(:state nil :preset nil))))
+        (puthash r (plist-put (copy-tree entry) key value)
+                 ai-code--behaviors-session-states)
+        value))))
 
 (defun ai-code--behaviors-get-state (&optional root)
   "Get behavior state for project ROOT, or current project if nil."
@@ -824,6 +839,40 @@ Returns content string or nil if expired/missing."
   (puthash key (cons value (float-time)) ai-code--behaviors-cache)
   value)
 
+(defvar ai-code--behaviors-cleanup-timer nil
+  "Idle timer for periodic cache cleanup.")
+
+(defun ai-code--behaviors-cleanup-expired-caches ()
+  "Remove expired entries from all TTL-based caches.
+Called periodically by idle timer to prevent memory growth."
+  (let ((now (float-time)))
+    (when (> ai-code-behaviors-cache-ttl 0)
+      (maphash
+       (lambda (k v)
+         (when (> (- now (cdr v)) ai-code-behaviors-cache-ttl)
+           (remhash k ai-code--behaviors-cache)))
+       ai-code--behaviors-cache))
+    (when (> ai-code-behaviors-detection-cache-ttl 0)
+      (maphash
+       (lambda (k v)
+         (let ((timestamp (plist-get v :timestamp)))
+           (when (and timestamp (> (- now timestamp) ai-code-behaviors-detection-cache-ttl))
+             (remhash k ai-code--detection-cache))))
+       ai-code--detection-cache))))
+
+(defun ai-code--behaviors-start-cleanup-timer ()
+  "Start the idle timer for cache cleanup.
+Timer runs every 5 minutes when Emacs is idle."
+  (unless ai-code--behaviors-cleanup-timer
+    (setq ai-code--behaviors-cleanup-timer
+          (run-with-idle-timer 300 t #'ai-code--behaviors-cleanup-expired-caches))))
+
+(defun ai-code--behaviors-stop-cleanup-timer ()
+  "Stop the idle timer for cache cleanup."
+  (when ai-code--behaviors-cleanup-timer
+    (cancel-timer ai-code--behaviors-cleanup-timer)
+    (setq ai-code--behaviors-cleanup-timer nil)))
+
 (defun ai-code--load-behavior-prompt (behavior-name)
   "Load and cache the prompt content for BEHAVIOR-NAME.
 Return the prompt content string, or nil if not found."
@@ -1160,11 +1209,14 @@ Prompt:
 (defun ai-code--extract-json-from-response (response)
   "Extract first JSON object from RESPONSE string.
 Tries markdown code blocks first (```json...```), then balanced braces.
-Returns parsed plist or nil if no valid JSON found."
-  (save-match-data
-    (let ((trimmed (string-trim response)))
-      (or (ai-code--extract-json-from-code-block trimmed)
-          (ai-code--extract-json-balanced trimmed)))))
+Returns parsed plist or nil if no valid JSON found or response exceeds size limit."
+  (when (and response
+             (or (<= ai-code-behaviors-max-response-size 0)
+                 (< (length response) ai-code-behaviors-max-response-size)))
+    (save-match-data
+      (let ((trimmed (string-trim response)))
+        (or (ai-code--extract-json-from-code-block trimmed)
+            (ai-code--extract-json-balanced trimmed))))))
 
 (defun ai-code--extract-json-from-code-block (text)
   "Extract JSON from markdown code block in TEXT.
@@ -1176,7 +1228,7 @@ Returns parsed plist or nil if no valid JSON code block found."
 
 (defun ai-code--extract-json-balanced (text)
   "Extract JSON using balanced brace detection from TEXT.
-Returns parsed plist or nil if no valid JSON found."
+Returns parsed plist or nil if no valid JSON found or depth limit exceeded."
   (cond
    ((string-match-p "\\`[[:space:]]*{" text)
     (condition-case nil
@@ -1185,11 +1237,12 @@ Returns parsed plist or nil if no valid JSON found."
    ((string-match "{" text)
     (let ((start (match-beginning 0))
           (depth 0)
+          (max-depth ai-code-behaviors-max-brace-depth)
           (i (match-beginning 0))
           (len (length text))
           (in-string nil)
           (escape-next nil))
-      (while (and (< i len) (>= depth 0))
+      (while (and (< i len) (>= depth 0) (<= depth max-depth))
         (let ((ch (aref text i)))
           (cond
            (escape-next (setq escape-next nil))
@@ -1200,7 +1253,7 @@ Returns parsed plist or nil if no valid JSON found."
             (cond ((eq ch ?{) (setq depth (1+ depth)))
                   ((eq ch ?}) (setq depth (1- depth)))))))
         (setq i (1+ i)))
-      (when (= depth 0)
+      (when (and (= depth 0) (<= depth max-depth))
         (condition-case nil
             (json-read-from-string (substring text start i))
           (error nil)))))
@@ -2078,9 +2131,11 @@ Sets session state based on selection."
   "Enable mode-line display of active behaviors for current buffer.
 Only shows in gptel-mode or ai-code-prompt-mode buffers.
 For gptel-agent buffers, extracts project from buffer name.
-Installs global advice for gptel preset changes (once only)."
+Installs global advice for gptel preset changes (once only).
+Starts idle timer for periodic cache cleanup."
   (interactive)
   (ai-code--behaviors-install-gptel-advice)
+  (ai-code--behaviors-start-cleanup-timer)
   (when (or (bound-and-true-p gptel-mode)
              (eq major-mode 'ai-code-prompt-mode))
     (make-local-variable 'mode-line-misc-info)
