@@ -827,6 +827,40 @@ Otherwise refresh session-local state and display it."
     (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
     (ai-code-backends-infra--display-buffer-in-side-window buffer)))
 
+(defun ai-code-backends-infra--finalize-started-session (buffer process
+                                                                working-dir buffer-name
+                                                                process-table resolved-instance
+                                                                prefix escape-fn cleanup-fn
+                                                                multiline-input-sequence
+                                                                post-start-fn)
+  "Finalize a successfully started session BUFFER and PROCESS."
+  (set-process-sentinel
+   process
+   (lambda (_proc event)
+     (ai-code-backends-infra--cleanup-session
+      working-dir
+      buffer-name
+      process-table
+      resolved-instance
+      prefix
+      event)
+     (when cleanup-fn
+       (funcall cleanup-fn))))
+  (ai-code-backends-infra--configure-session-buffer
+   buffer escape-fn multiline-input-sequence)
+  (when post-start-fn
+    (funcall post-start-fn buffer process resolved-instance))
+  (with-current-buffer buffer
+    (add-hook 'kill-buffer-hook
+              (lambda ()
+                (ai-code-backends-infra--forget-session-buffer
+                 prefix
+                 working-dir
+                 (current-buffer)))
+              nil t))
+  (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+  (ai-code-backends-infra--display-buffer-in-side-window buffer))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
@@ -878,34 +912,18 @@ session starts successfully."
         (sleep-for ai-code-backends-infra-terminal-initialization-delay)
         ;; Check if process is still alive after initialization delay
         (if (and process (process-live-p process))
-            (progn
-              ;; Process started successfully, set up sentinel for cleanup on exit
-              (set-process-sentinel
-               process
-               (lambda (_proc event)
-                 (ai-code-backends-infra--cleanup-session
-                  working-dir
-                  resolved-buffer-name
-                  process-table
-                  resolved-instance
-                  prefix
-                  event)
-                 (when cleanup-fn
-                   (funcall cleanup-fn))))
-              (ai-code-backends-infra--configure-session-buffer
-               new-buffer escape-fn multiline-input-sequence)
-               (when post-start-fn
-                 (funcall post-start-fn new-buffer process resolved-instance))
-               (with-current-buffer new-buffer
-                 (add-hook 'kill-buffer-hook
-                           (lambda ()
-                            (ai-code-backends-infra--forget-session-buffer
-                             prefix
-                             working-dir
-                             (current-buffer)))
-                          nil t))
-              (ai-code-backends-infra--remember-session-buffer prefix working-dir new-buffer)
-              (ai-code-backends-infra--display-buffer-in-side-window new-buffer))
+            (ai-code-backends-infra--finalize-started-session
+             new-buffer
+             process
+             working-dir
+             resolved-buffer-name
+             process-table
+             resolved-instance
+             prefix
+             escape-fn
+             cleanup-fn
+             multiline-input-sequence
+             post-start-fn)
           ;; Process exited during initialization - show buffer with error to user
           ;; Clean up the session from process table (but keep buffer visible)
           (remhash session-key process-table)

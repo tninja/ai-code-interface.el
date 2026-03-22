@@ -1000,6 +1000,57 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-finalize-started-session-configures-and-displays ()
+  "Successful startup finalization should wire buffer state and UI updates."
+  (let* ((working-dir "/tmp/ai-code-finalize-start/")
+         (prefix "codex")
+         (buffer-name "*codex[finalize-start]*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'mock-process)
+         (sentinel nil)
+         (post-start-args nil)
+         (calls nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'set-process-sentinel)
+                   (lambda (_process fn)
+                     (setq sentinel fn)
+                     (push :sentinel calls)))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (target-buffer escape-fn multiline-input-sequence)
+                     (push (list :configure target-buffer escape-fn multiline-input-sequence) calls)))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (target-prefix directory target-buffer)
+                     (push (list :remember target-prefix directory target-buffer) calls)))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (target-buffer)
+                     (push (list :display target-buffer) calls)
+                     nil)))
+          (ai-code-backends-infra--finalize-started-session
+           buffer
+           process
+           working-dir
+           buffer-name
+           (make-hash-table :test 'equal)
+           "default"
+           prefix
+           'mock-escape
+           'mock-cleanup
+           "\\\r\n"
+           (lambda (created-buffer created-process created-instance)
+             (setq post-start-args
+                   (list created-buffer created-process created-instance))
+             (push :post-start calls)))
+          (should sentinel)
+          (should (equal post-start-args (list buffer process "default")))
+          (should (equal (nreverse calls)
+                         (list :sentinel
+                               (list :configure buffer 'mock-escape "\\\r\n")
+                               :post-start
+                               (list :remember prefix working-dir buffer)
+                               (list :display buffer)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-configure-session-buffer-does-not-bind-manual-navigation ()
   "Configuring a session buffer should not add a manual `C-c g' navigation feature."
   (let ((buffer (generate-new-buffer "*ai-code-session-config*")))
