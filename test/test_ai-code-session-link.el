@@ -147,6 +147,108 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-session-link-test-linkify-session-region-symbol-near-file-link-across-lines ()
+  "Linkify a nearby code symbol after a file link across line breaks."
+  (let* ((root (make-temp-file "ai-code-session-links-symbol-nearby-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "UserService.java" src-dir))
+         (symbol-text "UserService.processRequest()"))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class UserService {\n  void processRequest() {}\n}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "See src/UserService.java:2\n")
+            (insert symbol-text)
+            (insert "\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward symbol-text)
+            (let ((symbol-pos (- (point) (length symbol-text))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             symbol-text))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "src/UserService.java:2"))
+              (should (eq (lookup-key (get-text-property symbol-pos 'keymap) [mouse-1])
+                          'ai-code-session-link-navigate-symbol-at-mouse))
+              (should (eq (lookup-key (get-text-property symbol-pos 'keymap) (kbd "RET"))
+                          'ai-code-session-link-navigate-symbol-at-point))
+              (should (eq (get-text-property symbol-pos 'face) 'link)))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-prefilters-elisp-hyphen-symbols ()
+  "Linkify code-like Elisp symbols while skipping nearby prose hyphen words."
+  (let* ((root (make-temp-file "ai-code-session-links-elisp-symbols-" t))
+         (lisp-dir (expand-file-name "lisp" root))
+         (file (expand-file-name "feature.el" lisp-dir)))
+    (unwind-protect
+        (progn
+          (make-directory lisp-dir t)
+          (with-temp-file file
+            (insert "(setq-local foo t)\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "lisp/feature.el:1\nsetq-local\nfollow-up\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward "setq-local")
+            (let ((symbol-pos (- (point) (length "setq-local"))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             "setq-local"))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "lisp/feature.el:1")))
+            (search-forward "follow-up")
+            (let ((prose-pos (- (point) (length "follow-up"))))
+              (should-not (get-text-property prose-pos 'ai-code-session-symbol-link))
+              (should-not (get-text-property prose-pos 'ai-code-session-link)))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-navigate-symbol-at-point-falls-back-to-associated-file ()
+  "Symbol navigation should fall back to the nearby file and move to the symbol."
+  (let* ((root (make-temp-file "ai-code-session-links-symbol-nav-" t))
+         (lisp-dir (expand-file-name "lisp" root))
+         (file (expand-file-name "feature.el" lisp-dir))
+         source-buffer navigated-buffer navigated-point)
+    (unwind-protect
+        (progn
+          (make-directory lisp-dir t)
+          (with-temp-file file
+            (insert "(setq-local foo t)\n"))
+          (cl-letf (((symbol-function 'find-file-other-window)
+                     (lambda (path)
+                       (setq source-buffer (find-file-noselect path))
+                       (set-buffer source-buffer)
+                       source-buffer))
+                    ((symbol-function 'xref-find-definitions)
+                     (lambda (_identifier)
+                       (error "xref unavailable")))
+                    ((symbol-function 'message)
+                     (lambda (&rest _args) nil)))
+            (with-temp-buffer
+              (setq-local ai-code-backends-infra--session-directory root)
+              (insert "lisp/feature.el:1\nsetq-local\n")
+              (ai-code-session-link--linkify-session-region (point-min) (point-max))
+              (goto-char (point-min))
+              (search-forward "setq-local")
+              (goto-char (- (point) (length "setq-local")))
+              (should (ai-code-session-link-navigate-symbol-at-point))
+              (setq navigated-buffer (current-buffer)
+                    navigated-point (point))))
+          (should (buffer-live-p source-buffer))
+          (should (eq navigated-buffer source-buffer))
+          (with-current-buffer source-buffer
+            (should (equal (buffer-file-name) file))
+            (should (= navigated-point (point)))
+            (should (looking-at "setq-local"))))
+      (when (and source-buffer (buffer-live-p source-buffer))
+        (kill-buffer source-buffer))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest ai-code-session-link-test-linkify-session-region-supports-existing-local-file-and-directory ()
   "Linkify existing local file and directory paths, but not missing ones."
   (let* ((root (make-temp-file "ai-code-session-links-local-paths-" t))

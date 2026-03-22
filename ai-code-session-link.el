@@ -14,6 +14,7 @@
 
 (declare-function ai-code-session-navigate-link-at-mouse "ai-code-input" (event))
 (declare-function ai-code-session-navigate-link-at-point "ai-code-input" ())
+(declare-function xref-find-definitions "xref" (identifier))
 
 (defvar ai-code-backends-infra--session-directory nil
   "Session working directory set by ai-code-backends-infra buffers.")
@@ -34,6 +35,17 @@ terminal output redraw."
     map)
   "Keymap used for clickable session links.")
 
+(declare-function ai-code-session-link-navigate-symbol-at-mouse "ai-code-session-link" (event))
+(declare-function ai-code-session-link-navigate-symbol-at-point "ai-code-session-link" ())
+
+(defvar ai-code-session-link--symbol-keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mouse-1] #'ai-code-session-link-navigate-symbol-at-mouse)
+    (define-key map [mouse-2] #'ai-code-session-link-navigate-symbol-at-mouse)
+    (define-key map (kbd "RET") #'ai-code-session-link-navigate-symbol-at-point)
+    map)
+  "Keymap used for clickable session symbols.")
+
 (defconst ai-code-session-link--linkify-min-tail-width 512
   "Minimum number of tail characters to rescan for session links.")
 
@@ -41,9 +53,41 @@ terminal output redraw."
   "\\(https?://[^][(){}<>\"' \t\n]+\\)"
   "Regexp matching http/https URLs in session buffers.")
 
+(defconst ai-code-session-link--symbol-neighborhood-max-width 192
+  "Maximum number of characters to scan for symbols near a file link.")
+
+(defconst ai-code-session-link--blank-line-regexp
+  "\n[[:space:]]*\n"
+  "Regexp matching a blank line boundary for nearby symbol scanning.")
+
 (defconst ai-code-session-link--path-base-regexp
   "@?[[:alnum:]_./~-]*[./][[:alnum:]_./~-]+"
   "Regexp matching a local file-like or directory-like path.")
+
+(defconst ai-code-session-link--symbol-identifier-regexp
+  "[[:alpha:]_][[:alnum:]_*!?]*"
+  "Regexp matching one conservative code identifier segment.")
+
+(defconst ai-code-session-link--symbol-candidate-regexp
+  (concat
+   "\\("
+   "\\(?:"
+   ai-code-session-link--symbol-identifier-regexp
+   "\\(?:\\.\\|::\\|#\\)"
+   ai-code-session-link--symbol-identifier-regexp
+   "\\(?:\\(?:\\.\\|::\\|#\\)"
+   ai-code-session-link--symbol-identifier-regexp
+   "\\)*"
+   "\\(?:()\\)?"
+   "\\|"
+   ai-code-session-link--symbol-identifier-regexp
+   "()"
+   "\\|"
+   ai-code-session-link--symbol-identifier-regexp
+   "\\(?:-[[:alnum:]_*!?]*\\)+"
+   "\\)"
+   "\\)")
+  "Regexp matching conservative symbol candidates near a file link.")
 
 (defun ai-code-session-link--path-pattern (suffix)
   "Return a session link regexp for `ai-code-session-link--path-base-regexp' plus SUFFIX."
@@ -165,6 +209,23 @@ terminal output redraw."
               (car (ai-code-session-link--matching-project-files normalized root project-files)))
              (t nil)))))))
 
+(defun ai-code-session-link--parse-file-link-text (text)
+  "Parse file-like session link TEXT into a plist."
+  (when (stringp text)
+    (catch 'parsed
+      (dolist (pattern ai-code-session-link--file-patterns)
+        (let ((regexp (concat "\\`" (car pattern) "\\'")))
+          (when (string-match regexp text)
+            (throw
+             'parsed
+             (list :file (match-string (nth 1 pattern) text)
+                   :line-start (when-let ((group (nth 2 pattern))
+                                          (line (match-string group text)))
+                                 (string-to-number line))
+                   :column-start (when-let ((group (nth 3 pattern))
+                                            (column (match-string group text)))
+                                   (string-to-number column))))))))))
+
 (defun ai-code-session-link--apply-properties (start end &optional text help-echo)
   "Apply session link properties from START to END."
   (add-text-properties
@@ -177,6 +238,93 @@ terminal output redraw."
          'follow-link t
          'font-lock-face 'link
          'face 'link)))
+
+(defun ai-code-session-link--apply-symbol-properties (start end symbol file-link)
+  "Apply clickable symbol properties from START to END."
+  (add-text-properties
+   start end
+   (list 'ai-code-session-link file-link
+         'ai-code-session-symbol-link symbol
+         'ai-code-session-symbol-file file-link
+         'mouse-face 'highlight
+         'help-echo "mouse-1: Jump to symbol context"
+         'keymap ai-code-session-link--symbol-keymap
+         'follow-link t
+         'font-lock-face 'link
+         'face 'link)))
+
+(defun ai-code-session-link--elisp-symbol-candidate-p (candidate)
+  "Return non-nil when CANDIDATE looks like an Elisp symbol worth linking."
+  (or (intern-soft candidate)
+      (string-match-p "--" candidate)
+      (string-match-p
+       "\\(?:-p\\|-mode\\|-hook\\|-function\\|-command\\|-local\\|\\*\\|\\?\\)\\'"
+       candidate)))
+
+(defun ai-code-session-link--symbol-file-extension (file-link)
+  "Return the file extension associated with FILE-LINK."
+  (when-let* ((parsed-link (ai-code-session-link--parse-file-link-text file-link))
+              (file (plist-get parsed-link :file)))
+    (file-name-extension file)))
+
+(defun ai-code-session-link--symbol-candidate-p (candidate file-extension)
+  "Return non-nil when CANDIDATE is worth linkifying for FILE-EXTENSION."
+  (and (stringp candidate)
+       (> (length candidate) 2)
+       (not (string-match-p "\\`https?://" candidate))
+       (not (string-match-p "[/\\\\]" candidate))
+       (not (string-match-p "\\`[0-9]" candidate))
+       (not (string-match-p "\\(?:[:#][Ll]?[0-9]+\\)\\'" candidate))
+       (or (string-match-p "\\." candidate)
+           (string-match-p "::" candidate)
+           (string-match-p "#" candidate)
+           (string-suffix-p "()" candidate)
+           (and (equal file-extension "el")
+                (string-match-p "-" candidate)
+                (ai-code-session-link--elisp-symbol-candidate-p candidate)))))
+
+(defun ai-code-session-link--next-nearby-symbol-boundary (start end)
+  "Return the next boundary after START for symbol scanning up to END."
+  (let ((boundary end)
+        (file-boundary nil))
+    (save-excursion
+      (goto-char start)
+      (when (re-search-forward ai-code-session-link--blank-line-regexp end t)
+        (setq boundary (min boundary (match-beginning 0))))
+      (goto-char start)
+      (when (re-search-forward ai-code-session-link--url-pattern-regexp end t)
+        (setq boundary (min boundary (match-beginning 1))))
+      (dolist (pattern ai-code-session-link--file-patterns)
+        (goto-char start)
+        (catch 'matched
+          (while (re-search-forward (car pattern) end t)
+            (let ((path (match-string-no-properties (nth 1 pattern))))
+              (when (ai-code-session-link--resolve-session-file path)
+                (setq file-boundary
+                      (if file-boundary
+                          (min file-boundary (match-beginning 0))
+                        (match-beginning 0)))
+                (throw 'matched t)))))))
+    (if file-boundary
+        (min boundary file-boundary)
+      boundary)))
+
+(defun ai-code-session-link--linkify-symbols-near-file (file-link scan-start end)
+  "Linkify code-like symbols near FILE-LINK from SCAN-START up to END."
+  (let* ((file-extension (ai-code-session-link--symbol-file-extension file-link))
+         (window-end (min end (+ scan-start ai-code-session-link--symbol-neighborhood-max-width)))
+         (scan-end (ai-code-session-link--next-nearby-symbol-boundary scan-start window-end)))
+    (when (< scan-start scan-end)
+      (save-excursion
+        (goto-char scan-start)
+        (while (re-search-forward ai-code-session-link--symbol-candidate-regexp scan-end t)
+          (let ((symbol-start (match-beginning 1))
+                (symbol-end (match-end 1))
+                (candidate (match-string-no-properties 1)))
+            (when (and (not (get-text-property symbol-start 'ai-code-session-link))
+                       (ai-code-session-link--symbol-candidate-p candidate file-extension))
+              (ai-code-session-link--apply-symbol-properties
+               symbol-start symbol-end candidate file-link))))))))
 
 (defun ai-code-session-link--linkify-url-region (start end)
   "Apply URL session links between START and END."
@@ -201,10 +349,87 @@ terminal output redraw."
                  (match-end (match-end 0))
                  (path (match-string-no-properties (nth 1 pattern))))
             (when (ai-code-session-link--resolve-session-file path)
-              (ai-code-session-link--apply-properties
-               match-start match-end
-               (buffer-substring-no-properties match-start match-end)
-               "mouse-1: Visit file"))))))))
+              (let ((link-text (buffer-substring-no-properties match-start match-end)))
+                (ai-code-session-link--apply-properties
+                 match-start match-end link-text "mouse-1: Visit file")
+                (ai-code-session-link--linkify-symbols-near-file
+                 link-text match-end end)))))))))
+
+(defun ai-code-session-link--property-at-point (property)
+  "Return PROPERTY at point or immediately before point."
+  (or (get-text-property (point) property)
+      (when (> (point) (point-min))
+        (get-text-property (1- (point)) property))))
+
+(defun ai-code-session-link--symbol-search-terms (symbol)
+  "Return conservative search terms for SYMBOL."
+  (let* ((trimmed (string-remove-suffix "()" symbol))
+         (parts (split-string trimmed "\\(?:\\.\\|::\\|#\\)" t))
+         (tail (car (last parts))))
+    (delete-dups (delq nil (list trimmed tail)))))
+
+(defun ai-code-session-link--open-file-link (text)
+  "Open the file described by file-like link TEXT."
+  (when-let* ((link (ai-code-session-link--parse-file-link-text text))
+              (file (plist-get link :file))
+              (abs-file (ai-code-session-link--resolve-session-file file)))
+    (find-file-other-window abs-file)
+    (goto-char (point-min))
+    (when-let ((line-start (plist-get link :line-start)))
+      (forward-line (1- line-start)))
+    (when-let ((column-start (plist-get link :column-start)))
+      (when (> column-start 0)
+        (move-to-column (1- column-start))))
+    t))
+
+(defun ai-code-session-link--try-xref-definition (symbol)
+  "Try xref lookup for SYMBOL in the current buffer."
+  (when-let ((lookup (car (last (ai-code-session-link--symbol-search-terms symbol)))))
+    (when (fboundp 'xref-find-definitions)
+      (condition-case nil
+          (progn
+            (xref-find-definitions lookup)
+            t)
+        (error nil)))))
+
+(defun ai-code-session-link--search-symbol-in-current-buffer (symbol)
+  "Search for SYMBOL in the current buffer."
+  (catch 'found
+    (dolist (term (ai-code-session-link--symbol-search-terms symbol))
+      (goto-char (point-min))
+      (when (search-forward term nil t)
+        (goto-char (match-beginning 0))
+        (throw 'found t)))))
+
+;;;###autoload
+(defun ai-code-session-link-navigate-symbol-at-point ()
+  "Navigate using the clickable symbol at point."
+  (interactive)
+  (when-let* ((symbol (ai-code-session-link--property-at-point 'ai-code-session-symbol-link))
+              (file-link (or (ai-code-session-link--property-at-point 'ai-code-session-symbol-file)
+                             (ai-code-session-link--property-at-point 'ai-code-session-link))))
+    (if (ai-code-session-link--open-file-link file-link)
+        (progn
+          (or (ai-code-session-link--try-xref-definition symbol)
+              (ai-code-session-link--search-symbol-in-current-buffer symbol))
+          (message "Navigated to %s via %s" symbol file-link)
+          t)
+      (progn
+        (message "Unable to resolve symbol context: %s" symbol)
+        nil))))
+
+;;;###autoload
+(defun ai-code-session-link-navigate-symbol-at-mouse (event)
+  "Navigate using the clickable symbol clicked by mouse EVENT."
+  (interactive "e")
+  (let* ((start (event-start event))
+         (window (posn-window start))
+         (position (posn-point start)))
+    (when (window-live-p window)
+      (select-window window)
+      (when (integer-or-marker-p position)
+        (goto-char position)
+        (ai-code-session-link-navigate-symbol-at-point)))))
 
 (defun ai-code-session-link--linkify-session-region (start end)
   "Make supported URLs and in-project file references clickable from START to END."
@@ -225,6 +450,8 @@ terminal output redraw."
                   (remove-text-properties
                    pos next
                    '(ai-code-session-link nil
+                     ai-code-session-symbol-link nil
+                     ai-code-session-symbol-file nil
                      mouse-face nil
                      help-echo nil
                      keymap nil
@@ -276,6 +503,8 @@ terminal output redraw."
            (end (point-max))
            (start (max (point-min) (- end visible-width))))
       (ai-code-session-link--linkify-session-region start end))))
+
+;; DONE: Given the previous work inside https://github.com/tninja/ai-code-interface.el/pull/244, which already tries to linkify file paths and web url in the output, we want to linkfy symbol inside output path. The design doc is here: @doc/symbol.navigate.design.txt, we want to make sure the underlined symbol must be able to jump to some where. And I don't want to take too many CPU and make output too slow
 
 (provide 'ai-code-session-link)
 
