@@ -834,15 +834,35 @@ Return the prompt content string, or nil if not found."
 
 (defun ai-code--behavior-preset-capf ()
   "Completion-at-point function for @preset and @bundle names.
-Add to `completion-at-point-functions' in prompt buffers."
+Shows [agent] annotation for modify presets in gptel-plan mode."
   (when (and (boundp 'major-mode)
              (eq major-mode 'ai-code-prompt-mode)
              (save-excursion
                (skip-chars-backward "a-zA-Z0-9_-")
                (eq (char-before) ?@)))
-    (let ((start (1- (point)))
-          (end (point)))
-      (list start end (ai-code--behavior-preset-and-bundle-names) :exclusive 'no))))
+    (let* ((start (1- (point)))
+           (end (point))
+           (plan-mode-p (when (boundp 'gptel--preset)
+                          (eq gptel--preset 'gptel-plan)))
+           (candidates (ai-code--behavior-preset-and-bundle-names))
+           (annotation-fn
+            (lambda (cand)
+              (let ((name (string-trim (substring cand 1))))
+                (cond
+                 ((and plan-mode-p
+                       (assoc name ai-code--behavior-presets)
+                       (not (ai-code--behaviors-preset-readonly-p name)))
+                  " [agent]")
+                 ((assoc name ai-code--constraint-bundles)
+                  (let ((data (cdr (assoc name ai-code--constraint-bundles))))
+                    (format " %s" (plist-get data :description))))
+                 ((assoc name ai-code--behavior-presets)
+                  (let ((data (cdr (assoc name ai-code--behavior-presets))))
+                    (format " %s" (plist-get data :description))))
+                 (t ""))))))
+      (list start end candidates
+            :annotation-function annotation-fn
+            :exclusive 'no))))
 
 (defun ai-code--behavior-setup-preset-completion ()
   "Add preset completion and mode-line to prompt mode buffers."
@@ -1934,29 +1954,38 @@ Preserves existing constraint-modifiers from current state."
 
 (defun ai-code-behaviors-preset ()
   "Select and apply a behavior preset.
-In gptel-plan mode, only shows readonly-compatible presets."
+In gptel-plan mode, shows all presets with [agent] annotation for modify presets.
+Auto-switches to agent mode when modify preset is selected."
   (interactive)
   (let* ((current-preset (when (boundp 'gptel--preset) gptel--preset))
          (plan-mode-p (eq current-preset 'gptel-plan))
-         (available-presets
-          (if plan-mode-p
-              (cl-remove-if-not
-               (lambda (p) (ai-code--behaviors-preset-readonly-p (car p)))
-               ai-code--behavior-presets)
-            ai-code--behavior-presets))
-         (presets (mapcar (lambda (p)
-                            (cons (format "%-15s %s"
-                                         (car p)
-                                         (plist-get (cdr p) :description))
-                                  (car p)))
-                          available-presets))
-         (prompt (if plan-mode-p
-                     "Select preset (gptel-plan: readonly only): "
-                   "Select preset: "))
-         (choice (completing-read prompt presets nil t)))
+         (presets (mapcar
+                   (lambda (p)
+                     (let* ((name (car p))
+                            (readonly (ai-code--behaviors-preset-readonly-p name))
+                            (display (format "%-15s %s%s"
+                                             name
+                                             (plist-get (cdr p) :description)
+                                             (if (and plan-mode-p (not readonly))
+                                                 " [agent]"
+                                               ""))))
+                       (cons display name)))
+                   ai-code--behavior-presets))
+         (choice (completing-read "Select preset: " presets nil t)))
     (when (and choice (not (string-empty-p choice)))
-      (let ((preset-name (cdr (assoc choice presets))))
+      (let* ((preset-name (cdr (assoc choice presets)))
+             (readonly (ai-code--behaviors-preset-readonly-p preset-name)))
         (when preset-name
+          (when (and plan-mode-p (not readonly))
+            (let ((state (ai-code--behaviors-get-state)))
+              (when state
+                (let ((mode (plist-get state :mode)))
+                  (when (member mode ai-code--behavior-readonly-modes)
+                    (setq state (plist-put (copy-tree state) :mode nil))
+                    (ai-code--behaviors-set-state state)))))
+            (gptel--apply-preset 'gptel-agent
+              (lambda (sym val) (set (make-local-variable sym) val)))
+            (message "Switched to agent mode for @%s" preset-name))
           (ai-code-behaviors-apply-preset preset-name))))))
 
 (defun ai-code-behaviors-select ()
@@ -1993,8 +2022,11 @@ Sets session state based on selection."
 (defun ai-code-behaviors-mode-line-enable ()
   "Enable mode-line display of active behaviors for current buffer.
 Only shows in gptel-mode or ai-code-prompt-mode buffers.
-For gptel-agent buffers, extracts project from buffer name."
+For gptel-agent buffers, extracts project from buffer name.
+Adds advice for gptel preset changes."
   (interactive)
+  (advice-add 'gptel--apply-preset :around
+              #'ai-code--behaviors-gptel-preset-change-advice)
   (when (or (bound-and-true-p gptel-mode)
              (eq major-mode 'ai-code-prompt-mode))
     (make-local-variable 'mode-line-misc-info)
@@ -2005,8 +2037,11 @@ For gptel-agent buffers, extracts project from buffer name."
     (ai-code--behaviors-update-mode-line)))
 
 (defun ai-code-behaviors-mode-line-disable ()
-  "Disable mode-line display of active behaviors for current buffer."
+  "Disable mode-line display of active behaviors for current buffer.
+Removes advice for gptel preset changes."
   (interactive)
+  (advice-remove 'gptel--apply-preset
+                 #'ai-code--behaviors-gptel-preset-change-advice)
   (when (local-variable-p 'mode-line-misc-info)
     (setq mode-line-misc-info
           (delete '(:eval (ai-code--behaviors-mode-line-string)) mode-line-misc-info))
@@ -2352,6 +2387,37 @@ in our own transform and provide completion via ai-code--behavior-preset-gptel-c
         (when (bound-and-true-p gptel-mode)
           (ai-code--behavior-setup-hashtag-completion)))))
   (message "ai-code-behaviors gptel-agent integration enabled"))
+
+(defun ai-code--behaviors-gptel-preset-change-advice (orig-fun preset &rest args)
+  "Handle mode switching between gptel-plan and gptel-agent.
+ORIG-FUN is the original gptel--apply-preset function.
+PRESET is the new preset being applied.
+ARGS are additional arguments passed to gptel--apply-preset.
+
+Updates mode-line and switches to appropriate default preset:
+- Plan->Agent: switch to @quick-fix if current preset is readonly
+- Agent->Plan: switch to @quick-review if current preset is modify"
+  (let ((prev-preset (and (boundp 'gptel--preset) gptel--preset)))
+    (apply orig-fun preset args)
+    (when ai-code-behaviors-enabled
+      (cond
+       ((and (eq preset 'gptel-agent)
+             (eq prev-preset 'gptel-plan))
+        (let* ((current-preset-name (ai-code--behaviors-get-preset))
+               (is-readonly (and current-preset-name
+                                 (ai-code--behaviors-preset-readonly-p current-preset-name))))
+          (when (and current-preset-name is-readonly)
+            (ai-code-behaviors-apply-preset "quick-fix")
+            (message "Switched to agent mode with @quick-fix"))))
+       ((and (eq preset 'gptel-plan)
+             (eq prev-preset 'gptel-agent))
+        (let* ((current-preset-name (ai-code--behaviors-get-preset))
+               (is-modify (and current-preset-name
+                               (not (ai-code--behaviors-preset-readonly-p current-preset-name)))))
+          (when (and current-preset-name is-modify)
+            (ai-code-behaviors-apply-preset "quick-review")
+            (message "Switched to plan mode with @quick-review")))))
+      (force-mode-line-update t))))
 
 (defun ai-code--behavior-setup-hashtag-completion ()
   "Add behavior hashtag and preset completion to current buffer.
