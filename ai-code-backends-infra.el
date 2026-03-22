@@ -935,12 +935,12 @@ ENV-VARS is a list of environment variables."
                (lambda (process output)
                  ;; Call original filter first
                  (when orig-filter
-                    (funcall orig-filter process output))
-                  ;; Then track activity for notifications
-                   (with-current-buffer (process-buffer process)
-                     (when (ai-code-backends-infra--output-meaningful-p output)
-                       (ai-code-backends-infra--note-meaningful-output))
-                    (ai-code-session-link--linkify-recent-output output))))))
+                   (funcall orig-filter process output))
+                 ;; Then track activity for notifications
+                 (with-current-buffer (process-buffer process)
+                   (when (ai-code-backends-infra--output-meaningful-p output)
+                     (ai-code-backends-infra--note-meaningful-output))
+                   (ai-code-session-link--linkify-recent-output output))))))
            (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 
