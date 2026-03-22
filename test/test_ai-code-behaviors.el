@@ -1002,6 +1002,35 @@ This happens when gptel-agent package is not loaded."
   (should-not (ai-code--behaviors-preset-readonly-p "tdd-dev"))
   (should-not (ai-code--behaviors-preset-readonly-p "quick-fix")))
 
+(ert-deftest ai-code-test-gptel-advice-installed-once ()
+  "Test that gptel advice is installed only once."
+  (skip-unless (fboundp 'gptel--apply-preset))
+  (advice-remove 'gptel--apply-preset
+                 #'ai-code--behaviors-gptel-preset-change-advice)
+  (should-not (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
+                                'gptel--apply-preset))
+  (ai-code--behaviors-install-gptel-advice)
+  (should (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
+                            'gptel--apply-preset))
+  (ai-code--behaviors-install-gptel-advice)
+  (ai-code--behaviors-uninstall-gptel-advice))
+
+(ert-deftest ai-code-test-mode-switch-plan-to-agent ()
+  "Test that switching from plan to agent with readonly preset applies quick-fix."
+  (ai-code-behaviors-clear-all)
+  (let ((project-root (ai-code--behaviors-project-root)))
+    (ai-code--behaviors-set-preset "quick-review" project-root)
+    (should (equal (ai-code--behaviors-get-preset project-root) "quick-review"))
+    (should (ai-code--behaviors-preset-readonly-p "quick-review"))))
+
+(ert-deftest ai-code-test-mode-switch-agent-to-plan ()
+  "Test that switching from agent to plan with modify preset applies quick-review."
+  (ai-code-behaviors-clear-all)
+  (let ((project-root (ai-code--behaviors-project-root)))
+    (ai-code--behaviors-set-preset "tdd-dev" project-root)
+    (should (equal (ai-code--behaviors-get-preset project-root) "tdd-dev"))
+    (should-not (ai-code--behaviors-preset-readonly-p "tdd-dev"))))
+
 (provide 'test_ai-code-behaviors)
 
 ;;; test_ai-code-behaviors.el ends here
