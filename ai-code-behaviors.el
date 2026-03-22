@@ -2540,7 +2540,7 @@ ai-code--behavior-modifiers-completion-table instead."
 (defun ai-code--behavior-preset-gptel-capf ()
   "Completion at point for behavior presets and constraint bundles in gptel-mode.
 Shows behavior presets like @tdd-dev and constraint bundles like @rust-stack.
-In gptel-plan mode, only shows readonly-compatible presets.
+In gptel-plan mode, shows [agent] annotation for modify presets.
 Works alongside gptel's built-in preset completion."
   (when (and ai-code-behaviors-enabled
              (bound-and-true-p gptel-mode))
@@ -2548,15 +2548,26 @@ Works alongside gptel's built-in preset completion."
                   (skip-chars-backward "a-zA-Z0-9_-")
                   (point)))
            (current-preset (when (boundp 'gptel--preset) gptel--preset))
-           (available-presets
-            (if (eq current-preset 'gptel-plan)
-                (cl-remove-if-not
-                 (lambda (p) (ai-code--behaviors-preset-readonly-p (car p)))
-                 ai-code--behavior-presets)
-              ai-code--behavior-presets))
+           (plan-mode-p (eq current-preset 'gptel-plan))
            (all-candidates
-            (append (mapcar #'car available-presets)
-                    (mapcar #'car ai-code--constraint-bundles))))
+            (append (mapcar #'car ai-code--behavior-presets)
+                    (mapcar #'car ai-code--constraint-bundles)))
+           (annotation-fn
+            (lambda (name)
+              (cond
+               ((and plan-mode-p
+                     (assoc name ai-code--behavior-presets)
+                     (not (ai-code--behaviors-preset-readonly-p name)))
+                " [agent]")
+               ((assoc name ai-code--behavior-presets)
+                (let* ((preset (assoc name ai-code--behavior-presets))
+                       (desc (plist-get (cdr preset) :description)))
+                  (format " %s" (or desc ""))))
+               ((assoc name ai-code--constraint-bundles)
+                (let* ((bundle (assoc name ai-code--constraint-bundles))
+                       (desc (plist-get (cdr bundle) :description)))
+                  (format " %s" (or desc ""))))
+               (t "")))))
       (when (and (> pos (point-min))
                  (eq (char-before pos) ?@)
                  (or (= pos (1+ (point-min)))
@@ -2564,7 +2575,7 @@ Works alongside gptel's built-in preset completion."
         (list pos (point)
               all-candidates
               :exclusive 'no
-              :annotation-function #'ai-code--behavior-preset-or-bundle-annotation
+              :annotation-function annotation-fn
               :exit-function
               (lambda (_str _status)
                 (when (looking-at "\\>")
