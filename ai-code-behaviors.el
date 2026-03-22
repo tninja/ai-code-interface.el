@@ -132,7 +132,21 @@ Default is t to enable automatic behavior detection in agent workflows."
   :group 'ai-code-behaviors)
 
 (defvar ai-code--behaviors-cache (make-hash-table :test #'equal)
-  "Cache for loaded behavior prompts.")
+  "Cache for loaded behavior prompts.
+Each entry is (CONTENT . TIMESTAMP).")
+
+(defcustom ai-code-behaviors-cache-ttl 3600
+  "Time-to-live in seconds for behavior prompt cache.
+Default is 1 hour. Set to 0 to disable TTL checking."
+  :type 'integer
+  :group 'ai-code-behaviors)
+
+(defun ai-code--git-command-output (&rest args)
+  "Run git with ARGS and return trimmed output, or nil on error.
+Uses call-process instead of shell to avoid injection vulnerabilities."
+  (with-temp-buffer
+    (when (zerop (apply #'call-process "git" nil t nil args))
+      (string-trim (buffer-string)))))
 
 (defvar ai-code--behaviors-session-states (make-hash-table :test #'equal)
   "Hash table of behaviors per git repository.
@@ -561,10 +575,7 @@ Returns t if synced, nil if mismatch, 'no-repo if repo not available."
 Returns short commit hash or nil if repo not available."
   (when (ai-code--behaviors-repo-available-p)
     (let ((default-directory (expand-file-name ai-code-behaviors-repo-path)))
-      (condition-case nil
-          (string-trim
-           (shell-command-to-string "git rev-parse --short HEAD 2>/dev/null"))
-        (error nil)))))
+      (ai-code--git-command-output "rev-parse" "--short" "HEAD"))))
 
 (defconst ai-code--behavior-presets
   '(("tdd-dev" . (:mode "=code" :modifiers ("tdd" "deep")
@@ -765,14 +776,10 @@ Note: This performs network I/O; use sparingly."
       (condition-case nil
           (progn
             (call-process "git" nil nil nil "fetch" "--quiet")
-            (let* ((remote-head (string-trim
-                                 (shell-command-to-string
-                                  "git rev-parse '@{u}' 2>/dev/null")))
-                   (local-head (string-trim
-                                (shell-command-to-string
-                                 "git rev-parse HEAD 2>/dev/null"))))
+            (let* ((remote-head (ai-code--git-command-output "rev-parse" "@{u}"))
+                   (local-head (ai-code--git-command-output "rev-parse" "HEAD")))
               (cond
-               ((string-empty-p remote-head) 'no-remote)
+               ((or (null remote-head) (string-empty-p remote-head)) 'no-remote)
                ((string= local-head remote-head) 'up-to-date)
                (t 'updates-available))))
         (error 'error))))))
@@ -789,12 +796,10 @@ Note: This performs network I/O; use sparingly."
 Returns nil if repo not available."
   (when (ai-code--behaviors-repo-available-p)
     (let ((default-directory (expand-file-name ai-code-behaviors-repo-path)))
-      (condition-case nil
-          (list :commit (string-trim
-                         (shell-command-to-string "git rev-parse --short HEAD 2>/dev/null"))
-                :date (string-trim
-                       (shell-command-to-string "git log -1 --format=%ci HEAD 2>/dev/null")))
-        (error nil)))))
+      (let ((commit (ai-code--git-command-output "rev-parse" "--short" "HEAD"))
+            (date (ai-code--git-command-output "log" "-1" "--format=%ci" "HEAD")))
+        (when (and commit date)
+          (list :commit commit :date date))))))
 
 (defun ai-code--behavior-file-path (behavior-name)
   "Return path to prompt.md for BEHAVIOR-NAME."
@@ -802,10 +807,27 @@ Returns nil if repo not available."
    (format "behaviors/%s/prompt.md" behavior-name)
    (expand-file-name ai-code-behaviors-repo-path)))
 
+(defun ai-code--behaviors-cache-get (key)
+  "Get cached value for KEY with TTL check.
+Returns content string or nil if expired/missing."
+  (when-let ((entry (gethash key ai-code--behaviors-cache)))
+    (let ((content (car entry))
+          (timestamp (cdr entry)))
+      (if (or (<= ai-code-behaviors-cache-ttl 0)
+              (< (- (float-time) timestamp) ai-code-behaviors-cache-ttl))
+          content
+        (remhash key ai-code--behaviors-cache)
+        nil))))
+
+(defun ai-code--behaviors-cache-put (key value)
+  "Cache VALUE for KEY with current timestamp."
+  (puthash key (cons value (float-time)) ai-code--behaviors-cache)
+  value)
+
 (defun ai-code--load-behavior-prompt (behavior-name)
   "Load and cache the prompt content for BEHAVIOR-NAME.
 Return the prompt content string, or nil if not found."
-  (let ((cached (gethash behavior-name ai-code--behaviors-cache)))
+  (let ((cached (ai-code--behaviors-cache-get behavior-name)))
     (if cached
         cached
       (when (ai-code--ensure-behaviors-repo)
@@ -816,8 +838,7 @@ Return the prompt content string, or nil if not found."
                             (insert-file-contents file-path)
                             (buffer-string)))))
           (when content
-            (puthash behavior-name content ai-code--behaviors-cache))
-          content)))))
+            (ai-code--behaviors-cache-put behavior-name content)))))))
 
 (defun ai-code--all-behavior-names ()
   "Return list of all available behavior names including presets, constraints, and bundles."
@@ -1130,42 +1151,60 @@ Prompt:
                                   (lambda (m) (member m ai-code--behavior-modifiers))
                                   (when (listp modifiers) modifiers))))))))
     (error
-     (message "GPTel classification failed: %s" (error-message-string err))
+     (display-warning 'ai-code-behaviors
+       (format "GPTel classification failed: %s\nFalling back to keyword matching."
+               (error-message-string err))
+       :warning)
      nil)))
 
 (defun ai-code--extract-json-from-response (response)
-  "Extract first balanced JSON object from RESPONSE string.
+  "Extract first JSON object from RESPONSE string.
+Tries markdown code blocks first (```json...```), then balanced braces.
 Returns parsed plist or nil if no valid JSON found."
   (save-match-data
     (let ((trimmed (string-trim response)))
-      (cond
-       ((string-match-p "\\`[[:space:]]*{" trimmed)
+      (or (ai-code--extract-json-from-code-block trimmed)
+          (ai-code--extract-json-balanced trimmed)))))
+
+(defun ai-code--extract-json-from-code-block (text)
+  "Extract JSON from markdown code block in TEXT.
+Returns parsed plist or nil if no valid JSON code block found."
+  (when (string-match "```\\(?:json\\)?[[:space:]]*\n\\([[:s:][:print:]]*?\\)[[:space:]]*```" text)
+    (condition-case nil
+        (json-read-from-string (match-string 1 text))
+      (error nil))))
+
+(defun ai-code--extract-json-balanced (text)
+  "Extract JSON using balanced brace detection from TEXT.
+Returns parsed plist or nil if no valid JSON found."
+  (cond
+   ((string-match-p "\\`[[:space:]]*{" text)
+    (condition-case nil
+        (json-read-from-string text)
+      (error nil)))
+   ((string-match "{" text)
+    (let ((start (match-beginning 0))
+          (depth 0)
+          (i (match-beginning 0))
+          (len (length text))
+          (in-string nil)
+          (escape-next nil))
+      (while (and (< i len) (>= depth 0))
+        (let ((ch (aref text i)))
+          (cond
+           (escape-next (setq escape-next nil))
+           ((eq ch ?\\) (setq escape-next t))
+           (in-string (when (eq ch ?\") (setq in-string nil)))
+           ((eq ch ?\") (setq in-string t))
+           ((not in-string)
+            (cond ((eq ch ?{) (setq depth (1+ depth)))
+                  ((eq ch ?}) (setq depth (1- depth)))))))
+        (setq i (1+ i)))
+      (when (= depth 0)
         (condition-case nil
-            (json-read-from-string trimmed)
-          (error nil)))
-       ((string-match "{" trimmed)
-        (let ((start (match-beginning 0))
-              (depth 0)
-              (i (match-beginning 0))
-              (len (length trimmed))
-              (in-string nil)
-              (escape-next nil))
-          (while (and (< i len) (>= depth 0))
-            (let ((ch (aref trimmed i)))
-              (cond
-               (escape-next (setq escape-next nil))
-               ((eq ch ?\\) (setq escape-next t))
-               (in-string (when (eq ch ?\") (setq in-string nil)))
-               ((eq ch ?\") (setq in-string t))
-               ((not in-string)
-                (cond ((eq ch ?{) (setq depth (1+ depth)))
-                      ((eq ch ?}) (setq depth (1- depth)))))))
-            (setq i (1+ i)))
-          (when (= depth 0)
-            (condition-case nil
-                (json-read-from-string (substring trimmed start i))
-              (error nil)))))
-       (t nil)))))
+            (json-read-from-string (substring text start i))
+          (error nil)))))
+   (t nil)))
 
 (defun ai-code--classify-prompt-intent-keywords (prompt-text)
   "Classify PROMPT-TEXT intent using keyword matching.
@@ -1676,9 +1715,7 @@ Uses magit if available, falls back to git rev-parse."
                       ((fboundp 'magit-get-current-branch)
                        (magit-get-current-branch))
                       ((executable-find "git")
-                       (string-trim
-                        (shell-command-to-string
-                         "git rev-parse --abbrev-ref HEAD 2>/dev/null"))))))
+                       (ai-code--git-command-output "rev-parse" "--abbrev-ref" "HEAD")))))
     (unless (string-empty-p branch)
       (catch 'found
         (dolist (entry ai-code--git-branch-patterns)
