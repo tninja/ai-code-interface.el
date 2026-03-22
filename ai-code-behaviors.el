@@ -1733,17 +1733,12 @@ Returns preset name string, or `ai-code-behaviors-default-preset' if no signals 
 (defun ai-code-behaviors-mode-line-select-preset (&optional event)
   "Show preset and bundle selection popup menu.
 EVENT is the mouse event.
-In gptel-plan mode, only shows readonly-compatible presets."
+Shows all presets with [agent] annotation for modify presets in gptel-plan mode.
+Auto-switches to agent mode when modify preset is selected in plan mode."
   (interactive)
   (let* ((menu (make-sparse-keymap "Select Preset or Bundle"))
          (current-preset (when (boundp 'gptel--preset) gptel--preset))
-         (plan-mode-p (eq current-preset 'gptel-plan))
-         (available-presets
-          (if plan-mode-p
-              (cl-remove-if-not
-               (lambda (p) (ai-code--behaviors-preset-readonly-p (car p)))
-               ai-code--behavior-presets)
-            ai-code--behavior-presets)))
+         (plan-mode-p (eq current-preset 'gptel-plan)))
     (define-key menu [clear]
       '(menu-item "Clear behaviors" ai-code-behaviors-clear))
     (define-key menu [sep-constraints] '(menu-item "--"))
@@ -1758,15 +1753,31 @@ In gptel-plan mode, only shows readonly-compatible presets."
     (define-key menu [sep-presets] '(menu-item "--"))
     (define-key menu [preset-header]
       '(menu-item "Behavior Presets" nil :enable nil))
-    (when (and plan-mode-p available-presets)
-      (define-key menu [plan-notice]
-        '(menu-item "(gptel-plan: readonly presets only)" nil :enable nil)))
-    (dolist (p (reverse available-presets))
-      (define-key menu (vector (intern (car p)))
-        `(menu-item ,(format "@%s - %s" (car p)
-                             (plist-get (cdr p) :description))
-                    (lambda () (interactive)
-                      (ai-code-behaviors-apply-preset ,(car p))))))
+    (dolist (p (reverse ai-code--behavior-presets))
+      (let* ((name (car p))
+             (readonly (ai-code--behaviors-preset-readonly-p name))
+             (label (format "@%s - %s%s"
+                            name
+                            (plist-get (cdr p) :description)
+                            (if (and plan-mode-p (not readonly))
+                                " [agent]"
+                              ""))))
+        (define-key menu (vector (intern name))
+          `(menu-item ,label
+                      (lambda () (interactive)
+                        (when (and (boundp 'gptel--preset)
+                                   (eq gptel--preset 'gptel-plan)
+                                   (not (ai-code--behaviors-preset-readonly-p ,name)))
+                          (let ((state (ai-code--behaviors-get-state)))
+                            (when state
+                              (let ((mode (plist-get state :mode)))
+                                (when (member mode ai-code--behavior-readonly-modes)
+                                  (setq state (plist-put (copy-tree state) :mode nil))
+                                  (ai-code--behaviors-set-state state)))))
+                          (gptel--apply-preset 'gptel-agent
+                            (lambda (sym val) (set (make-local-variable sym) val)))
+                          (message "Switched to agent mode for @%s" ,name))
+                        (ai-code-behaviors-apply-preset ,name))))))
     (if event
         (popup-menu menu event)
       (popup-menu menu))))
