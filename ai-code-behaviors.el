@@ -2340,18 +2340,17 @@ Supports both calling conventions:
                (source-buffer (and info (plist-get info :buffer)))
                (preset (when (buffer-live-p source-buffer)
                          (buffer-local-value 'gptel--preset source-buffer)))
-               (prompt-text (save-excursion
-                              (goto-char (point-max))
-                              (if (re-search-backward "^### " nil t)
-                                  (string-trim
-                                   (buffer-substring-no-properties (point) (point-max)))
-                                (let ((prop (text-property-search-backward 'gptel nil t)))
-                                  (if prop
-                                      (string-trim
-                                       (buffer-substring-no-properties
-                                        (prop-match-beginning prop)
-                                        (point-max)))
-                                    (string-trim (buffer-string)))))))
+               (prompt-start (save-excursion
+                               (goto-char (point-max))
+                               (let ((heading-match (re-search-backward "^### " nil t)))
+                                 (if heading-match
+                                     (point)
+                                   (let ((prop-match (text-property-search-backward 'gptel nil t)))
+                                     (if prop-match
+                                         (prop-match-beginning prop-match)
+                                       (point-min)))))))
+               (prompt-text (string-trim
+                             (buffer-substring-no-properties prompt-start (point-max))))
                (original-prompt prompt-text))
           (if (or (not ai-code-behaviors-enabled)
                   (not (memq preset '(gptel-plan gptel-agent)))
@@ -2378,11 +2377,12 @@ Supports both calling conventions:
                          ai-code--behaviors-last-prompts)
                 (cond
                  ((and behaviors-applied (null processed-text))
-                  (erase-buffer)
+                  (delete-region prompt-start (point-max))
                   (setq modified t))
                  ((and behaviors-applied processed-text
                        (not (string= processed-text prompt-text)))
-                  (erase-buffer)
+                  (delete-region prompt-start (point-max))
+                  (goto-char prompt-start)
                   (insert processed-text)
                   (setq modified t))
                  (t nil))))))
