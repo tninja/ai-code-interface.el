@@ -133,6 +133,15 @@ terminal output redraw."
 (defvar-local ai-code-session-link--pending-tail-width 0
   "Pending tail width to rescan when delayed session linkification runs.")
 
+(defvar ai-code-session-link--project-files-cache nil
+  "Dynamic cache of project file lists used during one linkify pass.")
+
+(defvar ai-code-session-link--resolved-path-cache nil
+  "Dynamic cache of resolved session paths used during one linkify pass.")
+
+(defconst ai-code-session-link--cache-miss (make-symbol "cache-miss")
+  "Sentinel used by per-pass caches when no value has been stored yet.")
+
 (defun ai-code-session-link--normalize-file (filename)
   "Normalize session link FILENAME for project lookup."
   (when (stringp filename)
@@ -142,18 +151,33 @@ terminal output redraw."
       (unless (string-empty-p normalized)
         normalized))))
 
+(defun ai-code-session-link--cache-get-or-compute (cache key compute)
+  "Return cached value from CACHE for KEY, or call COMPUTE and store it."
+  (if cache
+      (let ((cached (gethash key cache ai-code-session-link--cache-miss)))
+        (if (eq cached ai-code-session-link--cache-miss)
+            (let ((value (funcall compute)))
+              (puthash key value cache)
+              value)
+          cached))
+    (funcall compute)))
+
 (defun ai-code-session-link--project-files (root)
   "Return absolute project files for ROOT."
   (when (file-directory-p root)
-    (or (ignore-errors
-          (when-let ((project (project-current nil root)))
-            (let ((project-root (expand-file-name (project-root project))))
-              (mapcar (lambda (file)
-                        (if (file-name-absolute-p file)
-                            (expand-file-name file)
-                          (expand-file-name file project-root)))
-                      (project-files project)))))
-        (directory-files-recursively root ".*" t))))
+    (ai-code-session-link--cache-get-or-compute
+     ai-code-session-link--project-files-cache
+     (expand-file-name root)
+     (lambda ()
+       (or (ignore-errors
+             (when-let ((project (project-current nil root)))
+               (let ((project-root (expand-file-name (project-root project))))
+                 (mapcar (lambda (file)
+                           (if (file-name-absolute-p file)
+                               (expand-file-name file)
+                             (expand-file-name file project-root)))
+                         (project-files project)))))
+           (directory-files-recursively root ".*" t))))))
 
 (defun ai-code-session-link--in-project-file-p (file root &optional project-files)
   "Return non-nil when FILE exists and belongs to ROOT."
@@ -209,18 +233,25 @@ terminal output redraw."
 (defun ai-code-session-link--resolve-session-file (path)
   "Resolve PATH to an existing local path or a matching project file."
   (let* ((root (ai-code-session-link--project-root-for-paths))
-         (normalized (ai-code-session-link--normalize-file path)))
-    (when (and root normalized)
-      (or (ai-code-session-link--resolve-existing-local-path normalized root)
-          (let* ((project-files (ai-code-session-link--project-files root))
-                 (candidate (if (file-name-absolute-p normalized)
-                                (expand-file-name normalized)
-                              (expand-file-name normalized root))))
-            (cond
-             ((ai-code-session-link--in-project-file-p candidate root project-files) candidate)
-             ((not (file-name-absolute-p normalized))
-              (car (ai-code-session-link--matching-project-files normalized root project-files)))
-             (t nil)))))))
+         (normalized (ai-code-session-link--normalize-file path))
+         (cache-key (and root normalized
+                         (cons (expand-file-name root) normalized))))
+    (if cache-key
+        (ai-code-session-link--cache-get-or-compute
+         ai-code-session-link--resolved-path-cache
+         cache-key
+         (lambda ()
+           (or (ai-code-session-link--resolve-existing-local-path normalized root)
+               (let* ((project-files (ai-code-session-link--project-files root))
+                      (candidate (if (file-name-absolute-p normalized)
+                                     (expand-file-name normalized)
+                                   (expand-file-name normalized root))))
+                 (cond
+                  ((ai-code-session-link--in-project-file-p candidate root project-files) candidate)
+                  ((not (file-name-absolute-p normalized))
+                   (car (ai-code-session-link--matching-project-files normalized root project-files)))
+                  (t nil))))))
+      nil)))
 
 (defun ai-code-session-link--parse-file-link-text (text)
   "Parse file-like session link TEXT into a plist."
@@ -316,36 +347,25 @@ terminal output redraw."
            (string-suffix-p "()" candidate)
            (ai-code-session-link--bare-symbol-candidate-p candidate))))
 
-(defun ai-code-session-link--next-nearby-symbol-boundary (start end)
+(defun ai-code-session-link--next-nearby-symbol-boundary (start end &optional next-file-start)
   "Return the next boundary after START for symbol scanning up to END."
-  (let ((boundary end)
-        (file-boundary nil))
+  (let ((boundary end))
     (save-excursion
       (goto-char start)
       (when (re-search-forward ai-code-session-link--blank-line-regexp end t)
         (setq boundary (min boundary (match-beginning 0))))
       (goto-char start)
       (when (re-search-forward ai-code-session-link--url-pattern-regexp end t)
-        (setq boundary (min boundary (match-beginning 1))))
-      (dolist (pattern ai-code-session-link--file-patterns)
-        (goto-char start)
-        (catch 'matched
-          (while (re-search-forward (car pattern) end t)
-            (let ((path (match-string-no-properties (nth 1 pattern))))
-              (when (ai-code-session-link--resolve-session-file path)
-                (setq file-boundary
-                      (if file-boundary
-                          (min file-boundary (match-beginning 0))
-                        (match-beginning 0)))
-                (throw 'matched t)))))))
-    (if file-boundary
-        (min boundary file-boundary)
+        (setq boundary (min boundary (match-beginning 1)))))
+    (if next-file-start
+        (min boundary next-file-start)
       boundary)))
 
-(defun ai-code-session-link--linkify-symbols-near-file (file-link scan-start end)
+(defun ai-code-session-link--linkify-symbols-near-file (file-link scan-start end &optional next-file-start)
   "Linkify code-like symbols near FILE-LINK from SCAN-START up to END."
   (let* ((window-end (min end (+ scan-start ai-code-session-link--symbol-neighborhood-max-width)))
-         (scan-end (ai-code-session-link--next-nearby-symbol-boundary scan-start window-end)))
+         (scan-end (ai-code-session-link--next-nearby-symbol-boundary
+                    scan-start window-end next-file-start)))
     (when (< scan-start scan-end)
       (save-excursion
         (let ((case-fold-search nil))
@@ -358,6 +378,26 @@ terminal output redraw."
                          (ai-code-session-link--symbol-candidate-p candidate))
                 (ai-code-session-link--apply-symbol-properties
                  symbol-start symbol-end candidate file-link)))))))))
+
+(defun ai-code-session-link--collect-file-links (start end)
+  "Return resolved file link matches between START and END."
+  (let ((seen-starts (make-hash-table :test 'eql))
+        file-links)
+    (save-excursion
+      (dolist (pattern ai-code-session-link--file-patterns)
+        (goto-char start)
+        (while (re-search-forward (car pattern) end t)
+          (let ((match-start (match-beginning 0))
+                (match-end (match-end 0)))
+            (unless (gethash match-start seen-starts)
+              (let ((path (match-string-no-properties (nth 1 pattern))))
+                (when (ai-code-session-link--resolve-session-file path)
+                  (puthash match-start t seen-starts)
+                  (push (list :start match-start
+                              :end match-end
+                              :text (buffer-substring-no-properties match-start match-end))
+                        file-links))))))))
+    (nreverse file-links)))
 
 (defun ai-code-session-link--linkify-url-region (start end)
   "Apply URL session links between START and END."
@@ -373,20 +413,22 @@ terminal output redraw."
 
 (defun ai-code-session-link--linkify-file-region (start end)
   "Apply file session links between START and END."
-  (save-excursion
-    (dolist (pattern ai-code-session-link--file-patterns)
-      (goto-char start)
-      (while (re-search-forward (car pattern) end t)
-        (unless (get-text-property (match-beginning 0) 'ai-code-session-link)
-          (let* ((match-start (match-beginning 0))
-                 (match-end (match-end 0))
-                 (path (match-string-no-properties (nth 1 pattern))))
-            (when (ai-code-session-link--resolve-session-file path)
-              (let ((link-text (buffer-substring-no-properties match-start match-end)))
-                (ai-code-session-link--apply-properties
-                 match-start match-end link-text "mouse-1: Visit file")
-                (ai-code-session-link--linkify-symbols-near-file
-                 link-text match-end end)))))))))
+  (let ((ai-code-session-link--project-files-cache (make-hash-table :test 'equal))
+        (ai-code-session-link--resolved-path-cache (make-hash-table :test 'equal)))
+    (let ((file-links (ai-code-session-link--collect-file-links start end)))
+      (while file-links
+        (let* ((file-link (car file-links))
+               (next-file-link (cadr file-links))
+               (match-start (plist-get file-link :start))
+               (match-end (plist-get file-link :end))
+               (link-text (plist-get file-link :text)))
+          (unless (get-text-property match-start 'ai-code-session-link)
+            (ai-code-session-link--apply-properties
+             match-start match-end link-text "mouse-1: Visit file")
+            (ai-code-session-link--linkify-symbols-near-file
+             link-text match-end end
+             (and next-file-link (plist-get next-file-link :start))))
+          (setq file-links (cdr file-links)))))))
 
 (defun ai-code-session-link--property-at-point (property)
   "Return PROPERTY at point or immediately before point."
