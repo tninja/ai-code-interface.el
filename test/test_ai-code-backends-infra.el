@@ -289,6 +289,41 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-reuse-session-window-refreshes-hidden-buffer ()
+  "Reusing a hidden session should refresh its state and display it."
+  (let* ((working-dir "/tmp/ai-code-reuse-hidden/")
+         (prefix "codex")
+         (buffer (get-buffer-create "*codex[reuse-hidden]*"))
+         (calls nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer-window)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--set-session-directory)
+                   (lambda (target-buffer directory)
+                     (push (list :set-directory target-buffer directory) calls)))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (target-buffer escape-fn multiline-input-sequence)
+                     (push (list :configure target-buffer escape-fn multiline-input-sequence) calls)))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (target-prefix directory target-buffer)
+                     (push (list :remember target-prefix directory target-buffer) calls)))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (target-buffer)
+                     (push (list :display target-buffer) calls)
+                     nil)))
+          (ai-code-backends-infra--reuse-session-window
+           buffer
+           working-dir
+           prefix
+           "\\\r\n")
+          (should (equal (nreverse calls)
+                         (list (list :set-directory buffer working-dir)
+                               (list :configure buffer nil "\\\r\n")
+                               (list :remember prefix working-dir buffer)
+                               (list :display buffer)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-prefers-explicit-instance ()
   "Explicit INSTANCE-NAME should bypass prompting and produce stable target info."
   (let* ((working-dir "/tmp/ai-code-session-target/")

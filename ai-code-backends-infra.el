@@ -814,6 +814,19 @@ Return a plist with target information plus the current buffer and process."
             (list :buffer (get-buffer resolved-buffer-name)
                   :existing-process (gethash session-key process-table)))))
 
+(defun ai-code-backends-infra--reuse-session-window (buffer working-dir
+                                                            prefix multiline-input-sequence)
+  "Toggle visibility for an existing session BUFFER.
+When BUFFER is already visible, close its window.
+Otherwise refresh session-local state and display it."
+  (if (get-buffer-window buffer)
+      (delete-window (get-buffer-window buffer))
+    (ai-code-backends-infra--set-session-directory buffer working-dir)
+    (ai-code-backends-infra--configure-session-buffer
+     buffer nil multiline-input-sequence)
+    (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+    (ai-code-backends-infra--display-buffer-in-side-window buffer)))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
@@ -850,14 +863,11 @@ session starts successfully."
          (existing-process (plist-get session-context :existing-process))
          (buffer (plist-get session-context :buffer)))
     (if (and existing-process (process-live-p existing-process) buffer)
-        (if (get-buffer-window buffer)
-            (delete-window (get-buffer-window buffer))
-          (progn
-            (ai-code-backends-infra--set-session-directory buffer working-dir)
-            (ai-code-backends-infra--configure-session-buffer
-             buffer nil multiline-input-sequence)
-            (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
-            (ai-code-backends-infra--display-buffer-in-side-window buffer)))
+        (ai-code-backends-infra--reuse-session-window
+         buffer
+         working-dir
+         prefix
+         multiline-input-sequence)
       (let* ((buffer-and-process
               (ai-code-backends-infra--create-terminal-session
                resolved-buffer-name working-dir command env-vars))
