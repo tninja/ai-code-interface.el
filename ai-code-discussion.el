@@ -268,23 +268,36 @@ into the AI prompt file and optionally sends to AI."
 (defun ai-code--explain-dired ()
   "Handle explain for Dired buffer."
   (let* ((file-at-point (dired-get-filename nil t))
-         (git-relative-path (when file-at-point
-                             (car (ai-code--get-git-relative-paths (list file-at-point)))))
-         (files-context-string (when git-relative-path
-                                (concat "\nFiles:\n@" git-relative-path)))
+         (all-marked (dired-get-marked-files))
+         (has-marked-files (> (length all-marked) 1))
+         (context-files (if has-marked-files
+                            all-marked
+                          (when file-at-point
+                            (list file-at-point))))
+         (git-relative-paths (when context-files
+                               (ai-code--get-git-relative-paths context-files)))
+         (files-context-string (when git-relative-paths
+                                (concat "\nFiles:\n"
+                                        (mapconcat (lambda (path) (concat "@" path))
+                                                   git-relative-paths
+                                                   "\n"))))
          (file-type (if (and file-at-point (file-directory-p file-at-point))
-                       "directory"
-                     "file"))
-         (initial-prompt (if git-relative-path
-                            (format "Please explain the %s at path @%s.\n\nProvide a clear explanation of what this %s contains, its purpose, and its role in the project structure.%s"
+                        "directory"
+                      "file"))
+         (initial-prompt (cond
+                          (has-marked-files
+                           (format "Please explain the selected files or directories.\n\nProvide a clear explanation of what these files or directories contain, their purpose, and their role in the project structure.%s"
+                                   (or files-context-string "")))
+                          ((car git-relative-paths)
+                           (format "Please explain the %s at path @%s.\n\nProvide a clear explanation of what this %s contains, its purpose, and its role in the project structure.%s"
                                    file-type
-                                   git-relative-path
+                                   (car git-relative-paths)
                                    file-type
-                                   (or files-context-string ""))
-                          "No file or directory found at cursor point."))
-         (final-prompt (if git-relative-path
-                          (ai-code-read-string "Prompt: " initial-prompt)
-                        initial-prompt)))
+                                   (or files-context-string "")))
+                          (t "No file or directory found at cursor point.")))
+         (final-prompt (if git-relative-paths
+                           (ai-code-read-string "Prompt: " initial-prompt)
+                         initial-prompt)))
     (when final-prompt
       (ai-code--insert-prompt final-prompt))))
 
