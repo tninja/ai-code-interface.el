@@ -2117,13 +2117,17 @@ Returns nil for non-CLI backends (ECA, agent-shell)."
    ((and (boundp 'ai-code-selected-backend)
          (eq ai-code-selected-backend 'eca))
     (and (fboundp 'eca-session)
-         (eca-session)))
+         (condition-case nil
+             (eca-session)
+           (error nil))))
 
    ;; agent-shell backend - use agent-shell--shell-buffer
    ((and (boundp 'ai-code-selected-backend)
          (eq ai-code-selected-backend 'agent-shell))
     (and (fboundp 'agent-shell--shell-buffer)
-         (agent-shell--shell-buffer :no-create t :no-error t)))
+         (condition-case nil
+             (agent-shell--shell-buffer :no-create t :no-error t)
+           (error nil))))
 
 ;; CLI backends - use terminal buffer detection
     ((ai-code--get-session-prefix)
