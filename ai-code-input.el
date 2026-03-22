@@ -12,6 +12,7 @@
 ;;; Code:
 
 (require 'cl-lib)  ; For `cl-subseq`
+(require 'dired)
 (require 'imenu)
 (require 'magit)
 (require 'project)
@@ -133,15 +134,22 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
 (defun ai-code--get-context-files-string ()
   "Get a string of files in the current window for context.
 The current buffer's file is always first."
-  (if (not buffer-file-name)
-      ""
+  (cond
+   ((derived-mode-p 'dired-mode)
+    (let ((files (dired-get-marked-files nil nil nil t)))
+      (if files
+          (concat "\nFiles:\n" (mapconcat #'identity files "\n"))
+        "")))
+   ((not buffer-file-name)
+    "")
+   (t
     (let* ((current-buffer-file-name buffer-file-name)
            (all-buffer-files (ai-code--get-window-files))
            (other-buffer-files (remove current-buffer-file-name all-buffer-files))
            (sorted-files (cons current-buffer-file-name other-buffer-files)))
       (if sorted-files
           (concat "\nFiles:\n" (mapconcat #'identity sorted-files "\n"))
-        ""))))
+        "")))))
 
 (defun ai-code--imenu-subalist-p (payload)
   "Return non-nil when PAYLOAD looks like an imenu sub-alist."
