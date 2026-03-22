@@ -790,6 +790,30 @@ Return a plist with :instance-name, :buffer-name, and :session-key."
                         working-dir
                         resolved-instance))))
 
+(defun ai-code-backends-infra--resolve-session-context (working-dir buffer-name
+                                                                    process-table
+                                                                    prefix instance-name
+                                                                    force-prompt)
+  "Return resolved session context for session lifecycle operations.
+WORKING-DIR is the session directory.
+BUFFER-NAME is the explicit terminal buffer name, when provided.
+PROCESS-TABLE maps session keys to processes.
+PREFIX enables instance-based naming.
+INSTANCE-NAME overrides interactive instance selection when non-nil.
+FORCE-PROMPT forces instance prompting when PREFIX is non-nil.
+Return a plist with target information plus the current buffer and process."
+  (let* ((session-target (ai-code-backends-infra--resolve-session-target
+                          working-dir
+                          buffer-name
+                          prefix
+                          instance-name
+                          force-prompt))
+         (session-key (plist-get session-target :session-key))
+         (resolved-buffer-name (plist-get session-target :buffer-name)))
+    (append session-target
+            (list :buffer (get-buffer resolved-buffer-name)
+                  :existing-process (gethash session-key process-table)))))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
@@ -813,17 +837,18 @@ POST-START-FN is called with (BUFFER PROCESS INSTANCE-NAME) after a new
 session starts successfully."
   (setq process-table (or process-table ai-code-backends-infra--processes))
   (ai-code-backends-infra--cleanup-dead-processes process-table)
-  (let* ((session-target (ai-code-backends-infra--resolve-session-target
-                          working-dir
-                          buffer-name
-                          prefix
-                          instance-name
-                          force-prompt))
-         (resolved-instance (plist-get session-target :instance-name))
-         (resolved-buffer-name (plist-get session-target :buffer-name))
-         (session-key (plist-get session-target :session-key))
-         (existing-process (gethash session-key process-table))
-         (buffer (get-buffer resolved-buffer-name)))
+  (let* ((session-context (ai-code-backends-infra--resolve-session-context
+                           working-dir
+                           buffer-name
+                           process-table
+                           prefix
+                           instance-name
+                           force-prompt))
+         (resolved-instance (plist-get session-context :instance-name))
+         (resolved-buffer-name (plist-get session-context :buffer-name))
+         (session-key (plist-get session-context :session-key))
+         (existing-process (plist-get session-context :existing-process))
+         (buffer (plist-get session-context :buffer)))
     (if (and existing-process (process-live-p existing-process) buffer)
         (if (get-buffer-window buffer)
             (delete-window (get-buffer-window buffer))

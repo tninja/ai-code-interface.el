@@ -313,6 +313,34 @@
                      (cons working-dir "review")))
       (should-not prompt-called))))
 
+(ert-deftest test-ai-code-backends-infra-resolve-session-context-includes-runtime-state ()
+  "Resolved session context should include target data plus buffer and process."
+  (let* ((working-dir "/tmp/ai-code-session-context/")
+         (buffer-name "*ai-code-session-context*")
+         (process-table (make-hash-table :test 'equal))
+         (buffer (get-buffer-create buffer-name))
+         (process 'mock-process)
+         (context nil))
+    (unwind-protect
+        (progn
+          (puthash (cons working-dir "default") process process-table)
+          (setq context
+                (ai-code-backends-infra--resolve-session-context
+                 working-dir
+                 buffer-name
+                 process-table
+                 nil
+                 nil
+                 nil))
+          (should (equal (plist-get context :instance-name) "default"))
+          (should (equal (plist-get context :buffer-name) buffer-name))
+          (should (equal (plist-get context :session-key)
+                         (cons working-dir "default")))
+          (should (eq (plist-get context :buffer) buffer))
+          (should (eq (plist-get context :existing-process) process)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-cleanup-session-kills-buffer-on-normal-exit ()
   "Buffer is killed when the process exits normally (event starts with \"finished\")."
   (let* ((table (make-hash-table :test 'equal))
