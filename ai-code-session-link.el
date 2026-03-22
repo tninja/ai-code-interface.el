@@ -54,23 +54,11 @@ terminal output redraw."
   "\\(https?://[^][(){}<>\"' \t\n]+\\)"
   "Regexp matching http/https URLs in session buffers.")
 
-(defconst ai-code-session-link--symbol-neighborhood-initial-width 192
-  "Initial number of characters to scan for symbols near a file link.")
-
-(defconst ai-code-session-link--symbol-neighborhood-extend-width 128
-  "Additional character budget to grant after a chunk links at least one symbol.")
-
 (defconst ai-code-session-link--symbol-neighborhood-max-width 512
-  "Maximum total number of characters to scan for symbols near a file link.")
+  "Maximum number of characters to scan for symbols near a file link.")
 
-(defconst ai-code-session-link--symbol-neighborhood-initial-lines 3
-  "Initial number of lines to scan for symbols near a file link.")
-
-(defconst ai-code-session-link--symbol-neighborhood-extend-lines 2
-  "Additional line budget to grant after a chunk links at least one symbol.")
-
-(defconst ai-code-session-link--symbol-neighborhood-max-lines 6
-  "Maximum total number of lines to scan for symbols near a file link.")
+(defconst ai-code-session-link--symbol-neighborhood-max-lines 8
+  "Maximum number of lines to scan for symbols near a file link.")
 
 (defconst ai-code-session-link--symbol-neighborhood-max-candidates 24
   "Maximum number of raw symbol candidates to inspect near one file link.")
@@ -364,20 +352,25 @@ terminal output redraw."
            (string-suffix-p "()" candidate)
            (ai-code-session-link--bare-symbol-candidate-p candidate))))
 
-(defun ai-code-session-link--forward-line-boundary (start end line-count)
+(defun ai-code-session-link--line-budget-end (start end line-count)
   "Return the position after moving forward LINE-COUNT line breaks from START up to END."
   (save-excursion
     (goto-char start)
+    (when (and (< (point) end)
+               (eq (char-after) ?\n))
+      (forward-char 1))
     (dotimes (_ line-count)
-      (when (search-forward "\n" end t)
-        (goto-char (point))))
+      (if (search-forward "\n" end t)
+          (goto-char (point))
+        (goto-char end)))
     (point)))
 
-(defun ai-code-session-link--symbol-chunk-end (start hard-end width line-count)
-  "Return a chunk boundary from START up to HARD-END using WIDTH and LINE-COUNT budgets."
+(defun ai-code-session-link--symbol-window-end (start hard-end)
+  "Return the fixed nearby symbol scan boundary from START up to HARD-END."
   (min hard-end
-       (+ start width)
-       (ai-code-session-link--forward-line-boundary start hard-end line-count)))
+       (+ start ai-code-session-link--symbol-neighborhood-max-width)
+       (ai-code-session-link--line-budget-end
+        start hard-end ai-code-session-link--symbol-neighborhood-max-lines)))
 
 (defun ai-code-session-link--within-symbol-scan-budget-p (candidate-count link-count)
   "Return non-nil when nearby scanning can continue with CANDIDATE-COUNT and LINK-COUNT."
@@ -395,56 +388,34 @@ terminal output redraw."
         (min boundary next-file-start)
       boundary)))
 
+(defun ai-code-session-link--symbol-scan-end (scan-start end &optional next-file-start)
+  "Return the final nearby symbol scan boundary for SCAN-START up to END."
+  (ai-code-session-link--next-nearby-symbol-boundary
+   scan-start
+   (ai-code-session-link--symbol-window-end scan-start end)
+   next-file-start))
+
 (defun ai-code-session-link--linkify-symbols-near-file (file-link scan-start end &optional next-file-start)
   "Linkify code-like symbols near FILE-LINK from SCAN-START up to END."
-  (let* ((hard-window-end
-          (ai-code-session-link--symbol-chunk-end
-           scan-start end
-           ai-code-session-link--symbol-neighborhood-max-width
-           ai-code-session-link--symbol-neighborhood-max-lines))
-         (scan-end (ai-code-session-link--next-nearby-symbol-boundary
-                    scan-start hard-window-end next-file-start)))
+  (let ((scan-end (ai-code-session-link--symbol-scan-end scan-start end next-file-start)))
     (when (< scan-start scan-end)
       (save-excursion
         (let ((case-fold-search nil)
               (candidate-count 0)
-              (link-count 0)
-              (chunk-start scan-start)
-              (chunk-end (ai-code-session-link--symbol-chunk-end
-                          scan-start scan-end
-                          ai-code-session-link--symbol-neighborhood-initial-width
-                          ai-code-session-link--symbol-neighborhood-initial-lines))
-              (continue-scanning t))
-          (while (and continue-scanning
-                      (< chunk-start scan-end)
-                      (ai-code-session-link--within-symbol-scan-budget-p
-                       candidate-count link-count))
-            (let ((chunk-linked nil))
-              (goto-char chunk-start)
-              (while (and (ai-code-session-link--within-symbol-scan-budget-p
-                           candidate-count link-count)
-                          (re-search-forward ai-code-session-link--symbol-candidate-regexp chunk-end t))
-                (let ((symbol-start (match-beginning 1))
-                      (symbol-end (match-end 1))
-                      (candidate (match-string-no-properties 1)))
-                  (setq candidate-count (1+ candidate-count))
-                  (when (and (not (get-text-property symbol-start 'ai-code-session-link))
-                             (ai-code-session-link--symbol-candidate-p candidate))
-                    (ai-code-session-link--apply-symbol-properties
-                     symbol-start symbol-end candidate file-link)
-                    (setq link-count (1+ link-count)
-                          chunk-linked t))))
-              (setq chunk-start chunk-end)
-              (if (and chunk-linked
-                       (< chunk-start scan-end)
-                       (ai-code-session-link--within-symbol-scan-budget-p
-                        candidate-count link-count))
-                  (setq chunk-end
-                        (ai-code-session-link--symbol-chunk-end
-                         chunk-start scan-end
-                         ai-code-session-link--symbol-neighborhood-extend-width
-                         ai-code-session-link--symbol-neighborhood-extend-lines))
-                (setq continue-scanning nil)))))))))
+              (link-count 0))
+          (goto-char scan-start)
+          (while (and (ai-code-session-link--within-symbol-scan-budget-p
+                       candidate-count link-count)
+                      (re-search-forward ai-code-session-link--symbol-candidate-regexp scan-end t))
+            (let ((symbol-start (match-beginning 1))
+                  (symbol-end (match-end 1))
+                  (candidate (match-string-no-properties 1)))
+              (setq candidate-count (1+ candidate-count))
+              (when (and (not (get-text-property symbol-start 'ai-code-session-link))
+                         (ai-code-session-link--symbol-candidate-p candidate))
+                (ai-code-session-link--apply-symbol-properties
+                 symbol-start symbol-end candidate file-link)
+                (setq link-count (1+ link-count))))))))))
 
 (defun ai-code-session-link--collect-file-links (start end)
   "Return resolved file link matches between START and END."

@@ -376,8 +376,8 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
-(ert-deftest ai-code-session-link-test-linkify-session-region-extends-scan-after-symbol-hit ()
-  "Extend nearby symbol scanning after linkifying an earlier symbol."
+(ert-deftest ai-code-session-link-test-linkify-session-region-uses-fixed-large-symbol-window ()
+  "Linkify later nearby symbols within the fixed 512-char and 8-line budget."
   (let* ((root (make-temp-file "ai-code-session-links-extended-symbols-" t))
          (lisp-dir (expand-file-name "lisp" root))
          (file (expand-file-name "feature.el" lisp-dir))
@@ -390,8 +390,10 @@
             (insert "(defun ai-code-session-link--linkify-session-region () nil)\n"))
           (with-temp-buffer
             (setq-local ai-code-backends-infra--session-directory root)
-            (insert "lisp/feature.el:1\nsetq-local\n")
-            (insert (make-string 220 ?x))
+            (insert "lisp/feature.el:1\n")
+            (dotimes (_ 6)
+              (insert "plain prose words only\n"))
+            (insert (make-string 260 ?x))
             (insert "\n")
             (insert later-symbol)
             (insert "\n")
