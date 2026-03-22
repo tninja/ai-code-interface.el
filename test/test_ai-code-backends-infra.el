@@ -289,6 +289,30 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-prefers-explicit-instance ()
+  "Explicit INSTANCE-NAME should bypass prompting and produce stable target info."
+  (let* ((working-dir "/tmp/ai-code-session-target/")
+         (prefix "codex")
+         (context nil)
+         (prompt-called nil))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--prompt-for-instance-name)
+               (lambda (&rest _args)
+                 (setq prompt-called t)
+                 "prompted-instance")))
+      (setq context
+            (ai-code-backends-infra--resolve-session-target
+             working-dir
+             nil
+             prefix
+             "review"
+             nil))
+      (should (equal (plist-get context :instance-name) "review"))
+      (should (equal (plist-get context :buffer-name)
+                     "*codex[ai-code-session-target:review]*"))
+      (should (equal (plist-get context :session-key)
+                     (cons working-dir "review")))
+      (should-not prompt-called))))
+
 (ert-deftest test-ai-code-backends-infra-cleanup-session-kills-buffer-on-normal-exit ()
   "Buffer is killed when the process exits normally (event starts with \"finished\")."
   (let* ((table (make-hash-table :test 'equal))

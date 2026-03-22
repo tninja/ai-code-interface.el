@@ -751,6 +751,45 @@ any error output left behind by the CLI."
                 (string-prefix-p "finished" event))
         (kill-buffer buffer)))))
 
+(defun ai-code-backends-infra--resolve-session-target (working-dir buffer-name
+                                                                   prefix instance-name
+                                                                   force-prompt)
+  "Return resolved session target information.
+WORKING-DIR is the session directory.
+BUFFER-NAME is the explicit terminal buffer name, when provided.
+PREFIX enables instance-based naming.
+INSTANCE-NAME overrides interactive instance selection when non-nil.
+FORCE-PROMPT forces instance prompting when PREFIX is non-nil.
+Return a plist with :instance-name, :buffer-name, and :session-key."
+  (let* ((existing-buffers (and prefix
+                                (ai-code-backends-infra--find-session-buffers
+                                 prefix
+                                 working-dir)))
+         (existing-instance-names (mapcar (lambda (buf)
+                                            (ai-code-backends-infra--session-instance-name
+                                             (buffer-name buf)
+                                             prefix))
+                                          existing-buffers))
+         (resolved-instance (cond
+                             (instance-name
+                              (ai-code-backends-infra--normalize-instance-name instance-name))
+                             (prefix
+                              (ai-code-backends-infra--prompt-for-instance-name
+                               existing-instance-names
+                               force-prompt))
+                             (t "default")))
+         (resolved-buffer-name (or buffer-name
+                                   (and prefix
+                                        (ai-code-backends-infra--session-buffer-name
+                                         prefix
+                                         working-dir
+                                         resolved-instance)))))
+    (list :instance-name resolved-instance
+          :buffer-name resolved-buffer-name
+          :session-key (ai-code-backends-infra--session-key
+                        working-dir
+                        resolved-instance))))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
@@ -774,29 +813,15 @@ POST-START-FN is called with (BUFFER PROCESS INSTANCE-NAME) after a new
 session starts successfully."
   (setq process-table (or process-table ai-code-backends-infra--processes))
   (ai-code-backends-infra--cleanup-dead-processes process-table)
-  (let* ((existing-buffers (and prefix
-                                (ai-code-backends-infra--find-session-buffers
-                                 prefix
-                                 working-dir)))
-         (existing-instance-names (mapcar (lambda (buf)
-                                            (ai-code-backends-infra--session-instance-name
-                                             (buffer-name buf)
-                                             prefix))
-                                          existing-buffers))
-         (resolved-instance (cond
-                             (instance-name (ai-code-backends-infra--normalize-instance-name instance-name))
-                             (prefix
-                              (ai-code-backends-infra--prompt-for-instance-name
-                               existing-instance-names
-                               force-prompt))
-                             (t "default")))
-         (resolved-buffer-name (or buffer-name
-                                   (and prefix
-                                        (ai-code-backends-infra--session-buffer-name
-                                         prefix
-                                         working-dir
-                                         resolved-instance))))
-         (session-key (ai-code-backends-infra--session-key working-dir resolved-instance))
+  (let* ((session-target (ai-code-backends-infra--resolve-session-target
+                          working-dir
+                          buffer-name
+                          prefix
+                          instance-name
+                          force-prompt))
+         (resolved-instance (plist-get session-target :instance-name))
+         (resolved-buffer-name (plist-get session-target :buffer-name))
+         (session-key (plist-get session-target :session-key))
          (existing-process (gethash session-key process-table))
          (buffer (get-buffer resolved-buffer-name)))
     (if (and existing-process (process-live-p existing-process) buffer)
