@@ -861,6 +861,15 @@ Otherwise refresh session-local state and display it."
   (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
   (ai-code-backends-infra--display-buffer-in-side-window buffer))
 
+(defun ai-code-backends-infra--handle-session-start-failure (buffer session-key process-table)
+  "Handle startup failure for BUFFER and SESSION-KEY."
+  (remhash session-key process-table)
+  (if (buffer-live-p buffer)
+      (progn
+        (pop-to-buffer buffer)
+        (message "CLI failed to start - see buffer for error details"))
+    (message "CLI failed to start - process exited immediately")))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
@@ -924,15 +933,10 @@ session starts successfully."
              cleanup-fn
              multiline-input-sequence
              post-start-fn)
-          ;; Process exited during initialization - show buffer with error to user
-          ;; Clean up the session from process table (but keep buffer visible)
-          (remhash session-key process-table)
-          ;; Display the buffer so user can see the error output
-          (if (buffer-live-p new-buffer)
-              (progn
-                (pop-to-buffer new-buffer)
-                (message "CLI failed to start - see buffer for error details"))
-            (message "CLI failed to start - process exited immediately")))))))
+          (ai-code-backends-infra--handle-session-start-failure
+           new-buffer
+           session-key
+           process-table))))))
 
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
                                                                     &optional prefix working-dir force-prompt)

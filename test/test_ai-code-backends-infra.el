@@ -1051,6 +1051,34 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-handle-session-start-failure-shows-live-buffer ()
+  "Startup failure should preserve and show a live buffer with an error message."
+  (let* ((session-key '("/tmp/ai-code-start-failure/" . "default"))
+         (process-table (make-hash-table :test 'equal))
+         (buffer (get-buffer-create "*ai-code-start-failure*"))
+         (calls nil))
+    (unwind-protect
+        (progn
+          (puthash session-key 'mock-process process-table)
+          (cl-letf (((symbol-function 'pop-to-buffer)
+                     (lambda (target-buffer &rest _args)
+                       (push (list :pop target-buffer) calls)
+                       nil))
+                    ((symbol-function 'message)
+                     (lambda (format-string &rest args)
+                       (push (apply #'format format-string args) calls)
+                       nil)))
+            (ai-code-backends-infra--handle-session-start-failure
+             buffer
+             session-key
+             process-table)
+            (should-not (gethash session-key process-table))
+            (should (equal (nreverse calls)
+                           (list (list :pop buffer)
+                                 "CLI failed to start - see buffer for error details")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-configure-session-buffer-does-not-bind-manual-navigation ()
   "Configuring a session buffer should not add a manual `C-c g' navigation feature."
   (let ((buffer (generate-new-buffer "*ai-code-session-config*")))
