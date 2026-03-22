@@ -14,6 +14,11 @@
 
 (defvar ai-code-backends-infra--session-directory)
 
+(ert-deftest ai-code-session-link-test-toggle-defaults-enabled ()
+  "Session linkification should be enabled by default."
+  (should (boundp 'ai-code-session-link-enabled))
+  (should ai-code-session-link-enabled))
+
 (ert-deftest ai-code-session-link-test-normalize-file-removes-session-prefixes ()
   "Normalization should trim whitespace and remove session-only prefixes."
   (should (equal (ai-code-session-link--normalize-file " @src/Foo.java ")
@@ -233,6 +238,38 @@
             (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
                            "https://example.com/path"))
             (should (eq (get-text-property (match-beginning 0) 'font-lock-face) 'link))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-disabled-toggle-skips-linkify-and-scheduling ()
+  "Disabled session linkification should skip properties and timer scheduling."
+  (should (boundp 'ai-code-session-link-enabled))
+  (let* ((root (make-temp-file "ai-code-session-links-disabled-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (let ((ai-code-session-link-enabled nil))
+            (with-temp-buffer
+              (setq-local ai-code-backends-infra--session-directory root)
+              (insert "src/FileABC.java:42\nhttps://example.com/path\n")
+              (ai-code-session-link--linkify-session-region (point-min) (point-max))
+              (goto-char (point-min))
+              (search-forward-regexp "src/FileABC\\.java:42")
+              (should-not (get-text-property (match-beginning 0) 'ai-code-session-link))
+              (search-forward-regexp "https://example\\.com/path")
+              (should-not (get-text-property (match-beginning 0) 'ai-code-session-link)))
+            (with-temp-buffer
+              (setq ai-code-session-link--pending-tail-width 0
+                    ai-code-session-link--linkify-timer nil)
+              (ai-code-session-link--schedule-linkify-recent-output
+               (current-buffer)
+               "src/FileABC.java:42")
+              (should-not ai-code-session-link--linkify-timer)
+              (should (zerop ai-code-session-link--pending-tail-width)))))
       (when (file-directory-p root)
         (delete-directory root t)))))
 

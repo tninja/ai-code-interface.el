@@ -18,6 +18,14 @@
 (defvar ai-code-backends-infra--session-directory nil
   "Session working directory set by ai-code-backends-infra buffers.")
 
+(defcustom ai-code-session-link-enabled t
+  "When non-nil, make supported links clickable in AI session buffers.
+
+Disable this if you prefer to avoid the extra linkification work on
+terminal output redraw."
+  :type 'boolean
+  :group 'ai-code)
+
 (defvar ai-code-session-link--keymap
   (let ((map (make-sparse-keymap)))
     (define-key map [mouse-1] #'ai-code-session-navigate-link-at-mouse)
@@ -200,7 +208,8 @@
 
 (defun ai-code-session-link--linkify-session-region (start end)
   "Make supported URLs and in-project file references clickable from START to END."
-  (when (< start end)
+  (when (and ai-code-session-link-enabled
+             (< start end))
     (let ((inhibit-read-only t))
       (save-excursion
         (save-restriction
@@ -244,7 +253,8 @@
 
 (defun ai-code-session-link--schedule-linkify-recent-output (buffer output)
   "Linkify recent OUTPUT in BUFFER after terminal redraw settles."
-  (when (buffer-live-p buffer)
+  (when (and ai-code-session-link-enabled
+             (buffer-live-p buffer))
     (with-current-buffer buffer
       (setq ai-code-session-link--pending-tail-width
             (max ai-code-session-link--pending-tail-width
@@ -261,10 +271,11 @@
 
 (defun ai-code-session-link--linkify-recent-output (output)
   "Linkify the recent tail of the current session buffer after OUTPUT."
-  (let* ((visible-width (ai-code-session-link--recent-output-tail-width output))
-         (end (point-max))
-         (start (max (point-min) (- end visible-width))))
-    (ai-code-session-link--linkify-session-region start end)))
+  (when ai-code-session-link-enabled
+    (let* ((visible-width (ai-code-session-link--recent-output-tail-width output))
+           (end (point-max))
+           (start (max (point-min) (- end visible-width))))
+      (ai-code-session-link--linkify-session-region start end))))
 
 (provide 'ai-code-session-link)
 
