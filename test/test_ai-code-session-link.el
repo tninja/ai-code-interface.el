@@ -352,6 +352,60 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-session-link-test-linkify-session-region-symbols-cross-blank-lines ()
+  "Linkify nearby symbols even when a blank line appears after the file link."
+  (let* ((root (make-temp-file "ai-code-session-links-blank-line-symbols-" t))
+         (lisp-dir (expand-file-name "lisp" root))
+         (file (expand-file-name "feature.el" lisp-dir)))
+    (unwind-protect
+        (progn
+          (make-directory lisp-dir t)
+          (with-temp-file file
+            (insert "(defvar ai-code-session-link-enabled t)\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "lisp/feature.el:1\n\nai-code-session-link-enabled\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward "ai-code-session-link-enabled")
+            (let ((symbol-pos (- (point) (length "ai-code-session-link-enabled"))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             "ai-code-session-link-enabled"))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "lisp/feature.el:1")))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-extends-scan-after-symbol-hit ()
+  "Extend nearby symbol scanning after linkifying an earlier symbol."
+  (let* ((root (make-temp-file "ai-code-session-links-extended-symbols-" t))
+         (lisp-dir (expand-file-name "lisp" root))
+         (file (expand-file-name "feature.el" lisp-dir))
+         (later-symbol "ai-code-session-link--linkify-session-region"))
+    (unwind-protect
+        (progn
+          (make-directory lisp-dir t)
+          (with-temp-file file
+            (insert "(setq-local foo t)\n")
+            (insert "(defun ai-code-session-link--linkify-session-region () nil)\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "lisp/feature.el:1\nsetq-local\n")
+            (insert (make-string 220 ?x))
+            (insert "\n")
+            (insert later-symbol)
+            (insert "\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward later-symbol)
+            (let ((symbol-pos (- (point) (length later-symbol))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             later-symbol))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "lisp/feature.el:1")))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest ai-code-session-link-test-linkify-session-region-reuses-file-resolution-for-nearby-symbols ()
   "Resolve each nearby file link once while preserving symbol linkification."
   (let* ((root (make-temp-file "ai-code-session-links-symbol-perf-" t))
