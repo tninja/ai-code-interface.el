@@ -14,6 +14,7 @@
 
 (declare-function ai-code-session-navigate-link-at-mouse "ai-code-input" (event))
 (declare-function ai-code-session-navigate-link-at-point "ai-code-input" ())
+(declare-function helm-gtags-find-tag "ext:helm-gtags" (tagname))
 (declare-function xref-find-definitions "xref" (identifier))
 
 (defvar ai-code-backends-infra--session-directory nil
@@ -368,6 +369,10 @@ terminal output redraw."
          (tail (car (last parts))))
     (delete-dups (delq nil (list trimmed tail)))))
 
+(defun ai-code-session-link--primary-symbol-search-term (symbol)
+  "Return the primary lookup term for SYMBOL."
+  (car (last (ai-code-session-link--symbol-search-terms symbol))))
+
 (defun ai-code-session-link--open-file-link (text)
   "Open the file described by file-like link TEXT."
   (when-let* ((link (ai-code-session-link--parse-file-link-text text))
@@ -384,11 +389,21 @@ terminal output redraw."
 
 (defun ai-code-session-link--try-xref-definition (symbol)
   "Try xref lookup for SYMBOL in the current buffer."
-  (when-let ((lookup (car (last (ai-code-session-link--symbol-search-terms symbol)))))
+  (when-let ((lookup (ai-code-session-link--primary-symbol-search-term symbol)))
     (when (fboundp 'xref-find-definitions)
       (condition-case nil
           (progn
             (xref-find-definitions lookup)
+            t)
+        (error nil)))))
+
+(defun ai-code-session-link--try-helm-gtags-definition (symbol)
+  "Try helm-gtags lookup for SYMBOL in the current buffer."
+  (when-let ((lookup (ai-code-session-link--primary-symbol-search-term symbol)))
+    (when (fboundp 'helm-gtags-find-tag)
+      (condition-case nil
+          (progn
+            (helm-gtags-find-tag lookup)
             t)
         (error nil)))))
 
@@ -411,6 +426,7 @@ terminal output redraw."
     (if (ai-code-session-link--open-file-link file-link)
         (progn
           (or (ai-code-session-link--try-xref-definition symbol)
+              (ai-code-session-link--try-helm-gtags-definition symbol)
               (ai-code-session-link--search-symbol-in-current-buffer symbol))
           (message "Navigated to %s via %s" symbol file-link)
           t)

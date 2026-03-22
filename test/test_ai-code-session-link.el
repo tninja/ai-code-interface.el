@@ -249,6 +249,46 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-session-link-test-navigate-symbol-at-point-falls-back-to-helm-gtags ()
+  "Symbol navigation should try helm-gtags after xref fails."
+  (let* ((root (make-temp-file "ai-code-session-links-symbol-gtags-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "UserService.java" src-dir))
+         source-buffer gtags-symbol)
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class UserService {\n  void processRequest() {}\n}\n"))
+          (cl-letf (((symbol-function 'find-file-other-window)
+                     (lambda (path)
+                       (setq source-buffer (find-file-noselect path))
+                       (set-buffer source-buffer)
+                       source-buffer))
+                    ((symbol-function 'xref-find-definitions)
+                     (lambda (_identifier)
+                       (error "xref unavailable")))
+                    ((symbol-function 'helm-gtags-find-tag)
+                     (lambda (identifier)
+                       (setq gtags-symbol identifier)
+                       t))
+                    ((symbol-function 'message)
+                     (lambda (&rest _args) nil)))
+            (with-temp-buffer
+              (setq-local ai-code-backends-infra--session-directory root)
+              (insert "src/UserService.java:2\nUserService.processRequest()\n")
+              (ai-code-session-link--linkify-session-region (point-min) (point-max))
+              (goto-char (point-min))
+              (search-forward "UserService.processRequest()")
+              (goto-char (- (point) (length "UserService.processRequest()")))
+              (should (ai-code-session-link-navigate-symbol-at-point))))
+          (should (buffer-live-p source-buffer))
+          (should (equal gtags-symbol "processRequest")))
+      (when (and source-buffer (buffer-live-p source-buffer))
+        (kill-buffer source-buffer))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest ai-code-session-link-test-linkify-session-region-supports-existing-local-file-and-directory ()
   "Linkify existing local file and directory paths, but not missing ones."
   (let* ((root (make-temp-file "ai-code-session-links-local-paths-" t))
