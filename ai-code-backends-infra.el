@@ -503,20 +503,20 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
         (puthash key session-buffer ai-code-backends-infra--file-session-map)
       (remhash key ai-code-backends-infra--file-session-map))))
 
-(defun ai-code-backends-infra--attached-file-session (prefix source-buffer _working-dir)
+(defun ai-code-backends-infra--attached-file-session (prefix source-buffer working-dir)
   "Return attached session state for PREFIX and SOURCE-BUFFER.
-The working-directory argument is accepted for interface compatibility but
-ignored here because
-an explicit file attachment should win as long as the attached buffer is live.
-Return a cons of (BUFFER . MISSING-P)."
+Return a cons of (BUFFER . MISSING-P).
+An attached session is valid only when it is still live and matches
+WORKING-DIR for exact session reuse."
   (let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
     (if (null key)
         (cons nil nil)
       (let* ((attached (gethash key ai-code-backends-infra--file-session-map))
              (valid (and (buffer-live-p attached)
-                         (ai-code-backends-infra--parse-session-buffer-name
-                          (buffer-name attached)
-                          prefix))))
+                         (memq attached
+                               (ai-code-backends-infra--find-session-buffers
+                                prefix
+                                working-dir)))))
         (cond
          (valid
           (cons attached nil))

@@ -655,13 +655,13 @@
                      (lambda (&rest _args) nil))
                     ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
                      (lambda (_buffer) nil)))
-            (with-current-buffer source
-              (ai-code-backends-infra--switch-to-session-buffer
-               nil
-               "missing"
-               prefix
-               working-dir
-               nil)))
+             (with-current-buffer source
+               (ai-code-backends-infra--switch-to-session-buffer
+                nil
+                "missing"
+                prefix
+                working-dir
+                nil)))
 
           (should (equal captured-collection '("a" "b")))
           (should (equal captured-default "a"))
@@ -841,14 +841,17 @@
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
-(ert-deftest test-ai-code-backends-infra-switch-reuses-live-attached-session-despite-working-dir-mismatch ()
-  "Reuse a live attached session even when WORKING-DIR no longer matches it."
+(ert-deftest test-ai-code-backends-infra-switch-reselects-live-attached-session-when-working-dir-mismatch ()
+  "Re-select when an attached live session no longer matches WORKING-DIR."
   (let* ((prefix "codex")
          (session-dir "/tmp/ai-code-file-attached-root/")
          (working-dir "/tmp/ai-code-file-attached-root/subdir/")
          (source (generate-new-buffer " *ai-code-source-attached-live*"))
          (attached (get-buffer-create "*codex[file-attached-root:attached]*"))
-         (displayed nil))
+         (replacement (get-buffer-create "*codex[file-attached-root:replacement]*"))
+         (displayed nil)
+         (force-prompts nil)
+         (messages nil))
     (unwind-protect
         (progn
           (clrhash ai-code-backends-infra--directory-buffer-map)
@@ -860,15 +863,20 @@
             (setq default-directory working-dir))
           (with-current-buffer attached
             (setq-local ai-code-backends-infra--session-directory session-dir))
+          (with-current-buffer replacement
+            (setq-local ai-code-backends-infra--session-directory working-dir))
           (ai-code-backends-infra--remember-file-session-buffer prefix source attached)
 
-          (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
-                     (lambda (_prefix _dir) nil))
-                    ((symbol-function 'ai-code-backends-infra--select-session-buffer)
-                     (lambda (&rest _args)
-                       (ert-fail "Should reuse the live attached session without prompting.")))
+          (cl-letf (((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (_prefix _dir &optional force-prompt)
+                       (push force-prompt force-prompts)
+                       replacement))
                     ((symbol-function 'get-buffer-window)
                      (lambda (&rest _args) nil))
+                    ((symbol-function 'message)
+                     (lambda (format-string &rest args)
+                       (push (apply #'format format-string args) messages)
+                       nil))
                     ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
                      (lambda (buffer)
                        (setq displayed buffer)
@@ -878,15 +886,20 @@
                nil
                "missing"
                prefix
-               working-dir
-               nil)))
+                working-dir
+                nil)))
 
-          (should (eq displayed attached))
+          (should (equal (nreverse force-prompts) (list t)))
+          (should (= (length messages) 1))
+          (should (string-match-p
+                   "Attached AI session .* no longer exists"
+                   (car messages)))
+          (should (eq displayed replacement))
           (should (eq (gethash
                        (ai-code-backends-infra--file-session-map-key prefix source)
                        ai-code-backends-infra--file-session-map)
-                      attached)))
-      (dolist (buf (list source attached))
+                       replacement)))
+      (dolist (buf (list source attached replacement))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
