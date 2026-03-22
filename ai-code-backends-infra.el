@@ -552,7 +552,7 @@ SOURCE-BUFFER unless FORCE-PROMPT is non-nil."
                              working-dir
                              effective-force-prompt))))))
     (when (and attached-missing (null buffer-name))
-      (message "Attached AI session for this file no longer exists. Please select a target session again."))
+      (message "Attached AI session for this file is no longer available for the current directory. Please select a target session again."))
     (if buffer
         (progn
           (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)

@@ -835,7 +835,7 @@
                                "*codex[file-missing:b]*")))
           (should (= (length messages) 1))
           (should (string-match-p
-                   "Attached AI session .* no longer exists"
+                   "Attached AI session .* current directory"
                    (car messages))))
       (dolist (buf (list source session-a session-b))
         (when (buffer-live-p buf)
@@ -892,7 +892,7 @@
           (should (equal (nreverse force-prompts) (list t)))
           (should (= (length messages) 1))
           (should (string-match-p
-                   "Attached AI session .* no longer exists"
+                   "Attached AI session .* current directory"
                    (car messages)))
           (should (eq displayed replacement))
           (should (eq (gethash
