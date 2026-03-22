@@ -14,7 +14,7 @@
 
 (declare-function ai-code-session-navigate-link-at-mouse "ai-code-input" (event))
 (declare-function ai-code-session-navigate-link-at-point "ai-code-input" ())
-(declare-function helm-gtags-find-tag "ext:helm-gtags" (tagname))
+(declare-function helm-gtags-find-tag "helm-gtags" (tagname))
 (declare-function xref-find-definitions "xref" (identifier))
 
 (defvar ai-code-backends-infra--session-directory nil
