@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Support basic Symbol navigation inside AI coding session
 - Feat: Add constraint bundles system with 20 tech stack presets (@rust-stack, @react-stack, etc.)
 - Feat: Expand constraint catalog with 50+ constraints (testing, safety, error handling, performance, API design, logging)
 - Feat: Auto-detect constraints from project config files (tsconfig.json, pyproject.toml, Cargo.toml, etc.)
