@@ -274,38 +274,32 @@ terminal output redraw."
        "\\(?:-p\\|-mode\\|-hook\\|-function\\|-command\\|-local\\|\\*\\|\\?\\)\\'"
        candidate)))
 
+(defun ai-code-session-link--case-sensitive-match-p (regexp candidate)
+  "Return non-nil when CANDIDATE fully matches REGEXP with case-sensitive search."
+  (let ((case-fold-search nil))
+    (string-match-p regexp candidate)))
+
 (defun ai-code-session-link--java-camel-case-symbol-p (candidate)
   "Return non-nil when CANDIDATE looks like a Java-style CamelCase symbol."
-  (let ((case-fold-search nil))
-    (and (string-match-p "\\`[[:upper:]][[:alnum:]]*\\'" candidate)
-         (string-match-p "[[:lower:]]" candidate)
-         (string-match-p "[[:upper:]].*[[:upper:]]" candidate))))
+  (ai-code-session-link--case-sensitive-match-p
+   (concat "\\`" ai-code-session-link--camel-case-symbol-regexp "\\'")
+   candidate))
 
-(defun ai-code-session-link--python-snake-case-symbol-p (candidate)
-  "Return non-nil when CANDIDATE looks like a Python-style snake_case symbol."
-  (let ((case-fold-search nil))
-    (string-match-p
-     "\\`_*[[:lower:]][[:lower:][:digit:]]*\\(?:_[[:lower:][:digit:]]+\\)+\\'"
-     candidate)))
+(defun ai-code-session-link--snake-case-symbol-p (candidate)
+  "Return non-nil when CANDIDATE looks like a bare snake_case symbol."
+  (ai-code-session-link--case-sensitive-match-p
+   "\\`_*[[:lower:]][[:lower:][:digit:]]*\\(?:_[[:lower:][:digit:]]+\\)+\\'"
+   candidate))
 
-(defun ai-code-session-link--bare-symbol-candidate-p (candidate file-extension)
-  "Return non-nil when bare CANDIDATE fits FILE-EXTENSION conventions."
-  (or (and (equal file-extension "java")
-           (ai-code-session-link--java-camel-case-symbol-p candidate))
-      (and (member file-extension '("py" "pyi"))
-           (ai-code-session-link--python-snake-case-symbol-p candidate))
-      (and (equal file-extension "el")
-           (string-match-p "-" candidate)
+(defun ai-code-session-link--bare-symbol-candidate-p (candidate)
+  "Return non-nil when bare CANDIDATE looks like a supported code symbol."
+  (or (ai-code-session-link--java-camel-case-symbol-p candidate)
+      (ai-code-session-link--snake-case-symbol-p candidate)
+      (and (string-match-p "-" candidate)
            (ai-code-session-link--elisp-symbol-candidate-p candidate))))
 
-(defun ai-code-session-link--symbol-file-extension (file-link)
-  "Return the file extension associated with FILE-LINK."
-  (when-let* ((parsed-link (ai-code-session-link--parse-file-link-text file-link))
-              (file (plist-get parsed-link :file)))
-    (file-name-extension file)))
-
-(defun ai-code-session-link--symbol-candidate-p (candidate file-extension)
-  "Return non-nil when CANDIDATE is worth linkifying for FILE-EXTENSION."
+(defun ai-code-session-link--symbol-candidate-p (candidate)
+  "Return non-nil when CANDIDATE is worth linkifying."
   (and (stringp candidate)
        (> (length candidate) 2)
        (not (string-match-p "\\`https?://" candidate))
@@ -316,7 +310,7 @@ terminal output redraw."
            (string-match-p "::" candidate)
            (string-match-p "#" candidate)
            (string-suffix-p "()" candidate)
-           (ai-code-session-link--bare-symbol-candidate-p candidate file-extension))))
+           (ai-code-session-link--bare-symbol-candidate-p candidate))))
 
 (defun ai-code-session-link--next-nearby-symbol-boundary (start end)
   "Return the next boundary after START for symbol scanning up to END."
@@ -346,8 +340,7 @@ terminal output redraw."
 
 (defun ai-code-session-link--linkify-symbols-near-file (file-link scan-start end)
   "Linkify code-like symbols near FILE-LINK from SCAN-START up to END."
-  (let* ((file-extension (ai-code-session-link--symbol-file-extension file-link))
-         (window-end (min end (+ scan-start ai-code-session-link--symbol-neighborhood-max-width)))
+  (let* ((window-end (min end (+ scan-start ai-code-session-link--symbol-neighborhood-max-width)))
          (scan-end (ai-code-session-link--next-nearby-symbol-boundary scan-start window-end)))
     (when (< scan-start scan-end)
       (save-excursion
@@ -358,7 +351,7 @@ terminal output redraw."
                   (symbol-end (match-end 1))
                   (candidate (match-string-no-properties 1)))
               (when (and (not (get-text-property symbol-start 'ai-code-session-link))
-                         (ai-code-session-link--symbol-candidate-p candidate file-extension))
+                         (ai-code-session-link--symbol-candidate-p candidate))
                 (ai-code-session-link--apply-symbol-properties
                  symbol-start symbol-end candidate file-link)))))))))
 

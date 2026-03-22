@@ -204,6 +204,56 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-session-link-test-linkify-session-region-allows-simple-java-capitalized-symbols ()
+  "Linkify nearby bare Java symbols even when only the first letter is uppercase."
+  (let* ((root (make-temp-file "ai-code-session-links-java-capitalized-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "Builder.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class Builder {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/Builder.java:1\nBuilder\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (forward-line 1)
+            (search-forward "Builder")
+            (let ((symbol-pos (- (point) (length "Builder"))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             "Builder"))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "src/Builder.java:1")))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-allows-camelcase-symbols-outside-java ()
+  "Linkify nearby bare CamelCase symbols without restricting them to Java files."
+  (let* ((root (make-temp-file "ai-code-session-links-camelcase-generic-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "builder.py" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class RequestBuilder:\n    pass\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/builder.py:1\nRequestBuilder\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (forward-line 1)
+            (search-forward "RequestBuilder")
+            (let ((symbol-pos (- (point) (length "RequestBuilder"))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             "RequestBuilder"))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "src/builder.py:1")))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest ai-code-session-link-test-linkify-session-region-prefilters-python-snake-case-symbols ()
   "Linkify nearby bare snake_case symbols for Python files."
   (let* ((root (make-temp-file "ai-code-session-links-python-snake-case-" t))
@@ -225,6 +275,31 @@
                              "process_request"))
               (should (equal (get-text-property symbol-pos 'ai-code-session-link)
                              "src/user_service.py:1")))))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
+(ert-deftest ai-code-session-link-test-linkify-session-region-allows-snake-case-symbols-outside-python ()
+  "Linkify nearby bare snake_case symbols without restricting them to Python files."
+  (let* ((root (make-temp-file "ai-code-session-links-snake-case-generic-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "Builder.java" src-dir)))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class Builder {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "src/Builder.java:1\nprocess_request\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (forward-line 1)
+            (search-forward "process_request")
+            (let ((symbol-pos (- (point) (length "process_request"))))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-symbol-link)
+                             "process_request"))
+              (should (equal (get-text-property symbol-pos 'ai-code-session-link)
+                             "src/Builder.java:1")))))
       (when (file-directory-p root)
         (delete-directory root t)))))
 
