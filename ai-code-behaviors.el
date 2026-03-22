@@ -842,7 +842,7 @@ Return the prompt content string, or nil if not found."
 
 (defun ai-code--behavior-preset-capf ()
   "Completion-at-point function for @preset and @bundle names.
-Shows [agent] annotation for modify presets in gptel-plan mode."
+Shows * annotation for modify presets in gptel-plan mode."
   (when (and (boundp 'major-mode)
              (eq major-mode 'ai-code-prompt-mode)
              (save-excursion
@@ -861,7 +861,7 @@ Shows [agent] annotation for modify presets in gptel-plan mode."
                         (assoc name ai-code--behavior-presets)
                         (not (ai-code--behaviors-preset-readonly-p name)))
                    (let ((data (cdr (assoc name ai-code--behavior-presets))))
-                     (format " [agent] %s" (plist-get data :description))))
+                     (format "* %s" (plist-get data :description))))
                   ((assoc name ai-code--constraint-bundles)
                    (let ((data (cdr (assoc name ai-code--constraint-bundles))))
                      (format " %s" (plist-get data :description))))
@@ -1741,7 +1741,7 @@ Returns preset name string, or `ai-code-behaviors-default-preset' if no signals 
 (defun ai-code-behaviors-mode-line-select-preset (&optional event)
   "Show preset and bundle selection popup menu.
 EVENT is the mouse event.
-Shows all presets with [agent] annotation for modify presets in gptel-plan mode.
+Shows all presets with * annotation for modify presets in gptel-plan mode.
 Auto-switches to agent mode when modify preset is selected in plan mode."
   (interactive)
   (let* ((menu (make-sparse-keymap "Select Preset or Bundle"))
@@ -1764,12 +1764,12 @@ Auto-switches to agent mode when modify preset is selected in plan mode."
     (dolist (p (reverse ai-code--behavior-presets))
       (let* ((name (car p))
              (readonly (ai-code--behaviors-preset-readonly-p name))
-             (label (format "@%s - %s%s"
+             (label (format "@%s%s - %s"
                             name
-                            (plist-get (cdr p) :description)
                             (if (and plan-mode-p (not readonly))
-                                " [agent]"
-                              ""))))
+                                "*"
+                              "")
+                            (plist-get (cdr p) :description))))
         (define-key menu (vector (intern name))
           `(menu-item ,label
                       (lambda () (interactive)
@@ -1974,23 +1974,21 @@ Preserves existing constraint-modifiers from current state."
 
 (defun ai-code-behaviors-preset ()
   "Select and apply a behavior preset.
-In gptel-plan mode, shows all presets with [agent] annotation for modify presets.
+In gptel-plan mode, shows all presets with * annotation for modify presets.
 Auto-switches to agent mode when modify preset is selected."
   (interactive)
-  (let* ((current-preset (when (boundp 'gptel--preset) gptel--preset))
-         (plan-mode-p (eq current-preset 'gptel-plan))
-         (presets (mapcar
-                   (lambda (p)
-                     (let* ((name (car p))
-                            (readonly (ai-code--behaviors-preset-readonly-p name))
-                            (display (format "%-15s %s%s"
-                                             name
-                                             (plist-get (cdr p) :description)
-                                             (if (and plan-mode-p (not readonly))
-                                                 " [agent]"
-                                               ""))))
-                       (cons display name)))
-                   ai-code--behavior-presets))
+(let* ((current-preset (when (boundp 'gptel--preset) gptel--preset))
+          (plan-mode-p (eq current-preset 'gptel-plan))
+          (presets (mapcar
+                    (lambda (p)
+                      (let* ((name (car p))
+                             (readonly (ai-code--behaviors-preset-readonly-p name))
+                             (display-name (if (and plan-mode-p (not readonly))
+                                               (concat name "*")
+                                             name)))
+                        (cons (format "%-15s %s" display-name (plist-get (cdr p) :description))
+                              name)))
+                    ai-code--behavior-presets))
          (choice (completing-read "Select preset: " presets nil t)))
     (when (and choice (not (string-empty-p choice)))
       (let* ((preset-name (cdr (assoc choice presets)))
@@ -2581,7 +2579,7 @@ ai-code--behavior-modifiers-completion-table instead."
 (defun ai-code--behavior-preset-gptel-capf ()
   "Completion at point for behavior presets and constraint bundles in gptel-mode.
 Shows behavior presets like @tdd-dev and constraint bundles like @rust-stack.
-In gptel-plan mode, shows [agent] annotation for modify presets.
+In gptel-plan mode, shows * annotation for modify presets.
 Works alongside gptel's built-in preset completion."
   (when (and ai-code-behaviors-enabled
              (bound-and-true-p gptel-mode))
@@ -2601,7 +2599,7 @@ Works alongside gptel's built-in preset completion."
                       (not (ai-code--behaviors-preset-readonly-p name)))
                  (let* ((preset (assoc name ai-code--behavior-presets))
                         (desc (plist-get (cdr preset) :description)))
-                   (format " [agent] %s" (or desc ""))))
+                   (format "* %s" (or desc ""))))
                 ((assoc name ai-code--behavior-presets)
                  (let* ((preset (assoc name ai-code--behavior-presets))
                         (desc (plist-get (cdr preset) :description)))
