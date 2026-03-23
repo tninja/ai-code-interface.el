@@ -33,6 +33,7 @@
 
 (require 'seq)
 (require 'cl-lib)
+(require 'json)
 
 (require 'gptel nil t)
 
@@ -1092,8 +1093,6 @@ Prompt:
                         (mapconcat #'identity ai-code--behavior-modifiers ", ")
                         prompt-text))
                (response (ai-code-call-gptel-sync prompt))
-               (json-object-type 'plist)
-               (json-key-type 'keyword)
                (data (when (stringp response)
                        (ai-code--extract-json-from-response response)))
                (mode (when data (plist-get data :mode)))
@@ -1116,9 +1115,11 @@ Returns parsed plist or nil if no valid JSON found."
     (let ((trimmed (string-trim response)))
       (cond
        ((string-match-p "\\`[[:space:]]*{" trimmed)
-        (condition-case nil
-            (json-read-from-string trimmed)
-          (error nil)))
+        (let ((json-object-type 'plist)
+              (json-key-type 'keyword))
+          (condition-case nil
+              (json-read-from-string trimmed)
+            (error nil))))
        ((string-match "{" trimmed)
         (let ((start (match-beginning 0))
               (depth 0)
@@ -1138,9 +1139,11 @@ Returns parsed plist or nil if no valid JSON found."
                       ((eq ch ?}) (setq depth (1- depth)))))))
             (setq i (1+ i)))
           (when (= depth 0)
-            (condition-case nil
-                (json-read-from-string (substring trimmed start i))
-              (error nil)))))
+            (let ((json-object-type 'plist)
+                  (json-key-type 'keyword))
+              (condition-case nil
+                  (json-read-from-string (substring trimmed start i))
+                (error nil))))))
        (t nil)))))
 
 (defun ai-code--classify-prompt-intent-keywords (prompt-text)
