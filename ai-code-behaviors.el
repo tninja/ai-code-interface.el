@@ -276,19 +276,20 @@ Does nothing and returns nil if not in a project (prevents state leakage)."
            ai-code--active-constraint-bundles))
 
 (defconst ai-code--behavior-operating-modes
-  '("=code" "=debug" "=research" "=review" "=spec" "=test"
-    "=mentor" "=assess" "=record" "=drive" "=navigate" "=probe")
+  '("=frame" "=research" "=design" "=spec" "=code" "=debug"
+    "=review" "=test" "=mentor" "=drive" "=navigate" "=probe" "=record")
   "Operating mode behaviors. Only one can be active at a time.")
 
 (defconst ai-code--behavior-modifiers
   '("deep" "wide" "ground" "negative-space" "challenge" "steel-man"
     "user-lens" "concise" "first-principles" "creative" "subtract"
     "meta" "simulate" "decompose" "recursive" "fractal" "tdd"
-    "io" "contract" "backward" "analogy" "temporal" "name")
+    "io" "contract" "backward" "analogy" "temporal" "name" "checklist" "file")
   "Modifier behaviors. Multiple can be active simultaneously.")
 
 (defconst ai-code--behavior-readonly-modes
-  '("=review" "=research" "=spec" "=test" "=assess" "=probe" "=mentor" "=navigate")
+  '("=frame" "=research" "=design" "=spec" "=review" "=test"
+    "=mentor" "=navigate" "=probe")
   "Operating modes compatible with gptel-plan (read-only phase).
 These modes analyze, plan, or guide without modifying files.")
 
@@ -593,22 +594,26 @@ Returns short commit hash or nil if repo not available."
       (ai-code--git-command-output "rev-parse" "--short" "HEAD"))))
 
 (defconst ai-code--behavior-presets
-  '(("tdd-dev" . (:mode "=code" :modifiers ("tdd" "deep")
-                   :description "Test-driven development"))
+  '(("frame-problem" . (:mode "=frame" :modifiers ("subtract" "challenge")
+                       :description "Problem framing with critical analysis"))
+     ("design-options" . (:mode "=design" :modifiers ("deep" "wide")
+                        :description "Solution design exploration"))
+     ("tdd-dev" . (:mode "=code" :modifiers ("tdd" "deep")
+                    :description "Test-driven development"))
      ("thorough-debug" . (:mode "=debug" :modifiers ("deep" "challenge")
-                         :description "Deep debugging with critical analysis"))
+                          :description "Deep debugging with critical analysis"))
      ("quick-review" . (:mode "=review" :modifiers ("concise")
-                       :description "Fast code review"))
+                        :description "Fast code review"))
      ("deep-review" . (:mode "=review" :modifiers ("deep" "challenge")
-                      :description "Thorough code review"))
+                       :description "Thorough code review"))
      ("research-deep" . (:mode "=research" :modifiers ("deep" "wide")
-                        :description "Comprehensive research"))
+                         :description "Comprehensive research"))
      ("mentor-learn" . (:mode "=mentor" :modifiers ("first-principles")
-                       :description "Learning/explanation mode"))
+                        :description "Learning/explanation mode"))
      ("spec-planning" . (:mode "=spec" :modifiers ("decompose" "wide")
-                        :description "Architecture/planning mode"))
+                         :description "Architecture/planning mode"))
      ("quick-fix" . (:mode "=code" :modifiers ("concise")
-                    :description "Simple code changes")))
+                     :description "Simple code changes")))
    "Preset behavior combinations.
 Each preset is (NAME . (:mode MODE :modifiers (MOD1 MOD2) :description DESC)).")
 
