@@ -917,7 +917,7 @@ Return the prompt content string, or nil if not found."
 
 (defun ai-code--behavior-preset-capf ()
   "Completion-at-point function for @preset and @bundle names.
-Shows * annotation for modify presets in gptel-plan mode."
+Shows * annotation for modify presets in gptel modes."
   (when (and (boundp 'major-mode)
              (eq major-mode 'ai-code-prompt-mode)
              (save-excursion
@@ -925,25 +925,25 @@ Shows * annotation for modify presets in gptel-plan mode."
                (eq (char-before) ?@)))
     (let* ((start (1- (point)))
            (end (point))
-           (plan-mode-p (when (boundp 'gptel--preset)
-                          (eq gptel--preset 'gptel-plan)))
+           (gptel-mode-p (when (boundp 'gptel--preset)
+                           (memq gptel--preset '(gptel-plan gptel-agent))))
            (candidates (ai-code--behavior-preset-and-bundle-names))
-(annotation-fn
-             (lambda (cand)
-               (let ((name (string-trim (substring cand 1))))
-                 (cond
-                  ((and plan-mode-p
-                        (assoc name ai-code--behavior-presets)
-                        (not (ai-code--behaviors-preset-readonly-p name)))
-                   (let ((data (cdr (assoc name ai-code--behavior-presets))))
-                     (format "* %s" (plist-get data :description))))
-                  ((assoc name ai-code--constraint-bundles)
-                   (let ((data (cdr (assoc name ai-code--constraint-bundles))))
-                     (format " %s" (plist-get data :description))))
-                  ((assoc name ai-code--behavior-presets)
-                   (let ((data (cdr (assoc name ai-code--behavior-presets))))
-                     (format " %s" (plist-get data :description))))
-                  (t ""))))))
+           (annotation-fn
+            (lambda (cand)
+              (let ((name (string-trim (substring cand 1))))
+                (cond
+                 ((and gptel-mode-p
+                       (assoc name ai-code--behavior-presets)
+                       (not (ai-code--behaviors-preset-readonly-p name)))
+                  (let ((data (cdr (assoc name ai-code--behavior-presets))))
+                    (format "* %s" (plist-get data :description))))
+                 ((assoc name ai-code--constraint-bundles)
+                  (let ((data (cdr (assoc name ai-code--constraint-bundles))))
+                    (format " %s" (plist-get data :description))))
+                 ((assoc name ai-code--behavior-presets)
+                  (let ((data (cdr (assoc name ai-code--behavior-presets))))
+                    (format " %s" (plist-get data :description))))
+                 (t ""))))))
       (list start end candidates
             :annotation-function annotation-fn
             :exclusive 'no))))
@@ -1836,12 +1836,15 @@ Returns preset name string, or `ai-code-behaviors-default-preset' if no signals 
 (defun ai-code-behaviors-mode-line-select-preset (&optional event)
   "Show preset and bundle selection popup menu.
 EVENT is the mouse event.
-Shows all presets with * annotation for modify presets in gptel-plan mode.
+Shows all presets with * annotation for modify presets in gptel modes.
 Auto-switches to agent mode when modify preset is selected in plan mode."
   (interactive)
   (let* ((menu (make-sparse-keymap "Select Preset or Bundle"))
          (current-preset (when (boundp 'gptel--preset) gptel--preset))
-         (plan-mode-p (eq current-preset 'gptel-plan)))
+         (gptel-mode-p (memq current-preset '(gptel-plan gptel-agent)))
+         (readonly-presets '("frame-problem" "research-deep" "design-options"
+                             "spec-planning" "quick-review" "deep-review" "mentor-learn"))
+         (modify-presets '("tdd-dev" "quick-fix" "thorough-debug")))
     (define-key menu [clear]
       '(menu-item "Clear behaviors" ai-code-behaviors-clear))
     (define-key menu [sep-bundles] '(menu-item "--"))
@@ -1851,22 +1854,18 @@ Auto-switches to agent mode when modify preset is selected in plan mode."
                              (plist-get (cdr b) :description))
                     (lambda () (interactive)
                       (ai-code-constraints-apply-bundle ,(car b))))))
-    (define-key menu [sep-presets] '(menu-item "--"))
-    (dolist (p (reverse ai-code--behavior-presets))
-      (let* ((name (car p))
-             (readonly (ai-code--behaviors-preset-readonly-p name))
+    (define-key menu [sep-modify] '(menu-item "--"))
+    (dolist (name (reverse modify-presets))
+      (let* ((preset (assoc name ai-code--behavior-presets))
              (label (format "@%s%s - %s"
                             name
-                            (if (and plan-mode-p (not readonly))
-                                "*"
-                              "")
-                            (plist-get (cdr p) :description))))
-        (define-key menu (vector (intern name))
+                            (if gptel-mode-p "*" "")
+                            (plist-get (cdr preset) :description))))
+        (define-key menu (vector (intern (concat "mod-" name)))
           `(menu-item ,label
                       (lambda () (interactive)
                         (when (and (boundp 'gptel--preset)
-                                   (eq gptel--preset 'gptel-plan)
-                                   (not (ai-code--behaviors-preset-readonly-p ,name)))
+                                   (eq gptel--preset 'gptel-plan))
                           (let ((state (ai-code--behaviors-get-state)))
                             (when state
                               (let ((mode (plist-get state :mode)))
@@ -1876,6 +1875,16 @@ Auto-switches to agent mode when modify preset is selected in plan mode."
                           (gptel--apply-preset 'gptel-agent
                             (lambda (sym val) (set (make-local-variable sym) val)))
                           (message "Switched to agent mode for @%s" ,name))
+                        (ai-code-behaviors-apply-preset ,name))))))
+    (define-key menu [sep-readonly] '(menu-item "--"))
+    (dolist (name (reverse readonly-presets))
+      (let* ((preset (assoc name ai-code--behavior-presets))
+             (label (format "@%s - %s"
+                            name
+                            (plist-get (cdr preset) :description))))
+        (define-key menu (vector (intern (concat "ro-" name)))
+          `(menu-item ,label
+                      (lambda () (interactive)
                         (ai-code-behaviors-apply-preset ,name))))))
     (if event
         (popup-menu menu event)
@@ -2068,27 +2077,37 @@ Preserves existing constraint-modifiers from current state."
 
 (defun ai-code-behaviors-preset ()
   "Select and apply a behavior preset.
-In gptel-plan mode, shows all presets with * annotation for modify presets.
-Auto-switches to agent mode when modify preset is selected."
+In gptel modes, shows all presets with * annotation for modify presets.
+Auto-switches to agent mode when modify preset is selected in plan mode."
   (interactive)
-(let* ((current-preset (when (boundp 'gptel--preset) gptel--preset))
-          (plan-mode-p (eq current-preset 'gptel-plan))
-          (presets (mapcar
-                    (lambda (p)
-                      (let* ((name (car p))
-                             (readonly (ai-code--behaviors-preset-readonly-p name))
-                             (display-name (if (and plan-mode-p (not readonly))
-                                               (concat name "*")
-                                             name)))
-                        (cons (format "%-15s %s" display-name (plist-get (cdr p) :description))
-                              name)))
-                    ai-code--behavior-presets))
+  (let* ((current-preset (when (boundp 'gptel--preset) gptel--preset))
+         (gptel-mode-p (memq current-preset '(gptel-plan gptel-agent)))
+         (readonly-presets '("frame-problem" "research-deep" "design-options"
+                             "spec-planning" "quick-review" "deep-review" "mentor-learn"))
+         (modify-presets '("tdd-dev" "quick-fix" "thorough-debug"))
+         (presets
+          (append
+           (mapcar
+            (lambda (name)
+              (let* ((preset (assoc name ai-code--behavior-presets)))
+                (cons (format "%-15s %s" name (plist-get (cdr preset) :description))
+                      name)))
+            readonly-presets)
+           (mapcar
+            (lambda (name)
+              (let* ((preset (assoc name ai-code--behavior-presets))
+                     (display-name (if gptel-mode-p (concat name "*") name)))
+                (cons (format "%-15s %s" display-name (plist-get (cdr preset) :description))
+                      name)))
+            modify-presets)))
          (choice (completing-read "Select preset: " presets nil t)))
     (when (and choice (not (string-empty-p choice)))
       (let* ((preset-name (cdr (assoc choice presets)))
              (readonly (ai-code--behaviors-preset-readonly-p preset-name)))
         (when preset-name
-          (when (and plan-mode-p (not readonly))
+          (when (and (boundp 'gptel--preset)
+                     (eq gptel--preset 'gptel-plan)
+                     (not readonly))
             (let ((state (ai-code--behaviors-get-state)))
               (when state
                 (let ((mode (plist-get state :mode)))
@@ -2676,7 +2695,7 @@ ai-code--behavior-modifiers-completion-table instead."
 (defun ai-code--behavior-preset-gptel-capf ()
   "Completion at point for behavior presets and constraint bundles in gptel-mode.
 Shows behavior presets like @tdd-dev and constraint bundles like @rust-stack.
-In gptel-plan mode, shows * annotation for modify presets.
+In gptel modes, shows * annotation for modify presets.
 Works alongside gptel's built-in preset completion."
   (when (and ai-code-behaviors-enabled
              (bound-and-true-p gptel-mode))
@@ -2684,28 +2703,28 @@ Works alongside gptel's built-in preset completion."
                   (skip-chars-backward "a-zA-Z0-9_-")
                   (point)))
            (current-preset (when (boundp 'gptel--preset) gptel--preset))
-           (plan-mode-p (eq current-preset 'gptel-plan))
+           (gptel-mode-p (memq current-preset '(gptel-plan gptel-agent)))
            (all-candidates
             (append (mapcar #'car ai-code--behavior-presets)
                     (mapcar #'car ai-code--constraint-bundles)))
-(annotation-fn
-             (lambda (name)
-               (cond
-                ((and plan-mode-p
-                      (assoc name ai-code--behavior-presets)
-                      (not (ai-code--behaviors-preset-readonly-p name)))
-                 (let* ((preset (assoc name ai-code--behavior-presets))
-                        (desc (plist-get (cdr preset) :description)))
-                   (format "* %s" (or desc ""))))
-                ((assoc name ai-code--behavior-presets)
-                 (let* ((preset (assoc name ai-code--behavior-presets))
-                        (desc (plist-get (cdr preset) :description)))
-                   (format " %s" (or desc ""))))
-                ((assoc name ai-code--constraint-bundles)
-                 (let* ((bundle (assoc name ai-code--constraint-bundles))
-                        (desc (plist-get (cdr bundle) :description)))
-                   (format " %s" (or desc ""))))
-                (t "")))))
+           (annotation-fn
+            (lambda (name)
+              (cond
+               ((and gptel-mode-p
+                     (assoc name ai-code--behavior-presets)
+                     (not (ai-code--behaviors-preset-readonly-p name)))
+                (let* ((preset (assoc name ai-code--behavior-presets))
+                       (desc (plist-get (cdr preset) :description)))
+                  (format "* %s" (or desc ""))))
+               ((assoc name ai-code--behavior-presets)
+                (let* ((preset (assoc name ai-code--behavior-presets))
+                       (desc (plist-get (cdr preset) :description)))
+                  (format " %s" (or desc ""))))
+               ((assoc name ai-code--constraint-bundles)
+                (let* ((bundle (assoc name ai-code--constraint-bundles))
+                       (desc (plist-get (cdr bundle) :description)))
+                  (format " %s" (or desc ""))))
+               (t "")))))
       (when (and (> pos (point-min))
                  (eq (char-before pos) ?@)
                  (or (= pos (1+ (point-min)))
