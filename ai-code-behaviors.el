@@ -1839,9 +1839,7 @@ Auto-switches to agent mode when modify preset is selected in plan mode."
          (plan-mode-p (eq current-preset 'gptel-plan)))
     (define-key menu [clear]
       '(menu-item "Clear behaviors" ai-code-behaviors-clear))
-    (define-key menu [sep-constraints] '(menu-item "--"))
-    (define-key menu [constraint-header]
-      '(menu-item "Constraint Bundles" nil :enable nil))
+    (define-key menu [sep-bundles] '(menu-item "--"))
     (dolist (b (reverse ai-code--constraint-bundles))
       (define-key menu (vector (intern (concat "bundle-" (car b))))
         `(menu-item ,(format "@%s - %s" (car b)
@@ -1849,8 +1847,6 @@ Auto-switches to agent mode when modify preset is selected in plan mode."
                     (lambda () (interactive)
                       (ai-code-constraints-apply-bundle ,(car b))))))
     (define-key menu [sep-presets] '(menu-item "--"))
-    (define-key menu [preset-header]
-      '(menu-item "Behavior Presets" nil :enable nil))
     (dolist (p (reverse ai-code--behavior-presets))
       (let* ((name (car p))
              (readonly (ai-code--behaviors-preset-readonly-p name))
@@ -1903,7 +1899,7 @@ EVENT is the mouse event."
     (define-key menu [auto-detect]
       '(menu-item "Auto-detect constraints" ai-code-constraints-auto-detect-and-apply))
     (define-key menu [add-constraint]
-      '(menu-item "Add constraint..." ai-code-behaviors-select))
+      '(menu-item "Add constraint..." ai-code-constraints-select))
     (when (or preset active-bundle)
       (define-key menu [describe]
         `(menu-item "Describe current behavior"
@@ -2009,34 +2005,37 @@ BEHAVIOR-NAME should not include the # or @ prefix."
 (defun ai-code--behavior-annotated-candidates ()
   "Return completion candidates with annotations.
 Returns list of (DISPLAY . VALUE) pairs where DISPLAY includes annotation.
-Includes presets, operating modes, modifiers, and constraint modifiers."
+Includes presets, constraint bundles, and behaviors."
   (let ((candidates nil))
     (when ai-code--behavior-presets
       (dolist (preset ai-code--behavior-presets)
         (let* ((name (concat "@" (car preset)))
                (desc (plist-get (cdr preset) :description))
                (display (format "%-15s %s" name (or desc ""))))
-          (push (cons display (cons 'preset (car preset))) candidates)))
-      (push (cons "─── Presets ───" "") candidates))
-    (when (ai-code--behaviors-repo-available-p)
-      (dolist (mode ai-code--behavior-operating-modes)
-        (let* ((name (concat "#" mode))
-               (annotation (ai-code--extract-behavior-annotation mode)))
-          (push (cons (if annotation (format "%-15s %s" name annotation) name)
-                      (cons 'behavior name)) candidates)))
-      (push (cons "─── Modifiers ───" "") candidates)
-      (dolist (mod ai-code--behavior-modifiers)
-        (let* ((name (concat "#" mod))
-               (annotation (ai-code--extract-behavior-annotation mod)))
-          (push (cons (if annotation (format "%-15s %s" name annotation) name)
-                      (cons 'behavior name)) candidates))))
+          (push (cons display (cons 'preset (car preset))) candidates))))
+    (when ai-code--constraint-bundles
+      (dolist (bundle ai-code--constraint-bundles)
+        (let* ((name (concat "@" (car bundle)))
+               (desc (plist-get (cdr bundle) :description))
+               (display (format "%-15s %s" name (or desc ""))))
+          (push (cons display (cons 'bundle (car bundle))) candidates))))
     (when ai-code--constraint-modifiers
-      (push (cons "─── Constraints ───" "") candidates)
       (dolist (constraint ai-code--constraint-modifiers)
         (let* ((name (concat "#" (car constraint)))
                (desc (cdr constraint))
                (display (format "%-15s %s" name (truncate-string-to-width desc 40 nil nil t))))
           (push (cons display (cons 'constraint (car constraint))) candidates))))
+    (when (ai-code--behaviors-repo-available-p)
+      (dolist (mod ai-code--behavior-modifiers)
+        (let* ((name (concat "#" mod))
+               (annotation (ai-code--extract-behavior-annotation mod)))
+          (push (cons (if annotation (format "%-15s %s" name annotation) name)
+                      (cons 'behavior name)) candidates)))
+      (dolist (mode ai-code--behavior-operating-modes)
+        (let* ((name (concat "#" mode))
+               (annotation (ai-code--extract-behavior-annotation mode)))
+          (push (cons (if annotation (format "%-15s %s" name annotation) name)
+                      (cons 'behavior name)) candidates))))
     (nreverse candidates)))
 
 (defun ai-code-behaviors-apply-preset (preset-name)
@@ -2115,16 +2114,17 @@ Sets session state based on selection."
                  (ai-code--behaviors-set-state behaviors)
                  (ai-code--behaviors-update-mode-line)
                  (message "Behavior set: %s" (cdr value)))))
-('constraint
-              (let* ((existing (ai-code--behaviors-get-state))
-                     (behaviors (or existing '(:mode nil :modifiers nil :constraint-modifiers nil)))
-                     (current-constraints (plist-get behaviors :constraint-modifiers))
-                     (new-constraints (delete-dups (cons (cdr value) current-constraints)))
-                     (updated (plist-put (copy-tree behaviors) :constraint-modifiers new-constraints)))
-                (ai-code--behaviors-set-preset nil)
-                (ai-code--behaviors-set-state updated)
-                (ai-code--behaviors-update-mode-line)
-                (message "Constraint added: %s" (cdr value))))
+            ('constraint
+             (let* ((existing (ai-code--behaviors-get-state))
+                    (behaviors (or existing '(:mode nil :modifiers nil :constraint-modifiers nil)))
+                    (current-constraints (plist-get behaviors :constraint-modifiers))
+                    (new-constraints (delete-dups (cons (cdr value) current-constraints)))
+                    (updated (plist-put (copy-tree behaviors) :constraint-modifiers new-constraints)))
+               (ai-code--behaviors-set-preset nil)
+               (ai-code--behaviors-set-state updated)
+               (ai-code--behaviors-update-mode-line)
+               (message "Constraint added: %s" (cdr value))))
+            ('bundle (ai-code-constraints-apply-bundle (cdr value)))
             (_ nil)))))))
 
 (defun ai-code-behaviors-mode-line-enable ()
@@ -3096,6 +3096,39 @@ Preserves other session state like :mode, :modifiers, and :custom-suffix."
         (delete-file path)))
     (ai-code--behaviors-update-mode-line)
     (message "Cleared all constraints")))
+
+(defun ai-code-constraints-select ()
+  "Interactively select and apply a constraint or constraint bundle.
+Shows only constraints and bundles, not presets or behaviors."
+  (interactive)
+  (let ((candidates nil))
+    (dolist (bundle ai-code--constraint-bundles)
+      (let* ((name (concat "@" (car bundle)))
+             (desc (plist-get (cdr bundle) :description))
+             (display (format "%-15s %s" name (or desc ""))))
+        (push (cons display (cons 'bundle (car bundle))) candidates)))
+    (dolist (constraint ai-code--constraint-modifiers)
+      (let* ((name (concat "#" (car constraint)))
+             (desc (cdr constraint))
+             (display (format "%-15s %s" name (truncate-string-to-width desc 40 nil nil t))))
+        (push (cons display (cons 'constraint (car constraint))) candidates)))
+    (setq candidates (nreverse candidates))
+    (let ((selection (completing-read "Add constraint: " candidates nil t)))
+      (when (and selection (not (string-empty-p selection)))
+        (let ((value (cdr (assoc selection candidates))))
+          (when (and value (consp value))
+            (pcase (car value)
+              ('constraint
+               (let* ((existing (ai-code--behaviors-get-state))
+                      (behaviors (or existing '(:mode nil :modifiers nil :constraint-modifiers nil)))
+                      (current-constraints (plist-get behaviors :constraint-modifiers))
+                      (new-constraints (delete-dups (cons (cdr value) current-constraints)))
+                      (updated (plist-put (copy-tree behaviors) :constraint-modifiers new-constraints)))
+                 (ai-code--behaviors-set-state updated)
+                 (ai-code--behaviors-update-mode-line)
+                 (message "Constraint added: %s" (cdr value))))
+              ('bundle (ai-code-constraints-apply-bundle (cdr value)))
+              (_ nil))))))))
 
 (defun ai-code--all-constraint-names ()
   "Return all constraint names including bundles for completion."
