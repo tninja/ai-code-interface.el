@@ -37,8 +37,11 @@
 (require 'gptel nil t)
 
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
+(declare-function ai-code-cli-start "ai-code-backends" (&optional arg))
 (declare-function ai-code-plain-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
 (declare-function ai-code-helm-read-string-with-history "ai-code-input" (prompt history-file-name &optional initial-input candidate-list))
+(declare-function gptel--apply-preset "gptel" (preset setter))
+(declare-function text-property-search-backward "subr" (property &optional value predicate not-current))
 
 (defgroup ai-code-behaviors nil
   "Behavior injection system for AI prompts."
@@ -154,6 +157,10 @@ Key: project root, Value: plist (:original ORIG :processed PROC :behaviors BEH).
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--behaviors-extract-project-from-buffer-name
                   "ai-code-behaviors" ())
+
+(defvar ai-code--active-constraint-bundles)
+(defvar ai-code--behavior-presets)
+(defvar ai-code-behaviors-gptel-agent-auto-classify)
 
 (defun ai-code--behaviors-project-root (&optional buffer)
   "Return git root for BUFFER, or current buffer if nil.
