@@ -538,7 +538,8 @@ Returns (MODES . MODIFIERS) where MODES are operating modes and MODIFIERS are mo
 
 (defun ai-code--behaviors-check-sync ()
   "Check if source code is synced with upstream repository.
-Returns t if synced, nil if mismatch, 'no-repo if repo not available."
+Returns t if synced, nil if mismatch, or `no-repo'
+if repo is not available."
   (let ((repo-commit (ai-code--behaviors-get-current-commit)))
     (cond
      ((not repo-commit) 'no-repo)
@@ -966,7 +967,8 @@ Returns list of constraint names from the bundle."
 
 (defun ai-code--extract-and-remove-hashtags (prompt-text &optional context-preset)
   "Extract behaviors and remove hashtags from PROMPT-TEXT in single pass.
-CONTEXT-PRESET is 'gptel-plan or 'gptel-agent for context-aware validation.
+CONTEXT-PRESET is `gptel-plan' or `gptel-agent'
+for context-aware validation.
 Return list (BEHAVIORS CLEANED-PROMPT SWITCH-NEEDED BUNDLE-NAME) where:
   BEHAVIORS is plist (:mode MODE :modifiers MODS :constraint-modifiers CONSTRAINTS :preset PRESET) or nil
   CLEANED-PROMPT is the prompt with tags removed
@@ -1297,7 +1299,7 @@ If PROMPT-TEXT already contains <user-prompt> tags, extracts content first."
 
 (defun ai-code--behaviors-meets-confidence-threshold-p (confidence)
   "Check if CONFIDENCE meets `ai-code-behaviors-reclassify-min-confidence'.
-CONFIDENCE should be 'high, 'medium, or 'low."
+CONFIDENCE should be `high', `medium', or `low'."
   (let ((levels '(high medium low))
         (min-level ai-code-behaviors-reclassify-min-confidence))
     (and confidence
@@ -2205,7 +2207,8 @@ Returns t if enabled, nil if `ai-code--insert-prompt' is not defined."
 (defun ai-code--gptel-agent-process-behaviors (prompt-text project-root &optional context-preset)
   "Process behaviors for PROMPT-TEXT in gptel-agent context.
 PROJECT-ROOT specifies the project for state lookup.
-CONTEXT-PRESET is 'gptel-plan or 'gptel-agent for mode validation.
+CONTEXT-PRESET is `gptel-plan' or `gptel-agent'
+for mode validation.
 Respects `ai-code-behaviors-gptel-agent-auto-classify'.
 Returns list (BEHAVIORS-APPLIED RESULT-TEXT SWITCH-NEEDED).
 BEHAVIORS-APPLIED is t if behaviors were applied (or preset-only).
@@ -2440,7 +2443,7 @@ In gptel-plan mode, only shows readonly operating modes."
 
 (defun ai-code--behavior-modes-completion-table (&optional context-preset)
   "Return completion table for operating modes.
-CONTEXT-PRESET filters to readonly modes when 'gptel-plan."
+CONTEXT-PRESET filters to readonly modes when `gptel-plan'."
   (let ((modes (if (eq context-preset 'gptel-plan)
                    ai-code--behavior-readonly-modes
                  ai-code--behavior-operating-modes)))
