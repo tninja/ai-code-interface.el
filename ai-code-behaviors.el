@@ -155,8 +155,6 @@ Pending presets are shown in mode-line but not committed until first prompt.")
 Key: project root, Value: plist (:original ORIG :processed PROC :behaviors BEH).")
 
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
-(declare-function ai-code--behaviors-extract-project-from-buffer-name
-                  "ai-code-behaviors" ())
 
 (defvar ai-code--active-constraint-bundles)
 (defvar ai-code--behavior-presets)
