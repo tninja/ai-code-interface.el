@@ -2243,17 +2243,25 @@ Returns nil for non-CLI backends (ECA, agent-shell)."
              (agent-shell--shell-buffer :no-create t :no-error t)
            (error nil))))
 
-;; CLI backends - use terminal buffer detection
-    ((ai-code--get-session-prefix)
-     (when-let* ((prefix (ai-code--get-session-prefix))
-                 (working-dir (and (fboundp 'ai-code-backends-infra--session-working-directory)
-                                   (ai-code-backends-infra--session-working-directory))))
-       (and (fboundp 'ai-code-backends-infra--find-session-buffers)
-            (ai-code-backends-infra--find-session-buffers prefix working-dir)
-            t)))
+   ;; gptel-agent backend - use ai-code-gptel-agent--get-buffer
+   ((and (boundp 'ai-code-selected-backend)
+         (eq ai-code-selected-backend 'gptel-agent))
+    (and (fboundp 'ai-code-gptel-agent--get-buffer)
+         (condition-case nil
+             (ai-code-gptel-agent--get-buffer)
+           (error nil))))
 
-    ;; Unknown backend - require explicit session start
-    (t nil)))
+   ;; CLI backends - use terminal buffer detection
+   ((ai-code--get-session-prefix)
+    (when-let* ((prefix (ai-code--get-session-prefix))
+                (working-dir (and (fboundp 'ai-code-backends-infra--session-working-directory)
+                                  (ai-code-backends-infra--session-working-directory))))
+      (and (fboundp 'ai-code-backends-infra--find-session-buffers)
+           (ai-code-backends-infra--find-session-buffers prefix working-dir)
+           t)))
+
+   ;; Unknown backend - require explicit session start
+   (t nil)))
 
 (defconst ai-code--command-preset-map
   '((ai-code-code-change . "quick-fix")

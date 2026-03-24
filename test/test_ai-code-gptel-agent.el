@@ -18,6 +18,7 @@
   (provide 'magit))
 
 (require 'ai-code-gptel-agent)
+(require 'ai-code-behaviors)
 
 (ert-deftest ai-code-test-gptel-agent-start-forwards-prefix-arg ()
   "Ensure start forwards prefix args to `gptel-agent'."
@@ -120,6 +121,31 @@
     (should (eq (plist-get (cdr backend-entry) :switch) 'ai-code-gptel-agent-switch-to-buffer))
     (should (eq (plist-get (cdr backend-entry) :send) 'ai-code-gptel-agent-send-command))
     (should (null (plist-get (cdr backend-entry) :resume)))))
+
+(ert-deftest ai-code-test-gptel-agent-session-exists-with-buffer ()
+  "Ensure session-exists-p returns non-nil when gptel-agent buffer exists."
+  (let* ((project-root default-directory)
+          (project-name (file-name-nondirectory
+                         (directory-file-name project-root)))
+          (buf-name (format "*gptel-agent:%s*" project-name))
+          (shell-buffer (get-buffer-create buf-name))
+          (old-backend ai-code-selected-backend))
+     (unwind-protect
+         (cl-letf (((symbol-function 'ai-code--git-root) (lambda () project-root)))
+           (setq ai-code-selected-backend 'gptel-agent)
+           (should (ai-code--session-exists-p)))
+       (setq ai-code-selected-backend old-backend)
+       (when (buffer-live-p shell-buffer)
+         (kill-buffer shell-buffer)))))
+
+(ert-deftest ai-code-test-gptel-agent-session-not-exists-without-buffer ()
+  "Ensure session-exists-p returns nil when no gptel-agent buffer exists."
+  (let ((old-backend ai-code-selected-backend))
+    (unwind-protect
+        (progn
+          (setq ai-code-selected-backend 'gptel-agent)
+          (should-not (ai-code--session-exists-p)))
+      (setq ai-code-selected-backend old-backend))))
 
 (provide 'test_ai-code-gptel-agent)
 
