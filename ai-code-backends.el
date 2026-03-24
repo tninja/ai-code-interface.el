@@ -330,18 +330,30 @@ so the CLI itself handles the installation details."
      :install-skills ai-code-eca-install-skills
      :cli     nil)
     (agent-shell      ; external backend, requires agent-shell package
-     :label "agent-shell"
-     :require ai-code-agent-shell
-     :start   ai-code-agent-shell
-     :switch  ai-code-agent-shell-switch-to-buffer
-     :send    ai-code-agent-shell-send-command
-     :resume  ai-code-agent-shell-resume
-     :config  nil
-     :agent-file nil
-     :upgrade nil
-     :install-skills nil
-     :cli     "agent-shell")
-    (claude-code-ide ; external backend, requires claude-code-ide.el package
+      :label "agent-shell"
+      :require ai-code-agent-shell
+      :start   ai-code-agent-shell
+      :switch  ai-code-agent-shell-switch-to-buffer
+      :send    ai-code-agent-shell-send-command
+      :resume  ai-code-agent-shell-resume
+      :config  nil
+      :agent-file nil
+      :upgrade nil
+      :install-skills nil
+      :cli     "agent-shell")
+     (gptel-agent      ; external backend, requires gptel-agent package
+      :label "GPTel Agent"
+      :require ai-code-gptel-agent
+      :start   ai-code-gptel-agent
+      :switch  ai-code-gptel-agent-switch-to-buffer
+      :send    ai-code-gptel-agent-send-command
+      :resume  nil
+      :config  nil
+      :agent-file nil
+      :upgrade nil
+      :install-skills nil
+      :cli     nil)
+     (claude-code-ide ; external backend, requires claude-code-ide.el package
      :label "claude-code-ide.el"
      :require claude-code-ide
      :start   claude-code-ide--start-if-no-session

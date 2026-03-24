@@ -11,6 +11,19 @@
 (require 'ert)
 (require 'ai-code-behaviors)
 
+(defvar ai-code-test-mock-project-root "/tmp/ai-code-test-project"
+  "Mock project root for testing.")
+
+(defun ai-code-test--mock-git-root ()
+  "Return mock git root for testing."
+  ai-code-test-mock-project-root)
+
+(defmacro ai-code-test-with-mock-project (&rest body)
+  "Execute BODY with mocked git root for project isolation."
+  `(let ((ai-code--git-root #'ai-code-test--mock-git-root))
+     (cl-letf (((symbol-function 'ai-code--git-root) #'ai-code-test--mock-git-root))
+       ,@body)))
+
 (ert-deftest ai-code-test-behavior-operating-modes-list ()
   "Test that operating modes are properly defined."
   (should (member "=code" ai-code--behavior-operating-modes))
@@ -190,36 +203,38 @@
 
 (ert-deftest ai-code-test-session-state-persistence ()
   "Test that behaviors persist across prompts without hashtags."
-  (ai-code-behaviors-clear)
-  (let ((first-result (ai-code--process-behaviors "Fix the bug #=debug #deep")))
-    (should first-result)
-    (should (string-match-p "=debug" first-result))
-    (should (string-match-p "deep" first-result))
-    (let ((state (ai-code--behaviors-get-state)))
-      (should state)
-      (should (equal (plist-get state :mode) "=debug"))
-      (should (member "deep" (plist-get state :modifiers)))))
-  (let ((second-result (ai-code--process-behaviors "What is the status?")))
-    (should second-result)
-    (should (string-match-p "=debug" second-result))
-    (should (string-match-p "deep" second-result)))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (let ((first-result (ai-code--process-behaviors "Fix the bug #=debug #deep")))
+     (should first-result)
+     (should (string-match-p "=debug" first-result))
+     (should (string-match-p "deep" first-result))
+     (let ((state (ai-code--behaviors-get-state)))
+       (should state)
+       (should (equal (plist-get state :mode) "=debug"))
+       (should (member "deep" (plist-get state :modifiers)))))
+   (let ((second-result (ai-code--process-behaviors "What is the status?")))
+     (should second-result)
+     (should (string-match-p "=debug" second-result))
+     (should (string-match-p "deep" second-result)))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-new-hashtags-supersede-session ()
   "Test that new hashtags supersede persisted session state."
-  (ai-code-behaviors-clear)
-  (ai-code--process-behaviors "Fix the bug #=debug #deep")
-  (let ((state (ai-code--behaviors-get-state)))
-    (should (equal (plist-get state :mode) "=debug")))
-  (let ((result (ai-code--process-behaviors "Review this code #=review #challenge")))
-    (should result)
-    (should (string-match-p "=review" result))
-    (should (string-match-p "challenge" result))
-    (should-not (string-match-p "=debug" result)))
-  (let ((state (ai-code--behaviors-get-state)))
-    (should (equal (plist-get state :mode) "=review"))
-    (should (member "challenge" (plist-get state :modifiers))))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (ai-code--process-behaviors "Fix the bug #=debug #deep")
+   (let ((state (ai-code--behaviors-get-state)))
+     (should (equal (plist-get state :mode) "=debug")))
+   (let ((result (ai-code--process-behaviors "Review this code #=review #challenge")))
+     (should result)
+     (should (string-match-p "=review" result))
+     (should (string-match-p "challenge" result))
+     (should-not (string-match-p "=debug" result)))
+   (let ((state (ai-code--behaviors-get-state)))
+     (should (equal (plist-get state :mode) "=review"))
+     (should (member "challenge" (plist-get state :modifiers))))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-presets-defined ()
   "Test that behavior presets are defined."
@@ -230,52 +245,57 @@
 
 (ert-deftest ai-code-test-apply-preset ()
   "Test applying a behavior preset."
-  (ai-code-behaviors-clear)
-  (ai-code-behaviors-apply-preset "tdd-dev")
-  (let ((state (ai-code--behaviors-get-state)))
-    (should state)
-    (should (equal (plist-get state :mode) "=code"))
-    (should (member "tdd" (plist-get state :modifiers)))
-    (should (member "deep" (plist-get state :modifiers))))
-  (should (equal (ai-code--behaviors-get-preset) "tdd-dev"))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (ai-code-behaviors-apply-preset "tdd-dev")
+   (let ((state (ai-code--behaviors-get-state)))
+     (should state)
+     (should (equal (plist-get state :mode) "=code"))
+     (should (member "tdd" (plist-get state :modifiers)))
+     (should (member "deep" (plist-get state :modifiers))))
+   (should (equal (ai-code--behaviors-get-preset) "tdd-dev"))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-mode-line-preset-display ()
   "Test that mode-line shows preset name when preset is active."
-  (ai-code-behaviors-clear)
-  (ai-code-behaviors-apply-preset "tdd-dev")
-  (ai-code--behaviors-update-mode-line)
-  (should (string= (ai-code--behaviors-mode-line-string) "[@tdd-dev]"))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (ai-code-behaviors-apply-preset "tdd-dev")
+   (ai-code--behaviors-update-mode-line)
+   (should (string= (ai-code--behaviors-mode-line-string) "[@tdd-dev]"))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-mode-line-behavior-display ()
   "Test that mode-line shows behaviors when set directly."
-  (ai-code-behaviors-clear)
-  (ai-code--process-behaviors "Fix it #=debug #deep")
-  (ai-code--behaviors-update-mode-line)
-  (should (string= (ai-code--behaviors-mode-line-string) "[=debug deep]"))
-  (should (null (ai-code--behaviors-get-preset)))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (ai-code--process-behaviors "Fix it #=debug #deep")
+   (ai-code--behaviors-update-mode-line)
+   (should (string= (ai-code--behaviors-mode-line-string) "[=debug deep]"))
+   (should (null (ai-code--behaviors-get-preset)))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-clear-resets-preset ()
   "Test that clear resets both preset and session state."
-  (ai-code-behaviors-apply-preset "tdd-dev")
-  (should (ai-code--behaviors-get-preset))
-  (should (ai-code--behaviors-get-state))
-  (ai-code-behaviors-clear)
-  (should (null (ai-code--behaviors-get-preset)))
-  (should (null (ai-code--behaviors-get-state)))
-  (should (string-match-p "\\[○\\]" (ai-code--behaviors-mode-line-string))))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-apply-preset "tdd-dev")
+   (should (ai-code--behaviors-get-preset))
+   (should (ai-code--behaviors-get-state))
+   (ai-code-behaviors-clear)
+   (should (null (ai-code--behaviors-get-preset)))
+   (should (null (ai-code--behaviors-get-state)))
+   (should (string-match-p "\\[○\\]" (ai-code--behaviors-mode-line-string)))))
 
 (ert-deftest ai-code-test-hashtag-clears-preset ()
   "Test that setting behaviors via hashtag clears preset name."
-  (ai-code-behaviors-apply-preset "tdd-dev")
-  (should (equal (ai-code--behaviors-get-preset) "tdd-dev"))
-  (ai-code--process-behaviors "Review this #=review")
-  (should (null (ai-code--behaviors-get-preset)))
-  (let ((state (ai-code--behaviors-get-state)))
-    (should (equal (plist-get state :mode) "=review")))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-apply-preset "tdd-dev")
+   (should (equal (ai-code--behaviors-get-preset) "tdd-dev"))
+   (ai-code--process-behaviors "Review this #=review")
+   (should (null (ai-code--behaviors-get-preset)))
+   (let ((state (ai-code--behaviors-get-state)))
+     (should (equal (plist-get state :mode) "=review")))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-constraint-modifiers-defined ()
   "Test that constraint modifiers are defined."
@@ -428,39 +448,42 @@
 
 (ert-deftest ai-code-test-mode-line-with-constraints ()
   "Test that mode-line shows constraint count."
-  (ai-code-behaviors-clear)
-  (ai-code--behaviors-set-state
-   (list :mode "=code"
-         :modifiers '("deep")
-         :constraint-modifiers '("chinese" "test-after")
-         :custom-suffix nil))
-  (ai-code--behaviors-update-mode-line)
-  (should (string= (ai-code--behaviors-mode-line-string) "[=code deep +2]"))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (ai-code--behaviors-set-state
+    (list :mode "=code"
+          :modifiers '("deep")
+          :constraint-modifiers '("chinese" "test-after")
+          :custom-suffix nil))
+   (ai-code--behaviors-update-mode-line)
+   (should (string= (ai-code--behaviors-mode-line-string) "[=code deep +2]"))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-mode-line-with-bundle ()
   "Test that mode-line shows bundle name when bundle is active."
-  (ai-code-behaviors-clear)
-  (ai-code--behaviors-set-active-bundle "rust-stack")
-  (ai-code--behaviors-set-state
-   (list :mode nil
-         :modifiers nil
-         :constraint-modifiers '("strict-types" "immutable")))
-  (ai-code--behaviors-update-mode-line)
-  (should (string-match-p "@rust-stack" (ai-code--behaviors-mode-line-string)))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (ai-code--behaviors-set-active-bundle "rust-stack")
+   (ai-code--behaviors-set-state
+    (list :mode nil
+          :modifiers nil
+          :constraint-modifiers '("strict-types" "immutable")))
+   (ai-code--behaviors-update-mode-line)
+   (should (string-match-p "@rust-stack" (ai-code--behaviors-mode-line-string)))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-mode-line-with-custom-suffix ()
   "Test that mode-line counts custom suffix."
-  (ai-code-behaviors-clear)
-  (ai-code--behaviors-set-state
-   (list :mode "=code"
-         :modifiers nil
-         :constraint-modifiers '("chinese")
-         :custom-suffix "Use strict mode"))
-  (ai-code--behaviors-update-mode-line)
-  (should (string-match-p "+2" (ai-code--behaviors-mode-line-string)))
-  (ai-code-behaviors-clear))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (ai-code--behaviors-set-state
+    (list :mode "=code"
+          :modifiers nil
+          :constraint-modifiers '("chinese")
+          :custom-suffix "Use strict mode"))
+   (ai-code--behaviors-update-mode-line)
+   (should (string-match-p "+2" (ai-code--behaviors-mode-line-string)))
+   (ai-code-behaviors-clear)))
 
 (ert-deftest ai-code-test-project-scoped-state ()
   "Test that behaviors are scoped per project."
@@ -634,11 +657,12 @@
 
 (ert-deftest ai-code-test-process-preset-in-behaviors ()
   "Test that process-behaviors applies preset correctly."
-  (ai-code-behaviors-clear)
-  (let* ((result (ai-code--process-behaviors "@tdd-dev implement feature"))
-         (preset (ai-code--behaviors-get-preset)))
-    (should (equal preset "tdd-dev"))
-    (should (string-match-p "operating-mode" result))))
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear)
+   (let* ((result (ai-code--process-behaviors "@tdd-dev implement feature"))
+          (preset (ai-code--behaviors-get-preset)))
+     (should (equal preset "tdd-dev"))
+     (should (string-match-p "operating-mode" result)))))
 
 (ert-deftest ai-code-test-preset-merges-modifiers ()
   "Test that preset modifiers merge with additional modifiers."
@@ -1001,6 +1025,39 @@ This happens when gptel-agent package is not loaded."
   (should (ai-code--behaviors-preset-readonly-p "research-deep"))
   (should-not (ai-code--behaviors-preset-readonly-p "tdd-dev"))
   (should-not (ai-code--behaviors-preset-readonly-p "quick-fix")))
+
+(ert-deftest ai-code-test-gptel-advice-installed-once ()
+  "Test that gptel advice is installed only once."
+  (skip-unless (fboundp 'gptel--apply-preset))
+  (advice-remove 'gptel--apply-preset
+                 #'ai-code--behaviors-gptel-preset-change-advice)
+  (should-not (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
+                                'gptel--apply-preset))
+  (ai-code--behaviors-install-gptel-advice)
+  (should (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
+                            'gptel--apply-preset))
+  (ai-code--behaviors-install-gptel-advice)
+  (ai-code--behaviors-uninstall-gptel-advice))
+
+(ert-deftest ai-code-test-mode-switch-plan-to-agent ()
+  "Test that switching from plan to agent with readonly preset applies quick-fix."
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear-all)
+   (let ((project-root (ai-code--behaviors-project-root)))
+     (should project-root)
+     (ai-code--behaviors-set-preset "quick-review" project-root)
+     (should (equal (ai-code--behaviors-get-preset project-root) "quick-review"))
+     (should (ai-code--behaviors-preset-readonly-p "quick-review")))))
+
+(ert-deftest ai-code-test-mode-switch-agent-to-plan ()
+  "Test that switching from agent to plan with modify preset applies quick-review."
+  (ai-code-test-with-mock-project
+   (ai-code-behaviors-clear-all)
+   (let ((project-root (ai-code--behaviors-project-root)))
+     (should project-root)
+     (ai-code--behaviors-set-preset "tdd-dev" project-root)
+     (should (equal (ai-code--behaviors-get-preset project-root) "tdd-dev"))
+     (should-not (ai-code--behaviors-preset-readonly-p "tdd-dev")))))
 
 (provide 'test_ai-code-behaviors)
 
