@@ -9,6 +9,10 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 emacs -batch -f batch-byte-compile *.el
 ```
 
+- Treat new byte-compilation warnings as regressions when touching Emacs Lisp code.
+- For documentation hygiene on touched files, also run `M-x checkdoc` (or batch
+  `checkdoc-file`) before wrapping up changes.
+
 ### Running Tests
 ```bash
 # Run a specific test file
