@@ -329,7 +329,7 @@ so the CLI itself handles the installation details."
      :upgrade ai-code-eca-upgrade
      :install-skills ai-code-eca-install-skills
      :cli     nil)
-(agent-shell      ; external backend, requires agent-shell package
+    (agent-shell      ; external backend, requires agent-shell package
       :label "agent-shell"
       :require ai-code-agent-shell
       :start   ai-code-agent-shell
