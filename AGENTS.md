@@ -16,10 +16,10 @@ emacs -batch -f batch-byte-compile *.el
 ### Running Tests
 ```bash
 # Run a specific test file
-emacs -batch -l ert -l test_ai-code-change.el -f ert-run-tests-batch-and-exit
+emacs -batch -L . -l ert -l test/test_ai-code-change.el -f ert-run-tests-batch-and-exit
 
 # Run all tests
-emacs -batch -l ert -l test_ai-code-change.el -l test_ai-code-prompt-mode.el -l test_ai-code-input.el -l test_ai-code-git.el -l test_ai-code-notifications.el -l test_ai-code-kiro-cli.el -f ert-run-tests-batch-and-exit
+emacs -batch -L . -l ert --eval "(mapc #'load-file (file-expand-wildcards \"test/test_*.el\"))" -f ert-run-tests-batch-and-exit
 ```
 
 ### CI Testing
