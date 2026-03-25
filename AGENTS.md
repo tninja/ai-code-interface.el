@@ -10,6 +10,12 @@ emacs -batch -f batch-byte-compile *.el
 ```
 
 - Treat new byte-compilation warnings as regressions when touching Emacs Lisp code.
+- Prefer reproducible batch verification first, ideally `emacs -Q` with the
+  necessary load-path and dependencies configured for the target file.
+- If batch compilation fails to load required files or packages, treat that as a
+  verification failure to resolve or report, not as a clean pass.
+- If `emacs -Q` cannot be made to work cleanly, compile files individually through
+  `emacsclient` as a fallback to match the active Emacs session more closely.
 - For documentation hygiene on touched files, also run `M-x checkdoc` (or batch
   `checkdoc-file`) before wrapping up changes.
 
@@ -148,7 +154,11 @@ The workflow guides through writing tests, running them, implementing code, and 
 ### Function Definitions
 - Use `defcustom` for user-configurable variables with `:group 'ai-code`
 - Use `;;;###autoload` cookies for interactive commands that should be available when the package is loaded
-- Use `declare-function` for forward declarations of functions that will be defined after loading (e.g., backend functions)
+- Use `declare-function` only for functions defined in other files or loaded later.
+- Do not add `declare-function` entries for functions defined later in the same file;
+  that can trigger duplicate-definition byte-compilation warnings.
+- For dynamically bound external variables referenced from optional packages, add
+  explicit `defvar` declarations instead of leaving them free.
 - Use `cl-labels` for local helper functions
 - Prefix arguments (`C-u`) are used to modify behavior (e.g., append clipboard context, force full paths)
 
