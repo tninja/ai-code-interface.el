@@ -169,7 +169,9 @@ with a newline separator."
 (defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix
   "Default prompt suffix to request running tests after code changes.")
 
-(defvar ai-code-auto-test-type)
+(defvar ai-code-auto-test-type nil
+  "Forward declaration for `ai-code-auto-test-type'.
+See the later `defcustom' for user-facing documentation and default.")
 
 (defun ai-code--test-after-code-change--resolve-tdd-suffix ()
   "Return the TDD-style suffix for test-after-code-change prompt text."
