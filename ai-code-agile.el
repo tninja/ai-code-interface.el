@@ -5,7 +5,7 @@
 
 ;;; Commentary:
 ;; This file provides agile practice operations such as refactoring and TDD cycle
-;; for the AI Code Interface package. Migrated from aider-agile.el.
+;; for the AI Code Interface package.  Migrated from aider-agile.el.
 
 ;;; Code:
 
@@ -399,7 +399,7 @@
     (ai-code--refactoring--ensure-string value)))
 
 (defun ai-code--refactoring-dired-has-explicit-marks-p (all-marked file-at-point)
-  "Return non-nil when ALL-MARKED contains explicit Dired selections.
+  "Return non-nil when ALL-MARKED records explicit Dired selections.
 A single FILE-AT-POINT entry means Dired is only reporting the current line."
   (and all-marked
        (not (and (= (length all-marked) 1)
@@ -633,30 +633,30 @@ If no such buffer is found, report a user-error."
     ;; test buffer is must need. non-test buffer is not a must need.
     ;; since test buffer is sufficient for bootstrapping
     (unless has-test-buffer
-      (user-error "No test file found in current windows. Please open a test file first"))))
+      (user-error "No test file found in current windows.  Please open a test file first"))))
 
 (defconst ai-code--tdd-test-pattern-instruction
   "\nFollow the test-code pattern in the current project. Write the test-code in the test-file. If the test-file does not exist, create it using the same test-filename pattern used in this repository."
   "Instruction appended to TDD prompts to enforce the project's test pattern.")
 
 (defconst ai-code--tdd-run-test-after-this-stage-instruction
-  " Run test after this stage and output the summary of test result. List the public API / log key / config key change if there is."
+  " Run test after this stage and output the summary of test result. State whether the result matches the goal of this stage. List the files changed and exact test command / result. List the public API / log key / config key change if there is."
   "Instruction appended to single-stage TDD prompts.")
 
 (defconst ai-code--tdd-run-test-after-each-stage-instruction
-  " Run test after each stage and output the summary of test result. List the public API / log key / config key change if there is."
+  " Run test after each stage and output the summary of test result. For each stage, list the stage name, files changed, exact test command / result, and whether the result matches the goal of that stage. List the public API / log key / config key change if there is."
   "Instruction appended to multi-stage TDD prompts.")
 
 (defconst ai-code--tdd-red-green-base-instruction
-  " Follow TDD principles - write the failing test first, then implement the minimal code to make it pass"
+  " Follow strict TDD stages. Do not skip stages. Stage 1 - Red: update only test code and write the smallest failing test that captures the requested behavior. Do not modify source code during Red. Stage 2 - Green: after confirming the new test fails for the expected reason, update the minimum source code needed to make it pass. Do not refactor during Green."
   "Base instruction shared by Red+Green style TDD prompts.")
 
 (defconst ai-code--tdd-red-green-tail-instruction
-  " Only update test and source code. Run the tests and follow up with the test result (fix code if there is error)."
+  " Keep the changes narrowly scoped to the requested behavior. Only update the relevant test and source code. Do not add extra features or unrelated cleanup."
   "Trailing instruction shared by Red+Green style TDD prompts.")
 
 (defconst ai-code--tdd-with-refactoring-extension-instruction
-  ". After that, refactor only the code you just changed. In refactor staging, first review the code diff (including tests) and identify the highest-impact cleanup. Then apply focused refactoring that preserves behavior while improving readability, keeping classes/functions small and cohesive / easy to test, reducing duplication, and simplifying naming and control flow."
+  " Stage 3 - Blue: after Green is passing, refactor only the files changed in Red/Green. Preserve behavior and do not add features. First review the code diff (including tests) and identify the highest-impact cleanup. Then apply focused refactoring that improves readability, keeps classes/functions small and cohesive / easy to test, reduces duplication, and simplifies naming and control flow."
   "Refactoring extension shared by Red+Green+Blue style TDD prompts.")
 
 (defun ai-code--tdd-red-stage (function-name)
@@ -780,7 +780,7 @@ to fix code."
     (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--run-test-ai-assisted ()
-  "Run tests by sending a prompt to AI with current context."
+  "Send a prompt to AI to run a test command with current context."
   (let* ((is-dired (derived-mode-p 'dired-mode))
          (function-name (unless is-dired (which-function)))
          (file-info (unless is-dired (ai-code--get-context-files-string)))
@@ -810,7 +810,7 @@ to fix code."
 
 ;;;###autoload
 (defun ai-code-run-test ()
-  "Run tests based on the current buffer's mode.
+  "Run a test command based on the current buffer's mode.
 Checks for specific test runners \(python-pytest, jest, ert) and runs
 them if available."
   (interactive)

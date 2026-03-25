@@ -14,14 +14,14 @@
 ;;; Tests for ai-code--tdd-source-function-context-p
 
 (ert-deftest ai-code-test-tdd-source-function-context-p-source-file ()
-  "Return non-nil for a non-test source file in prog-mode with a function name."
+  "Return non-nil for a non-test source file in `prog-mode' with a function name."
   (with-temp-buffer
     (emacs-lisp-mode)
     (setq-local buffer-file-name "/project/src/my-module.el")
     (should (ai-code--tdd-source-function-context-p "my-function"))))
 
 (ert-deftest ai-code-test-tdd-source-function-context-p-test-file ()
-  "Return nil when buffer-file-name contains \"test\"."
+  "Return nil when variable `buffer-file-name' contains \"test\"."
   (with-temp-buffer
     (emacs-lisp-mode)
     (setq-local buffer-file-name "/project/test/test_my-module.el")
@@ -42,7 +42,7 @@
     (should-not (ai-code--tdd-source-function-context-p nil))))
 
 (ert-deftest ai-code-test-tdd-source-function-context-p-non-prog-mode ()
-  "Return nil when buffer is not in a prog-mode derived mode."
+  "Return nil when buffer is not in a `prog-mode' derived mode."
   (with-temp-buffer
     (text-mode)
     (setq-local buffer-file-name "/project/src/my-module.el")
@@ -152,8 +152,12 @@
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (text) (setq captured-prompt text))))
         (ai-code--tdd-red-green-blue-stage "my-function")
-        (should (string-match-p "write the failing test first, then implement the minimal code to make it pass" captured-prompt))
-        (should (string-match-p "After that, refactor only the code you just changed" captured-prompt))
+        (should (string-match-p "Do not skip stages" captured-prompt))
+        (should (string-match-p "Stage 1 - Red" captured-prompt))
+        (should (string-match-p "Stage 2 - Green" captured-prompt))
+        (should (string-match-p "Stage 3 - Blue" captured-prompt))
+        (should (string-match-p "Do not refactor during Green" captured-prompt))
+        (should (string-match-p "refactor only the files changed in Red/Green" captured-prompt))
         (should (string-match-p "first review the code diff (including tests)" captured-prompt))
         (should (string-match-p "highest-impact cleanup" captured-prompt))))))
 
@@ -204,6 +208,10 @@
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (text) (setq captured-prompt text))))
         (ai-code--tdd-red-green-stage "my-function")
+        (should (string-match-p "Do not skip stages" captured-prompt))
+        (should (string-match-p "Stage 1 - Red" captured-prompt))
+        (should (string-match-p "Stage 2 - Green" captured-prompt))
+        (should (string-match-p "Do not refactor during Green" captured-prompt))
         (should (string-match-p "Run test after each stage" captured-prompt))
         (should (string-match-p "summary of test result" captured-prompt))
         (should (string-match-p "List the public API / log key / config key change if there is" captured-prompt))))))

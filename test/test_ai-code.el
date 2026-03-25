@@ -14,7 +14,7 @@
 (require 'transient)
 
 (unless (fboundp 'transient-define-group)
-  (error "ai-code tests require transient-define-group; please install transient >= 0.9.0"))
+  (error "AI Code tests require transient-define-group; please install transient >= 0.9.0"))
 
 (require 'ai-code)
 
@@ -26,7 +26,8 @@
         (ai-code-auto-test-type nil)
         (ai-code--tdd-test-pattern-instruction nil))
     (ai-code--apply-auto-test-type 'tdd)
-    (should (string-match-p "Follow TDD principles" ai-code-auto-test-suffix))))
+    (should (string-match-p "Stage 1 - Red" ai-code-auto-test-suffix))
+    (should (string-match-p "Stage 2 - Green" ai-code-auto-test-suffix))))
 
 (ert-deftest ai-code-test-set-auto-test-type-tdd-with-refactoring-updates-suffix ()
   "Test that setting auto test type to tdd-with-refactoring updates suffix text."
@@ -37,14 +38,17 @@
     (should (string-match-p
              (regexp-quote ai-code--tdd-with-refactoring-extension-instruction)
              ai-code-auto-test-suffix))
+    (should (string-match-p "Stage 3 - Blue" ai-code-auto-test-suffix))
     (should (string-match-p "highest-impact cleanup" ai-code-auto-test-suffix))))
 
-(ert-deftest ai-code-test-resolve-tdd-suffix-includes-stage-test-summary-requirement ()
-  "Test that TDD suffix asks to run test after each stage and summarize result."
+(ert-deftest ai-code-test-resolve-tdd-suffix-includes-strict-stage-contract ()
+  "Test that TDD suffix names Red and Green stages and forbids skipping."
   (let ((ai-code--tdd-test-pattern-instruction ""))
     (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
-      (should (string-match-p "Run test after each stage" suffix))
-      (should (string-match-p "summary of test result" suffix)))))
+      (should (string-match-p "Do not skip stages" suffix))
+      (should (string-match-p "Stage 1 - Red" suffix))
+      (should (string-match-p "Stage 2 - Green" suffix))
+      (should (string-match-p "Do not refactor during Green" suffix)))))
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-reuses-shared-each-stage-instruction ()
   "Test that TDD suffix can reuse shared each-stage instruction when available."
@@ -142,28 +146,34 @@
   "Test that ask choices support selecting no test run."
   (let ((ai-code--auto-test-type-ask-choices
          '(("Run tests after code change" . test-after-change)
-           ("Test driven development: Write test first" . tdd)
-           ("Test driven development with refactoring" . tdd-with-refactoring)
-           ("Do not run test" . no-test))))
+           ("TDD Red + Green (write failing test, then make it pass)" . tdd)
+           ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
+           ("Do not write or run tests" . no-test))))
     (cl-letf (((symbol-function 'completing-read)
-               (lambda (&rest _args) "Do not run test")))
+               (lambda (&rest _args) "Do not write or run tests")))
       (should (eq 'no-test (ai-code--read-auto-test-type-choice))))))
 
 (ert-deftest ai-code-test-read-auto-test-type-choice-allow-tdd-with-refactoring ()
   "Test that ask choices support selecting tdd-with-refactoring."
   (let ((ai-code--auto-test-type-ask-choices
          '(("Run tests after code change" . test-after-change)
-           ("Test driven development: Write test first" . tdd)
-           ("Test driven development with refactoring" . tdd-with-refactoring)
-           ("Do not run test" . no-test))))
+           ("TDD Red + Green (write failing test, then make it pass)" . tdd)
+           ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
+           ("Do not write or run tests" . no-test))))
     (cl-letf (((symbol-function 'completing-read)
-               (lambda (&rest _args) "Test driven development with refactoring")))
+               (lambda (&rest _args) "TDD Red + Green + Blue (refactor after Green)")))
       (should (eq 'tdd-with-refactoring (ai-code--read-auto-test-type-choice))))))
 
-(ert-deftest ai-code-test-auto-test-type-ask-choices-include-tdd-with-refactoring ()
-  "Test that default ask choices include tdd-with-refactoring option."
-  (should (assoc "Test driven development, follow up with refactoring"
-                 ai-code--auto-test-type-ask-choices)))
+(ert-deftest ai-code-test-auto-test-type-ask-choices-use-explicit-red-green-blue-labels ()
+  "Test that default ask choices use explicit staged TDD labels."
+  (should (assoc "TDD Red + Green (write failing test, then make it pass)"
+                 ai-code--auto-test-type-ask-choices))
+  (should (assoc "TDD Red + Green + Blue (refactor after Green)"
+                 ai-code--auto-test-type-ask-choices))
+  (should-not (assoc "Test driven development: Write test first"
+                     ai-code--auto-test-type-ask-choices))
+  (should-not (assoc "Test driven development, follow up with refactoring"
+                     ai-code--auto-test-type-ask-choices)))
 
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-tdd-with-refactoring ()
   "Test that ask-me can resolve to refactoring TDD suffix."

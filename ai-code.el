@@ -9,7 +9,7 @@
 
 ;;; Commentary:
 ;; This package provides a uniform Emacs interface for various AI-assisted software
-;; development CLI tools. Its purpose is to offer a consistent user experience
+;; development CLI tools.  Its purpose is to offer a consistent user experience
 ;; across different AI backends, providing context-aware code actions, and integrating
 ;; seamlessly with AI-driven agile development workflows.
 ;;
@@ -169,15 +169,17 @@ with a newline separator."
 (defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix
   "Default prompt suffix to request running tests after code changes.")
 
+(defvar ai-code-auto-test-type)
+
 (defun ai-code--test-after-code-change--resolve-tdd-suffix ()
-  "Return the TDD-style suffix for test-after-code-change prompts."
+  "Return the TDD-style suffix for test-after-code-change prompt text."
   (concat ai-code--tdd-red-green-base-instruction
           ai-code--tdd-red-green-tail-instruction
           ai-code--tdd-run-test-after-each-stage-instruction
           ai-code--tdd-test-pattern-instruction))
 
 (defun ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix ()
-  "Return the TDD+refactoring suffix for test-after-code-change prompts."
+  "Return the TDD+refactoring suffix for test-after-code-change prompt text."
   (concat ai-code--tdd-red-green-base-instruction
           ai-code--tdd-with-refactoring-extension-instruction
           ai-code--tdd-red-green-tail-instruction
@@ -186,10 +188,10 @@ with a newline separator."
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
-    ("Test driven development: Write test first" . tdd)
-    ("Test driven development, follow up with refactoring" . tdd-with-refactoring)
+    ("TDD Red + Green (write failing test, then make it pass)" . tdd)
+    ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
     ("Do not write or run tests" . no-test))
-  "Choices for resolving the auto test suffix when `ai-code-auto-test-type` is `ask-me`.")
+  "Resolve auto test suffix choices for `ask-me` mode.")
 
 (defun ai-code--read-auto-test-type-choice ()
   "Read and return one prompt test type for this send action."
@@ -206,13 +208,13 @@ with a newline separator."
 (defcustom ai-code-use-gptel-classify-prompt nil
   "Whether to use GPTel to classify prompts in `ask-me` auto test mode.
 When non-nil and `ai-code-auto-test-type` is not nil, classify whether
-the current prompt is about code changes. If not, skip test type selection
+the current prompt is about code changes.  If not, skip test type selection
 and do not append auto test suffix."
   :type 'boolean
   :group 'ai-code)
 
 (defun ai-code--gptel-classify-prompt-code-change (prompt-text)
-  "Classify whether PROMPT-TEXT requests code changes using GPTel.
+  "Classify whether PROMPT-TEXT requests a code change using GPTel.
 Return one of: `code-change`, `non-code-change`, or `unknown`."
   (let ((classification
          (condition-case err
@@ -280,7 +282,7 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
    (ai-code--resolve-auto-test-type-for-send prompt-text)))
 
 (defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)
-  "Resolve and bind auto test suffix before sending PROMPT-TEXT."
+  "Resolve and bind auto test suffix before calling ORIG-FUN with PROMPT-TEXT."
   (let ((ai-code-auto-test-suffix (ai-code--resolve-auto-test-suffix-for-send prompt-text)))
     (funcall orig-fun prompt-text)))
 
@@ -298,7 +300,7 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
         (ai-code--auto-test-suffix-for-type value)))
 
 (defun ai-code--apply-auto-test-type (value)
-  "Set `ai-code-auto-test-type` and refresh related suffix."
+  "Set `ai-code-auto-test-type` to VALUE and refresh related suffix."
   (setq ai-code-auto-test-type value)
   (ai-code--test-after-code-change--set 'ai-code-auto-test-type value)
   value)
@@ -375,7 +377,7 @@ ARG is the prefix argument."
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer-or-hide ()
-  "Hide current buffer if its name starts and ends with '*'.
+  "Hide the current buffer when its name both begins and ends with '*'.
 Otherwise switch to AI CLI buffer."
   (interactive)
   (if (and current-prefix-arg
