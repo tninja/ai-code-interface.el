@@ -341,6 +341,18 @@ so the CLI itself handles the installation details."
      :upgrade nil
      :install-skills nil
      :cli     "agent-shell")
+    (gptel-agent      ; external backend, requires gptel-agent package
+     :label "GPTel Agent"
+     :require ai-code-gptel-agent
+     :start   ai-code-gptel-agent
+     :switch  ai-code-gptel-agent-switch-to-buffer
+     :send    ai-code-gptel-agent-send-command
+     :resume  nil
+     :config  nil
+     :agent-file nil
+     :upgrade nil
+     :install-skills nil
+     :cli     nil)
     (claude-code-ide ; external backend, requires claude-code-ide.el package
      :label "claude-code-ide.el"
      :require claude-code-ide
@@ -456,11 +468,11 @@ Sets backend dispatch functions and updates `ai-code-cli'."
             ai-code--cli-switch-fn switch
             ai-code--cli-send-fn send
             ai-code--cli-resume-fn (if resume
-                                      (lambda (&optional arg)
-                                        (interactive "P")
-                                        (let ((current-prefix-arg (or arg current-prefix-arg)))
-                                          (call-interactively resume)))
-                                    #'ai-code--unsupported-resume))
+                                       (lambda (&optional arg)
+                                         (interactive "P")
+                                         (let ((current-prefix-arg (or arg current-prefix-arg)))
+                                           (call-interactively resume)))
+                                     #'ai-code--unsupported-resume))
       (setq ai-code-cli cli
             ai-code-selected-backend key)
       (message "AI Code backend switched to: %s" (plist-get plist :label)))))
@@ -497,7 +509,7 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
                             choices))
          (choice (completing-read "Select backend: "
                                   (mapcar #'car ordered-choices)
-                                 nil t nil nil current-label))
+                                  nil t nil nil current-label))
          (key (cdr (assoc choice ordered-choices))))
     (ai-code-set-backend key)))
 
@@ -537,12 +549,13 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
             (message "Opened %s agent file: %s" label file)))))))
 
 ;;;###autoload
-(defun ai-code-upgrade-backend ()
+(defun ai-code-upgrade-backend (&optional arg)
   "Run the upgrade command for the currently selected backend.
 If the backend defines an :upgrade property, use it:
   - string: run as a shell command via `compile'.
-  - symbol: call the function."
-  (interactive)
+  - symbol: call the function with prefix arg forwarded.
+ARG is the prefix argument to pass to the upgrade function."
+  (interactive "P")
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
     (if (not spec)
         (user-error "No backend is currently selected")
@@ -554,7 +567,8 @@ If the backend defines an :upgrade property, use it:
           (compile upgrade)
           (message "Running upgrade command for %s" label))
          ((and upgrade (symbolp upgrade) (fboundp upgrade))
-          (funcall upgrade)
+          (let ((current-prefix-arg arg))
+            (call-interactively upgrade))
           (message "Running upgrade for %s" label))
          ((and upgrade (symbolp upgrade) (not (fboundp upgrade)))
           (user-error "Backend '%s' declares :upgrade function '%s' but it is not callable"

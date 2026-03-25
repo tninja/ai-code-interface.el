@@ -52,6 +52,11 @@ This is **ai-code-interface.el**, an Emacs package that provides a uniform inter
 - Use `with-temp-buffer` for testing buffer-related functionality
 - Mock external dependencies with `cl-letf` when needed
 
+### Byte-compilation warnings
+- Treat new byte-compilation warnings as regressions when touching Emacs Lisp code.
+- For documentation hygiene on touched files, also run `M-x checkdoc` (or batch
+  `checkdoc-file`) before wrapping up changes.
+
 ## Dependencies
 
 ### Required

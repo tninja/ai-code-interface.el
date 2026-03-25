@@ -7,3 +7,4 @@ GPATH
 .ai.code.files/
 __pycache__/
 *.elc
+.ai-behaviors/

@@ -16,6 +16,7 @@
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--get-context-files-string "ai-code-input")
+(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 (defconst ai-code--refactoring-techniques-catalog
   '((:name "Suggest Refactoring Strategy"
@@ -397,20 +398,70 @@
                       user-input)))))
     (ai-code--refactoring--ensure-string value)))
 
+(defun ai-code--refactoring-dired-has-explicit-marks-p (all-marked file-at-point)
+  "Return non-nil when ALL-MARKED contains explicit Dired selections.
+A single FILE-AT-POINT entry means Dired is only reporting the current line."
+  (and all-marked
+       (not (and (= (length all-marked) 1)
+                 file-at-point
+                 (equal (car all-marked) file-at-point)))))
+
+(defun ai-code--refactoring-dired-targets ()
+  "Return selected Dired targets for refactoring."
+  (let* ((all-marked (dired-get-marked-files))
+         (file-at-point (dired-get-filename nil t))
+         (has-marks (ai-code--refactoring-dired-has-explicit-marks-p
+                     all-marked file-at-point)))
+    (cond
+     (has-marks all-marked)
+     (file-at-point (list file-at-point))
+     (t (user-error "No file or directory selected in Dired")))))
+
+(defun ai-code--refactoring-targets-git-root (targets)
+  "Return Git root for refactoring TARGETS or current directory."
+  (or (ai-code--git-root (car targets))
+      (ai-code--git-root default-directory)))
+
 (defun ai-code--get-refactoring-context ()
   "Get the current context for refactoring."
-  (let ((region-active (region-active-p))
-        (current-function (which-function))
-        (file-name (when buffer-file-name (file-name-nondirectory buffer-file-name))))
+  (let* ((dired-targets (when (derived-mode-p 'dired-mode)
+                          (ai-code--refactoring-dired-targets)))
+         (region-active (and (not dired-targets) (region-active-p)))
+         (current-function (unless dired-targets (which-function)))
+         (file-name (unless dired-targets
+                      (when buffer-file-name
+                        (file-name-nondirectory buffer-file-name)))))
     (list :region-active region-active
           :region-text (when region-active
                          (buffer-substring-no-properties (region-beginning) (region-end)))
           :current-function current-function
           :file-name file-name
+          :dired-targets dired-targets
           :context-description (cond
-                               (current-function (format "in function '%s'" current-function))
-                               (file-name (format "in file '%s'" file-name))
-                               (t "in current context")))))
+                                (dired-targets
+                                 (if (= (length dired-targets) 1)
+                                     (format "for '%s'"
+                                             (file-name-nondirectory
+                                              (directory-file-name (car dired-targets))))
+                                   "for selected files/directories"))
+                                (current-function (format "in function '%s'" current-function))
+                                (file-name (format "in file '%s'" file-name))
+                                (t "in current context")))))
+
+(defun ai-code--refactoring-context-files-string (context)
+  "Return a refactoring file context string for CONTEXT.
+Uses @-prefixed Git-relative paths when a Git root is available,
+otherwise falls back to absolute paths."
+  (let ((dired-targets (plist-get context :dired-targets)))
+    (if dired-targets
+        (let* ((git-root (ai-code--refactoring-targets-git-root dired-targets))
+               (paths (mapcar (lambda (path)
+                                (if git-root
+                                    (concat "@" (file-relative-name path git-root))
+                                  path))
+                              dired-targets)))
+          (concat "\nFiles:\n" (mapconcat #'identity paths "\n")))
+      (ai-code--get-context-files-string))))
 
 (defun ai-code--get-refactoring-techniques (region-active)
   "Return appropriate refactoring techniques based on REGION-ACTIVE."
@@ -512,8 +563,10 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
   (let* ((region-active (plist-get context :region-active))
          (region-text (plist-get context :region-text))
          (current-function (plist-get context :current-function))
+         (dired-targets (plist-get context :dired-targets))
          (context-info (cond
                         (region-active "Selected code region")
+                        (dired-targets "Selected files/directories")
                         (current-function (format "Function '%s'" current-function))
                         (t ;; use current buffer file name when no region/function
                          (let ((fname (plist-get context :file-name)))
@@ -522,17 +575,17 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
                            (format "\n```\n%s\n```" region-text)
                          ""))
                 ;; Get the main instruction from the user
-                (user-instruction (ai-code-read-string "Edit suggestion request: "
-                                                      "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity). Do not change code logic. Suggest the most impactful refactoring technique and explain why.")) ;; Improved initial-input
-                ;; Add TDD constraint if in TDD mode
-                (tdd-constraint (if tdd-mode " Ensure all tests still pass after refactoring." ""))
-                ;; Add file information to context
-                (file-info (ai-code--get-context-files-string))
-                ;; Construct the prompt using user input and context
-        (base-prompt (format "%s Context: %s%s%s"
-                             user-instruction
-                             context-info
-                             file-info
+                 (user-instruction (ai-code-read-string "Edit suggestion request: "
+                                                       "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity). Do not change code logic. Suggest the most impactful refactoring technique and explain why.")) ;; Improved initial-input
+                 ;; Add TDD constraint if in TDD mode
+                 (tdd-constraint (if tdd-mode " Ensure all tests still pass after refactoring." ""))
+                 ;; Add file information to context
+                 (file-info (ai-code--refactoring-context-files-string context))
+                 ;; Construct the prompt using user input and context
+         (base-prompt (format "%s Context: %s%s%s"
+                              user-instruction
+                              context-info
+                              file-info
                              code-snippet))
         (prompt (concat base-prompt tdd-constraint))
         (message-suffix (if tdd-mode " during TDD refactor stage" "")))
@@ -553,18 +606,20 @@ TDD refactor stage."
   ;; For interactive calls, tdd-mode will be nil.
   (interactive)
   (let* ((context (ai-code--get-refactoring-context))
-         (region-active (plist-get context :region-active))
-         ;; Get all refactoring techniques including "Suggest Refactoring Strategy"
-         (all-techniques (ai-code--get-refactoring-techniques region-active))
-         (technique-names (mapcar #'car all-techniques))
-         (prompt-prefix (if tdd-mode "Select TDD refactoring technique" "Select refactoring technique"))
-         (prompt-suffix (if region-active " for selected region: " ": "))
-         (prompt (concat prompt-prefix prompt-suffix))
-         (selected-technique (completing-read prompt technique-names nil t)))
-    ;; Dispatch to appropriate handler based on user selection
-    (if (string= selected-technique "Suggest Refactoring Strategy") ;; Corrected string
+         (dired-targets (plist-get context :dired-targets))
+         (region-active (plist-get context :region-active)))
+    (if dired-targets
         (ai-code--handle-ask-llm-suggestion context tdd-mode)
-      (ai-code--handle-specific-refactoring selected-technique all-techniques context tdd-mode))))
+      (let* ((all-techniques (ai-code--get-refactoring-techniques region-active))
+             (technique-names (mapcar #'car all-techniques))
+             (prompt-prefix (if tdd-mode "Select TDD refactoring technique" "Select refactoring technique"))
+             (prompt-suffix (if region-active " for selected region: " ": "))
+             (prompt (concat prompt-prefix prompt-suffix))
+             (selected-technique (completing-read prompt technique-names nil t)))
+        ;; Dispatch to appropriate handler based on user selection
+        (if (string= selected-technique "Suggest Refactoring Strategy")
+            (ai-code--handle-ask-llm-suggestion context tdd-mode)
+          (ai-code--handle-specific-refactoring selected-technique all-techniques context tdd-mode))))))
 
 (defun ai-code--ensure-test-buffer-visible ()
   "Ensure that at least one buffer in the current windows is a test file.

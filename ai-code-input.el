@@ -14,10 +14,17 @@
 (require 'cl-lib)  ; For `cl-subseq`
 (require 'imenu)
 (require 'magit)
+(require 'project)
+(require 'ai-code-session-link)
 (require 'subr-x)
 
+(declare-function browse-url "browse-url" (url &optional new-window))
 (declare-function helm-comp-read "helm-mode" (prompt collection &rest args))
+(declare-function project-current "project" (&optional maybe-prompt dir))
+(declare-function project-files "project" (project &optional dirs))
+(declare-function project-root "project" (project))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
+(declare-function ai-code-backends-infra--linkify-session-region "ai-code-backends-infra" (start end))
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
@@ -421,6 +428,202 @@ END-POS defaults to the current '#' position."
     (ai-code-prompt-filepath-completion-mode 1))
   (message "Filepath @ completion is %s"
            (if ai-code-prompt-filepath-completion-mode "enabled" "disabled")))
+
+;;; Code Link Navigation
+
+(defconst ai-code--session-link-file-base-regexp
+  "@?[[:alnum:]_./~-]*[./][[:alnum:]_./~-]+"
+  "Regexp matching the base path portion of a session file link.")
+
+(defconst ai-code--session-link-file-regexp
+  (concat ai-code--session-link-file-base-regexp
+          "\\(?:"
+          ":[0-9]+:[0-9]+"
+          "\\|:[0-9]+"
+          "\\|:L[0-9]+\\(?:-[0-9]+\\)?"
+          "\\|#[Ll][0-9]+\\(?:-[Ll]?[0-9]+\\)?"
+          "\\|([0-9]+\\(?:,[0-9]+\\)?)"
+          "\\)?")
+  "Regexp matching clickable file-like session links.")
+
+(defconst ai-code--session-link-url-regexp
+  "https?://[^][\"'`()<>[:space:]]+"
+  "Regexp matching clickable http/https session links.")
+
+(defconst ai-code--session-clickable-link-regexp
+  (concat "\\(?:" ai-code--session-link-url-regexp
+          "\\)\\|\\(?:" ai-code--session-link-file-regexp
+          "\\)")
+  "Regexp matching file and URL links in session buffers.")
+
+(defun ai-code--session-link-property-at-point ()
+  "Return the clickable session link text at point, or nil."
+  (or (get-text-property (point) 'ai-code-session-link)
+      (when (> (point) (point-min))
+        (get-text-property (1- (point)) 'ai-code-session-link))))
+
+(defun ai-code--session-link-bounds-at-point ()
+  "Return bounds of the clickable session link at point, or nil."
+  (if-let ((text (ai-code--session-link-property-at-point)))
+      (let* ((prop-pos (if (get-text-property (point) 'ai-code-session-link)
+                           (point)
+                         (1- (point))))
+             (start (or (previous-single-property-change
+                         (1+ prop-pos) 'ai-code-session-link nil (point-min))
+                        (point-min)))
+             (end (or (next-single-property-change
+                       prop-pos 'ai-code-session-link nil (point-max))
+                      (point-max))))
+        (when (equal (buffer-substring-no-properties start end) text)
+          (cons start end)))
+    (let ((point (point))
+          (line-start (line-beginning-position))
+          (line-end (line-end-position))
+          bounds)
+      (save-excursion
+        (goto-char line-start)
+        (while (and (not bounds)
+                    (re-search-forward ai-code--session-clickable-link-regexp line-end t))
+          (when (and (<= (match-beginning 0) point)
+                     (<= point (match-end 0)))
+            (setq bounds (cons (match-beginning 0) (match-end 0))))))
+      bounds)))
+
+(defun ai-code--session-link-text-at-point ()
+  "Return the clickable session link text at point, or nil."
+  (or (ai-code--session-link-property-at-point)
+      (when-let ((bounds (ai-code--session-link-bounds-at-point)))
+        (buffer-substring-no-properties (car bounds) (cdr bounds)))))
+
+(defun ai-code--parse-session-link (text)
+  "Parse TEXT as a session link and return a plist."
+  (when (and text (not (string-empty-p (string-trim text))))
+    (cond
+     ((string-match-p "\\`https?://" text)
+      (list :url text))
+     ((string-match "^\\(.*?\\):\\([0-9]+\\):\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :column-start (string-to-number (match-string 3 text))))
+     ((string-match "^\\(.*\\)#[Ll]\\([0-9]+\\)-[Ll]?\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))))
+     ((string-match "^\\(.*\\)#[Ll]\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))))
+     ((string-match "^\\(.*\\)(\\([0-9]+\\),\\([0-9]+\\))$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))
+            :column-start (string-to-number (match-string 3 text))))
+     ((string-match "^\\(.*\\)(\\([0-9]+\\))$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))))
+     ((string-match "^\\(.*\\):L\\([0-9]+\\)-\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))))
+     ((string-match "^\\(.*\\):L\\([0-9]+\\)$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))))
+     ((string-match "^\\(.*?\\):\\([0-9]+\\)\\(?:-\\([0-9]+\\)\\)?$" text)
+      (list :file (match-string 1 text)
+            :line-start (string-to-number (match-string 2 text))))
+     ((string-match-p "[./]" text)
+      (list :file text))
+     (t nil))))
+
+(defun ai-code--session-project-root ()
+  "Return the best available project root for the current session."
+  (or (when-let ((project (ignore-errors (project-current nil default-directory))))
+        (expand-file-name (project-root project)))
+      (ai-code--git-root)
+      (expand-file-name default-directory)))
+
+(defun ai-code--project-file-candidates (filename)
+  "Return possible project file matches for FILENAME."
+  (when-let* ((raw filename)
+              (filename (ai-code-session-link--normalize-file raw))
+              ((not (string-empty-p filename))))
+    (let* ((root (ai-code--session-project-root))
+           (project-files (ai-code-session-link--project-files root))
+           (exact-root (expand-file-name filename root))
+           (exact-default (expand-file-name filename default-directory))
+           (matches
+            (append
+             (when (and (file-name-absolute-p filename) (file-exists-p filename))
+               (list filename))
+             (when (file-exists-p exact-root)
+               (list exact-root))
+             (when (file-exists-p exact-default)
+               (list exact-default))
+             (ai-code-session-link--matching-project-files
+              filename root project-files))))
+      (delete-dups matches))))
+
+(defun ai-code--read-session-link-candidate (prompt candidates)
+  "Read one item from CANDIDATES using PROMPT."
+  (let* ((choices (delete-dups (copy-sequence candidates)))
+         (default (car choices)))
+    (when choices
+      (completing-read prompt choices nil t nil nil default))))
+
+(defun ai-code--existing-absolute-session-path (filename)
+  "Return an existing absolute local path for FILENAME, or nil."
+  (when-let ((normalized (ai-code-session-link--normalize-file filename)))
+    (when (file-name-absolute-p normalized)
+      (ai-code-session-link--resolve-existing-local-path normalized nil))))
+
+(defun ai-code--find-project-file (filename)
+  "Locate FILENAME within the current project."
+  (or (ai-code--existing-absolute-session-path filename)
+        (when-let ((candidates (ai-code--project-file-candidates filename)))
+          (if (= (length candidates) 1)
+              (car candidates)
+            (ai-code--read-session-link-candidate
+             (format "Choose file for %s: " filename)
+             candidates)))))
+
+(defun ai-code-session-navigate-link-at-mouse (event)
+  "Navigate to the session link clicked by mouse EVENT."
+  (interactive "e")
+  (let* ((start (event-start event))
+         (window (posn-window start))
+         (position (posn-point start)))
+    (when (window-live-p window)
+      (select-window window)
+      (when (integer-or-marker-p position)
+        (goto-char position)
+        (ai-code-session-navigate-link-at-point)))))
+
+(defun ai-code--open-session-link-file (text link)
+  "Open the file described by LINK for session link TEXT."
+  (when-let* ((file (plist-get link :file))
+              (abs-file (ai-code--find-project-file file)))
+    (find-file-other-window abs-file)
+    (when-let ((line-start (plist-get link :line-start)))
+      (goto-char (point-min))
+      (forward-line (1- line-start))
+      (when-let ((column-start (plist-get link :column-start)))
+        (when (> column-start 0)
+          (move-to-column (1- column-start)))))
+    (message "Navigated to %s" text)
+    t))
+
+;;;###autoload
+(defun ai-code-session-navigate-link-at-point ()
+  "Navigate to the file or URL session link at point."
+  (interactive)
+  (let* ((text (ai-code--session-link-text-at-point))
+         (link (and text (ai-code--parse-session-link text))))
+    (cond
+     ((not link)
+      (message "No code link found at point"))
+     ((when-let ((url (plist-get link :url)))
+        (browse-url url)
+        (message "Opened URL: %s" url)
+        t))
+     ((ai-code--open-session-link-file text link))
+     (t
+      (message "No code link found at point")))))
 
 (provide 'ai-code-input)
 

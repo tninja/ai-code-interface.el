@@ -34,7 +34,61 @@
         (should-not (ai-code-backends-infra--buffer-user-visible-p buf)))
       (cl-letf (((symbol-function 'get-buffer-window-list)
                  (lambda (&rest _args) (list (selected-window)))))
-        (should (ai-code-backends-infra--buffer-user-visible-p buf))))))
+         (should (ai-code-backends-infra--buffer-user-visible-p buf))))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-notification-tracker-relinks-after-redraw ()
+  "Re-linkify vterm output when a later redraw strips custom properties."
+  (let* ((root (make-temp-file "ai-code-vterm-redraw-links-" t))
+         (src-dir (expand-file-name "src" root))
+         (file (expand-file-name "FileABC.java" src-dir))
+         (buffer (generate-new-buffer "*codex[session-links]*"))
+         (process 'fake-process)
+         (output "src/FileABC.java:42\nhttps://example.com/path\n"))
+    (unwind-protect
+        (progn
+          (make-directory src-dir t)
+          (with-temp-file file
+            (insert "class FileABC {}\n"))
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (cl-letf (((symbol-function 'process-buffer)
+                       (lambda (_process) buffer)))
+              (ai-code-backends-infra--vterm-notification-tracker
+               (lambda (_process _input)
+                 (let ((inhibit-read-only t))
+                   (erase-buffer)
+                   (insert output)
+                   ;; Simulate a later vterm redraw that rewrites the rendered text.
+                   (run-at-time
+                    0 nil
+                    (lambda (buf text)
+                      (when (buffer-live-p buf)
+                        (with-current-buffer buf
+                          (let ((inhibit-read-only t))
+                            (erase-buffer)
+                            (insert text)))))
+                    buffer output)))
+               process
+               output))
+            (sleep-for 0.02)
+            (goto-char (point-min))
+            (search-forward-regexp "src/FileABC\\.java:42")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "src/FileABC.java:42"))
+            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-type))
+            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-data))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (goto-char (point-min))
+            (search-forward-regexp "https://example\\.com/path")
+            (should (equal (get-text-property (match-beginning 0) 'ai-code-session-link)
+                           "https://example.com/path"))
+            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-type))
+            (should-not (get-text-property (match-beginning 0) 'ai-code-session-link-data))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
 
 (ert-deftest test-ai-code-backends-infra-response-seen-visible ()
   "Mark responses as seen without notifying when visible."
@@ -304,6 +358,93 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-reuse-session-window-refreshes-hidden-buffer ()
+  "Reusing a hidden session should refresh its state and display it."
+  (let* ((working-dir "/tmp/ai-code-reuse-hidden/")
+         (prefix "codex")
+         (buffer (get-buffer-create "*codex[reuse-hidden]*"))
+         (calls nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer-window)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--set-session-directory)
+                   (lambda (target-buffer directory)
+                     (push (list :set-directory target-buffer directory) calls)))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (target-buffer escape-fn multiline-input-sequence)
+                     (push (list :configure target-buffer escape-fn multiline-input-sequence) calls)))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (target-prefix directory target-buffer)
+                     (push (list :remember target-prefix directory target-buffer) calls)))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (target-buffer)
+                     (push (list :display target-buffer) calls)
+                     nil)))
+          (ai-code-backends-infra--reuse-session-window
+           buffer
+           working-dir
+           prefix
+           "\\\r\n")
+          (should (equal (nreverse calls)
+                         (list (list :set-directory buffer working-dir)
+                               (list :configure buffer nil "\\\r\n")
+                               (list :remember prefix working-dir buffer)
+                               (list :display buffer)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-prefers-explicit-instance ()
+  "Explicit INSTANCE-NAME should bypass prompting and produce stable target info."
+  (let* ((working-dir "/tmp/ai-code-session-target/")
+         (prefix "codex")
+         (context nil)
+         (prompt-called nil))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--prompt-for-instance-name)
+               (lambda (&rest _args)
+                 (setq prompt-called t)
+                 "prompted-instance")))
+      (setq context
+            (ai-code-backends-infra--resolve-session-target
+             working-dir
+             nil
+             prefix
+             "review"
+             nil))
+      (should (equal (plist-get context :instance-name) "review"))
+      (should (equal (plist-get context :buffer-name)
+                     "*codex[ai-code-session-target:review]*"))
+      (should (equal (plist-get context :session-key)
+                     (cons working-dir "review")))
+      (should-not prompt-called))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-context-includes-runtime-state ()
+  "Resolved session context should include target data plus buffer and process."
+  (let* ((working-dir "/tmp/ai-code-session-context/")
+         (buffer-name "*ai-code-session-context*")
+         (process-table (make-hash-table :test 'equal))
+         (buffer (get-buffer-create buffer-name))
+         (process 'mock-process)
+         (context nil))
+    (unwind-protect
+        (progn
+          (puthash (cons working-dir "default") process process-table)
+          (setq context
+                (ai-code-backends-infra--resolve-session-context
+                 working-dir
+                 buffer-name
+                 process-table
+                 nil
+                 nil
+                 nil))
+          (should (equal (plist-get context :instance-name) "default"))
+          (should (equal (plist-get context :buffer-name) buffer-name))
+          (should (equal (plist-get context :session-key)
+                         (cons working-dir "default")))
+          (should (eq (plist-get context :buffer) buffer))
+          (should (eq (plist-get context :existing-process) process)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-cleanup-session-kills-buffer-on-normal-exit ()
   "Buffer is killed when the process exits normally (event starts with \"finished\")."
   (let* ((table (make-hash-table :test 'equal))
@@ -430,13 +571,14 @@
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
-(ert-deftest test-ai-code-backends-infra-send-line-unassociated-file-forces-selection ()
-  "Unassociated file should force session selection even if a session is remembered."
+(ert-deftest test-ai-code-backends-infra-send-line-unassociated-file-reuses-remembered-session ()
+  "Unassociated file should reuse the remembered repo session."
   (let* ((prefix "codex")
          (working-dir "/tmp/ai-code-file-new-association/")
          (source (generate-new-buffer " *ai-code-source-new-association*"))
          (session-a (get-buffer-create "*codex[file-new-association:a]*"))
          (session-b (get-buffer-create "*codex[file-new-association:b]*"))
+         (selection-count 0)
          (force-prompts nil)
          (send-targets nil))
     (unwind-protect
@@ -452,15 +594,14 @@
             (setq-local ai-code-backends-infra--session-directory working-dir))
           (with-current-buffer session-b
             (setq-local ai-code-backends-infra--session-directory working-dir))
-          ;; Simulate repo-level remembered session (the previous behavior picked this directly).
+          ;; Simulate the current repo-level active/remembered session.
           (ai-code-backends-infra--remember-session-buffer prefix working-dir session-b)
 
           (cl-letf (((symbol-function 'ai-code-backends-infra--select-session-buffer)
                      (lambda (_prefix _dir &optional force-prompt)
+                       (setq selection-count (1+ selection-count))
                        (push force-prompt force-prompts)
-                       (if (= (length force-prompts) 1)
-                           session-a
-                         (ert-fail "Should not prompt again once file is associated."))))
+                       session-b))
                     ((symbol-function 'ai-code-backends-infra--terminal-send-string)
                      (lambda (&rest _args)
                        (push (buffer-name (current-buffer)) send-targets)))
@@ -474,14 +615,15 @@
               (ai-code-backends-infra--send-line-to-session
                nil "missing" "line-2" prefix working-dir)))
 
-          (should (equal (nreverse force-prompts) (list t)))
+          (should (= selection-count 1))
+          (should (equal (nreverse force-prompts) (list nil)))
           (should (equal (nreverse send-targets)
-                         (list "*codex[file-new-association:a]*"
-                               "*codex[file-new-association:a]*")))
+                         (list "*codex[file-new-association:b]*"
+                               "*codex[file-new-association:b]*")))
           (should (eq (gethash
                        (ai-code-backends-infra--file-session-map-key prefix source)
                        ai-code-backends-infra--file-session-map)
-                      session-a)))
+                      session-b)))
       (dolist (buf (list source session-a session-b))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
@@ -536,12 +678,66 @@
               (ai-code-backends-infra--send-line-to-session
                nil "missing" "line-2" prefix working-dir)))
 
-          (should (equal (nreverse force-prompts) (list t t)))
+          (should (equal (nreverse force-prompts) (list nil t)))
           (should (equal (nreverse send-targets)
                          (list "*codex[file-rebind:a]*"
                                "*codex[file-rebind:b]*")))
           (should (equal (nreverse display-targets)
                          (list "*codex[file-rebind:b]*"))))
+      (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-switch-new-file-prompts-when-multiple-sessions-active ()
+  "A newly opened file should prompt when multiple repo sessions are active."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-multi-active/")
+         (source (generate-new-buffer " *ai-code-source-multi-active*"))
+         (session-a (get-buffer-create "*codex[file-multi-active:a]*"))
+         (session-b (get-buffer-create "*codex[file-multi-active:b]*"))
+         (captured-collection nil)
+         (captured-default nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-multi-active/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
+                     (lambda (_prefix _dir)
+                       (list session-a session-b)))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt collection _predicate _require-match
+                              &optional _initial-input _hist def &rest _)
+                       (setq captured-collection collection)
+                       (setq captured-default def)
+                       "b"))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (_buffer) nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--switch-to-session-buffer
+               nil
+               "missing"
+               prefix
+               working-dir
+               nil)))
+
+          (should (equal captured-collection '("a" "b")))
+          (should (equal captured-default "a"))
+          (should (eq (gethash
+                       (ai-code-backends-infra--file-session-map-key prefix source)
+                       ai-code-backends-infra--file-session-map)
+                      session-b)))
       (dolist (buf (list source session-a session-b))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
@@ -702,7 +898,7 @@
               (ai-code-backends-infra--send-line-to-session
                nil "missing" "line-2" prefix working-dir)))
 
-          (should (equal (nreverse force-prompts) (list t t)))
+          (should (equal (nreverse force-prompts) (list nil t)))
           (should (equal (nreverse send-targets)
                          (list "*codex[file-missing:a]*"
                                "*codex[file-missing:b]*")))
@@ -711,6 +907,55 @@
                    "Attached AI session .* no longer exists"
                    (car messages))))
       (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-switch-reuses-live-attached-session-despite-working-dir-mismatch ()
+  "Reuse a live attached session even when WORKING-DIR no longer matches it."
+  (let* ((prefix "codex")
+         (session-dir "/tmp/ai-code-file-attached-root/")
+         (working-dir "/tmp/ai-code-file-attached-root/subdir/")
+         (source (generate-new-buffer " *ai-code-source-attached-live*"))
+         (attached (get-buffer-create "*codex[file-attached-root:attached]*"))
+         (displayed nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-attached-root/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer attached
+            (setq-local ai-code-backends-infra--session-directory session-dir))
+          (ai-code-backends-infra--remember-file-session-buffer prefix source attached)
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
+                     (lambda (_prefix _dir) nil))
+                    ((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (&rest _args)
+                       (ert-fail "Should reuse the live attached session without prompting.")))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (buffer)
+                       (setq displayed buffer)
+                       nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--switch-to-session-buffer
+               nil
+               "missing"
+               prefix
+               working-dir
+               nil)))
+
+          (should (eq displayed attached))
+          (should (eq (gethash
+                       (ai-code-backends-infra--file-session-map-key prefix source)
+                       ai-code-backends-infra--file-session-map)
+                      attached)))
+      (dolist (buf (list source attached))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
@@ -909,6 +1154,97 @@
         ;; Still in copy mode: flush should be a no-op.
         (should-not flush-called)
         (should (equal ai-code-backends-infra--vterm-render-queue "queued-output"))))))
+
+(ert-deftest test-ai-code-backends-infra-finalize-started-session-configures-and-displays ()
+  "Successful startup finalization should wire buffer state and UI updates."
+  (let* ((working-dir "/tmp/ai-code-finalize-start/")
+         (prefix "codex")
+         (buffer-name "*codex[finalize-start]*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'mock-process)
+         (sentinel nil)
+         (post-start-args nil)
+         (calls nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'set-process-sentinel)
+                   (lambda (_process fn)
+                     (setq sentinel fn)
+                     (push :sentinel calls)))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (target-buffer escape-fn multiline-input-sequence)
+                     (push (list :configure target-buffer escape-fn multiline-input-sequence) calls)))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (target-prefix directory target-buffer)
+                     (push (list :remember target-prefix directory target-buffer) calls)))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (target-buffer)
+                     (push (list :display target-buffer) calls)
+                     nil)))
+          (ai-code-backends-infra--finalize-started-session
+           buffer
+           process
+           working-dir
+           buffer-name
+           (make-hash-table :test 'equal)
+           "default"
+           prefix
+           'mock-escape
+           'mock-cleanup
+           "\\\r\n"
+           (lambda (created-buffer created-process created-instance)
+             (setq post-start-args
+                   (list created-buffer created-process created-instance))
+             (push :post-start calls)))
+          (should sentinel)
+          (should (equal post-start-args (list buffer process "default")))
+          (should (equal (nreverse calls)
+                         (list :sentinel
+                               (list :configure buffer 'mock-escape "\\\r\n")
+                               :post-start
+                               (list :remember prefix working-dir buffer)
+                               (list :display buffer)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-handle-session-start-failure-shows-live-buffer ()
+  "Startup failure should preserve and show a live buffer with an error message."
+  (let* ((session-key '("/tmp/ai-code-start-failure/" . "default"))
+         (process-table (make-hash-table :test 'equal))
+         (buffer (get-buffer-create "*ai-code-start-failure*"))
+         (calls nil))
+    (unwind-protect
+        (progn
+          (puthash session-key 'mock-process process-table)
+          (cl-letf (((symbol-function 'pop-to-buffer)
+                     (lambda (target-buffer &rest _args)
+                       (push (list :pop target-buffer) calls)
+                       nil))
+                    ((symbol-function 'message)
+                     (lambda (format-string &rest args)
+                       (push (apply #'format format-string args) calls)
+                       nil)))
+            (ai-code-backends-infra--handle-session-start-failure
+             buffer
+             session-key
+             process-table)
+            (should-not (gethash session-key process-table))
+            (should (equal (nreverse calls)
+                           (list (list :pop buffer)
+                                 "CLI failed to start - see buffer for error details")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-configure-session-buffer-does-not-bind-manual-navigation ()
+  "Configuring a session buffer should not add a manual `C-c g' navigation feature."
+  (let ((buffer (generate-new-buffer "*ai-code-session-config*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-session-link--linkify-session-region)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--configure-session-buffer buffer)
+          (with-current-buffer buffer
+            (should-not (key-binding (kbd "C-c g")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (provide 'test_ai-code-backends-infra)
 

@@ -2,13 +2,34 @@
 * Release history
 
 ** Main branch change
-- Feat: Add configurable two-column ai-code transient menu
+
+** 1.64
+- Feat: Support basic Symbol navigation inside AI coding session
+- Feat: Add constraint bundles system with 20 tech stack presets (@rust-stack, @react-stack, etc.)
+- Feat: Expand constraint catalog with 50+ constraints (testing, safety, error handling, performance, API design, logging)
+- Feat: Auto-detect constraints from project config files (tsconfig.json, pyproject.toml, Cargo.toml, etc.)
+- Feat: Add project-scoped constraint persistence (.ai-behaviors/constraints)
+- Feat: Mode-line integration for constraint bundles with gptel-plan filtering
+- Feat: Completion support for @bundle-name in prompts
+- Feat: Add clickable in-repo file and URL links in AI session buffers
+- Fix: Glob pattern matching for *.csproj and similar patterns in auto-detect
+- Fix: Bundle loading from persistence file with space handling
+- Fix: Mode-line update on bundle apply/clear
+
+** 1.62
+- Fix: Preserve AI session reuse for attached and newly opened files when lookup context changes
+- Feat: Support Dired-selected files/directories in refactoring suggestions
+- Feat: Add behavior injection system for AI prompts, by davidwuchn
+- Feat: Add ECA binary upgrade system with auto-update support, by davidwuchn
+- Feat: Add Prepare PR description tool
+- Fix: ECA menu integration: proper add/remove of ECA commands, by davidwuchn
+- Feat: Add configurable two-column ai-code transient menu, issue filed by berenddeboer
 - Chore: Add Claude Code support for Emacs MCP server 
 - Feat: Add an Emacs MCP server with built-in tools and agent integration for Codex CLI and GitHub Copilot CLI
 
 ** 1.60
 - Chore: Add Investigate Issue Mode for Reviews
-- Feat: Sync ECA integration with latest upstream bridge/ext changes: ai-code-menu integration, workspace management, auto project/session syncing, shared context helpers, and session health utilities
+- Feat: Sync ECA integration with latest upstream bridge/ext changes: ai-code-menu integration, workspace management, auto project/session syncing, shared context helpers, and session health utilities, by davidwuchn
 - Feat: Improve ECA backend: smarter chat-buffer handling, graceful resume, context management (file/clipboard/cursor/repo-map), session multiplexing via eca-ext.el, upgrade and install-skills support, contributed by davidwuchn
 - Fix: Block ai-code-apply-prompt-on-current-file for eca backend (like agent-shell)
 - Fix: Avoid eat reflow suppression on session buffers, by Silex

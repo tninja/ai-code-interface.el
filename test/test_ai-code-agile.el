@@ -224,5 +224,53 @@
         (should (string-match-p "summary of test result" captured-prompt))
         (should (string-match-p "List the public API / log key / config key change if there is" captured-prompt))))))
 
+(ert-deftest ai-code-test-refactor-book-method-dired-skips-technique-selection ()
+  "Verify Dired refactoring jumps straight to suggestion mode."
+  (with-temp-buffer
+    (let ((captured-context nil)
+          (captured-tdd-mode nil))
+      (cl-letf (((symbol-function 'derived-mode-p)
+                 (lambda (&rest modes) (memq 'dired-mode modes)))
+                ((symbol-function 'dired-get-marked-files)
+                 (lambda () '("/repo/src/foo.el" "/repo/test/bar.el")))
+                ((symbol-function 'dired-get-filename)
+                 (lambda (&optional _localp _no-error) "/repo/src/foo.el"))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) (ert-fail "completing-read should not be called for Dired refactoring")))
+                ((symbol-function 'ai-code--handle-ask-llm-suggestion)
+                 (lambda (context tdd-mode)
+                   (setq captured-context context)
+                   (setq captured-tdd-mode tdd-mode))))
+        (ai-code-refactor-book-method)
+        (should (equal (plist-get captured-context :dired-targets)
+                       '("/repo/src/foo.el" "/repo/test/bar.el")))
+        (should (equal (plist-get captured-context :context-description)
+                       "for selected files/directories"))
+        (should-not captured-tdd-mode)))))
+
+(ert-deftest ai-code-test-handle-ask-llm-suggestion-dired-includes-selected-files ()
+  "Verify Dired refactoring suggestions include selected files."
+  (with-temp-buffer
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial _candidates) initial))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _dir) "/repo/"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text)
+                   (setq captured-prompt text)
+                   t)))
+        (ai-code--handle-ask-llm-suggestion
+         '(:region-active nil
+           :current-function nil
+           :file-name nil
+           :dired-targets ("/repo/src/foo.el" "/repo/test/bar.el")
+           :context-description "for selected files/directories")
+         nil)
+        (should (string-match-p "Analyze the code context below" captured-prompt))
+        (should (string-match-p "Context: Selected files/directories" captured-prompt))
+        (should (string-match-p "\nFiles:\n@src/foo\\.el\n@test/bar\\.el"
+                                (subst-char-in-string ?\\ ?/ captured-prompt)))))))
+
 (provide 'test_ai-code-agile)
 ;;; test_ai-code-agile.el ends here

@@ -1,6 +1,6 @@
 ;;; ai-code-backends-infra.el --- Infrastructure for AI Code Terminals  -*- lexical-binding: t; -*-
 
-;; Author: Yoav Orot, Kang Tu, AI Agent, Steve Molitor
+;; Author: Yoav Orot, Kang Tu, Silex, Steve Molitor, AI Agent
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;; Keywords: ai, terminal, vterm, eat
@@ -17,8 +17,10 @@
 
 (require 'cl-lib)
 (require 'project)
+(require 'ai-code-session-link)
 
 ;; Silence native-compiler warnings.
+(declare-function browse-url "browse-url" (url &optional new-window))
 (declare-function vterm "vterm" (&optional buffer-name))
 (declare-function vterm-send-string "vterm" (&rest args))
 (declare-function vterm-send-escape "vterm" ())
@@ -30,7 +32,6 @@
 (declare-function eat-mode "eat" ())
 (declare-function eat-exec "eat" (&rest args))
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
-
 ;; Declare vterm dynamic variables for let-binding to work with lexical-binding
 (defvar vterm-shell)
 (defvar vterm-environment)
@@ -244,7 +245,12 @@ The timer is reset only after meaningful output is observed."
     (with-current-buffer (process-buffer process)
       (when (ai-code-backends-infra--output-meaningful-p input)
         (ai-code-backends-infra--note-meaningful-output))))
-  (funcall orig-fun process input))
+  (prog1
+      (funcall orig-fun process input)
+    (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+      (ai-code-session-link--schedule-linkify-recent-output
+       (process-buffer process)
+       input))))
 
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Smart rendering filter for optimized vterm display updates.
@@ -449,7 +455,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
     (when escape-fn
       (local-set-key (kbd "C-<escape>") escape-fn))
     (ai-code-backends-infra--configure-multiline-input
-     multiline-input-sequence)))
+     multiline-input-sequence)
+    (ai-code-session-link--linkify-session-region (point-min) (point-max))))
 
 ;;; Reflow and Window Management
 
@@ -557,18 +564,20 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
         (puthash key session-buffer ai-code-backends-infra--file-session-map)
       (remhash key ai-code-backends-infra--file-session-map))))
 
-(defun ai-code-backends-infra--attached-file-session (prefix source-buffer working-dir)
-  "Return attached session state for PREFIX, SOURCE-BUFFER and WORKING-DIR.
+(defun ai-code-backends-infra--attached-file-session (prefix source-buffer _working-dir)
+  "Return attached session state for PREFIX and SOURCE-BUFFER.
+The working-directory argument is accepted for interface compatibility but
+ignored here because
+an explicit file attachment should win as long as the attached buffer is live.
 Return a cons of (BUFFER . MISSING-P)."
   (let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
     (if (null key)
         (cons nil nil)
       (let* ((attached (gethash key ai-code-backends-infra--file-session-map))
              (valid (and (buffer-live-p attached)
-                         (memq attached
-                               (ai-code-backends-infra--find-session-buffers
-                                prefix
-                                working-dir)))))
+                         (ai-code-backends-infra--parse-session-buffer-name
+                          (buffer-name attached)
+                          prefix))))
         (cond
          (valid
           (cons attached nil))
@@ -584,25 +593,16 @@ Return a cons of (BUFFER . MISSING-P)."
 MISSING-MESSAGE is used when no target session exists.
 When PREFIX and WORKING-DIR are present, prefer the attached session for
 SOURCE-BUFFER unless FORCE-PROMPT is non-nil."
-  (let* ((file-key (and prefix
-                        source-buffer
-                        (ai-code-backends-infra--file-session-map-key
-                         prefix
-                         source-buffer)))
-         (attached-state (and prefix working-dir
+  (let* ((attached-state (and prefix working-dir
                               (ai-code-backends-infra--attached-file-session
                                prefix
                                source-buffer
                                working-dir)))
          (attached-buffer (car-safe attached-state))
          (attached-missing (cdr-safe attached-state))
-         (needs-initial-file-selection (and (null buffer-name)
-                                            file-key
-                                            (null attached-buffer)
-                                            (not attached-missing)))
-         (effective-force-prompt (or force-prompt
-                                     attached-missing
-                                     needs-initial-file-selection))
+         (effective-force-prompt
+          (or force-prompt
+              attached-missing))
          (buffer (or (and buffer-name (get-buffer buffer-name))
                      (and attached-buffer (not force-prompt) attached-buffer)
                      (and prefix working-dir
@@ -812,6 +812,125 @@ any error output left behind by the CLI."
                 (string-prefix-p "finished" event))
         (kill-buffer buffer)))))
 
+(defun ai-code-backends-infra--resolve-session-target (working-dir buffer-name
+                                                                   prefix instance-name
+                                                                   force-prompt)
+  "Return resolved session target information.
+WORKING-DIR is the session directory.
+BUFFER-NAME is the explicit terminal buffer name, when provided.
+PREFIX enables instance-based naming.
+INSTANCE-NAME overrides interactive instance selection when non-nil.
+FORCE-PROMPT forces instance prompting when PREFIX is non-nil.
+Return a plist with :instance-name, :buffer-name, and :session-key."
+  (let* ((existing-buffers (and prefix
+                                (ai-code-backends-infra--find-session-buffers
+                                 prefix
+                                 working-dir)))
+         (existing-instance-names (mapcar (lambda (buf)
+                                            (ai-code-backends-infra--session-instance-name
+                                             (buffer-name buf)
+                                             prefix))
+                                          existing-buffers))
+         (resolved-instance (cond
+                             (instance-name
+                              (ai-code-backends-infra--normalize-instance-name instance-name))
+                             (prefix
+                              (ai-code-backends-infra--prompt-for-instance-name
+                               existing-instance-names
+                               force-prompt))
+                             (t "default")))
+         (resolved-buffer-name (or buffer-name
+                                   (and prefix
+                                        (ai-code-backends-infra--session-buffer-name
+                                         prefix
+                                         working-dir
+                                         resolved-instance)))))
+    (list :instance-name resolved-instance
+          :buffer-name resolved-buffer-name
+          :session-key (ai-code-backends-infra--session-key
+                        working-dir
+                        resolved-instance))))
+
+(defun ai-code-backends-infra--resolve-session-context (working-dir buffer-name
+                                                                    process-table
+                                                                    prefix instance-name
+                                                                    force-prompt)
+  "Return resolved session context for session lifecycle operations.
+WORKING-DIR is the session directory.
+BUFFER-NAME is the explicit terminal buffer name, when provided.
+PROCESS-TABLE maps session keys to processes.
+PREFIX enables instance-based naming.
+INSTANCE-NAME overrides interactive instance selection when non-nil.
+FORCE-PROMPT forces instance prompting when PREFIX is non-nil.
+Return a plist with target information plus the current buffer and process."
+  (let* ((session-target (ai-code-backends-infra--resolve-session-target
+                          working-dir
+                          buffer-name
+                          prefix
+                          instance-name
+                          force-prompt))
+         (session-key (plist-get session-target :session-key))
+         (resolved-buffer-name (plist-get session-target :buffer-name)))
+    (append session-target
+            (list :buffer (get-buffer resolved-buffer-name)
+                  :existing-process (gethash session-key process-table)))))
+
+(defun ai-code-backends-infra--reuse-session-window (buffer working-dir
+                                                            prefix multiline-input-sequence)
+  "Toggle visibility for an existing session BUFFER.
+When BUFFER is already visible, close its window.
+Otherwise refresh session-local state and display it."
+  (if (get-buffer-window buffer)
+      (delete-window (get-buffer-window buffer))
+    (ai-code-backends-infra--set-session-directory buffer working-dir)
+    (ai-code-backends-infra--configure-session-buffer
+     buffer nil multiline-input-sequence)
+    (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+    (ai-code-backends-infra--display-buffer-in-side-window buffer)))
+
+(defun ai-code-backends-infra--finalize-started-session (buffer process
+                                                                working-dir buffer-name
+                                                                process-table resolved-instance
+                                                                prefix escape-fn cleanup-fn
+                                                                multiline-input-sequence
+                                                                post-start-fn)
+  "Finalize a successfully started session BUFFER and PROCESS."
+  (set-process-sentinel
+   process
+   (lambda (_proc event)
+     (ai-code-backends-infra--cleanup-session
+      working-dir
+      buffer-name
+      process-table
+      resolved-instance
+      prefix
+      event)
+     (when cleanup-fn
+       (funcall cleanup-fn))))
+  (ai-code-backends-infra--configure-session-buffer
+   buffer escape-fn multiline-input-sequence)
+  (when post-start-fn
+    (funcall post-start-fn buffer process resolved-instance))
+  (with-current-buffer buffer
+    (add-hook 'kill-buffer-hook
+              (lambda ()
+                (ai-code-backends-infra--forget-session-buffer
+                 prefix
+                 working-dir
+                 (current-buffer)))
+              nil t))
+  (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
+  (ai-code-backends-infra--display-buffer-in-side-window buffer))
+
+(defun ai-code-backends-infra--handle-session-start-failure (buffer session-key process-table)
+  "Handle startup failure for BUFFER and SESSION-KEY."
+  (remhash session-key process-table)
+  (if (buffer-live-p buffer)
+      (progn
+        (pop-to-buffer buffer)
+        (message "CLI failed to start - see buffer for error details"))
+    (message "CLI failed to start - process exited immediately")))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
@@ -835,40 +954,24 @@ POST-START-FN is called with (BUFFER PROCESS INSTANCE-NAME) after a new
 session starts successfully."
   (setq process-table (or process-table ai-code-backends-infra--processes))
   (ai-code-backends-infra--cleanup-dead-processes process-table)
-  (let* ((existing-buffers (and prefix
-                                (ai-code-backends-infra--find-session-buffers
-                                 prefix
-                                 working-dir)))
-         (existing-instance-names (mapcar (lambda (buf)
-                                            (ai-code-backends-infra--session-instance-name
-                                             (buffer-name buf)
-                                             prefix))
-                                          existing-buffers))
-         (resolved-instance (cond
-                             (instance-name (ai-code-backends-infra--normalize-instance-name instance-name))
-                             (prefix
-                              (ai-code-backends-infra--prompt-for-instance-name
-                               existing-instance-names
-                               force-prompt))
-                             (t "default")))
-         (resolved-buffer-name (or buffer-name
-                                   (and prefix
-                                        (ai-code-backends-infra--session-buffer-name
-                                         prefix
-                                         working-dir
-                                         resolved-instance))))
-         (session-key (ai-code-backends-infra--session-key working-dir resolved-instance))
-         (existing-process (gethash session-key process-table))
-         (buffer (get-buffer resolved-buffer-name)))
+  (let* ((session-context (ai-code-backends-infra--resolve-session-context
+                           working-dir
+                           buffer-name
+                           process-table
+                           prefix
+                           instance-name
+                           force-prompt))
+         (resolved-instance (plist-get session-context :instance-name))
+         (resolved-buffer-name (plist-get session-context :buffer-name))
+         (session-key (plist-get session-context :session-key))
+         (existing-process (plist-get session-context :existing-process))
+         (buffer (plist-get session-context :buffer)))
     (if (and existing-process (process-live-p existing-process) buffer)
-        (if (get-buffer-window buffer)
-            (delete-window (get-buffer-window buffer))
-          (progn
-            (ai-code-backends-infra--set-session-directory buffer working-dir)
-            (ai-code-backends-infra--configure-session-buffer
-             buffer nil multiline-input-sequence)
-            (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
-            (ai-code-backends-infra--display-buffer-in-side-window buffer)))
+        (ai-code-backends-infra--reuse-session-window
+         buffer
+         working-dir
+         prefix
+         multiline-input-sequence)
       (let* ((buffer-and-process
               (ai-code-backends-infra--create-terminal-session
                resolved-buffer-name working-dir command env-vars))
@@ -879,43 +982,22 @@ session starts successfully."
         (sleep-for ai-code-backends-infra-terminal-initialization-delay)
         ;; Check if process is still alive after initialization delay
         (if (and process (process-live-p process))
-            (progn
-              ;; Process started successfully, set up sentinel for cleanup on exit
-              (set-process-sentinel
-               process
-               (lambda (_proc event)
-                 (ai-code-backends-infra--cleanup-session
-                  working-dir
-                  resolved-buffer-name
-                  process-table
-                  resolved-instance
-                  prefix
-                  event)
-                 (when cleanup-fn
-                   (funcall cleanup-fn))))
-              (ai-code-backends-infra--configure-session-buffer
-               new-buffer escape-fn multiline-input-sequence)
-               (when post-start-fn
-                 (funcall post-start-fn new-buffer process resolved-instance))
-               (with-current-buffer new-buffer
-                 (add-hook 'kill-buffer-hook
-                           (lambda ()
-                            (ai-code-backends-infra--forget-session-buffer
-                             prefix
-                             working-dir
-                             (current-buffer)))
-                          nil t))
-              (ai-code-backends-infra--remember-session-buffer prefix working-dir new-buffer)
-              (ai-code-backends-infra--display-buffer-in-side-window new-buffer))
-          ;; Process exited during initialization - show buffer with error to user
-          ;; Clean up the session from process table (but keep buffer visible)
-          (remhash session-key process-table)
-          ;; Display the buffer so user can see the error output
-          (if (buffer-live-p new-buffer)
-              (progn
-                (pop-to-buffer new-buffer)
-                (message "CLI failed to start - see buffer for error details"))
-            (message "CLI failed to start - process exited immediately")))))))
+            (ai-code-backends-infra--finalize-started-session
+             new-buffer
+             process
+             working-dir
+             resolved-buffer-name
+             process-table
+             resolved-instance
+             prefix
+             escape-fn
+             cleanup-fn
+             multiline-input-sequence
+             post-start-fn)
+          (ai-code-backends-infra--handle-session-start-failure
+           new-buffer
+           session-key
+           process-table))))))
 
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
                                                                     &optional prefix working-dir force-prompt)
@@ -1001,8 +1083,9 @@ ENV-VARS is a list of environment variables."
                  ;; Then track activity for notifications
                  (with-current-buffer (process-buffer process)
                    (when (ai-code-backends-infra--output-meaningful-p output)
-                     (ai-code-backends-infra--note-meaningful-output)))))))
-          (cons buffer (get-buffer-process buffer)))))
+                     (ai-code-backends-infra--note-meaningful-output))
+                   (ai-code-session-link--linkify-recent-output output))))))
+           (cons buffer (get-buffer-process buffer)))))
      (t (error "Unknown backend")))))
 
 (defun ai-code-backends-infra--cleanup-dead-processes (table)
