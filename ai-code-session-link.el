@@ -36,9 +36,6 @@ terminal output redraw."
     map)
   "Keymap used for clickable session links.")
 
-(declare-function ai-code-session-link-navigate-symbol-at-mouse "ai-code-session-link" (event))
-(declare-function ai-code-session-link-navigate-symbol-at-point "ai-code-session-link" ())
-
 (defvar ai-code-session-link--symbol-keymap
   (let ((map (make-sparse-keymap)))
     (define-key map [mouse-1] #'ai-code-session-link-navigate-symbol-at-mouse)

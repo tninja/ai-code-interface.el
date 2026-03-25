@@ -58,9 +58,23 @@
 (declare-function eca--session-status "eca-util" (session))
 (declare-function eca--session-workspace-folders "eca-util" (session))
 (declare-function eca-chat-add-workspace-root "eca-chat" ())
+(declare-function eca-get "eca-util" (map key))
+(declare-function eca-process--download-url "eca-process" (version))
 
 (declare-function transient-append-suffix "transient" (prefix loc suffix &optional face))
 (declare-function transient-remove-suffix "transient" (prefix suffix))
+
+(defvar eca--sessions nil)
+(defvar eca--session-id-cache nil)
+(defvar eca-process--latest-server-version nil)
+(defvar eca-server-install-path nil)
+(defvar eca-server-version-file-path nil)
+(defvar package-vc-selected-packages nil)
+
+(declare-function ai-code-eca-upgrade--curl-download-string "ai-code-eca" (url))
+(declare-function ai-code-eca-upgrade--curl-download-file "ai-code-eca"
+                  (&key url path on-done))
+(declare-function ai-code-eca-upgrade--auto-maybe "ai-code-eca" ())
 
 ;;; Core Commands
 
@@ -101,13 +115,6 @@ With FORCE-PROMPT (prefix arg), force new session."
 (defvar ai-code-eca--menu-group-added nil
   "Track whether ECA group has been added to ai-code-menu.")
 
-(declare-function ai-code-eca-switch-session "ai-code-eca" (&optional session-id))
-(declare-function ai-code-eca-add-workspace-folder "ai-code-eca" (folder &optional session))
-(declare-function ai-code-eca-remove-workspace-folder "ai-code-eca" (folder &optional session))
-(declare-function ai-code-eca-share-file-context "ai-code-eca" (file-path))
-(declare-function ai-code-eca-share-repo-map-context "ai-code-eca" (project-root))
-(declare-function ai-code-eca-clear-shared-context "ai-code-eca" ())
-(declare-function ai-code-eca-chat-add-clipboard-context-now "ai-code-eca" ())
 (declare-function eca-workspaces "eca" ())
 
 ;;;###autoload
