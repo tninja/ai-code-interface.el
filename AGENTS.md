@@ -1,6 +1,6 @@
-# CODEBUDDY.md
+# AGENTS.md
 
-This file provides guidance to CodeBuddy Code when working with code in this repository.
+This file provides guidance to coding agents working with code in this repository.
 
 ## Common Development Commands
 
