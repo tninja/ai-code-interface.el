@@ -24,6 +24,32 @@
      (cl-letf (((symbol-function 'ai-code--git-root) #'ai-code-test--mock-git-root))
        ,@body)))
 
+(defmacro ai-code-test-with-mock-behavior-prompts (&rest body)
+  "Execute BODY with deterministic in-memory behavior prompt content."
+  `(cl-letf (((symbol-function 'ai-code--load-behavior-prompt)
+              (lambda (behavior-name)
+                (format "Prompt for %s" behavior-name))))
+     ,@body))
+
+(defmacro ai-code-test-with-temp-behaviors-repo (&rest body)
+  "Execute BODY with a temporary ai-behaviors repository."
+  `(let ((repo-root (make-temp-file "ai-code-behaviors-repo-" t)))
+     (unwind-protect
+         (let ((ai-code-behaviors-repo-path repo-root)
+               (behaviors-dir (expand-file-name "behaviors" repo-root)))
+           (make-directory behaviors-dir t)
+           (dolist (entry '(("=code" . "Code mode prompt")
+                            ("=debug" . "Debug mode prompt")
+                            ("challenge" . "Challenge modifier prompt")
+                            ("deep" . "Deep modifier prompt")))
+             (let ((entry-dir (expand-file-name (car entry) behaviors-dir)))
+               (make-directory entry-dir t)
+               (with-temp-file (expand-file-name "prompt.md" entry-dir)
+                 (insert (cdr entry)))))
+           ,@body)
+       (when (file-directory-p repo-root)
+         (delete-directory repo-root t)))))
+
 (ert-deftest ai-code-test-behavior-operating-modes-list ()
   "Test that operating modes are properly defined."
   (should (member "=code" ai-code--behavior-operating-modes))
@@ -203,38 +229,40 @@
 
 (ert-deftest ai-code-test-session-state-persistence ()
   "Test that behaviors persist across prompts without hashtags."
-  (ai-code-test-with-mock-project
-   (ai-code-behaviors-clear)
-   (let ((first-result (ai-code--process-behaviors "Fix the bug #=debug #deep")))
-     (should first-result)
-     (should (string-match-p "=debug" first-result))
-     (should (string-match-p "deep" first-result))
-     (let ((state (ai-code--behaviors-get-state)))
-       (should state)
-       (should (equal (plist-get state :mode) "=debug"))
-       (should (member "deep" (plist-get state :modifiers)))))
-   (let ((second-result (ai-code--process-behaviors "What is the status?")))
-     (should second-result)
-     (should (string-match-p "=debug" second-result))
-     (should (string-match-p "deep" second-result)))
-   (ai-code-behaviors-clear)))
+  (ai-code-test-with-mock-behavior-prompts
+   (ai-code-test-with-mock-project
+    (ai-code-behaviors-clear)
+    (let ((first-result (ai-code--process-behaviors "Fix the bug #=debug #deep")))
+      (should first-result)
+      (should (string-match-p "=debug" first-result))
+      (should (string-match-p "deep" first-result))
+      (let ((state (ai-code--behaviors-get-state)))
+        (should state)
+        (should (equal (plist-get state :mode) "=debug"))
+        (should (member "deep" (plist-get state :modifiers)))))
+    (let ((second-result (ai-code--process-behaviors "What is the status?")))
+      (should second-result)
+      (should (string-match-p "=debug" second-result))
+      (should (string-match-p "deep" second-result)))
+    (ai-code-behaviors-clear))))
 
 (ert-deftest ai-code-test-new-hashtags-supersede-session ()
   "Test that new hashtags supersede persisted session state."
-  (ai-code-test-with-mock-project
-   (ai-code-behaviors-clear)
-   (ai-code--process-behaviors "Fix the bug #=debug #deep")
-   (let ((state (ai-code--behaviors-get-state)))
-     (should (equal (plist-get state :mode) "=debug")))
-   (let ((result (ai-code--process-behaviors "Review this code #=review #challenge")))
-     (should result)
-     (should (string-match-p "=review" result))
-     (should (string-match-p "challenge" result))
-     (should-not (string-match-p "=debug" result)))
-   (let ((state (ai-code--behaviors-get-state)))
-     (should (equal (plist-get state :mode) "=review"))
-     (should (member "challenge" (plist-get state :modifiers))))
-   (ai-code-behaviors-clear)))
+  (ai-code-test-with-mock-behavior-prompts
+   (ai-code-test-with-mock-project
+    (ai-code-behaviors-clear)
+    (ai-code--process-behaviors "Fix the bug #=debug #deep")
+    (let ((state (ai-code--behaviors-get-state)))
+      (should (equal (plist-get state :mode) "=debug")))
+    (let ((result (ai-code--process-behaviors "Review this code #=review #challenge")))
+      (should result)
+      (should (string-match-p "=review" result))
+      (should (string-match-p "challenge" result))
+      (should-not (string-match-p "=debug" result)))
+    (let ((state (ai-code--behaviors-get-state)))
+      (should (equal (plist-get state :mode) "=review"))
+      (should (member "challenge" (plist-get state :modifiers))))
+    (ai-code-behaviors-clear))))
 
 (ert-deftest ai-code-test-presets-defined ()
   "Test that behavior presets are defined."
@@ -657,12 +685,13 @@
 
 (ert-deftest ai-code-test-process-preset-in-behaviors ()
   "Test that process-behaviors applies preset correctly."
-  (ai-code-test-with-mock-project
-   (ai-code-behaviors-clear)
-   (let* ((result (ai-code--process-behaviors "@tdd-dev implement feature"))
-          (preset (ai-code--behaviors-get-preset)))
-     (should (equal preset "tdd-dev"))
-     (should (string-match-p "operating-mode" result)))))
+  (ai-code-test-with-mock-behavior-prompts
+   (ai-code-test-with-mock-project
+    (ai-code-behaviors-clear)
+    (let* ((result (ai-code--process-behaviors "@tdd-dev implement feature"))
+           (preset (ai-code--behaviors-get-preset)))
+      (should (equal preset "tdd-dev"))
+      (should (string-match-p "operating-mode" result))))))
 
 (ert-deftest ai-code-test-preset-merges-modifiers ()
   "Test that preset modifiers merge with additional modifiers."
@@ -842,13 +871,13 @@ This happens when gptel-agent package is not loaded."
 
 (ert-deftest ai-code-test-gptel-agent-process-behaviors-with-auto-classify ()
   "Test that gptel-agent auto-classifies when enabled."
-  (ai-code-behaviors-clear-all)
-  (let* ((test-root "/test/project/root")
-         (ai-code-behaviors-gptel-agent-auto-classify t)
-         (result (ai-code--gptel-agent-process-behaviors "Implement a feature" test-root)))
-    ;; With auto-classify, should apply behaviors
-    (should (nth 0 result))
-    (should (string-match-p "operating-mode" (nth 1 result)))))
+  (ai-code-test-with-mock-behavior-prompts
+   (ai-code-behaviors-clear-all)
+   (let* ((test-root "/test/project/root")
+          (ai-code-behaviors-gptel-agent-auto-classify t)
+          (result (ai-code--gptel-agent-process-behaviors "Implement a feature" test-root)))
+     (should (nth 0 result))
+     (should (string-match-p "operating-mode" (nth 1 result))))))
 
 (ert-deftest ai-code-test-gptel-agent-setup-transform ()
   "Test that setup adds transform to gptel-prompt-transform-functions."
@@ -868,13 +897,14 @@ This happens when gptel-agent package is not loaded."
 
 (ert-deftest ai-code-test-process-behaviors-with-root ()
   "Test that process-behaviors with root stores state for correct project."
-  (ai-code-behaviors-clear-all)
-  (let* ((test-root "/test/project/root")
-         (result (ai-code--process-behaviors "Do stuff #=code" test-root)))
-    (should (string-match-p "operating-mode" result))
-    (let ((state (ai-code--behaviors-get-state test-root)))
-      (should (equal (plist-get state :mode) "=code"))
-      (should (equal (plist-get state :modifiers) nil)))))
+  (ai-code-test-with-mock-behavior-prompts
+   (ai-code-behaviors-clear-all)
+   (let* ((test-root "/test/project/root")
+          (result (ai-code--process-behaviors "Do stuff #=code" test-root)))
+     (should (string-match-p "operating-mode" result))
+     (let ((state (ai-code--behaviors-get-state test-root)))
+       (should (equal (plist-get state :mode) "=code"))
+       (should (equal (plist-get state :modifiers) nil))))))
 
 (ert-deftest ai-code-test-behaviors-state-isolated-by-root ()
   "Test that state for different project roots is isolated."
@@ -890,15 +920,20 @@ This happens when gptel-agent package is not loaded."
 
 (ert-deftest ai-code-test-behaviors-sync-check-when-synced ()
   "Test that sync check returns t when commit matches."
-  (should (eq (ai-code--behaviors-check-sync) t)))
+  (cl-letf (((symbol-function 'ai-code--behaviors-get-current-commit)
+             (lambda () ai-code-behaviors--synced-commit))
+            ((symbol-function 'ai-code--behaviors-get-repo-behavior-names)
+             (lambda ()
+               (cons (sort (copy-sequence ai-code--behavior-operating-modes) #'string<)
+                     (sort (copy-sequence ai-code--behavior-modifiers) #'string<)))))
+    (should (eq (ai-code--behaviors-check-sync) t))))
 
 (ert-deftest ai-code-test-behaviors-get-repo-behavior-names ()
   "Test that repo behavior names are retrieved correctly."
-  (let ((behaviors (ai-code--behaviors-get-repo-behavior-names)))
-    (should behaviors)
-    (should (consp behaviors))
-    (should (>= (length (car behaviors)) 10))
-    (should (>= (length (cdr behaviors)) 20))))
+  (ai-code-test-with-temp-behaviors-repo
+   (let ((behaviors (ai-code--behaviors-get-repo-behavior-names)))
+     (should (equal (car behaviors) '("=code" "=debug")))
+     (should (equal (cdr behaviors) '("challenge" "deep"))))))
 
 (ert-deftest ai-code-test-behaviors-synced-commit-defined ()
   "Test that synced commit constant is defined."

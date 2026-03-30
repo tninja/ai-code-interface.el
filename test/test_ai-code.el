@@ -10,6 +10,17 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'package)
+
+(defun ai-code-test--maybe-prefer-packaged-transient ()
+  "Prefer the newest packaged Transient when one is installed."
+  (let* ((pattern (expand-file-name "transient-*" package-user-dir))
+         (candidates (sort (file-expand-wildcards pattern) #'version<))
+         (latest (car (last candidates))))
+    (when latest
+      (add-to-list 'load-path latest))))
+
+(ai-code-test--maybe-prefer-packaged-transient)
 
 (require 'transient)
 
@@ -246,16 +257,10 @@
 (ert-deftest ai-code-test-package-requires-transient-0-9 ()
   "Test that ai-code requires Transient 0.9 or newer."
   (with-temp-buffer
-    (let* ((this-file (or load-file-name (buffer-file-name)))
-           (project-root (and this-file
-                              (locate-dominating-file this-file "ai-code.el")))
-           (ai-code-file (and project-root
-                              (expand-file-name "ai-code.el" project-root))))
-      (should ai-code-file)
-      (insert-file-contents ai-code-file)
-      (should (re-search-forward
-               "Package-Requires: ((emacs \"28\\.1\") (transient \"0\\.9\\.0\")"
-               nil t)))))
+    (insert-file-contents (expand-file-name "ai-code.el" default-directory))
+    (should (re-search-forward
+             "Package-Requires: ((emacs \"29\\.1\") (transient \"0\\.9\\.0\") (magit \"2\\.1\\.0\"))"
+             nil t))))
 
 (ert-deftest ai-code-test-menu-groups-define-four-sections ()
   "Test that menu sections are defined as reusable transient groups."
@@ -263,8 +268,7 @@
                    ai-code--menu-actions-with-context
                    ai-code--menu-agile-development
                    ai-code--menu-other-tools))
-    (should (boundp group))
-    (should (symbol-value group))))
+    (should (get group 'transient--layout))))
 
 (ert-deftest ai-code-test-menu-prefix-commands-are-interactive ()
   "Test that the main menu and layout-specific menus are defined as commands."

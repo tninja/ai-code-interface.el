@@ -377,7 +377,7 @@
         (delete-directory root t)))))
 
 (ert-deftest ai-code-session-link-test-linkify-session-region-uses-fixed-large-symbol-window ()
-  "Linkify later nearby symbols within the fixed 512-char and 8-line budget."
+  "Linkify later nearby symbols within the fixed 512-char and 3-line budget."
   (let* ((root (make-temp-file "ai-code-session-links-extended-symbols-" t))
          (lisp-dir (expand-file-name "lisp" root))
          (file (expand-file-name "feature.el" lisp-dir))
@@ -391,9 +391,9 @@
           (with-temp-buffer
             (setq-local ai-code-backends-infra--session-directory root)
             (insert "lisp/feature.el:1\n")
-            (dotimes (_ 6)
+            (dotimes (_ 1)
               (insert "plain prose words only\n"))
-            (insert (make-string 260 ?x))
+            (insert (make-string 80 ?x))
             (insert "\n")
             (insert later-symbol)
             (insert "\n")

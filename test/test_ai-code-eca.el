@@ -3,6 +3,11 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'ai-code-backends)
+(require 'eca)
+(require 'eca-util)
+(require 'eca-chat)
+(require 'eca-process)
+
 (require 'ai-code-eca)
 
 (ert-deftest ai-code-test-eca-backend-registered ()
@@ -59,8 +64,7 @@
 
 (ert-deftest ai-code-test-eca-menu-group-appears-in-layout ()
   "ECA group should appear in the transient layout after adding.
-This test does NOT mock transient-append-suffix; it verifies the actual
-layout contains an ECA group with the expected suffixes."
+This test verifies the actual layout exposes the expected suffixes."
   (skip-unless (and (featurep 'transient)
                     (fboundp 'transient-define-group)))
   (condition-case nil
@@ -71,19 +75,18 @@ layout contains an ECA group with the expected suffixes."
     (ai-code-eca--add-menu-group)
     (unwind-protect
         (dolist (prefix '(ai-code-menu-default ai-code-menu-2-columns))
-          (let* ((layout (get prefix 'transient--layout))
-                 (all-keys nil))
-            (when (and layout (vectorp layout))
-              (let ((groups (aref layout 2)))
-                (dolist (group (append groups nil))
-                  (when (vectorp group)
-                    (dolist (item (aref group 3))
-                      (when (vectorp item)
-                        (let ((key (aref item 2)))
-                          (when (stringp key)
-                            (push key all-keys))))))))
-              (dolist (expected-key '("E" "W" "D" "A" "X" "F" "M" "B" "Y"))
-                (should (member expected-key all-keys))))))
+          (dolist (expected '(("E" . ai-code-eca-create-session-for-workspace)
+                              ("W" . ai-code-eca-switch-session)
+                              ("D" . eca-workspaces)
+                              ("A" . ai-code-eca-add-workspace-folder)
+                              ("X" . ai-code-eca-remove-workspace-folder)
+                              ("F" . ai-code-eca-share-file-context)
+                              ("M" . ai-code-eca-share-repo-map-context)
+                              ("B" . ai-code-eca-chat-add-clipboard-context-now)
+                              ("Y" . ai-code-eca-clear-shared-context)))
+            (let ((suffix (transient-get-suffix prefix (car expected))))
+              (should suffix)
+              (should (eq (plist-get (cdr suffix) :command) (cdr expected))))))
       (setq ai-code-eca--menu-group-added nil))))
 
 ;;; ==============================================================================
@@ -135,7 +138,9 @@ layout contains an ECA group with the expected suffixes."
   (let ((received-arg nil)
         (ai-code-selected-backend 'eca))
     (cl-letf (((symbol-function 'ai-code-eca-upgrade)
-               (lambda (arg) (setq received-arg arg))))
+               (lambda (arg)
+                 (interactive "P")
+                 (setq received-arg arg))))
       (ai-code-upgrade-backend nil)
       (should (null received-arg))
       (ai-code-upgrade-backend '(4))

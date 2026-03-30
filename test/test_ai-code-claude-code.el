@@ -31,7 +31,8 @@
                      (_working-dir _buffer-name _process-table _command
                                    &optional _escape-fn _cleanup-fn
                                    _instance-name _prefix _force-prompt
-                                   _env-vars multiline-input-sequence)
+                                   _env-vars multiline-input-sequence
+                                   _post-start-fn)
                      args
                    (setq captured-sequence multiline-input-sequence))
                  nil)))
