@@ -20,7 +20,7 @@
 (defvar ai-code-backends-infra--session-directory nil
   "Session working directory set by ai-code-backends-infra buffers.")
 
-(defcustom ai-code-session-link-enabled nil
+(defcustom ai-code-session-link-enabled t
   "When non-nil, make supported links clickable in AI session buffers.
 
 Disable this if you prefer to avoid the extra linkification work on
