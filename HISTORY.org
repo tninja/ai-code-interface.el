@@ -3,6 +3,7 @@
 
 ** Main branch change
 - Feat: Add whisper speech-to-text input command with post-transcription actions for insert, editable send-to-session, and clipboard copy
+- Fix: Slowness of ai coding session given clickable session link feature
 
 ** 1.65
 - Feat: Add agent-shell integration for ai-code-behaviors, by davidwuchn
