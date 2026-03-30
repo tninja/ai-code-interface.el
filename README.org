@@ -109,6 +109,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 
 *** Optional Dependencies
 - `helm`: For an enhanced auto-completion experience (`ai-code-input.el`).
+- `whisper`: For speech-to-text input via `ai-code-speech-to-text-input`. Record audio, press `RET` to stop, then choose whether to insert the transcription into the current buffer, send it to the active AI coding session with editable initial input, or copy it to the clipboard.
 - `gptel`: For intelligent, AI-generated content headlines in the prompt file.
   - ai-code-task-use-gptel-filename: When non-nil, file name created by `ai-code-create-or-open-task-file` or `ai-code-create-file-or-dir` will have auto-generated filenames created by GPTel
   - ai-code-notes-use-gptel-headline: When non-nil, notes created by `ai-code-take-notes` will have auto-generated headlines created by GPTel
@@ -131,7 +132,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 [[./clickable_link_ai_session.png]]
 - *Context-Aware Code Actions*: The menu exposes dedicated entries for changing code (`c`), implementing TODOs (`i`), asking questions (`q`), explaining code (`x`), sending free-form commands (`<SPC>`), and refreshing AI context (`@`). Each command automatically captures the surrounding function, region, or clipboard contents (via `C-u`) to keep prompts precise.
 - *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
-- *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), capture session notes straight into Org (`n`), and toggle desktop notifications (`N`) to get alerted when AI responses are ready in background sessions.
+- *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), auto-fix Flycheck issues in scope (`f`), copy or open file paths formatted for prompts (`k`, `o`), generate MCP inspector commands (`m`), capture session notes straight into Org (`n`), dictate prompts with speech-to-text (`:`), and toggle desktop notifications (`N`) to get alerted when AI responses are ready in background sessions.
 - *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` by default), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized.
 - *Interactive Chat & Context Tools*: Dedicated buffers hold long-running chats, automatically enriched with file paths, diffs, and history from Magit or Git commands for richer AI responses.
 - *AI-Assisted Bash Commands*: From Dired, shell, eshell, or vterm, run `C-c a !` and type natural-language commands prefixed with `:` (e.g., `:count lines of python code recursively`); the tool generates the shell command for review and executes it in a compile buffer.
@@ -147,6 +148,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - *One-prompt TDD with refactoring*: Press `C-c a`, then `t` (`ai-code-tdd-cycle`) and choose `5. Red + Green + Blue (One prompt)` to generate tests, implement code, run tests, and then refactor the changed code in one flow.
 - *Reviewing a Pull Request*: Press `C-c a`, then `v` (`ai-code-pull-or-review-diff-file`). Choose to generate a diff between two branches. The diff will be created in a new buffer, and you'll be prompted to start a review.
 - *Multiple Sessions Support*: Start more AI coding session with C-c a a after launching one. Select active session with C-c a z. Prompt with above command will be sent to the selected session.
+- *Speech to Text Input*: Press `C-c a`, then `:` (`ai-code-speech-to-text-input`). Speak your prompt, press `RET` to stop recording, then choose whether to insert the transcription into the current buffer, send it to the active AI coding session after editing it in `ai-code-read-string`, or copy it to the clipboard.
 
 *** Context Engineering
 

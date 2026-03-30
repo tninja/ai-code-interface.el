@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Add whisper speech-to-text input command with post-transcription actions for insert, editable send-to-session, and clipboard copy
 
 ** 1.65
 - Feat: Add agent-shell integration for ai-code-behaviors, by davidwuchn

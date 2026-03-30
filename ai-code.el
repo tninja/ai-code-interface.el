@@ -479,6 +479,7 @@ Shows the current backend label to the right."
   ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
   ("m" "Debug python MCP server" ai-code-debug-mcp)
+  (":" "Speech to text input" ai-code-speech-to-text-input)
   ("N" "Toggle notifications" ai-code-notifications-toggle))
 
 (transient-define-prefix ai-code-menu-default ()

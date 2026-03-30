@@ -274,6 +274,15 @@
     (should (fboundp cmd))
     (should (commandp cmd))))
 
+(ert-deftest ai-code-test-menu-other-tools-includes-speech-to-text-input ()
+  "Test that Other Tools menu exposes speech-to-text input."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "y")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-speech-to-text-input))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Speech to text input"))))
+
 (provide 'test_ai-code)
 
 ;;; test_ai-code.el ends here
