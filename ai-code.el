@@ -465,7 +465,7 @@ Shows the current backend label to the right."
   (ai-code--infix-select-code-change-auto-test)
   ("r" "Refactor Code" ai-code-refactor-book-method)
   ("t" "Test Driven Development" ai-code-tdd-cycle)
-  ("v" "Pull or Review Code Change" ai-code-pull-or-review-diff-file)
+  ("v" "Git / GitHub Code Change Action" ai-code-pull-or-review-diff-file)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build / Test (AI follow-up)" ai-code-build-or-test-project)
   ("K" "Create or open task file" ai-code-create-or-open-task-file)
