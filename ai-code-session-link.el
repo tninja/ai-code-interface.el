@@ -155,6 +155,15 @@ terminal output redraw."
 (defvar-local ai-code-session-link--pending-tail-width 0
   "Pending tail width to rescan when delayed session linkification runs.")
 
+(defvar-local ai-code-session-link--buffer-project-files-cache nil
+  "Buffer-local project file cache reused across session relinkify passes.")
+
+(defvar-local ai-code-session-link--last-region-bounds nil
+  "Last relinkified region bounds used to skip unchanged property churn.")
+
+(defvar-local ai-code-session-link--last-region-text nil
+  "Last relinkified region text used to skip unchanged property churn.")
+
 (defvar ai-code-session-link--project-files-cache nil
   "Dynamic cache of project file lists used during one linkify pass.")
 
@@ -183,6 +192,17 @@ terminal output redraw."
               value)
           cached))
     (funcall compute)))
+
+(defun ai-code-session-link--buffer-project-files-cache ()
+  "Return the buffer-local cache of enumerated project files."
+  (or ai-code-session-link--buffer-project-files-cache
+      (setq ai-code-session-link--buffer-project-files-cache
+            (make-hash-table :test 'equal))))
+
+(defun ai-code-session-link--unchanged-region-p (bounds region-text)
+  "Return non-nil when BOUNDS and REGION-TEXT match the last relinkified region."
+  (and (equal ai-code-session-link--last-region-bounds bounds)
+       (equal ai-code-session-link--last-region-text region-text)))
 
 (defun ai-code-session-link--project-files (root)
   "Return absolute project files for ROOT."
@@ -468,7 +488,8 @@ terminal output redraw."
 
 (defun ai-code-session-link--linkify-file-region (start end)
   "Apply file session links between START and END."
-  (let ((ai-code-session-link--project-files-cache (make-hash-table :test 'equal))
+  (let ((ai-code-session-link--project-files-cache
+         (ai-code-session-link--buffer-project-files-cache))
         (ai-code-session-link--resolved-path-cache (make-hash-table :test 'equal)))
     (let ((file-links (ai-code-session-link--collect-file-links start end)))
       (while file-links
@@ -586,26 +607,31 @@ terminal output redraw."
           (widen)
           (setq start (max (point-min) start)
                 end (min (point-max) end))
-          (let ((pos start))
-            (while (< pos end)
-              (let ((next (or (next-single-property-change
-                               pos 'ai-code-session-link nil end)
-                              end)))
-                (when (get-text-property pos 'ai-code-session-link)
-                  (remove-text-properties
-                   pos next
-                   '(ai-code-session-link nil
-                     ai-code-session-symbol-link nil
-                     ai-code-session-symbol-file nil
-                     mouse-face nil
-                     help-echo nil
-                     keymap nil
-                     follow-link nil
-                     font-lock-face nil
-                     face nil)))
-                (setq pos next))))
-          (ai-code-session-link--linkify-url-region start end)
-          (ai-code-session-link--linkify-file-region start end))))))
+          (let ((bounds (cons start end))
+                (region-text (buffer-substring-no-properties start end)))
+            (unless (ai-code-session-link--unchanged-region-p bounds region-text)
+              (let ((pos start))
+                (while (< pos end)
+                  (let ((next (or (next-single-property-change
+                                   pos 'ai-code-session-link nil end)
+                                  end)))
+                    (when (get-text-property pos 'ai-code-session-link)
+                      (remove-text-properties
+                       pos next
+                       '(ai-code-session-link nil
+                         ai-code-session-symbol-link nil
+                         ai-code-session-symbol-file nil
+                         mouse-face nil
+                         help-echo nil
+                         keymap nil
+                         follow-link nil
+                         font-lock-face nil
+                         face nil)))
+                    (setq pos next))))
+              (ai-code-session-link--linkify-url-region start end)
+              (ai-code-session-link--linkify-file-region start end)
+              (setq ai-code-session-link--last-region-bounds bounds
+                    ai-code-session-link--last-region-text region-text))))))))
 
 (defun ai-code-session-link--recent-output-tail-width (output)
   "Return the tail width to rescan after OUTPUT."
