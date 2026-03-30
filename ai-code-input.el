@@ -29,8 +29,8 @@
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
-(declare-function ai-code--insert-prompt "ai-code" (prompt))
-(declare-function whisper-run "ext:whisper" ())
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt))
+(declare-function whisper-run "whisper" ())
 
 (defvar whisper-after-transcription-hook nil
   "Hook run by whisper.el after transcription finishes.")
@@ -133,7 +133,12 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
   (ai-code-helm-read-string-with-history prompt "ai-code-helm-read-string-history.el" initial-input candidate-list))
 
 (defun ai-code--speech-to-text-apply-transcription (origin-buffer)
-  "Insert current buffer transcription into ORIGIN-BUFFER."
+  "Read transcription from current buffer and apply a chosen speech action.
+The transcription is obtained from the current buffer, then if
+ORIGIN-BUFFER is still live and the transcription is non-empty,
+prompt the user to choose an action (insert into ORIGIN-BUFFER,
+send to an AI coding session, or copy to the clipboard) and
+perform that action."
   (let ((transcription
          (string-trim
           (buffer-substring-no-properties (point-min) (point-max)))))
@@ -153,15 +158,23 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
      (with-current-buffer origin-buffer
        (insert transcription)))
     ("Send to AI coding session"
-     (when-let ((prompt (with-current-buffer origin-buffer
-                          (ai-code-read-string "Send to AI: " transcription))))
-       (ai-code--insert-prompt prompt)))
+     (ai-code--speech-to-text-send-prompt origin-buffer transcription))
     ("Copy to clipboard"
      (kill-new transcription))))
 
+(defun ai-code--speech-to-text-send-prompt (origin-buffer transcription)
+  "Edit TRANSCRIPTION from ORIGIN-BUFFER and send the result to the AI session."
+  (when-let ((prompt (with-current-buffer origin-buffer
+                       (ai-code-read-string "Send to AI: " transcription))))
+    (require 'ai-code-prompt-mode)
+    (ai-code--insert-prompt prompt)))
+
 ;;;###autoload
 (defun ai-code-speech-to-text-input ()
-  "Record audio with whisper.el and insert the transcription at point."
+  "Record audio with whisper.el, then choose how to use the transcription.
+
+After recording and transcription, you can insert the text at point in the
+original buffer, send it to an AI coding session, or copy it to the clipboard."
   (interactive)
   (unless (require 'whisper nil t)
     (user-error "Whisper.el is not available, please install it first"))

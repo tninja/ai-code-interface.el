@@ -276,7 +276,7 @@
 
 (ert-deftest ai-code-test-menu-other-tools-includes-speech-to-text-input ()
   "Test that Other Tools menu exposes speech-to-text input."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "y")))
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools ":")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-speech-to-text-input))

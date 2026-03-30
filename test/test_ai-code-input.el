@@ -1209,6 +1209,74 @@
         (should (equal read-string-initial-input "transcribed speech"))
         (should (equal sent-text "edited transcription"))))))
 
+(ert-deftest ai-code-test-speech-to-text-input-send-option-loads-prompt-mode-on-demand ()
+  "Speech-to-text send action should load prompt-mode before sending."
+  (let ((original-require (symbol-function 'require))
+        (original-bound (fboundp 'ai-code--insert-prompt))
+        (original-insert-prompt (when (fboundp 'ai-code--insert-prompt)
+                                  (symbol-function 'ai-code--insert-prompt)))
+        (whisper-run-calls 0)
+        prompt-mode-required
+        send-result)
+    (unwind-protect
+        (with-temp-buffer
+          (when original-bound
+            (fmakunbound 'ai-code--insert-prompt))
+          (cl-letf (((symbol-function 'require)
+                     (lambda (feature &optional filename noerror)
+                       (cond
+                        ((eq feature 'whisper) t)
+                        ((eq feature 'ai-code-prompt-mode)
+                         (setq prompt-mode-required t)
+                         (fset 'ai-code--insert-prompt
+                               (lambda (text)
+                                 (setq send-result text)))
+                         t)
+                        (t
+                         (funcall original-require feature filename noerror)))))
+                    ((symbol-function 'read-char)
+                     (lambda (&optional _prompt _inherit-input-method _seconds)
+                       ?\r))
+                    ((symbol-function 'sit-for)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'message)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'completing-read)
+                     (lambda (&rest _args)
+                       "Send to AI coding session"))
+                    ((symbol-function 'ai-code-read-string)
+                     (lambda (_prompt &optional initial-input _candidate-list)
+                       (concat initial-input " edited")))
+                    ((symbol-function 'whisper-run)
+                     (lambda ()
+                       (cl-incf whisper-run-calls)
+                       (when (= whisper-run-calls 2)
+                         (with-current-buffer (get-buffer-create "*whisper-stdout*")
+                           (erase-buffer)
+                           (insert "transcribed speech")
+                           (run-hooks 'whisper-after-transcription-hook))))))
+            (let ((result (condition-case err
+                              (progn
+                                (ai-code-speech-to-text-input)
+                                :ok)
+                            (error (car err)))))
+              (should (eq result :ok))
+              (should prompt-mode-required)
+              (should (= whisper-run-calls 2))
+              (should (equal send-result "transcribed speech edited")))))
+      (if original-bound
+          (fset 'ai-code--insert-prompt original-insert-prompt)
+        (fmakunbound 'ai-code--insert-prompt)))))
+
+(ert-deftest ai-code-test-speech-to-text-docstrings-describe-available-actions ()
+  "Speech-to-text docstrings should describe the available actions."
+  (let ((apply-doc (documentation 'ai-code--speech-to-text-apply-transcription))
+        (input-doc (documentation 'ai-code-speech-to-text-input)))
+    (should (string-match-p "apply a chosen speech action" apply-doc))
+    (should (string-match-p "send to an AI coding session" apply-doc))
+    (should (string-match-p "choose how to use the transcription" input-doc))
+    (should (string-match-p "copy it to the clipboard" input-doc))))
+
 (ert-deftest ai-code-test-speech-to-text-input-copy-option-copies-transcription ()
   "Speech-to-text input should copy the transcription when requested."
   (let ((original-require (symbol-function 'require))
