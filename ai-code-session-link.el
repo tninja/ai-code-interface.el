@@ -104,6 +104,26 @@ terminal output redraw."
    "\\)")
   "Regexp matching conservative symbol candidates near a file link.")
 
+(defconst ai-code-session-link--recent-output-candidate-regexp
+  (concat
+   "\\(?:https?://"
+   "\\|"
+   ai-code-session-link--path-base-regexp
+   "\\(?:[#:(][[:alnum:],L-]+\\)?"
+   "\\|"
+   ai-code-session-link--symbol-identifier-regexp "()"
+   "\\|"
+   ai-code-session-link--symbol-identifier-regexp
+   "\\(?:\\.\\|::\\|#\\)"
+   ai-code-session-link--symbol-identifier-regexp
+   "\\|"
+   ai-code-session-link--snake-case-symbol-regexp
+   "\\|"
+   "[[:alpha:]_][[:alnum:]_*!?]*--[[:alpha:]_*!?-]+"
+   "\\|"
+   "[[:alpha:]_][[:alnum:]_*!?]*-\\(?:mode\\|hook\\|command\\|function\\|local\\|p\\)\\)")
+  "Regexp matching recent output that may contain session links.")
+
 (defun ai-code-session-link--path-pattern (suffix)
   "Return a session link regexp for `ai-code-session-link--path-base-regexp' plus SUFFIX."
   (concat "\\(" ai-code-session-link--path-base-regexp "\\)" suffix))
@@ -592,6 +612,28 @@ terminal output redraw."
   (max ai-code-session-link--linkify-min-tail-width
        (* 2 (length (or output "")))))
 
+(defun ai-code-session-link--recent-output-plain-text (output)
+  "Return OUTPUT with terminal control sequences removed."
+  (let* ((text (or output ""))
+         (text (replace-regexp-in-string
+                "\x1b\\][^\x07\x1b]*\\(?:\x07\\|\x1b\\\\\\)" "" text))
+         (text (replace-regexp-in-string
+                "\x1b\\[[0-9;?]*[ -/]*[@-~]" "" text))
+         (text (replace-regexp-in-string "[\x00-\x1f\x7f]" "" text)))
+    text))
+
+(defun ai-code-session-link--recent-output-may-contain-links-p (output)
+  "Return non-nil when OUTPUT may introduce session links worth rescanning."
+  (let ((text (ai-code-session-link--recent-output-plain-text output)))
+    (and (not (string-empty-p text))
+         (string-match-p ai-code-session-link--recent-output-candidate-regexp text))))
+
+(defun ai-code-session-link--should-linkify-recent-output-p (buffer output)
+  "Return non-nil when BUFFER and OUTPUT should trigger hot-path relinkification."
+  (and ai-code-session-link-enabled
+       (buffer-live-p buffer)
+       (ai-code-session-link--recent-output-may-contain-links-p output)))
+
 (defun ai-code-session-link--flush-scheduled-linkify ()
   "Apply any delayed session linkification pending in the current buffer."
   (let ((tail-width ai-code-session-link--pending-tail-width))
@@ -605,8 +647,7 @@ terminal output redraw."
 
 (defun ai-code-session-link--schedule-linkify-recent-output (buffer output)
   "Linkify recent OUTPUT in BUFFER after terminal redraw settles."
-  (when (and ai-code-session-link-enabled
-             (buffer-live-p buffer))
+  (when (ai-code-session-link--should-linkify-recent-output-p buffer output)
     (with-current-buffer buffer
       (setq ai-code-session-link--pending-tail-width
             (max ai-code-session-link--pending-tail-width
@@ -623,7 +664,9 @@ terminal output redraw."
 
 (defun ai-code-session-link--linkify-recent-output (output)
   "Linkify the recent tail of the current session buffer after OUTPUT."
-  (when ai-code-session-link-enabled
+  (when (ai-code-session-link--should-linkify-recent-output-p
+         (current-buffer)
+         output)
     (let* ((visible-width (ai-code-session-link--recent-output-tail-width output))
            (end (point-max))
            (start (max (point-min) (- end visible-width))))

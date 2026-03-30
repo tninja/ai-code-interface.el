@@ -687,6 +687,18 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-session-link-test-schedule-linkify-recent-output-skips-plain-prose ()
+  "Plain prose output should not schedule hot-path session relinkification."
+  (let ((ai-code-session-link-enabled t))
+    (with-temp-buffer
+      (setq ai-code-session-link--pending-tail-width 0
+            ai-code-session-link--linkify-timer nil)
+      (ai-code-session-link--schedule-linkify-recent-output
+       (current-buffer)
+       "Working on the next step now.\n")
+      (should-not ai-code-session-link--linkify-timer)
+      (should (zerop ai-code-session-link--pending-tail-width)))))
+
 (provide 'test_ai-code-session-link)
 
 ;;; test_ai-code-session-link.el ends here
