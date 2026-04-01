@@ -5,6 +5,7 @@
 [[https://melpa.org/#/ai-code][https://melpa.org/packages/ai-code-badge.svg]]
 [[https://stable.melpa.org/#/ai-code][https://stable.melpa.org/packages/ai-code-badge.svg]]
 [[https://github.com/tninja/ai-code-interface.el/graphs/contributors][https://img.shields.io/github/contributors/tninja/ai-code-interface.el.svg]]
+[[https://github.com/RoggeOhta/awesome-codex-cli][https://awesome.re/mentioned-badge.svg]]
 
 An Emacs interface for AI-assisted software development. *The purpose is to provide a uniform interface and experience for different AI backends*, with context-aware AI coding actions, and integrating seamlessly with AI-driven agile development workflows.
 
