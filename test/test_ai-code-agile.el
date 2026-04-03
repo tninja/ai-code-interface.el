@@ -280,5 +280,31 @@
         (should (string-match-p "\nFiles:\n@src/foo\\.el\n@test/bar\\.el"
                                 (subst-char-in-string ?\\ ?/ captured-prompt)))))))
 
+(ert-deftest ai-code-test-handle-ask-llm-suggestion-offers-common-refactoring-goals ()
+  "Verify refactoring suggestion prompt offers common goal candidates."
+  (with-temp-buffer
+    (let (captured-candidates)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial candidates)
+                   (setq captured-candidates candidates)
+                   initial))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (_text) t)))
+        (ai-code--handle-ask-llm-suggestion
+         '(:region-active nil
+           :current-function "my-function"
+           :file-name "/repo/src/foo.el"
+           :dired-targets nil)
+         nil)
+        (should (= 4 (length captured-candidates)))
+        (should (equal (car captured-candidates)
+                       "Make the code easier to understand, improve readability, and increase testability. Do not change code logic."))
+        (should (member "Reduce complexity and simplify control flow. Do not change code logic."
+                        captured-candidates))
+        (should (member "Remove duplication and consolidate repeated logic. Do not change code logic."
+                        captured-candidates))
+        (should (member "Clarify naming and separate responsibilities more cleanly. Do not change code logic."
+                        captured-candidates))))))
+
 (provide 'test_ai-code-agile)
 ;;; test_ai-code-agile.el ends here

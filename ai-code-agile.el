@@ -333,6 +333,17 @@
            :description "Introduce a new hierarchy to clarify different responsibilities and support future extension."))
   "Catalog of refactoring techniques curated from Martin Fowler's \"Refactoring\".")
 
+(defconst ai-code--refactoring-suggestion-default-instruction
+  "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity). Do not change code logic. Suggest the most impactful refactoring technique and explain why."
+  "Default instruction for refactoring suggestion prompts.")
+
+(defconst ai-code--refactoring-goal-candidates
+  '("Make the code easier to understand, improve readability, and increase testability. Do not change code logic."
+    "Reduce complexity and simplify control flow. Do not change code logic."
+    "Remove duplication and consolidate repeated logic. Do not change code logic."
+    "Clarify naming and separate responsibilities more cleanly. Do not change code logic.")
+  "Common goal candidates offered for refactoring suggestion prompts.")
+
 (defun ai-code--refactoring--ensure-string (value)
   "Return VALUE coerced to a string when appropriate."
   (cond
@@ -576,7 +587,8 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
                          ""))
                 ;; Get the main instruction from the user
                  (user-instruction (ai-code-read-string "Edit suggestion request: "
-                                                       "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity). Do not change code logic. Suggest the most impactful refactoring technique and explain why.")) ;; Improved initial-input
+                                                       ai-code--refactoring-suggestion-default-instruction
+                                                       ai-code--refactoring-goal-candidates))
                  ;; Add TDD constraint if in TDD mode
                  (tdd-constraint (if tdd-mode " Ensure all tests still pass after refactoring." ""))
                  ;; Add file information to context
