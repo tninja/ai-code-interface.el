@@ -334,15 +334,31 @@
   "Catalog of refactoring techniques curated from Martin Fowler's \"Refactoring\".")
 
 (defconst ai-code--refactoring-suggestion-default-instruction
-  "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity). Do not change code logic. Suggest the most impactful refactoring technique and explain why."
+  "Analyze the code context below. Identify potential refactoring opportunities (e.g., complexity, duplication, clarity) and make the code easy to understand. Do not change code logic. Suggest the most impactful refactoring technique and explain why."
   "Default instruction for refactoring suggestion prompts.")
 
-(defconst ai-code--refactoring-goal-candidates
-  '("Make the code easier to understand, improve readability, and increase testability. Do not change code logic."
-    "Reduce complexity and simplify control flow. Do not change code logic."
-    "Remove duplication and consolidate repeated logic. Do not change code logic."
-    "Clarify naming and separate responsibilities more cleanly. Do not change code logic.")
-  "Common goal candidates offered for refactoring suggestion prompts.")
+(defconst ai-code--refactoring-suggestion-default-label
+  "General refactoring analysis"
+  "Default short description for refactoring suggestion prompts.")
+
+(defconst ai-code--refactoring-suggestion-presets
+  `((,ai-code--refactoring-suggestion-default-label . ,ai-code--refactoring-suggestion-default-instruction)
+    ("Improve readability and testability" . "Analyze the code context below. Focus on making the code easier to understand, improving readability, and increasing testability. Do not change code logic. Suggest the most impactful refactoring technique and explain why.")
+    ("Reduce complexity" . "Analyze the code context below. Focus on reducing complexity and simplifying control flow. Do not change code logic. Suggest the most impactful refactoring technique and explain why.")
+    ("Remove duplication" . "Analyze the code context below. Focus on removing duplication and consolidating repeated logic. Do not change code logic. Suggest the most impactful refactoring technique and explain why.")
+    ("Clarify naming and responsibilities" . "Analyze the code context below. Focus on clarifying naming and separating responsibilities more cleanly. Do not change code logic. Suggest the most impactful refactoring technique and explain why."))
+  "Preset refactoring suggestion prompts keyed by short description.")
+
+(defun ai-code--read-refactoring-suggestion-instruction ()
+  "Read a refactoring suggestion instruction with editable completion."
+  (let* ((selected-description
+          (completing-read "Select refactoring goal: "
+                           (mapcar #'car ai-code--refactoring-suggestion-presets)
+                           nil t nil nil ai-code--refactoring-suggestion-default-label))
+         (default-instruction
+          (or (cdr (assoc selected-description ai-code--refactoring-suggestion-presets))
+              ai-code--refactoring-suggestion-default-instruction)))
+    (ai-code-read-string "Edit suggestion request: " default-instruction)))
 
 (defun ai-code--refactoring--ensure-string (value)
   "Return VALUE coerced to a string when appropriate."
@@ -586,9 +602,7 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
                            (format "\n```\n%s\n```" region-text)
                          ""))
                 ;; Get the main instruction from the user
-                 (user-instruction (ai-code-read-string "Edit suggestion request: "
-                                                       ai-code--refactoring-suggestion-default-instruction
-                                                       ai-code--refactoring-goal-candidates))
+                 (user-instruction (ai-code--read-refactoring-suggestion-instruction))
                  ;; Add TDD constraint if in TDD mode
                  (tdd-constraint (if tdd-mode " Ensure all tests still pass after refactoring." ""))
                  ;; Add file information to context

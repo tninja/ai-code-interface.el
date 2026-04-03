@@ -260,8 +260,11 @@
   "Verify Dired refactoring suggestions include selected files."
   (with-temp-buffer
     (let (captured-prompt)
-      (cl-letf (((symbol-function 'ai-code-read-string)
-                 (lambda (_prompt &optional initial _candidates) initial))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Improve readability and testability"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial-input _candidates)
+                   initial-input))
                 ((symbol-function 'ai-code--git-root)
                  (lambda (&optional _dir) "/repo/"))
                 ((symbol-function 'ai-code--insert-prompt)
@@ -281,13 +284,51 @@
                                 (subst-char-in-string ?\\ ?/ captured-prompt)))))))
 
 (ert-deftest ai-code-test-handle-ask-llm-suggestion-offers-common-refactoring-goals ()
-  "Verify refactoring suggestion prompt offers common goal candidates."
+  "Verify refactoring suggestion prompt selects a short description first."
   (with-temp-buffer
-    (let (captured-candidates)
+    (let (captured-short-descriptions captured-selected-description
+          captured-read-string-initial-input captured-prompt)
       (cl-letf (((symbol-function 'ai-code-read-string)
-                 (lambda (_prompt &optional initial candidates)
-                   (setq captured-candidates candidates)
-                   initial))
+                 (lambda (_prompt &optional initial-input _candidates)
+                   (setq captured-read-string-initial-input initial-input)
+                   "Custom edited prompt"))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _)
+                   (setq captured-short-descriptions collection)
+                   (setq captured-selected-description "Reduce complexity")
+                   captured-selected-description))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text)
+                   (setq captured-prompt text)
+                   t)))
+        (ai-code--handle-ask-llm-suggestion
+         '(:region-active nil
+           :current-function "my-function"
+           :file-name "/repo/src/foo.el"
+           :dired-targets nil)
+         nil)
+        (should (equal captured-short-descriptions
+                       '("General refactoring analysis"
+                         "Improve readability and testability"
+                         "Reduce complexity"
+                         "Remove duplication"
+                         "Clarify naming and responsibilities")))
+        (should (equal captured-selected-description "Reduce complexity"))
+        (should (equal captured-read-string-initial-input
+                       "Analyze the code context below. Focus on reducing complexity and simplifying control flow. Do not change code logic. Suggest the most impactful refactoring technique and explain why."))
+        (should (string-match-p "Custom edited prompt Context: Function 'my-function'"
+                                captured-prompt))))))
+
+(ert-deftest ai-code-test-handle-ask-llm-suggestion-default-prompt-mentions-easy-to-understand ()
+  "Verify the default refactoring prompt mentions making code easy to understand."
+  (with-temp-buffer
+    (let (captured-read-string-initial-input)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) ai-code--refactoring-suggestion-default-label))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial-input _candidates)
+                   (setq captured-read-string-initial-input initial-input)
+                   initial-input))
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (_text) t)))
         (ai-code--handle-ask-llm-suggestion
@@ -296,15 +337,8 @@
            :file-name "/repo/src/foo.el"
            :dired-targets nil)
          nil)
-        (should (= 4 (length captured-candidates)))
-        (should (equal (car captured-candidates)
-                       "Make the code easier to understand, improve readability, and increase testability. Do not change code logic."))
-        (should (member "Reduce complexity and simplify control flow. Do not change code logic."
-                        captured-candidates))
-        (should (member "Remove duplication and consolidate repeated logic. Do not change code logic."
-                        captured-candidates))
-        (should (member "Clarify naming and separate responsibilities more cleanly. Do not change code logic."
-                        captured-candidates))))))
+        (should (string-match-p "easy to understand"
+                                captured-read-string-initial-input))))))
 
 (provide 'test_ai-code-agile)
 ;;; test_ai-code-agile.el ends here
