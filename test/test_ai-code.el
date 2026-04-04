@@ -31,26 +31,22 @@
 
 (defvar ai-code--tdd-run-test-after-each-stage-instruction)
 
-(ert-deftest ai-code-test-set-auto-test-type-tdd-updates-suffix ()
-  "Test that setting auto test type to tdd updates the suffix text."
+(ert-deftest ai-code-test-set-auto-test-type-ask-me-clears-persistent-suffix ()
+  "Test that setting auto test type to ask-me clears the persistent suffix."
   (let ((ai-code-auto-test-suffix "old")
         (ai-code-auto-test-type nil)
         (ai-code--tdd-test-pattern-instruction nil))
-    (ai-code--apply-auto-test-type 'tdd)
-    (should (string-match-p "Stage 1 - Red" ai-code-auto-test-suffix))
-    (should (string-match-p "Stage 2 - Green" ai-code-auto-test-suffix))))
+    (ai-code--apply-auto-test-type 'ask-me)
+    (should (eq 'ask-me ai-code-auto-test-type))
+    (should-not ai-code-auto-test-suffix)))
 
-(ert-deftest ai-code-test-set-auto-test-type-tdd-with-refactoring-updates-suffix ()
-  "Test that setting auto test type to tdd-with-refactoring updates suffix text."
+(ert-deftest ai-code-test-set-auto-test-type-off-clears-persistent-suffix ()
+  "Test that turning off auto test type clears the persistent suffix."
   (let ((ai-code-auto-test-suffix "old")
-        (ai-code-auto-test-type nil)
-        (ai-code--tdd-test-pattern-instruction ""))
-    (ai-code--apply-auto-test-type 'tdd-with-refactoring)
-    (should (string-match-p
-             (regexp-quote ai-code--tdd-with-refactoring-extension-instruction)
-             ai-code-auto-test-suffix))
-    (should (string-match-p "Stage 3 - Blue" ai-code-auto-test-suffix))
-    (should (string-match-p "highest-impact cleanup" ai-code-auto-test-suffix))))
+        (ai-code-auto-test-type 'ask-me))
+    (ai-code--apply-auto-test-type nil)
+    (should-not ai-code-auto-test-type)
+    (should-not ai-code-auto-test-suffix)))
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-includes-strict-stage-contract ()
   "Test that TDD suffix names Red and Green stages and forbids skipping."
@@ -69,16 +65,10 @@
     (should (string-match-p "SHARED_EACH_STAGE_TEST_INSTRUCTION"
                             (ai-code--test-after-code-change--resolve-tdd-suffix)))))
 
-(ert-deftest ai-code-test-resolve-auto-test-type-for-send ()
-  "Test that send-time type resolution is consistent across mode values."
-  (let ((ai-code-auto-test-type 'test-after-change))
-    (should (eq 'test-after-change (ai-code--resolve-auto-test-type-for-send))))
-  (let ((ai-code-auto-test-type 'tdd))
-    (should (eq 'tdd (ai-code--resolve-auto-test-type-for-send))))
-  (let ((ai-code-auto-test-type 'tdd-with-refactoring))
-    (should (eq 'tdd-with-refactoring (ai-code--resolve-auto-test-type-for-send))))
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-off ()
+  "Test that off mode never resolves a send-time auto test type."
   (let ((ai-code-auto-test-type nil))
-    (should (eq nil (ai-code--resolve-auto-test-type-for-send)))))
+    (should-not (ai-code--resolve-auto-test-type-for-send))))
 
 (ert-deftest ai-code-test-resolve-auto-test-type-for-send-ask-me ()
   "Test that ask-me mode resolves by interactive per-send selection."
@@ -119,40 +109,6 @@
       (should (eq 'test-after-change
                   (ai-code--resolve-auto-test-type-for-send "Please update code"))))))
 
-(ert-deftest ai-code-test-resolve-auto-test-type-for-send-fixed-type-gptel-classification-test-after-change ()
-  "Test that test-after-change mode appends suffix only for GPTel code-change classification."
-  (let ((ai-code-auto-test-type 'test-after-change)
-        (ai-code-use-gptel-classify-prompt t))
-    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
-               (lambda (_prompt-text) 'code-change)))
-      (should (eq 'test-after-change
-                  (ai-code--resolve-auto-test-type-for-send "Refactor this code"))))
-    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
-               (lambda (_prompt-text) 'non-code-change)))
-      (should (eq nil
-                  (ai-code--resolve-auto-test-type-for-send "Explain this design"))))
-    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
-               (lambda (_prompt-text) 'unknown)))
-      (should (eq nil
-                  (ai-code--resolve-auto-test-type-for-send "Do something"))))))
-
-(ert-deftest ai-code-test-resolve-auto-test-type-for-send-fixed-type-gptel-classification-tdd ()
-  "Test that tdd mode appends suffix only for GPTel code-change classification."
-  (let ((ai-code-auto-test-type 'tdd)
-        (ai-code-use-gptel-classify-prompt t))
-    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
-               (lambda (_prompt-text) 'code-change)))
-      (should (eq 'tdd
-                  (ai-code--resolve-auto-test-type-for-send "Implement feature"))))
-    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
-               (lambda (_prompt-text) 'non-code-change)))
-      (should (eq nil
-                  (ai-code--resolve-auto-test-type-for-send "Summarize this file"))))
-    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
-               (lambda (_prompt-text) 'unknown)))
-      (should (eq nil
-                  (ai-code--resolve-auto-test-type-for-send "Review architecture"))))))
-
 (ert-deftest ai-code-test-read-auto-test-type-choice-allow-no-test ()
   "Test that ask choices support selecting no test run."
   (let ((ai-code--auto-test-type-ask-choices
@@ -185,6 +141,20 @@
                      ai-code--auto-test-type-ask-choices))
   (should-not (assoc "Test driven development, follow up with refactoring"
                      ai-code--auto-test-type-ask-choices)))
+
+(ert-deftest ai-code-test-auto-test-type-custom-options-are-ask-or-off ()
+  "Test that persistent auto test type choices only expose ask-me and off."
+  (should
+   (equal
+    '(choice (const :tag "Ask every time" ask-me)
+             (const :tag "Off" nil))
+    (get 'ai-code-auto-test-type 'custom-type))))
+
+(ert-deftest ai-code-test-auto-test-type-persistent-choices-are-ask-or-off ()
+  "Test that persistent auto test type choices are shared and limited."
+  (should (equal '(("Ask every time" . ask-me)
+                   ("Off" . nil))
+                 ai-code--auto-test-type-persistent-choices)))
 
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-tdd-with-refactoring ()
   "Test that ask-me can resolve to refactoring TDD suffix."

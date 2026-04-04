@@ -195,6 +195,11 @@ See the later `defcustom' for user-facing documentation and default.")
     ("Do not write or run tests" . no-test))
   "Resolve auto test suffix choices for `ask-me` mode.")
 
+(defconst ai-code--auto-test-type-persistent-choices
+  '(("Ask every time" . ask-me)
+    ("Off" . nil))
+  "Persistent choices for `ai-code-auto-test-type`.")
+
 (defun ai-code--read-auto-test-type-choice ()
   "Read and return one prompt test type for this send action."
   (let* ((choice (completing-read "Choose test prompt type for this send: "
@@ -241,33 +246,13 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 
 (defun ai-code--resolve-auto-test-type-for-send (&optional prompt-text)
   "Resolve the concrete auto test type for current send action for PROMPT-TEXT."
-  (pcase ai-code-auto-test-type
-    ('ask-me
-     (if ai-code-use-gptel-classify-prompt
-         (pcase (ai-code--gptel-classify-prompt-code-change prompt-text)
-           ('code-change (ai-code--read-auto-test-type-choice))
-           ('non-code-change nil)
-           (_ (ai-code--read-auto-test-type-choice)))
-       (ai-code--read-auto-test-type-choice)))
-    ('test-after-change
-     (if ai-code-use-gptel-classify-prompt
-         (when (eq (ai-code--gptel-classify-prompt-code-change prompt-text)
-                   'code-change)
-           'test-after-change)
-       'test-after-change))
-    ('tdd
-     (if ai-code-use-gptel-classify-prompt
-         (when (eq (ai-code--gptel-classify-prompt-code-change prompt-text)
-                   'code-change)
-           'tdd)
-       'tdd))
-    ('tdd-with-refactoring
-     (if ai-code-use-gptel-classify-prompt
-         (when (eq (ai-code--gptel-classify-prompt-code-change prompt-text)
-                   'code-change)
-           'tdd-with-refactoring)
-       'tdd-with-refactoring))
-    (_ nil)))
+  (when (eq ai-code-auto-test-type 'ask-me)
+    (if ai-code-use-gptel-classify-prompt
+        (pcase (ai-code--gptel-classify-prompt-code-change prompt-text)
+          ('code-change (ai-code--read-auto-test-type-choice))
+          ('non-code-change nil)
+          (_ (ai-code--read-auto-test-type-choice)))
+      (ai-code--read-auto-test-type-choice))))
 
 (defun ai-code--auto-test-suffix-for-type (type)
   "Return prompt suffix for auto test TYPE."
@@ -309,10 +294,7 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 
 (defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
-  :type '(choice (const :tag "Use test after code change prompt" test-after-change)
-                 (const :tag "Use TDD Red+Green prompt" tdd)
-                 (const :tag "Use TDD Red+Green+Blue prompt" tdd-with-refactoring)
-                 (const :tag "Ask every time" ask-me)
+  :type '(choice (const :tag "Ask every time" ask-me)
                  (const :tag "Off" nil))
   :set #'ai-code--test-after-code-change--set
   :group 'ai-code)
@@ -417,13 +399,11 @@ Otherwise switch to AI CLI buffer."
   :key "T"
   :description "Auto test type:"
   :reader (lambda (_prompt _initial-input _history)
-            (let* ((choices '(("Use test after code change prompt" . test-after-change)
-                              ("Use TDD Red+Green prompt" . tdd)
-                              ("Ask every time" . ask-me)
-                              ("Off" . nil)))
+            (let* ((choices ai-code--auto-test-type-persistent-choices)
                    (choice (completing-read "Test after code change: "
                                             (mapcar #'car choices)
-                                            nil t)))
+                                            nil t nil nil
+                                            (caar choices))))
               (let ((value (cdr (assoc choice choices))))
                 (ai-code--apply-auto-test-type value)
                 (message "Auto test type set to %s; prompt suffix is now %s"
