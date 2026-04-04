@@ -31,6 +31,11 @@
   :type '(repeat string)
   :group 'ai-code-claude-code)
 
+(defcustom ai-code-claude-code-no-flicker t
+  "Enable experimental flicker-free terminal renderer in Claude Code."
+  :type 'boolean
+  :group 'ai-code-claude-code)
+
 (defcustom ai-code-claude-code-multiline-input-sequence "\e\r"
   "Terminal sequence used for multiline input in Claude Code sessions.
 This mirrors the newline sequence Claude Code expects from `/terminal-setup'."
@@ -59,7 +64,9 @@ With prefix ARG, prompt for CLI args using
          (mcp-launch (ai-code-mcp-agent-prepare-launch 'claude-code working-dir command))
          (launch-command (or (plist-get mcp-launch :command) command))
          (cleanup-fn (plist-get mcp-launch :cleanup-fn))
-         (post-start-fn (plist-get mcp-launch :post-start-fn)))
+         (post-start-fn (plist-get mcp-launch :post-start-fn))
+         (env-vars (list (format "CLAUDE_CODE_NO_FLICKER=%s"
+                                 (if ai-code-claude-code-no-flicker "1" "0")))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil
@@ -70,7 +77,7 @@ With prefix ARG, prompt for CLI args using
      nil
      ai-code-claude-code--session-prefix
      nil
-     nil
+     env-vars
      ai-code-claude-code-multiline-input-sequence
      post-start-fn)))
 

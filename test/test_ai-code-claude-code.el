@@ -40,6 +40,28 @@
         (ai-code-claude-code)
         (should (equal captured-sequence "\e\r"))))))
 
+(ert-deftest ai-code-test-claude-code-start-passes-no-flicker-env ()
+  "Starting Claude Code should pass CLAUDE_CODE_NO_FLICKER env var based on config."
+  (let ((captured-env-vars :unset))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda () "/tmp/test-claude"))
+              ((symbol-function 'ai-code-backends-infra--resolve-start-command)
+               (lambda (&rest _args)
+                 (list :command "claude")))
+              ((symbol-function 'ai-code-mcp-agent-prepare-launch)
+               (lambda (&rest _args) nil))
+              ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
+               (lambda (&rest args)
+                 (let ((env-vars (nth 9 args)))
+                   (setq captured-env-vars env-vars))
+                 nil)))
+      (let ((ai-code-claude-code-no-flicker t))
+        (ai-code-claude-code)
+        (should (member "CLAUDE_CODE_NO_FLICKER=1" captured-env-vars)))
+      (let ((ai-code-claude-code-no-flicker nil))
+        (ai-code-claude-code)
+        (should (member "CLAUDE_CODE_NO_FLICKER=0" captured-env-vars))))))
+
 (provide 'test_ai-code-claude-code)
 
 ;;; test_ai-code-claude-code.el ends here
