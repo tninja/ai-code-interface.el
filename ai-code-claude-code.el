@@ -1,6 +1,6 @@
 ;;; ai-code-claude-code.el --- Thin wrapper for Claude Code CLI  -*- lexical-binding: t; -*-
 
-;; Author: Kang Tu <tninja@gmail.com>
+;; Author: Kang Tu, Yoav Orot
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
