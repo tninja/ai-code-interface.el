@@ -215,6 +215,30 @@
           (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
         (fmakunbound handler)))))
 
+(ert-deftest test-ai-code-backends-infra-display-buffer-in-side-window-uses-body-width ()
+  "Horizontal side windows should size to the configured body width."
+  (with-temp-buffer
+    (let ((ai-code-backends-infra-use-side-window t)
+          (ai-code-backends-infra-window-side 'right)
+          (ai-code-backends-infra-window-width 100)
+          (ai-code-backends-infra-focus-on-open nil)
+          captured-entry
+          resize-call)
+      (rename-buffer " *ai-code-side-width*" t)
+      (cl-letf (((symbol-function 'display-buffer)
+                 (lambda (_buffer &optional _action)
+                   (setq captured-entry (car display-buffer-alist))
+                   'fake-window))
+                ((symbol-function 'window-body-width)
+                 (lambda (_window) 96))
+                ((symbol-function 'window-resize)
+                 (lambda (window delta horizontal)
+                   (setq resize-call (list window delta horizontal)))))
+        (ai-code-backends-infra--display-buffer-in-side-window (current-buffer))
+        (should (functionp (cdr (assq 'window-width captured-entry))))
+        (funcall (cdr (assq 'window-width captured-entry)) 'fake-window)
+        (should (equal resize-call '(fake-window 4 t)))))))
+
 (ert-deftest test-ai-code-backends-infra-sync-terminal-cursor-vterm-copy-mode ()
   "Show an Emacs cursor in vterm copy mode and restore terminal cursor on exit."
   (with-temp-buffer

@@ -62,7 +62,7 @@ Can be either `vterm' or `eat'."
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-window-width 90
-  "Width of the side window when opened on left or right."
+  "Body width of the side window when opened on left or right."
   :type 'integer
   :group 'ai-code-backends-infra)
 
@@ -521,7 +521,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
                         (side . ,side)
                         (slot . 0)
                         ,@(when (memq side '(left right))
-                            `((window-width . ,ai-code-backends-infra-window-width)))
+                            `((window-width
+                               . ,#'ai-code-backends-infra--fit-side-window-body-width)))
                         ,@(when (memq side '(top bottom))
                             `((window-height . ,ai-code-backends-infra-window-height)))
                         (window-parameters . ((no-delete-other-windows . t)))))))
@@ -531,6 +532,13 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
     (when (and window ai-code-backends-infra-focus-on-open)
       (select-window window))
     window))
+
+(defun ai-code-backends-infra--fit-side-window-body-width (window)
+  "Resize WINDOW so its body width matches `ai-code-backends-infra-window-width'."
+  (let ((delta (- ai-code-backends-infra-window-width
+                  (window-body-width window))))
+    (unless (zerop delta)
+      (window-resize window delta t))))
 
 ;;; Session Helpers
 
