@@ -302,6 +302,19 @@
 
 ;;; Tests for ai-code-prompt-filepath-completion-mode
 
+(ert-deftest ai-code-test-filepath-completion-mode-default-enabled ()
+  "Test that @ filepath completion starts enabled by default."
+  (ai-code-prompt-filepath-completion-mode -1)
+  (load-file (expand-file-name "ai-code-input.el" default-directory))
+  (should ai-code-prompt-filepath-completion-enabled)
+  (should ai-code-prompt-filepath-completion-mode)
+  (should (memq 'ai-code--comment-auto-trigger-filepath-completion
+                post-self-insert-hook))
+  (should (memq 'ai-code--session-auto-trigger-filepath-completion
+                post-self-insert-hook))
+  (should (memq 'ai-code--comment-filepath-setup
+                after-change-major-mode-hook)))
+
 (ert-deftest ai-code-test-filepath-completion-mode-enable ()
   "Test that enabling the mode sets up hooks and variable correctly."
   (let ((ai-code-prompt-filepath-completion-mode nil))

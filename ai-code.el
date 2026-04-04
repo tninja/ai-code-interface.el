@@ -54,8 +54,8 @@
 ;;   ;; Optional: use a narrower transient menu on smaller frames
 ;;   ;; (setq ai-code-menu-layout 'two-columns)
 ;;   (global-set-key (kbd "C-c a") #'ai-code-menu)
-;;   ;; Optional: Enable @ file completion in comments and AI sessions
-;;   (ai-code-prompt-filepath-completion-mode 1)
+;;   ;; Optional: Disable @ file completion in comments and AI sessions
+;;   ;; (ai-code-prompt-filepath-completion-mode -1)
 ;;   ;; Optional: Configure AI test prompting mode (e.g., ask about running tests/TDD) for a tighter build-test loop
 ;;   (setq ai-code-auto-test-type 'ask-me)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
