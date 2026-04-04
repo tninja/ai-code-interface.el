@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Chore: Improve code refactoring auto-suggestion, user can select from several refactoring goal
+- Doc: Add Awesome Codex CLI badge to README
 - Feat: Add whisper speech-to-text input command with post-transcription actions for insert, editable send-to-session, and clipboard copy
 - Fix: Slowness of ai coding session given clickable session link feature
 
