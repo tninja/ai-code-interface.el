@@ -601,16 +601,26 @@ Return a cons of (BUFFER . MISSING-P)."
 MISSING-MESSAGE is used when no target session exists.
 When PREFIX and WORKING-DIR are present, prefer the attached session for
 SOURCE-BUFFER unless FORCE-PROMPT is non-nil."
-  (let* ((attached-state (and prefix working-dir
+  (let* ((file-session-key (and prefix
+                                source-buffer
+                                (ai-code-backends-infra--file-session-map-key
+                                 prefix
+                                 source-buffer)))
+         (attached-state (and prefix working-dir
                               (ai-code-backends-infra--attached-file-session
                                prefix
                                source-buffer
                                working-dir)))
          (attached-buffer (car-safe attached-state))
          (attached-missing (cdr-safe attached-state))
+         (needs-initial-file-selection (and (null buffer-name)
+                                            file-session-key
+                                            (null attached-buffer)
+                                            (not attached-missing)))
          (effective-force-prompt
           (or force-prompt
-              attached-missing))
+              attached-missing
+              needs-initial-file-selection))
          (buffer (or (and buffer-name (get-buffer buffer-name))
                      (and attached-buffer (not force-prompt) attached-buffer)
                      (and prefix working-dir

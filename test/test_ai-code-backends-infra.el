@@ -573,8 +573,8 @@
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
-(ert-deftest test-ai-code-backends-infra-send-line-unassociated-file-reuses-remembered-session ()
-  "Unassociated file should reuse the remembered repo session."
+(ert-deftest test-ai-code-backends-infra-send-line-unassociated-file-prompts-before-binding ()
+  "Unassociated file should prompt before it is bound to a repo session."
   (let* ((prefix "codex")
          (working-dir "/tmp/ai-code-file-new-association/")
          (source (generate-new-buffer " *ai-code-source-new-association*"))
@@ -618,7 +618,7 @@
                nil "missing" "line-2" prefix working-dir)))
 
           (should (= selection-count 1))
-          (should (equal (nreverse force-prompts) (list nil)))
+          (should (equal (nreverse force-prompts) (list t)))
           (should (equal (nreverse send-targets)
                          (list "*codex[file-new-association:b]*"
                                "*codex[file-new-association:b]*")))
@@ -680,7 +680,7 @@
               (ai-code-backends-infra--send-line-to-session
                nil "missing" "line-2" prefix working-dir)))
 
-          (should (equal (nreverse force-prompts) (list nil t)))
+          (should (equal (nreverse force-prompts) (list t t)))
           (should (equal (nreverse send-targets)
                          (list "*codex[file-rebind:a]*"
                                "*codex[file-rebind:b]*")))
@@ -740,6 +740,61 @@
                        (ai-code-backends-infra--file-session-map-key prefix source)
                        ai-code-backends-infra--file-session-map)
                       session-b)))
+      (dolist (buf (list source session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-switch-new-file-prompts-when-remembered-session-exists ()
+  "A newly opened file should still prompt when multiple repo sessions are active."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-file-multi-remembered/")
+         (source (generate-new-buffer " *ai-code-source-multi-remembered*"))
+         (session-a (get-buffer-create "*codex[file-multi-remembered:a]*"))
+         (session-b (get-buffer-create "*codex[file-multi-remembered:b]*"))
+         (captured-collection nil)
+         (captured-default nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-file-multi-remembered/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session-a
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (with-current-buffer session-b
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (ai-code-backends-infra--remember-session-buffer prefix working-dir session-b)
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
+                     (lambda (_prefix _dir)
+                       (list session-a session-b)))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt collection _predicate _require-match
+                              &optional _initial-input _hist def &rest _)
+                       (setq captured-collection collection)
+                       (setq captured-default def)
+                       "a"))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (_buffer) nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--switch-to-session-buffer
+               nil
+               "missing"
+               prefix
+               working-dir
+               nil)))
+
+          (should (equal captured-collection '("b" "a")))
+          (should (equal captured-default "b"))
+          (should (eq (gethash
+                       (ai-code-backends-infra--file-session-map-key prefix source)
+                       ai-code-backends-infra--file-session-map)
+                      session-a)))
       (dolist (buf (list source session-a session-b))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
@@ -900,7 +955,7 @@
               (ai-code-backends-infra--send-line-to-session
                nil "missing" "line-2" prefix working-dir)))
 
-          (should (equal (nreverse force-prompts) (list nil t)))
+          (should (equal (nreverse force-prompts) (list t t)))
           (should (equal (nreverse send-targets)
                          (list "*codex[file-missing:a]*"
                                "*codex[file-missing:b]*")))
