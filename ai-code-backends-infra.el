@@ -86,7 +86,7 @@ Can be either `vterm' or `eat'."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
-(defcustom ai-code-backends-infra-vterm-render-delay 0.005
+(defcustom ai-code-backends-infra-vterm-render-delay 0.01
   "Rendering optimization delay for batched terminal updates."
   :type 'number
   :group 'ai-code-backends-infra)
@@ -166,6 +166,10 @@ if the AI session buffer is not currently visible."
   :group 'ai-code-backends-infra)
 
 ;;; Vterm Rendering Optimization
+
+(defconst ai-code-backends-infra--vterm-redraw-regexp
+  "\\(?:\\(?:\033\\[\\|\15\\)[0-9]*[A-GJKMH]\\|\15\\)"
+  "Regexp to detect common terminal redraw or movement sequences.")
 
 (defvar-local ai-code-backends-infra--vterm-render-queue nil)
 (defvar-local ai-code-backends-infra--vterm-render-timer nil)
@@ -263,12 +267,14 @@ scrolling and copying are not disrupted by timer-driven redraws."
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
       (let* ((complex-redraw-detected
-              (string-match-p "\033\\[[0-9]*A.*\033\\[K.*\033\\[[0-9]*A.*\033\\[K" input))
+              (string-match-p ai-code-backends-infra--vterm-redraw-regexp input))
              (clear-count (1- (length (split-string input "\033\\[K"))))
+             (cr-count (cl-count ?\15 input))
              (escape-count (cl-count ?\033 input))
              (input-length (length input))
              (escape-density (if (> input-length 0) (/ (float escape-count) input-length) 0)))
         (if (or complex-redraw-detected
+                (>= cr-count 2)
                 (and (> escape-density 0.3) (>= clear-count 2))
                 ai-code-backends-infra--vterm-render-queue
                 (bound-and-true-p vterm-copy-mode))

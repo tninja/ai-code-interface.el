@@ -1246,6 +1246,30 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-vterm-smart-renderer-queues-on-carriage-return ()
+  "Incoming vterm data is queued when it contains multiple carriage returns."
+  (with-temp-buffer
+    (rename-buffer "*testgemini[test-dir]*" t)
+    (setq-local ai-code-backends-infra--vterm-render-queue nil)
+    (setq-local ai-code-backends-infra--vterm-render-timer nil)
+    (setq-local vterm-copy-mode nil)
+    (let* ((rendered nil)
+           (orig-fun (lambda (_process input) (push input rendered)))
+           (mock-process 'mock-proc))
+      (cl-letf (((symbol-function 'process-buffer)
+                 (lambda (_proc) (current-buffer)))
+                ((symbol-function 'run-at-time)
+                 (lambda (&rest _args) 'mock-timer))
+                ((symbol-function 'cancel-timer)
+                 (lambda (&rest _args) nil)))
+        ;; Send input with multiple \r (common in TUI progress bars/updates).
+        (ai-code-backends-infra--vterm-smart-renderer
+         orig-fun mock-process "Loading... 10%\rLoading... 20%\r")
+        ;; It should NOT be rendered immediately.
+        (should (null rendered))
+        ;; It should be in the queue.
+        (should (equal ai-code-backends-infra--vterm-render-queue "Loading... 10%\rLoading... 20%\r"))))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
