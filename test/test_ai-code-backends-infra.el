@@ -13,6 +13,8 @@
 (require 'ai-code-backends-infra)
 (require 'ai-code-notifications)
 
+(defvar vterm-copy-mode-hook)
+
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
   (should-not (ai-code-backends-infra--output-meaningful-p nil))
@@ -1269,6 +1271,32 @@
         (should (null rendered))
         ;; It should be in the queue.
         (should (equal ai-code-backends-infra--vterm-render-queue "Loading... 10%\rLoading... 20%\r"))))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-smart-renderer-allows-crlf-pass-through ()
+  "Simple CRLF output should render immediately instead of being queued."
+  (with-temp-buffer
+    (rename-buffer "*testgemini[test-crlf]*" t)
+    (setq-local ai-code-backends-infra--vterm-render-queue nil)
+    (setq-local ai-code-backends-infra--vterm-render-timer nil)
+    (setq-local vterm-copy-mode nil)
+    (let* ((rendered nil)
+           (timer-scheduled nil)
+           (orig-fun (lambda (_process input) (push input rendered)))
+           (mock-process 'mock-proc))
+      (cl-letf (((symbol-function 'process-buffer)
+                 (lambda (_proc) (current-buffer)))
+                ((symbol-function 'run-at-time)
+                 (lambda (&rest _args)
+                   (setq timer-scheduled t)
+                   'mock-timer))
+                ((symbol-function 'cancel-timer)
+                 (lambda (&rest _args) nil)))
+        (ai-code-backends-infra--vterm-smart-renderer
+         orig-fun mock-process "hello\r\n")
+        (should (equal rendered '("hello\r\n")))
+        (should-not timer-scheduled)
+        (should-not ai-code-backends-infra--vterm-render-queue)
+        (should-not ai-code-backends-infra--vterm-render-timer)))))
 
 (provide 'test_ai-code-backends-infra)
 

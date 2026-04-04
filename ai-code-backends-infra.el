@@ -168,8 +168,10 @@ if the AI session buffer is not currently visible."
 ;;; Vterm Rendering Optimization
 
 (defconst ai-code-backends-infra--vterm-redraw-regexp
-  "\\(?:\\(?:\033\\[\\|\15\\)[0-9]*[A-GJKMH]\\|\15\\)"
-  "Regexp to detect common terminal redraw or movement sequences.")
+  "\033\\[[0-9;?]*[A-GJKMH]"
+  "Regexp to detect ANSI terminal redraw or movement sequences.
+Standalone carriage returns are intentionally excluded so simple CR-based
+updates are handled separately via carriage return counting.")
 
 (defvar-local ai-code-backends-infra--vterm-render-queue nil)
 (defvar-local ai-code-backends-infra--vterm-render-timer nil)
@@ -952,8 +954,8 @@ CLEANUP-FN is called with no arguments when the process exits.
 INSTANCE-NAME overrides instance selection when non-nil.
 PREFIX enables instance selection when BUFFER-NAME is nil.
 When FORCE-PROMPT is non-nil, always prompt for a new instance name.
-ENV-VARS is a list of additional environment variable strings (e.g., \"VAR=value\")
-passed to the terminal session on creation.
+ENV-VARS is a list of additional environment variable strings, for example
+\"VAR=value\", passed to the terminal session on creation.
 MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' to send
 that sequence inside the session buffer.
 POST-START-FN is called with (BUFFER PROCESS INSTANCE-NAME) after a new
