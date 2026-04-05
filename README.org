@@ -447,6 +447,7 @@ The following books introduce how to use AI to assist programming and potentiall
 - Gemini CLI (`[[https://github.com/linchen2chris/gemini-cli.el][gemini-cli.el]]`)
 - [[https://github.com/xenodium/agent-shell][agent-shell]] ([[https://github.com/xenodium/acp.el][acp.el]])
 - [[https://eca.dev/][ECA (Editor Code Assistant)]]
+- [[https://github.com/acmorrow/claude-code-ide-extras][claude-code-ide-extras.el]]
 
 ** License
 
