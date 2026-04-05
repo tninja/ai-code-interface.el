@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Feat: Add more emacs mcps: buffer and project query tools and xref support
+  - Referencing https://github.com/acmorrow/claude-code-ide-extras, port 4 mcps from there.
 
 ** 1.67
 - Chore: Size side windows by body width and add test
