@@ -1,0 +1,41 @@
+name: unit-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Emacs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y emacs
+          emacs --version
+
+      - name: Install Elisp dependencies
+        run: |
+          emacs -Q --batch --eval "
+          (progn
+            (require 'package)
+            (setq package-archives
+                  '((\"gnu\" . \"https://elpa.gnu.org/packages/\")
+                    (\"nongnu\" . \"https://elpa.nongnu.org/nongnu/\")
+                    (\"melpa\" . \"https://melpa.org/packages/\")))
+            (package-initialize)
+            (package-refresh-contents)
+            (dolist (pkg '(transient magit))
+              (unless (package-installed-p pkg)
+                (package-install pkg))))"
+
+      - name: Run unit tests
+        run: |
+          emacs -Q -batch -L . \
+            -l test/test_00-bootstrap.el \
+            -l ert \
+            --eval "(mapc #'load-file (file-expand-wildcards \"test/test_*.el\"))" \
+            -f ert-run-tests-batch-and-exit
