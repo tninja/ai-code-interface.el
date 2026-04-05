@@ -28,13 +28,14 @@ jobs:
                     (\"melpa\" . \"https://melpa.org/packages/\")))
             (package-initialize)
             (package-refresh-contents)
-            (dolist (pkg '(transient magit))
+            (dolist (pkg '(compat transient magit))
               (unless (package-installed-p pkg)
                 (package-install pkg))))"
 
       - name: Run unit tests
         run: |
           emacs -Q -batch -L . \
+            --eval "(progn (require 'package) (package-initialize))" \
             -l test/test_00-bootstrap.el \
             -l ert \
             --eval "(mapc #'load-file (file-expand-wildcards \"test/test_*.el\"))" \
