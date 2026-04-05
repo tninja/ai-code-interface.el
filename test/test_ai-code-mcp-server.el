@@ -228,6 +228,13 @@
             (should (member "sample.el:4: beta" result))))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-server-source-requires-seq-explicitly ()
+  "The MCP server source should declare its seq dependency explicitly."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-mcp-server.el")
+    (goto-char (point-min))
+    (should (search-forward "(require 'seq)" nil t))))
+
 (ert-deftest ai-code-test-mcp-buffer-query-returns-selected-buffer-lines ()
   "Buffer query should return the requested line range from a live buffer."
   (let ((buffer (generate-new-buffer " *ai-code-mcp-buffer-query*")))
@@ -239,6 +246,33 @@
                           (buffer-name buffer)
                           2
                           2))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-preserves-trailing-whitespace ()
+  "Buffer query should preserve trailing whitespace in the selected text."
+  (let ((buffer (generate-new-buffer " *ai-code-mcp-buffer-query-whitespace*")))
+    (unwind-protect
+        (with-current-buffer buffer
+          (insert "alpha\nbeta  \n")
+          (should (equal "beta  "
+                         (ai-code-mcp-buffer-query
+                          (buffer-name buffer)
+                          2
+                          1))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-requires-positive-line-range ()
+  "Buffer query should reject non-positive line range arguments."
+  (let ((buffer (generate-new-buffer " *ai-code-mcp-buffer-query-range*")))
+    (unwind-protect
+        (with-current-buffer buffer
+          (insert "alpha\nbeta\n")
+          (should-error
+           (ai-code-mcp-buffer-query (buffer-name buffer) 0 1))
+          (should-error
+           (ai-code-mcp-buffer-query (buffer-name buffer) 1 0)))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
@@ -258,6 +292,35 @@
           (with-temp-file file-b
             (insert "(message \"beta\")\n"))
           (ai-code-mcp-register-session "session-project-files" project-dir buffer)
+          (should (equal '("alpha.el" "nested/beta.el")
+                         (sort (ai-code-mcp-get-project-files) #'string<))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-project-files-skips-hidden-directories ()
+  "Project files should skip hidden directories such as .git."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-project-files-hidden-" t))
+         (file-a (expand-file-name "alpha.el" project-dir))
+         (file-b (expand-file-name "nested/beta.el" project-dir))
+         (hidden-file (expand-file-name ".git/HEAD" project-dir))
+         (buffer (generate-new-buffer " *ai-code-mcp-project-files-hidden*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-project-files-hidden"))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory file-b) t)
+          (make-directory (file-name-directory hidden-file) t)
+          (with-temp-file file-a
+            (insert "(message \"alpha\")\n"))
+          (with-temp-file file-b
+            (insert "(message \"beta\")\n"))
+          (with-temp-file hidden-file
+            (insert "ref: refs/heads/main\n"))
+          (ai-code-mcp-register-session
+           "session-project-files-hidden"
+           project-dir
+           buffer)
           (should (equal '("alpha.el" "nested/beta.el")
                          (sort (ai-code-mcp-get-project-files) #'string<))))
       (when (buffer-live-p buffer)
@@ -309,7 +372,7 @@
   "Definitions-at-point should resolve via the xref backend at a file location."
   (let* ((project-dir (make-temp-file "ai-code-mcp-xref-defs-" t))
          (file-path (expand-file-name "defs.el" project-dir))
-         (buffer (generate-new-buffer " *ai-code-mcp-xref-defs*")))
+         visited-buffer)
     (unwind-protect
         (progn
           (with-temp-file file-path
@@ -330,10 +393,63 @@
                            (ai-code-mcp-xref-find-definitions-at-point
                             file-path
                             2
-                            3)))))
+                            3))))
+          (setq visited-buffer (find-buffer-visiting file-path)))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-display-path-keeps-external-sibling-absolute ()
+  "Display path should keep sibling paths outside the project absolute."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-display-path-" t))
+         (sibling-dir (concat project-dir "-sibling"))
+         (external-file (expand-file-name "other.el" sibling-dir))
+         (buffer (generate-new-buffer " *ai-code-mcp-display-path*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-display-path"))
+    (unwind-protect
+        (progn
+          (make-directory sibling-dir t)
+          (with-temp-file external-file
+            (insert "(message \"other\")\n"))
+          (ai-code-mcp-register-session "session-display-path" project-dir buffer)
+          (should (equal (expand-file-name external-file)
+                         (ai-code-mcp--display-path external-file))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer))
-      (delete-directory project-dir t))))
+      (let ((visited-buffer (find-buffer-visiting external-file)))
+        (when (buffer-live-p visited-buffer)
+          (kill-buffer visited-buffer)))
+      (delete-directory project-dir t)
+      (delete-directory sibling-dir t))))
+
+(ert-deftest ai-code-test-mcp-format-xref-item-preserves-external-absolute-path ()
+  "Xref items outside the project should keep their absolute file path."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-xref-project-" t))
+         (external-dir (make-temp-file "ai-code-mcp-xref-external-" t))
+         (external-file (expand-file-name "index.el" external-dir))
+         (buffer (generate-new-buffer " *ai-code-mcp-xref-format*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-xref-format"))
+    (unwind-protect
+        (progn
+          (with-temp-file external-file
+            (insert "(message \"external\")\n"))
+          (ai-code-mcp-register-session "session-xref-format" project-dir buffer)
+          (should (equal
+                   (format "%s:1: external summary"
+                           (expand-file-name external-file))
+                   (ai-code-mcp--format-xref-item
+                    (xref-make
+                     "external summary"
+                     (xref-make-file-location external-file 1 0))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (let ((visited-buffer (find-buffer-visiting external-file)))
+        (when (buffer-live-p visited-buffer)
+          (kill-buffer visited-buffer)))
+      (delete-directory project-dir t)
+      (delete-directory external-dir t))))
 
 (provide 'test_ai-code-mcp-server)
 

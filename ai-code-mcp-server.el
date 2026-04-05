@@ -14,6 +14,7 @@
 (require 'cl-lib)
 (require 'imenu)
 (require 'project)
+(require 'seq)
 (require 'subr-x)
 (require 'xref)
 
@@ -218,15 +219,29 @@ Required keys are `:function', `:name', and `:description'."
               "No active buffer")
             file-count)))
 
+(defun ai-code-mcp--validate-buffer-query-range (start-line num-lines)
+  "Validate optional buffer query range arguments START-LINE and NUM-LINES."
+  (when (or (and start-line (not num-lines))
+            (and num-lines (not start-line)))
+    (error "Arguments start_line and num_lines must both be provided or both be omitted"))
+  (when (and start-line
+             (or (< start-line 1)
+                 (< num-lines 1)))
+    (error "Arguments start_line and num_lines must be positive integers")))
+
+(defun ai-code-mcp--drop-trailing-newline (text)
+  "Return TEXT without a single trailing newline."
+  (if (string-suffix-p "\n" text)
+      (substring text 0 -1)
+    text))
+
 (defun ai-code-mcp-buffer-query (buffer-name &optional start-line num-lines)
   "Return contents from BUFFER-NAME.
 When START-LINE and NUM-LINES are non-nil, return only that line range."
   (let ((buffer (get-buffer buffer-name)))
     (if (not buffer)
         (format "Error: Buffer not found: %s" buffer-name)
-      (when (or (and start-line (not num-lines))
-                (and num-lines (not start-line)))
-        (error "Arguments start_line and num_lines must both be provided or both be omitted"))
+      (ai-code-mcp--validate-buffer-query-range start-line num-lines)
       (with-current-buffer buffer
         (save-excursion
           (if (not start-line)
@@ -235,8 +250,42 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
             (forward-line (1- start-line))
             (let ((start-pos (point)))
               (forward-line num-lines)
-              (string-trim-right
+              (ai-code-mcp--drop-trailing-newline
                (buffer-substring-no-properties start-pos (point))))))))))
+
+(defun ai-code-mcp--project-files (project-dir)
+  "Return absolute regular files inside PROJECT-DIR."
+  (let* ((default-directory (file-name-as-directory project-dir))
+         (project (project-current nil project-dir))
+         (project-root default-directory))
+    (or (ignore-errors
+          (when (and project (fboundp 'project-files))
+            (seq-filter
+             #'file-regular-p
+             (mapcar (lambda (file)
+                       (if (file-name-absolute-p file)
+                           file
+                         (expand-file-name file project-root)))
+                     (project-files project)))))
+        (cl-labels
+            ((collect-files (dir)
+               (apply
+                #'append
+                (mapcar
+                 (lambda (entry)
+                   (cond
+                    ((member entry '("." "..")) nil)
+                    ((string-prefix-p "." entry) nil)
+                    (t
+                     (let ((path (expand-file-name entry dir)))
+                       (cond
+                        ((file-directory-p path)
+                         (collect-files path))
+                        ((file-regular-p path)
+                         (list path))
+                        (t nil))))))
+                 (directory-files dir nil nil t)))))
+          (collect-files project-root)))))
 
 (defun ai-code-mcp-get-project-files ()
   "Return regular files in the current project as relative paths."
@@ -244,9 +293,7 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
     (if (not (and project-dir (file-directory-p project-dir)))
         nil
       (mapcar #'ai-code-mcp--display-path
-              (seq-filter
-               #'file-regular-p
-               (directory-files-recursively project-dir ".*" t))))))
+              (ai-code-mcp--project-files project-dir)))))
 
 (defun ai-code-mcp-get-project-buffers ()
   "Return open buffers that belong to the current project."
@@ -473,12 +520,16 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
 
 (defun ai-code-mcp--display-path (file-path)
   "Return FILE-PATH relative to the active project when possible."
-  (let ((project-dir (ai-code-mcp--project-directory)))
-    (if (and project-dir
-             (string-prefix-p (expand-file-name project-dir)
-                              (expand-file-name file-path)))
-        (file-relative-name file-path project-dir)
-      (file-name-nondirectory file-path))))
+  (let* ((expanded-path (and file-path (expand-file-name file-path)))
+         (project-dir (ai-code-mcp--project-directory))
+         (project-root (and project-dir
+                            (file-name-as-directory
+                             (expand-file-name project-dir)))))
+    (if (and expanded-path
+             project-root
+             (file-in-directory-p expanded-path project-root))
+        (file-relative-name expanded-path project-root)
+      expanded-path)))
 
 (defun ai-code-mcp--require-file-path (file-path)
   "Return FILE-PATH as an absolute path or signal an error."
