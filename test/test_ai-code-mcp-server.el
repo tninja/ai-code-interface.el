@@ -116,9 +116,13 @@
                                       (plist-get tool :name))
                                     ai-code-mcp-server-tools)
                             #'string<)))
-      (should (equal '("imenu_list_symbols"
+      (should (equal '("buffer_query"
+                       "get_project_buffers"
+                       "get_project_files"
+                       "imenu_list_symbols"
                        "project_info"
                        "treesit_info"
+                       "xref_find_definitions_at_point"
                        "xref_find_references")
                      tool-names)))))
 
@@ -130,9 +134,13 @@
                                        (alist-get 'name tool))
                                      (alist-get 'tools tools-result))
                              #'string<)))
-      (should (equal '("imenu_list_symbols"
+      (should (equal '("buffer_query"
+                       "get_project_buffers"
+                       "get_project_files"
+                       "imenu_list_symbols"
                        "project_info"
                        "treesit_info"
+                       "xref_find_definitions_at_point"
                        "xref_find_references")
                      tool-names)))))
 
@@ -218,6 +226,113 @@
           (let ((result (ai-code-mcp-imenu-list-symbols file-path)))
             (should (member "sample.el:1: alpha" result))
             (should (member "sample.el:4: beta" result))))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-returns-selected-buffer-lines ()
+  "Buffer query should return the requested line range from a live buffer."
+  (let ((buffer (generate-new-buffer " *ai-code-mcp-buffer-query*")))
+    (unwind-protect
+        (with-current-buffer buffer
+          (insert "alpha\nbeta\ngamma\ndelta\n")
+          (should (equal "beta\ngamma"
+                         (ai-code-mcp-buffer-query
+                          (buffer-name buffer)
+                          2
+                          2))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-mcp-get-project-files-returns-relative-project-paths ()
+  "Project files should list regular files relative to the session project root."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-project-files-" t))
+         (file-a (expand-file-name "alpha.el" project-dir))
+         (file-b (expand-file-name "nested/beta.el" project-dir))
+         (buffer (generate-new-buffer " *ai-code-mcp-project-files*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-project-files"))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory file-b) t)
+          (with-temp-file file-a
+            (insert "(message \"alpha\")\n"))
+          (with-temp-file file-b
+            (insert "(message \"beta\")\n"))
+          (ai-code-mcp-register-session "session-project-files" project-dir buffer)
+          (should (equal '("alpha.el" "nested/beta.el")
+                         (sort (ai-code-mcp-get-project-files) #'string<))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-project-buffers-lists-open-buffers-in-project ()
+  "Project buffers should include file-visiting buffers under the active project."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-project-buffers-" t))
+         (project-file (expand-file-name "alpha.el" project-dir))
+         (other-dir (make-temp-file "ai-code-mcp-other-project-" t))
+         (other-file (expand-file-name "other.el" other-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-project-buffers*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-project-buffers")
+         project-buffer
+         other-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file project-file
+            (insert "(message \"project\")\n"))
+          (with-temp-file other-file
+            (insert "(message \"other\")\n"))
+          (setq project-buffer (find-file-noselect project-file t)
+                other-buffer (find-file-noselect other-file t))
+          (ai-code-mcp-register-session
+           "session-project-buffers"
+           project-dir
+           session-buffer)
+          (let ((result (ai-code-mcp-get-project-buffers)))
+            (should (seq-some
+                     (lambda (entry)
+                       (equal project-file (alist-get 'file entry)))
+                     result))
+            (should-not (seq-some
+                         (lambda (entry)
+                           (equal other-file (alist-get 'file entry)))
+                         result))))
+      (when (buffer-live-p project-buffer)
+        (kill-buffer project-buffer))
+      (when (buffer-live-p other-buffer)
+        (kill-buffer other-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t)
+      (delete-directory other-dir t))))
+
+(ert-deftest ai-code-test-mcp-xref-find-definitions-at-point-uses-location-context ()
+  "Definitions-at-point should resolve via the xref backend at a file location."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-xref-defs-" t))
+         (file-path (expand-file-name "defs.el" project-dir))
+         (buffer (generate-new-buffer " *ai-code-mcp-xref-defs*")))
+    (unwind-protect
+        (progn
+          (with-temp-file file-path
+            (insert "(defun alpha ()\n")
+            (insert "  (beta))\n\n")
+            (insert "(defun beta ()\n")
+            (insert "  t)\n"))
+          (cl-letf (((symbol-function 'xref-find-backend)
+                     (lambda () 'mock-backend))
+                    ((symbol-function 'xref-backend-identifier-at-point)
+                     (lambda (_backend) "beta"))
+                    ((symbol-function 'xref-backend-definitions)
+                     (lambda (_backend identifier)
+                       (list (xref-make
+                              (format "%s definition" identifier)
+                              (xref-make-file-location file-path 4 0))))))
+            (should (equal '("defs.el:4: beta definition")
+                           (ai-code-mcp-xref-find-definitions-at-point
+                            file-path
+                            2
+                            3)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
       (delete-directory project-dir t))))
 
 (provide 'test_ai-code-mcp-server)

@@ -14,6 +14,7 @@
 (require 'cl-lib)
 (require 'imenu)
 (require 'project)
+(require 'subr-x)
 (require 'xref)
 
 (require 'ai-code-input)
@@ -52,6 +53,28 @@ Each item is a plist with at least `:function', `:name', and `:description'."
      :name "project_info"
      :description "Get information about the current project context."
      :args nil)
+    (:function ai-code-mcp-buffer-query
+     :name "buffer_query"
+     :description "Read contents from an Emacs buffer by line range."
+     :args ((:name "buffer_name"
+             :type string
+             :description "Name of the buffer to read.")
+            (:name "start_line"
+             :type integer
+             :description "1-based first line to read."
+             :optional t)
+            (:name "num_lines"
+             :type integer
+             :description "Number of lines to read from start_line."
+             :optional t)))
+    (:function ai-code-mcp-get-project-files
+     :name "get_project_files"
+     :description "List regular files in the current project."
+     :args nil)
+    (:function ai-code-mcp-get-project-buffers
+     :name "get_project_buffers"
+     :description "List open buffers that belong to the current project."
+     :args nil)
     (:function ai-code-mcp-imenu-list-symbols
      :name "imenu_list_symbols"
      :description "List useful symbols in a file via imenu."
@@ -67,6 +90,18 @@ Each item is a plist with at least `:function', `:name', and `:description'."
             (:name "file_path"
              :type string
              :description "Path to the file that provides backend context.")))
+    (:function ai-code-mcp-xref-find-definitions-at-point
+     :name "xref_find_definitions_at_point"
+     :description "Find definitions of the identifier at a file location."
+     :args ((:name "file_path"
+             :type string
+             :description "Path to the file that provides backend context.")
+            (:name "line"
+             :type integer
+             :description "1-based line number.")
+            (:name "column"
+             :type integer
+             :description "0-based column number.")))
     (:function ai-code-mcp-treesit-info
      :name "treesit_info"
      :description "Return tree-sitter node information for a file location."
@@ -183,6 +218,45 @@ Required keys are `:function', `:name', and `:description'."
               "No active buffer")
             file-count)))
 
+(defun ai-code-mcp-buffer-query (buffer-name &optional start-line num-lines)
+  "Return contents from BUFFER-NAME.
+When START-LINE and NUM-LINES are non-nil, return only that line range."
+  (let ((buffer (get-buffer buffer-name)))
+    (if (not buffer)
+        (format "Error: Buffer not found: %s" buffer-name)
+      (when (or (and start-line (not num-lines))
+                (and num-lines (not start-line)))
+        (error "Arguments start_line and num_lines must both be provided or both be omitted"))
+      (with-current-buffer buffer
+        (save-excursion
+          (if (not start-line)
+              (buffer-substring-no-properties (point-min) (point-max))
+            (goto-char (point-min))
+            (forward-line (1- start-line))
+            (let ((start-pos (point)))
+              (forward-line num-lines)
+              (string-trim-right
+               (buffer-substring-no-properties start-pos (point))))))))))
+
+(defun ai-code-mcp-get-project-files ()
+  "Return regular files in the current project as relative paths."
+  (let ((project-dir (ai-code-mcp--project-directory)))
+    (if (not (and project-dir (file-directory-p project-dir)))
+        nil
+      (mapcar #'ai-code-mcp--display-path
+              (seq-filter
+               #'file-regular-p
+               (directory-files-recursively project-dir ".*" t))))))
+
+(defun ai-code-mcp-get-project-buffers ()
+  "Return open buffers that belong to the current project."
+  (let ((project-dir (ai-code-mcp--project-directory)))
+    (delq nil
+          (mapcar
+           (lambda (buffer)
+             (ai-code-mcp--project-buffer-entry buffer project-dir))
+           (buffer-list)))))
+
 (defun ai-code-mcp-imenu-list-symbols (file-path)
   "Return formatted imenu entries for FILE-PATH."
   (let* ((resolved-file (ai-code-mcp--require-file-path file-path))
@@ -205,8 +279,29 @@ Required keys are `:function', `:name', and `:description'."
                 (format "No references found for '%s'" identifier)
               (mapcar #'ai-code-mcp--format-xref-item items))))))))
 
+(defun ai-code-mcp-xref-find-definitions-at-point (file-path line column)
+  "Return formatted xref definitions for the identifier at FILE-PATH:LINE:COLUMN."
+  (let ((buffer (ai-code-mcp--file-buffer
+                 (ai-code-mcp--require-file-path file-path))))
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char (point-min))
+        (forward-line (1- line))
+        (move-to-column column)
+        (let ((backend (xref-find-backend)))
+          (if (not backend)
+              (format "No xref backend available for %s" file-path)
+            (let ((identifier (xref-backend-identifier-at-point backend)))
+              (if (not identifier)
+                  (format "No identifier at %s:%d:%d" file-path line column)
+                (let ((items (xref-backend-definitions backend identifier)))
+                  (if (not items)
+                      (format "No definitions found for '%s'" identifier)
+                    (mapcar #'ai-code-mcp--format-xref-item items)))))))))))
+
 (defun ai-code-mcp-treesit-info (file-path &optional line column whole-file)
-  "Return tree-sitter information for FILE-PATH at LINE and COLUMN."
+  "Return tree-sitter information for FILE-PATH at LINE and COLUMN.
+When WHOLE-FILE is non-nil, inspect the root node instead."
   (cond
    ((not (and (fboundp 'treesit-available-p)
               (treesit-available-p)))
@@ -332,8 +427,34 @@ Required keys are `:function', `:name', and `:description'."
   "Return RESULT converted to a tool response string."
   (cond
    ((stringp result) result)
-   ((listp result) (mapconcat #'identity result "\n"))
+   ((listp result)
+    (mapconcat (lambda (item)
+                 (if (stringp item)
+                     item
+                   (format "%S" item)))
+               result
+               "\n"))
    (t (format "%s" result))))
+
+(defun ai-code-mcp--project-buffer-entry (buffer project-dir)
+  "Return buffer metadata for BUFFER when it belongs to PROJECT-DIR."
+  (when (ai-code-mcp--buffer-in-project-p buffer project-dir)
+    (with-current-buffer buffer
+      `((name . ,(buffer-name buffer))
+        (mode . ,major-mode)
+        (file . ,(buffer-file-name))
+        (modified . ,(buffer-modified-p buffer))))))
+
+(defun ai-code-mcp--buffer-in-project-p (buffer project-dir)
+  "Return non-nil when BUFFER belongs to PROJECT-DIR."
+  (and (file-directory-p project-dir)
+       (with-current-buffer buffer
+         (let ((file (buffer-file-name))
+               (buffer-dir default-directory))
+           (or (and file
+                    (file-in-directory-p file project-dir))
+               (and buffer-dir
+                    (file-in-directory-p buffer-dir project-dir)))))))
 
 (defun ai-code-mcp--project-directory ()
   "Return the best available project directory."
@@ -362,7 +483,7 @@ Required keys are `:function', `:name', and `:description'."
 (defun ai-code-mcp--require-file-path (file-path)
   "Return FILE-PATH as an absolute path or signal an error."
   (unless file-path
-    (error "file_path is required"))
+    (error "Argument file_path is required"))
   (expand-file-name file-path))
 
 (defun ai-code-mcp--file-buffer (file-path)
@@ -392,7 +513,8 @@ Required keys are `:function', `:name', and `:description'."
 (defun ai-code-mcp--format-xref-item (item)
   "Return a human-readable line for xref ITEM."
   (let* ((location (xref-item-location item))
-         (group (xref-location-group location))
+         (group (ai-code-mcp--display-path
+                 (xref-location-group location)))
          (marker (xref-location-marker location))
          (line (with-current-buffer (marker-buffer marker)
                  (save-excursion
