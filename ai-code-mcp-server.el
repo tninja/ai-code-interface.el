@@ -1,6 +1,6 @@
 ;;; ai-code-mcp-server.el --- MCP tools core for AI Code Interface -*- lexical-binding: t; -*-
 
-;; Author: Yoav Orot, Kang Tu, AI Agent
+;; Author: Yoav Orot, Kang Tu, Andrew Morrow, AI Agent
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
