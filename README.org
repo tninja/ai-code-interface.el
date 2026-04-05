@@ -196,6 +196,11 @@ AI Code includes an Emacs MCP server with these built-in tools:
 - =imenu_list_symbols=
 - =xref_find_references=
 - =treesit_info=
+- .. and others
+
+screenshot inside Codex cli:
+
+[[file:./emacs_mcp_tools.png]]
 
 ***** Use It with an AI CLI
 
