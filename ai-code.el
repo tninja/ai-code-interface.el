@@ -200,6 +200,10 @@ See the later `defcustom' for user-facing documentation and default.")
     ("Off" . nil))
   "Persistent choices for `ai-code-auto-test-type`.")
 
+(defconst ai-code--auto-test-type-legacy-persistent-modes
+  '(test-after-change tdd tdd-with-refactoring)
+  "Legacy persistent values still honored for backward compatibility.")
+
 (defun ai-code--read-auto-test-type-choice ()
   "Read and return one prompt test type for this send action."
   (let* ((choice (completing-read "Choose test prompt type for this send: "
@@ -246,13 +250,20 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 
 (defun ai-code--resolve-auto-test-type-for-send (&optional prompt-text)
   "Resolve the concrete auto test type for current send action for PROMPT-TEXT."
-  (when (eq ai-code-auto-test-type 'ask-me)
-    (if ai-code-use-gptel-classify-prompt
-        (pcase (ai-code--gptel-classify-prompt-code-change prompt-text)
-          ('code-change (ai-code--read-auto-test-type-choice))
-          ('non-code-change nil)
-          (_ (ai-code--read-auto-test-type-choice)))
-      (ai-code--read-auto-test-type-choice))))
+  (if (eq ai-code-auto-test-type 'ask-me)
+      (ai-code--resolve-ask-auto-test-type-for-send prompt-text)
+    (and (memq ai-code-auto-test-type
+               ai-code--auto-test-type-legacy-persistent-modes)
+         ai-code-auto-test-type)))
+
+(defun ai-code--resolve-ask-auto-test-type-for-send (&optional prompt-text)
+  "Resolve the send-time auto test type for ask-me mode with PROMPT-TEXT."
+  (if ai-code-use-gptel-classify-prompt
+      (pcase (ai-code--gptel-classify-prompt-code-change prompt-text)
+        ('code-change (ai-code--read-auto-test-type-choice))
+        ('non-code-change nil)
+        (_ (ai-code--read-auto-test-type-choice)))
+    (ai-code--read-auto-test-type-choice)))
 
 (defun ai-code--auto-test-suffix-for-type (type)
   "Return prompt suffix for auto test TYPE."

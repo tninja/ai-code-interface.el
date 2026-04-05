@@ -70,6 +70,13 @@
   (let ((ai-code-auto-test-type nil))
     (should-not (ai-code--resolve-auto-test-type-for-send))))
 
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-legacy-persistent-modes ()
+  "Test that legacy persistent auto test modes still resolve at send time."
+  (dolist (mode '(test-after-change tdd tdd-with-refactoring))
+    (let ((ai-code-auto-test-type mode))
+      (should (eq mode
+                  (ai-code--resolve-auto-test-type-for-send))))))
+
 (ert-deftest ai-code-test-resolve-auto-test-type-for-send-ask-me ()
   "Test that ask-me mode resolves by interactive per-send selection."
   (let ((ai-code-auto-test-type 'ask-me))
