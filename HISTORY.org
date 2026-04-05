@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Fix: Add SPDX header and commentary tests for autoloads
+  - Also added unit-test CI workflow
 - Feat: Add more emacs mcps: buffer and project query tools and xref support
   - Referencing https://github.com/acmorrow/claude-code-ide-extras, port 4 mcps from there.
 
