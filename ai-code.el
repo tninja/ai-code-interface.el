@@ -160,13 +160,18 @@ with a newline separator."
 
 ;;;###autoload
 (defconst ai-code--diagnostics-first-harness-instruction
-  "record a diagnostics baseline with the get_diagnostics MCP tool before editing. After each edit, re-run get_diagnostics for the touched files and do not finish until they have no new diagnostics compared with the baseline."
+  "Record a diagnostics baseline with the get_diagnostics MCP tool before editing. After each edit, re-run get_diagnostics for the touched files and do not finish until they have no new diagnostics compared with the baseline."
   "Shared diagnostics-first harness guidance for code-change prompts.")
+
+(defun ai-code--diagnostics-first-harness-instruction-inline ()
+  "Return diagnostics-first guidance formatted for inline prompt text."
+  (concat (downcase (substring ai-code--diagnostics-first-harness-instruction 0 1))
+          (substring ai-code--diagnostics-first-harness-instruction 1)))
 
 ;;;###autoload
 (defcustom ai-code-test-after-code-change-suffix
   (concat "If any program code changes, "
-          ai-code--diagnostics-first-harness-instruction
+          (ai-code--diagnostics-first-harness-instruction-inline)
           " Run unit-tests and follow up on the test-result (fix code if there is an error).")
   "User-provided prompt suffix for test-after-code-change."
   :type '(choice (const nil) string)
@@ -186,8 +191,7 @@ See the later `defcustom' for user-facing documentation and default.")
           ai-code--tdd-red-green-tail-instruction
           ai-code--tdd-run-test-after-each-stage-instruction
           ai-code--tdd-test-pattern-instruction
-          " "
-          (capitalize ai-code--diagnostics-first-harness-instruction)))
+          ai-code--diagnostics-first-harness-instruction))
 
 (defun ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix ()
   "Return the TDD+refactoring suffix for test-after-code-change prompt text."
@@ -196,8 +200,7 @@ See the later `defcustom' for user-facing documentation and default.")
           ai-code--tdd-red-green-tail-instruction
           ai-code--tdd-run-test-after-each-stage-instruction
           ai-code--tdd-test-pattern-instruction
-          " "
-          (capitalize ai-code--diagnostics-first-harness-instruction)))
+          ai-code--diagnostics-first-harness-instruction))
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)

@@ -31,7 +31,7 @@ with a newline separator.")
 (defvar ai-code-use-prompt-suffix t "\
 When non-nil, append `ai-code-prompt-suffix` where supported.")
 (custom-autoload 'ai-code-use-prompt-suffix "ai-code" t)
-(defvar ai-code-test-after-code-change-suffix "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)." "\
+(defvar ai-code-test-after-code-change-suffix "If any program code changes, record a diagnostics baseline with the get_diagnostics MCP tool before editing. After each edit, re-run get_diagnostics for the touched files and do not finish until they have no new diagnostics compared with the baseline. Run unit-tests and follow up on the test-result (fix code if there is an error)." "\
 User-provided prompt suffix for test-after-code-change.")
 (custom-autoload 'ai-code-test-after-code-change-suffix "ai-code" t)
 (defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix "\

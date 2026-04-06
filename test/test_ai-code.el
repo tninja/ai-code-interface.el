@@ -76,9 +76,11 @@
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-includes-diagnostics-first-loop ()
   "Test that TDD suffix requires diagnostics checks before completion."
-  (let ((ai-code--tdd-test-pattern-instruction ""))
+  (let ((ai-code--tdd-test-pattern-instruction "")
+        (case-fold-search nil))
     (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
       (should (string-match-p "get_diagnostics" suffix))
+      (should (string-match-p "get_diagnostics MCP tool" suffix))
       (should (string-match-p "baseline" suffix))
       (should (string-match-p "no new diagnostics" suffix)))))
 

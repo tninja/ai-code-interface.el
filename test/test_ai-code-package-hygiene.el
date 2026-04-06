@@ -25,6 +25,12 @@
   (let ((header (ai-code-test--file-prefix "ai-code-autoloads.el" 400)))
     (should (string-match-p "^;;; Commentary:" header))))
 
+(ert-deftest ai-code-test-autoloads-file-mentions-diagnostics-first-default ()
+  "Autoloads file should reflect the diagnostics-first default suffix."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-autoloads.el")
+    (should (search-forward "get_diagnostics MCP tool" nil t))))
+
 (provide 'test_ai-code-package-hygiene)
 
 ;;; test_ai-code-package-hygiene.el ends here
