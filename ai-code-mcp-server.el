@@ -7,7 +7,7 @@
 ;; This module provides a transport-agnostic MCP tools core for AI Code
 ;; Interface.  It handles tool registration, session context, method
 ;; dispatch, and a small built-in toolset that exposes common Emacs
-;; project-navigation capabilities.
+;; project navigation, diagnostics, and code-intelligence capabilities.
 
 ;;; Code:
 
@@ -156,7 +156,18 @@ Use `auto' to prefer Flycheck and then Flymake when available."
              :type boolean
              :description "When non-nil, inspect the root node."
              :optional t))))
-  "Built-in MCP tool specifications.")
+  "Built-in MCP tool specifications.
+
+The default tool list includes:
+- `project_info'
+- `buffer_query'
+- `get_diagnostics'
+- `get_project_files'
+- `get_project_buffers'
+- `imenu_list_symbols'
+- `xref_find_references'
+- `xref_find_definitions_at_point'
+- `treesit_info'")
 
 (defun ai-code-mcp-make-tool (&rest slots)
   "Create an MCP tool specification from SLOTS and register it.

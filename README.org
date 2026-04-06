@@ -192,11 +192,15 @@ The generated prompt will include the function/region scope, visible file list, 
 **** Built-in Emacs MCP Tools
 
 AI Code includes an Emacs MCP server with these built-in tools:
-- =project_info=
-- =imenu_list_symbols=
-- =xref_find_references=
-- =treesit_info=
-- .. and others
+- =project_info=: summarize the current project, active buffer, and file count
+- =buffer_query=: read buffer contents, optionally by line range
+- =get_diagnostics=: return Flycheck or Flymake diagnostics for one file or open project buffers
+- =get_project_files=: list regular files in the current project
+- =get_project_buffers=: list open buffers that belong to the current project
+- =imenu_list_symbols=: list useful symbols from a file via imenu
+- =xref_find_references=: find references to an identifier in project context
+- =xref_find_definitions_at_point=: find definitions at a file location
+- =treesit_info=: inspect tree-sitter node information for a file location
 
 screenshot inside Codex cli:
 
@@ -227,6 +231,7 @@ If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has
 3. Then ask the agent to use one of the Emacs tools, for example:
 - use =project_info= and tell me the current project info
 - use =imenu_list_symbols= for the current file
+- use =get_diagnostics= and summarize the current file diagnostics
 
 The status command only proves the Emacs side is wired.
 The real proof is that the started agent returns your current project path, buffer context, or current-file symbols from those tools.
