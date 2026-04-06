@@ -17,6 +17,7 @@
 (require 'project)
 (require 'seq)
 (require 'subr-x)
+(require 'url-parse)
 (require 'url-util)
 (require 'xref)
 
@@ -46,6 +47,10 @@
 (declare-function flymake-diagnostic-type "flymake" (diag))
 (declare-function flymake-diagnostic-backend "flymake" (diag))
 (declare-function flymake-diagnostic-text "flymake" (diag))
+(declare-function url-filename "url-parse" (urlobj))
+(declare-function url-generic-parse-url "url-parse" (url))
+(declare-function url-host "url-parse" (urlobj))
+(declare-function url-type "url-parse" (urlobj))
 
 (defvar flycheck-current-errors)
 
@@ -415,7 +420,7 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
 
 (defun ai-code-mcp--make-diagnostic (start-line start-column end-line end-column
                                                 severity source message)
-  "Return an MCP diagnostics entry."
+  "Return an MCP diagnostics entry for START-LINE, START-COLUMN, END-LINE, END-COLUMN, SEVERITY, SOURCE, and MESSAGE."
   `((range . ((start . ((line . ,start-line)
                         (character . ,start-column)))
               (end . ((line . ,end-line)
@@ -430,16 +435,29 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
     `((uri . ,uri)
       (diagnostics . ,diagnostics))))
 
+(defun ai-code-mcp--local-file-uri-path (uri)
+  "Return local file path for file URI, or nil.
+Accepts local file URIs with no authority or with localhost authority."
+  (let* ((parsed (url-generic-parse-url uri))
+         (host (url-host parsed))
+         (path (url-filename parsed)))
+    (when (and (equal (url-type parsed) "file")
+               (or (null host)
+                   (string-empty-p host)
+                   (string= host "localhost")))
+      (url-unhex-string path))))
+
 (defun ai-code-mcp--uri-to-file-path (uri)
   "Return file path for URI."
   (when uri
     (if (string-prefix-p "file://" uri)
-        (url-unhex-string (substring uri 7))
+        (or (ai-code-mcp--local-file-uri-path uri)
+            (url-unhex-string (substring uri 7)))
       uri)))
 
 (defun ai-code-mcp--file-path-to-uri (file-path)
-  "Return file URI for FILE-PATH."
-  (concat "file://" (url-hexify-string (expand-file-name file-path))))
+  "Return canonical file URI for FILE-PATH."
+  (url-encode-url (concat "file://" (expand-file-name file-path))))
 
 (defun ai-code-mcp--project-files (project-dir)
   "Return absolute regular files inside PROJECT-DIR."

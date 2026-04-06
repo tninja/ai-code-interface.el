@@ -202,7 +202,7 @@
   "Diagnostics tool should return JSON diagnostics for the requested file URI."
   (let* ((project-dir (make-temp-file "ai-code-mcp-diagnostics-" t))
          (file-path (expand-file-name "sample.el" project-dir))
-         (file-uri (concat "file://" (url-hexify-string file-path)))
+         (file-uri (concat "file://" file-path))
          (session-buffer (generate-new-buffer " *ai-code-mcp-diagnostics-session*"))
          (ai-code-mcp-server-tools nil)
          (ai-code-mcp--sessions (make-hash-table :test 'equal))
@@ -234,26 +234,141 @@
                          #'ai-code-test-mcp-mock-diagnostic-backend)
                         ((symbol-function 'flymake-diagnostic-text)
                          #'ai-code-test-mcp-mock-diagnostic-text))
-                (let* ((payload (ai-code-test-mcp--content-text
-                                 (ai-code-mcp-dispatch
-                                  "tools/call"
-                                  `((name . "get_diagnostics")
-                                    (arguments . ((uri . ,file-uri)))))))
-                       (items (json-read-from-string payload))
-                       (entry (aref items 0))
-                       (diagnostics (alist-get 'diagnostics entry))
-                       (first-diagnostic (aref diagnostics 0))
-                       (range (alist-get 'range first-diagnostic))
-                       (start (alist-get 'start range)))
-                  (should (equal file-uri (alist-get 'uri entry)))
-                  (should (equal "Warning"
-                                 (alist-get 'severity first-diagnostic)))
-                  (should (equal "mock-backend"
-                                 (alist-get 'source first-diagnostic)))
-                  (should (equal "Unused value"
-                                 (alist-get 'message first-diagnostic)))
-                  (should (= 1 (alist-get 'line start)))
-                  (should (= 0 (alist-get 'character start))))))))
+                (let ((json-object-type 'alist)
+                      (json-array-type 'vector)
+                      (json-key-type 'symbol))
+                  (let* ((payload (ai-code-test-mcp--content-text
+                                   (ai-code-mcp-dispatch
+                                    "tools/call"
+                                    `((name . "get_diagnostics")
+                                      (arguments . ((uri . ,file-uri)))))))
+                         (items (json-read-from-string payload))
+                         (entry (aref items 0))
+                         (diagnostics (alist-get 'diagnostics entry))
+                         (first-diagnostic (aref diagnostics 0))
+                         (range (alist-get 'range first-diagnostic))
+                         (start (alist-get 'start range)))
+                    (should (equal file-uri (alist-get 'uri entry)))
+                    (should (equal "Warning"
+                                   (alist-get 'severity first-diagnostic)))
+                    (should (equal "mock-backend"
+                                   (alist-get 'source first-diagnostic)))
+                    (should (equal "Unused value"
+                                   (alist-get 'message first-diagnostic)))
+                    (should (= 1 (alist-get 'line start)))
+                    (should (= 0 (alist-get 'character start)))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-tools-call-get-diagnostics-project-results-use-canonical-file-uri ()
+  "Project diagnostics should emit canonical file URIs."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-diagnostics-project-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (expected-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-diagnostics-project*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-diagnostics-project")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path
+            (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (let ((diagnostic (make-ai-code-test-mcp-mock-diagnostic
+                               :beg (point-min)
+                               :end (line-end-position)
+                               :type :warning
+                               :text "Unused value"
+                               :backend 'mock-backend)))
+              (ai-code-mcp-register-session
+               "session-diagnostics-project"
+               project-dir
+               session-buffer)
+              (cl-letf (((symbol-function 'flymake-diagnostics)
+                         (lambda (&rest _) (list diagnostic)))
+                        ((symbol-function 'flymake-diagnostic-beg)
+                         #'ai-code-test-mcp-mock-diagnostic-beg)
+                        ((symbol-function 'flymake-diagnostic-end)
+                         #'ai-code-test-mcp-mock-diagnostic-end)
+                        ((symbol-function 'flymake-diagnostic-type)
+                         #'ai-code-test-mcp-mock-diagnostic-type)
+                        ((symbol-function 'flymake-diagnostic-backend)
+                         #'ai-code-test-mcp-mock-diagnostic-backend)
+                        ((symbol-function 'flymake-diagnostic-text)
+                         #'ai-code-test-mcp-mock-diagnostic-text))
+                (let ((json-object-type 'alist)
+                      (json-array-type 'vector)
+                      (json-key-type 'symbol))
+                  (let* ((payload (ai-code-test-mcp--content-text
+                                   (ai-code-mcp-dispatch
+                                    "tools/call"
+                                    '((name . "get_diagnostics")
+                                      (arguments . ())))))
+                         (items (json-read-from-string payload))
+                         (entry (aref items 0)))
+                    (should (equal expected-uri
+                                   (alist-get 'uri entry)))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-tools-call-get-diagnostics-accepts-localhost-file-uri ()
+  "Diagnostics lookup should accept file URIs with localhost authority."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-diagnostics-localhost-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://localhost" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-diagnostics-localhost*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-diagnostics-localhost")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path
+            (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (let ((diagnostic (make-ai-code-test-mcp-mock-diagnostic
+                               :beg (point-min)
+                               :end (line-end-position)
+                               :type :warning
+                               :text "Unused value"
+                               :backend 'mock-backend)))
+              (ai-code-mcp-register-session
+               "session-diagnostics-localhost"
+               project-dir
+               session-buffer)
+              (cl-letf (((symbol-function 'flymake-diagnostics)
+                         (lambda (&rest _) (list diagnostic)))
+                        ((symbol-function 'flymake-diagnostic-beg)
+                         #'ai-code-test-mcp-mock-diagnostic-beg)
+                        ((symbol-function 'flymake-diagnostic-end)
+                         #'ai-code-test-mcp-mock-diagnostic-end)
+                        ((symbol-function 'flymake-diagnostic-type)
+                         #'ai-code-test-mcp-mock-diagnostic-type)
+                        ((symbol-function 'flymake-diagnostic-backend)
+                         #'ai-code-test-mcp-mock-diagnostic-backend)
+                        ((symbol-function 'flymake-diagnostic-text)
+                         #'ai-code-test-mcp-mock-diagnostic-text))
+                (let ((json-object-type 'alist)
+                      (json-array-type 'vector)
+                      (json-key-type 'symbol))
+                  (let* ((payload (ai-code-test-mcp--content-text
+                                   (ai-code-mcp-dispatch
+                                    "tools/call"
+                                    `((name . "get_diagnostics")
+                                      (arguments . ((uri . ,file-uri)))))))
+                         (items (json-read-from-string payload)))
+                    (should (= 1 (length items)))))))))
       (when (buffer-live-p visited-buffer)
         (kill-buffer visited-buffer))
       (when (buffer-live-p session-buffer)
