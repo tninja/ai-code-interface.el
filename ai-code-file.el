@@ -368,15 +368,41 @@ is active; otherwise run the current file."
 (defun ai-code-build-or-test-project ()
   "Build or test the current project based on user choice.
 If user chooses to build, check for build.sh in the project root
-and send to AI for execution. Otherwise, ask AI to generate a build command.
+and send to AI for execution.  Otherwise, ask AI to generate a build command.
 If user chooses to test the whole project, call `ai-code-test-project'.
-If user chooses scoped testing, call `ai-code-run-test'."
+If user chooses scoped testing, call `ai-code-run-test'.
+If user chooses linting, call `ai-code-lint-current-file'."
   (interactive)
-  (let ((action (completing-read "Choose action: " '("Build project" "Test project" "Test on scope") nil t)))
+  (let ((action (completing-read "Choose action: " '("Build project" "Test project" "Test on scope" "Lint current file") nil t)))
     (cond
+     ;; DONE add an option Lint current file. When selected, let AI to use the new added diagnosis emacs mcp tool to lint current file, and follow up with error analysis and code fix suggestions if linting errors are found.
      ((string= action "Build project") (ai-code-build-project))
      ((string= action "Test project") (ai-code-test-project))
-     ((string= action "Test on scope") (ai-code-run-test)))))
+     ((string= action "Test on scope") (ai-code-run-test))
+     ((string= action "Lint current file") (ai-code-lint-current-file)))))
+
+(defun ai-code--lint-current-file-follow-up ()
+  "Return follow-up instructions for lint diagnostics."
+  (concat "\n\nIf lint errors are found:"
+          "\n1. Provide error analysis for the diagnostics"
+          "\n2. Explain likely root causes in the current file"
+          "\n3. Suggest specific code fix suggestions for user approval before making any changes"))
+
+;;;###autoload
+(defun ai-code-lint-current-file ()
+  "Ask AI to lint the current file with Emacs diagnostics and explain issues."
+  (interactive)
+  (unless buffer-file-name
+    (user-error "Current buffer is not visiting a file"))
+  (let* ((repo-context (ai-code--format-repo-context-info))
+         (initial-input
+          (concat
+           "Use the get_diagnostics Emacs MCP tool to lint the current file and report the results."
+           (format "\nCurrent file: %s" buffer-file-name)
+           (when repo-context (concat "\n" repo-context))
+           (ai-code--lint-current-file-follow-up)))
+         (prompt (ai-code-read-string "Send to AI: " initial-input)))
+    (ai-code--insert-prompt prompt)))
 
 (defun ai-code--project-root ()
   "Return the current project root using Projectile first, then Git."

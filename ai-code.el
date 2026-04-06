@@ -496,7 +496,7 @@ Shows the current backend label to the right."
   ("t" "Test Driven Development" ai-code-tdd-cycle)
   ("v" "GitHub PR AI Action" ai-code-pull-or-review-diff-file)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
-  ("b" "Build / Test (AI follow-up)" ai-code-build-or-test-project)
+  ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
   ("K" "Create or open task file" ai-code-create-or-open-task-file)
   ("n" "Take notes from AI session region" ai-code-take-notes))
 
