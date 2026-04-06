@@ -128,6 +128,8 @@
 (declare-function ai-code-open-backend-config "ai-code-backends")
 (declare-function ai-code-open-backend-agent-file "ai-code-backends")
 (declare-function ai-code-upgrade-backend "ai-code-backends")
+
+(defvar ai-code-mcp-agent-enabled-backends)
 (declare-function ai-code-install-backend-skills "ai-code-backends")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 
@@ -170,9 +172,7 @@ with a newline separator."
 
 ;;;###autoload
 (defcustom ai-code-test-after-code-change-suffix
-  (concat "If any program code changes, "
-          (ai-code--diagnostics-first-harness-instruction-inline)
-          " Run unit-tests and follow up on the test-result (fix code if there is an error).")
+  "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)."
   "User-provided prompt suffix for test-after-code-change."
   :type '(choice (const nil) string)
   :group 'ai-code)
@@ -185,22 +185,44 @@ with a newline separator."
   "Forward declaration for `ai-code-auto-test-type'.
 See the later `defcustom' for user-facing documentation and default.")
 
+(defun ai-code--auto-test-backend ()
+  "Return the backend symbol used for auto-test prompt decisions."
+  (if (fboundp 'ai-code--effective-backend)
+      (or (ai-code--effective-backend) ai-code-selected-backend)
+    ai-code-selected-backend))
+
+(defun ai-code--diagnostics-harness-enabled-p ()
+  "Return non-nil when the current backend should get diagnostics guidance."
+  (memq (ai-code--auto-test-backend)
+        ai-code-mcp-agent-enabled-backends))
+
+(defun ai-code--maybe-append-diagnostics-harness-instruction (suffix &optional inline)
+  "Append diagnostics harness guidance to SUFFIX when the backend supports it.
+When INLINE is non-nil, use the inline-formatted diagnostics instruction."
+  (if (ai-code--diagnostics-harness-enabled-p)
+      (concat suffix
+              (if inline " " "")
+              (if inline
+                  (ai-code--diagnostics-first-harness-instruction-inline)
+                ai-code--diagnostics-first-harness-instruction))
+    suffix))
+
 (defun ai-code--test-after-code-change--resolve-tdd-suffix ()
   "Return the TDD-style suffix for test-after-code-change prompt text."
-  (concat ai-code--tdd-red-green-base-instruction
-          ai-code--tdd-red-green-tail-instruction
-          ai-code--tdd-run-test-after-each-stage-instruction
-          ai-code--tdd-test-pattern-instruction
-          ai-code--diagnostics-first-harness-instruction))
+  (ai-code--maybe-append-diagnostics-harness-instruction
+   (concat ai-code--tdd-red-green-base-instruction
+           ai-code--tdd-red-green-tail-instruction
+           ai-code--tdd-run-test-after-each-stage-instruction
+           ai-code--tdd-test-pattern-instruction)))
 
 (defun ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix ()
   "Return the TDD+refactoring suffix for test-after-code-change prompt text."
-  (concat ai-code--tdd-red-green-base-instruction
-          ai-code--tdd-with-refactoring-extension-instruction
-          ai-code--tdd-red-green-tail-instruction
-          ai-code--tdd-run-test-after-each-stage-instruction
-          ai-code--tdd-test-pattern-instruction
-          ai-code--diagnostics-first-harness-instruction))
+  (ai-code--maybe-append-diagnostics-harness-instruction
+   (concat ai-code--tdd-red-green-base-instruction
+           ai-code--tdd-with-refactoring-extension-instruction
+           ai-code--tdd-red-green-tail-instruction
+           ai-code--tdd-run-test-after-each-stage-instruction
+           ai-code--tdd-test-pattern-instruction)))
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
@@ -282,7 +304,9 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 (defun ai-code--auto-test-suffix-for-type (type)
   "Return prompt suffix for auto test TYPE."
   (pcase type
-    ('test-after-change ai-code-test-after-code-change-suffix)
+    ('test-after-change
+     (ai-code--maybe-append-diagnostics-harness-instruction
+      ai-code-test-after-code-change-suffix t))
     ('tdd (ai-code--test-after-code-change--resolve-tdd-suffix))
     ('tdd-with-refactoring (ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix))
     ('no-test "Do not write or run any test.")
