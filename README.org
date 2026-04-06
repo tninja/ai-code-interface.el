@@ -299,6 +299,13 @@ Instead of manually telling the AI what to do after every edit, you can make tes
 - `ai-code-prompt-suffix`: add persistent project rules when needed, so repeated instructions such as response language, coding constraints, or test expectations do not have to be retyped in every prompt.
 - [[https://github.com/obra/superpowers][obra/superpowers]] pair well with these features.
 
+With the built-in =get_diagnostics= MCP tool, the loop can move further left:
+
+- record a diagnostics baseline before editing so the AI knows which warnings or errors already existed
+- re-run =get_diagnostics= after each edit on the touched files before moving on to slower test commands
+- treat completion as /no new diagnostics/ on the touched files relative to the baseline, instead of requiring the entire project to be clean
+- use tests as the next sensor in the loop, not the first one
+
 The benefit is practical:
 
 - faster feedback after each AI code change

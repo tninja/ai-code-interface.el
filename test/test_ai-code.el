@@ -65,6 +65,23 @@
     (should (string-match-p "SHARED_EACH_STAGE_TEST_INSTRUCTION"
                             (ai-code--test-after-code-change--resolve-tdd-suffix)))))
 
+(ert-deftest ai-code-test-test-after-change-suffix-includes-diagnostics-first-loop ()
+  "Test that test-after-change suffix requires a diagnostics-first loop."
+  (should (string-match-p "get_diagnostics"
+                          ai-code-test-after-code-change-suffix))
+  (should (string-match-p "baseline"
+                          ai-code-test-after-code-change-suffix))
+  (should (string-match-p "no new diagnostics"
+                          ai-code-test-after-code-change-suffix)))
+
+(ert-deftest ai-code-test-resolve-tdd-suffix-includes-diagnostics-first-loop ()
+  "Test that TDD suffix requires diagnostics checks before completion."
+  (let ((ai-code--tdd-test-pattern-instruction ""))
+    (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
+      (should (string-match-p "get_diagnostics" suffix))
+      (should (string-match-p "baseline" suffix))
+      (should (string-match-p "no new diagnostics" suffix)))))
+
 (ert-deftest ai-code-test-resolve-auto-test-type-for-send-off ()
   "Test that off mode never resolves a send-time auto test type."
   (let ((ai-code-auto-test-type nil))

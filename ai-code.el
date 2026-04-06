@@ -159,8 +159,15 @@ with a newline separator."
   :group 'ai-code)
 
 ;;;###autoload
+(defconst ai-code--diagnostics-first-harness-instruction
+  "record a diagnostics baseline with the get_diagnostics MCP tool before editing. After each edit, re-run get_diagnostics for the touched files and do not finish until they have no new diagnostics compared with the baseline."
+  "Shared diagnostics-first harness guidance for code-change prompts.")
+
+;;;###autoload
 (defcustom ai-code-test-after-code-change-suffix
-  "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)."
+  (concat "If any program code changes, "
+          ai-code--diagnostics-first-harness-instruction
+          " Run unit-tests and follow up on the test-result (fix code if there is an error).")
   "User-provided prompt suffix for test-after-code-change."
   :type '(choice (const nil) string)
   :group 'ai-code)
@@ -178,7 +185,9 @@ See the later `defcustom' for user-facing documentation and default.")
   (concat ai-code--tdd-red-green-base-instruction
           ai-code--tdd-red-green-tail-instruction
           ai-code--tdd-run-test-after-each-stage-instruction
-          ai-code--tdd-test-pattern-instruction))
+          ai-code--tdd-test-pattern-instruction
+          " "
+          (capitalize ai-code--diagnostics-first-harness-instruction)))
 
 (defun ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix ()
   "Return the TDD+refactoring suffix for test-after-code-change prompt text."
@@ -186,7 +195,9 @@ See the later `defcustom' for user-facing documentation and default.")
           ai-code--tdd-with-refactoring-extension-instruction
           ai-code--tdd-red-green-tail-instruction
           ai-code--tdd-run-test-after-each-stage-instruction
-          ai-code--tdd-test-pattern-instruction))
+          ai-code--tdd-test-pattern-instruction
+          " "
+          (capitalize ai-code--diagnostics-first-harness-instruction)))
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
