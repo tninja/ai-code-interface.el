@@ -26,6 +26,9 @@
   (alist-get 'text
              (car (alist-get 'content result))))
 
+(cl-defstruct ai-code-test-mcp-mock-diagnostic
+  beg end type text backend)
+
 (ert-deftest ai-code-test-mcp-dispatch-initialize-returns-server-info ()
   "Initialize should expose MCP protocol metadata."
   (should (fboundp 'ai-code-mcp-dispatch))
@@ -117,6 +120,7 @@
                                     ai-code-mcp-server-tools)
                             #'string<)))
       (should (equal '("buffer_query"
+                       "get_diagnostics"
                        "get_project_buffers"
                        "get_project_files"
                        "imenu_list_symbols"
@@ -135,6 +139,7 @@
                                      (alist-get 'tools tools-result))
                              #'string<)))
       (should (equal '("buffer_query"
+                       "get_diagnostics"
                        "get_project_buffers"
                        "get_project_files"
                        "imenu_list_symbols"
@@ -189,6 +194,68 @@
               (should (string-match-p
                        (regexp-quote (file-name-as-directory project-dir))
                        text)))))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-tools-call-get-diagnostics-returns-json-for-target-uri ()
+  "Diagnostics tool should return JSON diagnostics for the requested file URI."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-diagnostics-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" (url-hexify-string file-path)))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-diagnostics-session*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-diagnostics")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path
+            (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (let ((diagnostic (make-ai-code-test-mcp-mock-diagnostic
+                               :beg (point-min)
+                               :end (line-end-position)
+                               :type :warning
+                               :text "Unused value"
+                               :backend 'mock-backend)))
+              (ai-code-mcp-register-session "session-diagnostics" project-dir session-buffer)
+              (cl-letf (((symbol-function 'flymake-diagnostics)
+                         (lambda (&rest _) (list diagnostic)))
+                        ((symbol-function 'flymake-diagnostic-beg)
+                         #'ai-code-test-mcp-mock-diagnostic-beg)
+                        ((symbol-function 'flymake-diagnostic-end)
+                         #'ai-code-test-mcp-mock-diagnostic-end)
+                        ((symbol-function 'flymake-diagnostic-type)
+                         #'ai-code-test-mcp-mock-diagnostic-type)
+                        ((symbol-function 'flymake-diagnostic-backend)
+                         #'ai-code-test-mcp-mock-diagnostic-backend)
+                        ((symbol-function 'flymake-diagnostic-text)
+                         #'ai-code-test-mcp-mock-diagnostic-text))
+                (let* ((payload (ai-code-test-mcp--content-text
+                                 (ai-code-mcp-dispatch
+                                  "tools/call"
+                                  `((name . "get_diagnostics")
+                                    (arguments . ((uri . ,file-uri)))))))
+                       (items (json-read-from-string payload))
+                       (entry (aref items 0))
+                       (diagnostics (alist-get 'diagnostics entry))
+                       (first-diagnostic (aref diagnostics 0))
+                       (range (alist-get 'range first-diagnostic))
+                       (start (alist-get 'start range)))
+                  (should (equal file-uri (alist-get 'uri entry)))
+                  (should (equal "Warning"
+                                 (alist-get 'severity first-diagnostic)))
+                  (should (equal "mock-backend"
+                                 (alist-get 'source first-diagnostic)))
+                  (should (equal "Unused value"
+                                 (alist-get 'message first-diagnostic)))
+                  (should (= 1 (alist-get 'line start)))
+                  (should (= 0 (alist-get 'character start))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
       (when (buffer-live-p session-buffer)
         (kill-buffer session-buffer))
       (delete-directory project-dir t))))

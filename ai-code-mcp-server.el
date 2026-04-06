@@ -12,11 +12,16 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'json)
 (require 'imenu)
 (require 'project)
 (require 'seq)
 (require 'subr-x)
+(require 'url-util)
 (require 'xref)
+
+(require 'flycheck nil t)
+(require 'flymake nil t)
 
 (require 'ai-code-input)
 
@@ -28,6 +33,21 @@
 (declare-function treesit-node-type "treesit" (node))
 (declare-function treesit-node-start "treesit" (node))
 (declare-function treesit-node-end "treesit" (node))
+(declare-function flycheck-error-line "flycheck" (err))
+(declare-function flycheck-error-column "flycheck" (err))
+(declare-function flycheck-error-end-line "flycheck" (err))
+(declare-function flycheck-error-end-column "flycheck" (err))
+(declare-function flycheck-error-level "flycheck" (err))
+(declare-function flycheck-error-checker "flycheck" (err))
+(declare-function flycheck-error-message "flycheck" (err))
+(declare-function flymake-diagnostics "flymake" (&optional beg end))
+(declare-function flymake-diagnostic-beg "flymake" (diag))
+(declare-function flymake-diagnostic-end "flymake" (diag))
+(declare-function flymake-diagnostic-type "flymake" (diag))
+(declare-function flymake-diagnostic-backend "flymake" (diag))
+(declare-function flymake-diagnostic-text "flymake" (diag))
+
+(defvar flycheck-current-errors)
 
 (defgroup ai-code-mcp-server nil
   "MCP tools core settings for AI Code Interface."
@@ -38,6 +58,14 @@
   "List of MCP tool specifications.
 Each item is a plist with at least `:function', `:name', and `:description'."
   :type '(repeat sexp)
+  :group 'ai-code-mcp-server)
+
+(defcustom ai-code-mcp-diagnostics-backend 'auto
+  "Backend used by `ai-code-mcp-get-diagnostics'.
+Use `auto' to prefer Flycheck and then Flymake when available."
+  :type '(choice (const :tag "Automatic detection" auto)
+                 (const :tag "Flycheck" flycheck)
+                 (const :tag "Flymake" flymake))
   :group 'ai-code-mcp-server)
 
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
@@ -67,6 +95,13 @@ Each item is a plist with at least `:function', `:name', and `:description'."
             (:name "num_lines"
              :type integer
              :description "Number of lines to read from start_line."
+             :optional t)))
+    (:function ai-code-mcp-get-diagnostics
+     :name "get_diagnostics"
+     :description "Get language diagnostics for a file or the active project."
+     :args ((:name "uri"
+             :type string
+             :description "Optional file URI to inspect."
              :optional t)))
     (:function ai-code-mcp-get-project-files
      :name "get_project_files"
@@ -252,6 +287,148 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
               (forward-line num-lines)
               (ai-code-mcp--drop-trailing-newline
                (buffer-substring-no-properties start-pos (point))))))))))
+
+(defun ai-code-mcp-get-diagnostics (&optional uri)
+  "Return JSON diagnostics for URI or the active project."
+  (let ((diagnostics-by-file
+         (if uri
+             (ai-code-mcp--diagnostics-for-uri uri)
+           (ai-code-mcp--diagnostics-for-project))))
+    (if diagnostics-by-file
+        (json-encode (vconcat diagnostics-by-file))
+      "[]")))
+
+(defun ai-code-mcp--diagnostics-for-uri (uri)
+  "Return a list with diagnostics for URI, or nil when none exist."
+  (when-let* ((file-path (ai-code-mcp--uri-to-file-path uri))
+              (buffer (get-file-buffer file-path))
+              (diagnostics (ai-code-mcp--buffer-diagnostics buffer)))
+    (when-let ((entry (ai-code-mcp--diagnostics-file-entry uri diagnostics)))
+      (list entry))))
+
+(defun ai-code-mcp--diagnostics-for-project ()
+  "Return project diagnostics for open file-visiting buffers."
+  (let ((project-dir (ai-code-mcp--project-directory))
+        diagnostics-by-file)
+    (dolist (buffer (buffer-list) (nreverse diagnostics-by-file))
+      (when-let ((file-path (buffer-file-name buffer)))
+        (when (or (not project-dir)
+                  (file-in-directory-p file-path project-dir))
+          (when-let ((diagnostics (ai-code-mcp--buffer-diagnostics buffer)))
+            (when-let ((entry (ai-code-mcp--diagnostics-file-entry
+                               (ai-code-mcp--file-path-to-uri file-path)
+                               diagnostics)))
+              (push entry diagnostics-by-file))))))))
+
+(defun ai-code-mcp--buffer-diagnostics (buffer)
+  "Return a vector of diagnostics for BUFFER."
+  (vconcat
+   (pcase (ai-code-mcp--diagnostics-backend-for-buffer buffer)
+     ('flycheck (or (ai-code-mcp--flycheck-diagnostics buffer) '()))
+     ('flymake (or (ai-code-mcp--flymake-diagnostics buffer) '()))
+     (_ '()))))
+
+(defun ai-code-mcp--diagnostics-backend-for-buffer (buffer)
+  "Return the diagnostics backend symbol to use for BUFFER."
+  (let ((backend ai-code-mcp-diagnostics-backend))
+    (if (eq backend 'auto)
+        (cond
+         ((with-current-buffer buffer
+            (and (featurep 'flycheck)
+                 (bound-and-true-p flycheck-mode)))
+          'flycheck)
+         ((with-current-buffer buffer
+            (and (featurep 'flymake)
+                 (bound-and-true-p flymake-mode)))
+          'flymake)
+         (t nil))
+      backend)))
+
+(defun ai-code-mcp--flycheck-diagnostics (buffer)
+  "Return Flycheck diagnostics for BUFFER."
+  (when (featurep 'flycheck)
+    (with-current-buffer buffer
+      (when (bound-and-true-p flycheck-mode)
+        (mapcar
+         (lambda (diag)
+           (ai-code-mcp--make-diagnostic
+            (flycheck-error-line diag)
+            (or (flycheck-error-column diag) 0)
+            (or (flycheck-error-end-line diag)
+                (flycheck-error-line diag))
+            (or (flycheck-error-end-column diag)
+                (flycheck-error-column diag)
+                0)
+            (flycheck-error-level diag)
+            (format "%s" (or (flycheck-error-checker diag) "flycheck"))
+            (flycheck-error-message diag)))
+         flycheck-current-errors)))))
+
+(defun ai-code-mcp--flymake-diagnostics (buffer)
+  "Return Flymake diagnostics for BUFFER."
+  (when (featurep 'flymake)
+    (with-current-buffer buffer
+      (when (bound-and-true-p flymake-mode)
+        (mapcar
+         (lambda (diag)
+           (save-excursion
+             (let* ((beg (flymake-diagnostic-beg diag))
+                    (end (flymake-diagnostic-end diag))
+                    (start-line (progn
+                                  (goto-char beg)
+                                  (line-number-at-pos)))
+                    (start-column (current-column))
+                    (end-line (progn
+                                (goto-char end)
+                                (line-number-at-pos)))
+                    (end-column (current-column)))
+               (ai-code-mcp--make-diagnostic
+                start-line
+                start-column
+                end-line
+                end-column
+                (flymake-diagnostic-type diag)
+                (format "%s"
+                        (or (flymake-diagnostic-backend diag)
+                            'flymake))
+                (flymake-diagnostic-text diag)))))
+         (flymake-diagnostics))))))
+
+(defun ai-code-mcp--diagnostic-severity (severity)
+  "Return string severity for SEVERITY."
+  (pcase severity
+    ((or 'error 'flymake-error :error) "Error")
+    ((or 'warning 'flymake-warning :warning) "Warning")
+    ('hint "Hint")
+    (_ "Information")))
+
+(defun ai-code-mcp--make-diagnostic (start-line start-column end-line end-column
+                                                severity source message)
+  "Return an MCP diagnostics entry."
+  `((range . ((start . ((line . ,start-line)
+                        (character . ,start-column)))
+              (end . ((line . ,end-line)
+                      (character . ,end-column)))))
+    (severity . ,(ai-code-mcp--diagnostic-severity severity))
+    (source . ,source)
+    (message . ,message)))
+
+(defun ai-code-mcp--diagnostics-file-entry (uri diagnostics)
+  "Return a diagnostics payload for URI when DIAGNOSTICS is non-empty."
+  (when (> (length diagnostics) 0)
+    `((uri . ,uri)
+      (diagnostics . ,diagnostics))))
+
+(defun ai-code-mcp--uri-to-file-path (uri)
+  "Return file path for URI."
+  (when uri
+    (if (string-prefix-p "file://" uri)
+        (url-unhex-string (substring uri 7))
+      uri)))
+
+(defun ai-code-mcp--file-path-to-uri (file-path)
+  "Return file URI for FILE-PATH."
+  (concat "file://" (url-hexify-string (expand-file-name file-path))))
 
 (defun ai-code-mcp--project-files (project-dir)
   "Return absolute regular files inside PROJECT-DIR."
