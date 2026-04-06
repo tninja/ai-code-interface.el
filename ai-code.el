@@ -160,7 +160,6 @@ with a newline separator."
   :type 'boolean
   :group 'ai-code)
 
-;;;###autoload
 (defconst ai-code--diagnostics-first-harness-instruction
   "Record a diagnostics baseline with the get_diagnostics MCP tool before editing. After each edit, re-run get_diagnostics for the touched files and do not finish until they have no new diagnostics compared with the baseline."
   "Shared diagnostics-first harness guidance for code-change prompts.")
@@ -199,12 +198,15 @@ See the later `defcustom' for user-facing documentation and default.")
 (defun ai-code--maybe-append-diagnostics-harness-instruction (suffix &optional inline)
   "Append diagnostics harness guidance to SUFFIX when the backend supports it.
 When INLINE is non-nil, use the inline-formatted diagnostics instruction."
-  (if (ai-code--diagnostics-harness-enabled-p)
-      (concat suffix
-              (if inline " " "")
-              (if inline
-                  (ai-code--diagnostics-first-harness-instruction-inline)
-                ai-code--diagnostics-first-harness-instruction))
+  (if (and (stringp suffix)
+           (> (length suffix) 0)
+           (ai-code--diagnostics-harness-enabled-p))
+      (let ((instruction (if inline
+                             (ai-code--diagnostics-first-harness-instruction-inline)
+                           ai-code--diagnostics-first-harness-instruction)))
+        (concat suffix
+                (if inline " " "")
+                instruction))
     suffix))
 
 (defun ai-code--test-after-code-change--resolve-tdd-suffix ()

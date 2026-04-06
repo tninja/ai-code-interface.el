@@ -101,6 +101,13 @@
       (should-not (string-match-p "get_diagnostics" suffix))
       (should-not (string-match-p "no new diagnostics" suffix)))))
 
+(ert-deftest ai-code-test-maybe-append-diagnostics-harness-instruction-preserves-nil-suffix ()
+  "Test that diagnostics harness logic preserves a nil suffix."
+  (let ((ai-code-selected-backend 'codex)
+        (ai-code-mcp-agent-enabled-backends '(codex)))
+    (should-not (ai-code--maybe-append-diagnostics-harness-instruction nil))
+    (should-not (ai-code--maybe-append-diagnostics-harness-instruction nil t))))
+
 (ert-deftest ai-code-test-resolve-auto-test-type-for-send-off ()
   "Test that off mode never resolves a send-time auto test type."
   (let ((ai-code-auto-test-type nil))

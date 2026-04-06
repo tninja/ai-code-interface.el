@@ -32,6 +32,24 @@
     (should (search-forward "run unit-tests and follow up on the test-result" nil t))
     (should-not (search-forward "get_diagnostics MCP tool" nil t))))
 
+(ert-deftest ai-code-test-ai-code-el-does-not-autoload-private-diagnostics-constant ()
+  "Private diagnostics helper constants should not be marked for autoload."
+  (with-temp-buffer
+    (insert-file-contents "ai-code.el")
+    (should-not
+     (re-search-forward
+      "^;;;###autoload\n(defconst ai-code--diagnostics-first-harness-instruction\\_>"
+      nil t))))
+
+(ert-deftest ai-code-test-autoloads-file-includes-lint-current-file-command ()
+  "Autoloads file should expose `ai-code-lint-current-file'."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-autoloads.el")
+    (should
+     (re-search-forward
+      "(autoload 'ai-code-lint-current-file "
+      nil t))))
+
 (provide 'test_ai-code-package-hygiene)
 
 ;;; test_ai-code-package-hygiene.el ends here

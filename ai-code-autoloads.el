@@ -538,9 +538,12 @@ is active; otherwise run the current file." t)
 (autoload 'ai-code-build-or-test-project "ai-code-file" "\
 Build or test the current project based on user choice.
 If user chooses to build, check for build.sh in the project root
-and send to AI for execution. Otherwise, ask AI to generate a build command.
+and send to AI for execution.  Otherwise, ask AI to generate a build command.
 If user chooses to test the whole project, call `ai-code-test-project'.
-If user chooses scoped testing, call `ai-code-run-test'." t)
+If user chooses scoped testing, call `ai-code-run-test'.
+If user chooses linting, call `ai-code-lint-current-file'." t)
+(autoload 'ai-code-lint-current-file "ai-code-file" "\
+Ask AI to lint the current file with Emacs diagnostics and explain issues." t)
 (autoload 'ai-code-build-project "ai-code-file" "\
 Build the current project.
 Check for build.sh in the project root and send to AI for execution.
