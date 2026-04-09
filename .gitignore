@@ -8,3 +8,5 @@ GPATH
 __pycache__/
 *.elc
 .ai-behaviors/
+.omx/
+flycheck_*

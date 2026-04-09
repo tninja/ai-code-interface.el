@@ -724,7 +724,9 @@ If not inside a Git repository, do nothing."
                                      "GTAGS"
                                      "GRTAGS"
                                      "GPATH"
-                                     "__pycache__/"))
+                                     "__pycache__/"
+                                     "*.elc"
+                                     "flycheck_*"))
              (gitignore-content (when (file-exists-p gitignore-path)
                                   (with-temp-buffer
                                     (insert-file-contents gitignore-path)
