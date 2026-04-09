@@ -117,21 +117,45 @@ PR Description Steps:
 4. Format the result as a concise PR description ready to share with reviewers."
             pr-url source-instruction)))
 
+(defun ai-code--build-pr-ci-check-init-prompt (review-source pr-url)
+  "Build CI checks review prompt for REVIEW-SOURCE with PR-URL."
+  (let ((source-instruction
+         (ai-code--pull-or-review-source-instruction review-source 'review-ci-checks)))
+    (format "Review GitHub CI checks for pull request: %s
+
+%s
+
+CI Checks Review Steps:
+1. Review the GitHub CI checks for this pull request.
+2. If there is a failing or error state, inspect the failing checks and relevant details.
+3. Analyze the likely root cause of each failure.
+4. No need to make code change. Provide analysis only."
+            pr-url source-instruction)))
+
 (defun ai-code--pull-or-review-source-instruction (review-source &optional review-mode)
   "Return source instruction string for REVIEW-SOURCE and REVIEW-MODE."
-  (if (eq review-mode 'investigate-issue)
-      (pcase review-source
-        ('github-mcp
-         "Use GitHub MCP server to inspect the GitHub issue and relevant repository context.")
-        ('gh-cli
-         "Use gh CLI tool to inspect the GitHub issue and relevant repository context.")
-        (_ "Investigate this GitHub issue using the repository as context."))
-    (pcase review-source
-      ('github-mcp
-       "Use GitHub MCP server to fetch pull request details and review comments.")
-      ('gh-cli
-       "Use gh CLI tool to fetch pull request details and review comments.")
-      (_ "Review this pull request."))))
+  (pcase review-mode
+    ('investigate-issue
+     (pcase review-source
+       ('github-mcp
+        "Use GitHub MCP server to inspect the GitHub issue and relevant repository context.")
+       ('gh-cli
+        "Use gh CLI tool to inspect the GitHub issue and relevant repository context.")
+       (_ "Investigate this GitHub issue using the repository as context.")))
+    ('review-ci-checks
+     (pcase review-source
+       ('github-mcp
+        "Use GitHub MCP server to fetch pull request details and CI checks.")
+       ('gh-cli
+        "Use gh CLI tool to fetch pull request details and CI checks.")
+       (_ "Review the GitHub CI checks for this pull request.")))
+    (_
+     (pcase review-source
+       ('github-mcp
+        "Use GitHub MCP server to fetch pull request details and review comments.")
+       ('gh-cli
+        "Use gh CLI tool to fetch pull request details and review comments.")
+       (_ "Review this pull request.")))))
 
 (defun ai-code--pull-or-review-url-prompt (review-mode)
   "Return the URL prompt string for REVIEW-MODE."
@@ -153,6 +177,7 @@ PR Description Steps:
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
                               ("Check unresolved feedback" . check-feedback)
                               ("Investigate issue" . investigate-issue)
+                              ("Review GitHub CI checks" . review-ci-checks)
                               ("Prepare PR description" . prepare-pr-description)))
          (review-mode (completing-read "Select analysis mode (PR or issue): "
                                        review-mode-alist
@@ -162,15 +187,18 @@ PR Description Steps:
 
 (defun ai-code--build-pr-init-prompt (review-source target-url review-mode)
   "Build initial prompt for REVIEW-SOURCE, TARGET-URL and REVIEW-MODE."
+  ;; DONE: add an option here: review github CI checks. If there is error, look into them and figure out root cause. Only provide analysis, no need to change code.
   (pcase review-mode
-    ('investigate-issue
-     (ai-code--build-issue-investigation-init-prompt review-source target-url))
-    ('check-feedback
-     (ai-code--build-pr-feedback-check-init-prompt review-source target-url))
-    ('prepare-pr-description
-     (ai-code--build-pr-description-init-prompt review-source target-url))
-    (_
-     (ai-code--build-pr-review-init-prompt review-source target-url))))
+   ('investigate-issue
+    (ai-code--build-issue-investigation-init-prompt review-source target-url))
+   ('check-feedback
+    (ai-code--build-pr-feedback-check-init-prompt review-source target-url))
+   ('review-ci-checks
+    (ai-code--build-pr-ci-check-init-prompt review-source target-url))
+   ('prepare-pr-description
+    (ai-code--build-pr-description-init-prompt review-source target-url))
+   (_
+    (ai-code--build-pr-review-init-prompt review-source target-url))))
 
 ;;;###autoload
 (defun ai-code-pull-or-review-diff-file ()
