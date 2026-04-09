@@ -257,6 +257,40 @@
       (should (string-match-p "superpowers" sent-command))
       (should (string-match-p "README" sent-command)))))
 
+(ert-deftest ai-code-test-select-backend-shows-onboarding-hint ()
+  "Explicit backend selection should show the onboarding next-step hint."
+  (let* ((hint-called nil)
+         (saved-start ai-code--cli-start-fn)
+         (saved-switch ai-code--cli-switch-fn)
+         (saved-send ai-code--cli-send-fn)
+         (saved-resume ai-code--cli-resume-fn)
+         (saved-backend ai-code-selected-backend)
+         (saved-cli (and (boundp 'ai-code-cli) ai-code-cli))
+         (ai-code-backends '((test-backend
+                              :label "Test Backend"
+                              :start ignore
+                              :switch ignore
+                              :send ignore
+                              :resume nil
+                              :cli "test"))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Test Backend"))
+              ((symbol-function 'ai-code-onboarding-show-backend-switch-hint)
+               (lambda ()
+                 (setq hint-called t)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (unwind-protect
+          (progn
+            (ai-code-select-backend)
+            (should hint-called))
+        (setq ai-code--cli-start-fn saved-start
+              ai-code--cli-switch-fn saved-switch
+              ai-code--cli-send-fn saved-send
+              ai-code--cli-resume-fn saved-resume
+              ai-code-selected-backend saved-backend
+              ai-code-cli saved-cli)))))
+
 (ert-deftest ai-code-test-install-skills-no-backend-errors ()
   "Missing backend signals user-error."
   (let ((ai-code-selected-backend 'nonexistent-backend)

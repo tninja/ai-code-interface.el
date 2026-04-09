@@ -11,7 +11,7 @@
 
 (require 'seq)
 
-(require 'ai-code-git) 
+(require 'ai-code-git)
 
 (defvar ai-code-cli)
 (defvar claude-code-terminal-backend)
@@ -20,6 +20,7 @@
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 (declare-function ai-code--validate-git-repository "ai-code-git" ())
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code-onboarding-show-backend-switch-hint "ai-code-onboarding" ())
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
 
 (defvar ai-code--cli-start-fn #'ai-code--unsupported-start)
@@ -450,13 +451,13 @@ Sets backend dispatch functions and updates `ai-code-cli'."
       ;; inform user to install it.
       (when (and feature (not (featurep feature)))
         (user-error
-         "Backend '%s' is not available. Please install the package providing '%s' and try again"
+         "Backend '%s' is not available.  Please install the package providing '%s' and try again"
          label (symbol-name feature)))
       (let ((missing-fns (seq-filter (lambda (fn) (not (fboundp fn)))
                                      (list start switch send))))
         (when missing-fns
           (user-error
-           "Backend '%s' is not available (missing functions: %s). Please install the package providing '%s'"
+           "Backend '%s' is not available (missing functions: %s).  Please install the package providing '%s'"
            label
            (mapconcat #'symbol-name missing-fns ", ")
            (symbol-name feature))))
@@ -511,7 +512,9 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
                                   (mapcar #'car ordered-choices)
                                   nil t nil nil current-label))
          (key (cdr (assoc choice ordered-choices))))
-    (ai-code-set-backend key)))
+    (ai-code-set-backend key)
+    (when (fboundp 'ai-code-onboarding-show-backend-switch-hint)
+      (ai-code-onboarding-show-backend-switch-hint))))
 
 ;;;###autoload
 (defun ai-code-open-backend-config ()

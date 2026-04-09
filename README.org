@@ -72,6 +72,10 @@ First 60 seconds:
 - `C-c a q`: Ask question only (no code change)
 - `C-c a z`: Jump back to AI session buffer
 
+The first time you open `C-c a`, AI Code also shows a small quickstart buffer
+with these core actions. You can reopen it later from `C-c a h`
+(`Help / Quick Start`).
+
 ** Installation
 
 Enable installation of packages from MELPA by adding an entry to package-archives after (require 'package) and before the call to package-initialize in your init.el or .emacs file:

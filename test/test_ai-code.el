@@ -258,6 +258,26 @@
     (should (eq #'ai-code-menu-2-columns
                 (ai-code--menu-prefix-command)))))
 
+(ert-deftest ai-code-test-menu-includes-quickstart-entry ()
+  "Test that the default menu exposes a quickstart entry."
+  (should (transient-get-suffix 'ai-code--menu-other-tools
+                                'ai-code-onboarding-open-quickstart)))
+
+(ert-deftest ai-code-test-menu-calls-onboarding-gate-before-opening-transient ()
+  "Test that `ai-code-menu' runs the onboarding gate before opening the menu."
+  (let ((gate-called nil)
+        (called-prefix nil)
+        (ai-code-menu-layout 'default))
+    (cl-letf (((symbol-function 'ai-code-onboarding-maybe-show-quickstart)
+               (lambda ()
+                 (setq gate-called t)))
+              ((symbol-function 'call-interactively)
+               (lambda (command &rest _args)
+                 (setq called-prefix command))))
+      (ai-code-menu)
+      (should gate-called)
+      (should (eq called-prefix #'ai-code-menu-default)))))
+
 (ert-deftest ai-code-test-menu-prefix-command-fallback-to-default-layout ()
   "Test that unknown menu layout values still fall back to the default transient."
   (let ((ai-code-menu-layout 'unexpected-layout))

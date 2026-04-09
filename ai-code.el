@@ -116,6 +116,7 @@
 (require 'ai-code-ai)
 (require 'ai-code-mcp-server)
 (require 'ai-code-notifications)
+(require 'ai-code-onboarding)
 
 ;; Forward declarations for dynamically defined backend functions
 (declare-function ai-code-cli-start "ai-code-backends")
@@ -506,6 +507,7 @@ Shows the current backend label to the right."
   ("." "Init projectile and gtags" ai-code-init-project)
   ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
   ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
+  ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart)
   ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
   ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
@@ -540,6 +542,7 @@ Shows the current backend label to the right."
 (defun ai-code-menu ()
   "Show the AI Code transient menu selected by `ai-code-menu-layout`."
   (interactive)
+  (ai-code-onboarding-maybe-show-quickstart)
   (call-interactively (ai-code--menu-prefix-command)))
 
 

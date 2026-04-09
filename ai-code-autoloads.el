@@ -912,6 +912,21 @@ Navigate using the clickable symbol clicked by mouse EVENT.
 
 (fn EVENT)" t)
 (register-definition-prefixes "ai-code-session-link" '("ai-code-"))
+
+
+;;; Generated autoloads from ai-code-onboarding.el
+
+(defvar ai-code-onboarding-auto-show t "\
+When non-nil, show the quickstart automatically for first-run usage.")
+(custom-autoload 'ai-code-onboarding-auto-show "ai-code-onboarding" t)
+(defvar ai-code-onboarding-seen nil "\
+Whether the user has already seen the onboarding quickstart.")
+(custom-autoload 'ai-code-onboarding-seen "ai-code-onboarding" t)
+(autoload 'ai-code-onboarding-open-quickstart "ai-code-onboarding" "\
+Open the onboarding quickstart buffer." t)
+(autoload 'ai-code-onboarding-disable-auto-show "ai-code-onboarding" "\
+Disable future auto-display of the onboarding quickstart." t)
+(register-definition-prefixes "ai-code-onboarding" '("ai-code-onboarding-"))
 
 ;;; End of scraped data
 
