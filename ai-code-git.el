@@ -106,6 +106,7 @@ Issue Investigation Steps:
   "Build PR description prompt for REVIEW-SOURCE with PR-URL."
   (let ((source-instruction
          (ai-code--pull-or-review-source-instruction review-source)))
+    ;; DONE: Update the prompt to make the description sound like it's written by the author/maintainer, and keep it concise.
     (format "Prepare a pull request description for: %s
 
 %s
@@ -114,7 +115,8 @@ PR Description Steps:
 1. Add a summary of the problem and the approach taken in the PR.
 2. Highlight the most important code changes and user-visible impact.
 3. Add a testing section with relevant verification details.
-4. Format the result as a concise PR description ready to share with reviewers."
+4. Format the result as a concise PR description ready to share with reviewers,
+   written in the voice of the author or maintainer."
             pr-url source-instruction)))
 
 (defun ai-code--build-pr-ci-check-init-prompt (review-source pr-url)

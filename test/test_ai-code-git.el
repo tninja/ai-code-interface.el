@@ -270,6 +270,8 @@ When .gitignore is missing some entries, they should be added."
     (should (string-match-p "https://github.com/acme/demo/pull/791" captured-prompt))
     (should (string-match-p "prepare a pull request description" (downcase captured-prompt)))
     (should (string-match-p "summary" (downcase captured-prompt)))
+    (should (string-match-p "author" (downcase captured-prompt)))
+    (should (string-match-p "maintainer" (downcase captured-prompt)))
     (should (string-match-p "testing" (downcase captured-prompt)))
     (should-not diff-called)))
 
