@@ -45,6 +45,30 @@
         (when (buffer-live-p rendered-buffer)
           (kill-buffer rendered-buffer))))))
 
+(ert-deftest ai-code-test-onboarding-maybe-show-quickstart-persists-seen-state ()
+  "Auto-showing quickstart should persist the seen state in interactive sessions."
+  (let ((ai-code-onboarding-auto-show t)
+        (ai-code-onboarding-seen nil)
+        (noninteractive nil)
+        saved-variables)
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (symbol value)
+                 (push (cons symbol value) saved-variables)))
+              ((symbol-function 'pop-to-buffer)
+               (lambda (buffer &rest _args)
+                 (get-buffer buffer))))
+      (ai-code-onboarding-maybe-show-quickstart)
+      (should ai-code-onboarding-seen)
+      (should (member '(ai-code-onboarding-seen . t) saved-variables)))))
+
+(ert-deftest ai-code-test-onboarding-current-backend-label-falls-back-on-error ()
+  "Backend label helper should degrade gracefully when backend lookup fails."
+  (cl-letf (((symbol-function 'ai-code-current-backend-label)
+             (lambda ()
+               (error "backend lookup failed"))))
+    (should (string= "<none>"
+                     (ai-code-onboarding--current-backend-label)))))
+
 (ert-deftest ai-code-test-onboarding-disable-auto-show-turns-off-future-auto-display ()
   "Disabling auto-show should persist the opt-out state and close the window."
   (let ((ai-code-onboarding-auto-show t)

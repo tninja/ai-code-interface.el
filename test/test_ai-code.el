@@ -278,6 +278,24 @@
       (should gate-called)
       (should (eq called-prefix #'ai-code-menu-default)))))
 
+(ert-deftest ai-code-test-menu-keeps-source-buffer-selected-when-auto-showing-quickstart ()
+  "Auto-showing quickstart should not change the source buffer for the menu."
+  (let ((ai-code-menu-layout 'default)
+        (ai-code-onboarding-auto-show t)
+        (ai-code-onboarding-seen nil)
+        selected-buffer
+        source-buffer)
+    (with-temp-buffer
+      (setq source-buffer (current-buffer))
+      (cl-letf (((symbol-function 'pop-to-buffer)
+                 (lambda (buffer &rest _args)
+                   (set-buffer (get-buffer buffer))))
+                ((symbol-function 'call-interactively)
+                 (lambda (_command &rest _args)
+                   (setq selected-buffer (current-buffer)))))
+        (ai-code-menu)
+        (should (eq selected-buffer source-buffer))))))
+
 (ert-deftest ai-code-test-menu-prefix-command-fallback-to-default-layout ()
   "Test that unknown menu layout values still fall back to the default transient."
   (let ((ai-code-menu-layout 'unexpected-layout))

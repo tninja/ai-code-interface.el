@@ -43,6 +43,12 @@
 (define-derived-mode ai-code-onboarding-mode special-mode "AI Code Quick Start"
   "Major mode for the AI Code onboarding quickstart buffer.")
 
+(defun ai-code-onboarding--current-backend-label ()
+  "Return the current backend label, or a safe fallback."
+  (condition-case nil
+      (or (ai-code-current-backend-label) "<none>")
+    (error "<none>")))
+
 (defun ai-code-onboarding--backend-spec ()
   "Return the current backend spec plist, or nil."
   (when ai-code-selected-backend
@@ -115,7 +121,7 @@
     (ai-code-onboarding--insert-line "AI Code Quick Start")
     (insert "\n")
     (ai-code-onboarding--insert-line
-     (format "Current backend: %s" (ai-code-current-backend-label)))
+     (format "Current backend: %s" (ai-code-onboarding--current-backend-label)))
     (ai-code-onboarding--insert-line (ai-code-onboarding--session-status-line))
     (ai-code-onboarding--insert-line
      "You only need three keys to get productive.")
@@ -150,11 +156,24 @@
     (ai-code-onboarding--insert-command-button "Close" #'quit-window)
     (insert "\n")))
 
+(defun ai-code-onboarding--persist-seen-state ()
+  "Persist onboarding seen state for interactive sessions."
+  (unless noninteractive
+    (customize-save-variable 'ai-code-onboarding-seen t)))
+
+(defun ai-code-onboarding--restore-origin-context (origin-window origin-buffer)
+  "Restore ORIGIN-WINDOW and ORIGIN-BUFFER after auto-showing quickstart."
+  (when (window-live-p origin-window)
+    (select-window origin-window))
+  (when (buffer-live-p origin-buffer)
+    (set-buffer origin-buffer)))
+
 ;;;###autoload
 (defun ai-code-onboarding-open-quickstart ()
   "Open the onboarding quickstart buffer."
   (interactive)
   (setq ai-code-onboarding-seen t)
+  (ai-code-onboarding--persist-seen-state)
   (let ((buffer (get-buffer-create ai-code-onboarding-buffer-name)))
     (with-current-buffer buffer
       (ai-code-onboarding-mode)
@@ -166,7 +185,7 @@
   "Persist onboarding opt-out state for interactive sessions."
   (unless noninteractive
     (customize-save-variable 'ai-code-onboarding-auto-show nil)
-    (customize-save-variable 'ai-code-onboarding-seen t)))
+    (ai-code-onboarding--persist-seen-state)))
 
 ;;;###autoload
 (defun ai-code-onboarding-disable-auto-show ()
@@ -181,7 +200,10 @@
   "Open quickstart once when auto-show is enabled."
   (when (and ai-code-onboarding-auto-show
              (not ai-code-onboarding-seen))
-    (ai-code-onboarding-open-quickstart)))
+    (let ((origin-window (selected-window))
+          (origin-buffer (current-buffer)))
+      (ai-code-onboarding-open-quickstart)
+      (ai-code-onboarding--restore-origin-context origin-window origin-buffer))))
 
 (defun ai-code-onboarding-backend-hint ()
   "Return a backend-specific next-step hint."
@@ -189,7 +211,7 @@
          (agent-file (plist-get spec :agent-file)))
     (concat
      (format "Backend switched to %s. Next: a to start, g to edit config"
-             (ai-code-current-backend-label))
+             (ai-code-onboarding--current-backend-label))
      (if agent-file
          (format ", G to open %s." agent-file)
        "."))))
