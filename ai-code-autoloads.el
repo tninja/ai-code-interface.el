@@ -31,9 +31,6 @@ with a newline separator.")
 (defvar ai-code-use-prompt-suffix t "\
 When non-nil, append `ai-code-prompt-suffix` where supported.")
 (custom-autoload 'ai-code-use-prompt-suffix "ai-code" t)
-(defvar ai-code-test-after-code-change-suffix "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)." "\
-User-provided prompt suffix for test-after-code-change.")
-(custom-autoload 'ai-code-test-after-code-change-suffix "ai-code" t)
 (defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix "\
 Default prompt suffix to request running tests after code changes.")
 (defvar ai-code-use-gptel-classify-prompt nil "\
@@ -927,6 +924,21 @@ Open the onboarding quickstart buffer." t)
 (autoload 'ai-code-onboarding-disable-auto-show "ai-code-onboarding" "\
 Disable future auto-display of the onboarding quickstart." t)
 (register-definition-prefixes "ai-code-onboarding" '("ai-code-onboarding-"))
+
+
+;;; Generated autoloads from ai-code-harness.el
+
+(defvar ai-code-test-after-code-change-suffix "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)." "\
+User-provided prompt suffix for test-after-code-change.")
+(custom-autoload 'ai-code-test-after-code-change-suffix "ai-code-harness" t)
+(defvar ai-code-auto-test-harness-cache-directory nil "\
+Directory used to cache generated auto-test harness files.
+
+When nil, store harness files under `.ai.code.files/harness/` in the current
+repository so prompts can cite them with `@`-prefixed repo-relative paths.
+Set this to a directory path to override the default location.")
+(custom-autoload 'ai-code-auto-test-harness-cache-directory "ai-code-harness" t)
+(register-definition-prefixes "ai-code-harness" '("ai-code--"))
 
 ;;; End of scraped data
 

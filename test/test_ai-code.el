@@ -29,7 +29,9 @@
 
 (require 'ai-code)
 
-(defvar ai-code--tdd-run-test-after-each-stage-instruction)
+(ert-deftest ai-code-test-require-ai-code-loads-harness-module ()
+  "Test that loading `ai-code` also loads the harness module."
+  (should (featurep 'ai-code-harness)))
 
 (ert-deftest ai-code-test-set-auto-test-type-ask-me-clears-persistent-suffix ()
   "Test that setting auto test type to ask-me clears the persistent suffix."
@@ -47,23 +49,6 @@
     (ai-code--apply-auto-test-type nil)
     (should-not ai-code-auto-test-type)
     (should-not ai-code-auto-test-suffix)))
-
-(ert-deftest ai-code-test-resolve-tdd-suffix-includes-strict-stage-contract ()
-  "Test that TDD suffix names Red and Green stages and forbids skipping."
-  (let ((ai-code--tdd-test-pattern-instruction ""))
-    (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
-      (should (string-match-p "Do not skip stages" suffix))
-      (should (string-match-p "Stage 1 - Red" suffix))
-      (should (string-match-p "Stage 2 - Green" suffix))
-      (should (string-match-p "Do not refactor during Green" suffix)))))
-
-(ert-deftest ai-code-test-resolve-tdd-suffix-reuses-shared-each-stage-instruction ()
-  "Test that TDD suffix can reuse shared each-stage instruction when available."
-  (let ((ai-code--tdd-test-pattern-instruction "")
-        (ai-code--tdd-run-test-after-each-stage-instruction
-         " SHARED_EACH_STAGE_TEST_INSTRUCTION"))
-    (should (string-match-p "SHARED_EACH_STAGE_TEST_INSTRUCTION"
-                            (ai-code--test-after-code-change--resolve-tdd-suffix)))))
 
 (ert-deftest ai-code-test-resolve-test-after-change-suffix-includes-diagnostics-for-mcp-backend ()
   "Test that test-after-change suffix points to the diagnostics harness file."
@@ -100,98 +85,6 @@
                      (regexp-quote "@.ai.code.files/harness/test-after-change.v1.md")
                      suffix))
             (should-not (string-match-p "diagnostics.v1.md" suffix))))
-      (delete-directory temp-root t))))
-
-(ert-deftest ai-code-test-auto-test-harness-reference-suffix-tells-ai-to-use-local-harness ()
-  "Test that harness reference prompt tells AI to read and use the harness."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
-         (ai-files-dir (expand-file-name ".ai.code.files/" temp-root))
-         (ai-code-auto-test-harness-cache-directory nil)
-         (ai-code-selected-backend 'codex)
-         (ai-code--tdd-test-pattern-instruction ""))
-    (unwind-protect
-        (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
-                   (lambda () ai-files-dir))
-                  ((symbol-function 'ai-code--git-root)
-                   (lambda (&optional _dir) temp-root)))
-          (let ((suffix (ai-code--auto-test-harness-reference-suffix 'tdd-with-refactoring)))
-            (should (string-match-p "Read the local harness file:" suffix))
-            (should (string-match-p "Use its instructions for this work\\." suffix))
-            (should (string-match-p
-                     (regexp-quote "@.ai.code.files/harness/tdd-with-refactoring-diagnostics.v1.md")
-                     suffix))))
-      (delete-directory temp-root t))))
-
-(ert-deftest ai-code-test-resolve-tdd-suffix-includes-diagnostics-first-loop ()
-  "Test that TDD suffix requires diagnostics checks before completion."
-  (let ((ai-code--tdd-test-pattern-instruction "")
-        (case-fold-search nil)
-        (ai-code-selected-backend 'codex))
-    (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
-      (should (string-match-p "get_diagnostics" suffix))
-      (should (string-match-p "get_diagnostics MCP tool" suffix))
-      (should (string-match-p "baseline" suffix))
-      (should (string-match-p "no new diagnostics" suffix)))))
-
-(ert-deftest ai-code-test-resolve-tdd-suffix-omits-diagnostics-for-non-mcp-backend ()
-  "Test that TDD suffix omits diagnostics for unsupported backends."
-  (let ((ai-code--tdd-test-pattern-instruction "")
-        (ai-code-selected-backend 'gemini))
-    (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
-      (should-not (string-match-p "get_diagnostics" suffix))
-      (should-not (string-match-p "no new diagnostics" suffix)))))
-
-(ert-deftest ai-code-test-maybe-append-diagnostics-harness-instruction-preserves-nil-suffix ()
-  "Test that diagnostics harness logic preserves a nil suffix."
-  (let ((ai-code-selected-backend 'codex)
-        (ai-code-mcp-agent-enabled-backends '(codex)))
-    (should-not (ai-code--maybe-append-diagnostics-harness-instruction nil))
-    (should-not (ai-code--maybe-append-diagnostics-harness-instruction nil t))))
-
-(ert-deftest ai-code-test-auto-test-harness-directory-defaults-to-ai-code-files-harness ()
-  "Test that harness directory defaults to `.ai.code.files/harness/`."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
-         (ai-files-dir (expand-file-name ".ai.code.files/" temp-root))
-         (ai-code-auto-test-harness-cache-directory nil))
-    (unwind-protect
-        (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
-                   (lambda () ai-files-dir)))
-          (should (equal (expand-file-name "harness/" ai-files-dir)
-                         (ai-code--auto-test-harness-directory))))
-      (delete-directory temp-root t))))
-
-(ert-deftest ai-code-test-ensure-auto-test-harness-cache-directory-tolerates-unbound-custom ()
-  "Test that harness directory creation falls back when the custom is unbound."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
-         (ai-files-dir (expand-file-name ".ai.code.files/" temp-root))
-         (expected-directory (expand-file-name "harness/" ai-files-dir))
-         (was-bound (boundp 'ai-code-auto-test-harness-cache-directory))
-         (original-value (when was-bound ai-code-auto-test-harness-cache-directory)))
-    (unwind-protect
-        (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
-                   (lambda () ai-files-dir)))
-          (makunbound 'ai-code-auto-test-harness-cache-directory)
-          (should (equal expected-directory
-                         (ai-code--ensure-auto-test-harness-cache-directory)))
-          (should (file-directory-p expected-directory)))
-      (if was-bound
-          (setq ai-code-auto-test-harness-cache-directory original-value)
-        (makunbound 'ai-code-auto-test-harness-cache-directory))
-      (delete-directory temp-root t))))
-
-(ert-deftest ai-code-test-auto-test-harness-prompt-path-uses-repo-relative-at-path ()
-  "Test that harness prompt path becomes an `@` repo-relative path."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
-         (harness-file (expand-file-name ".ai.code.files/harness/tdd.v1.md" temp-root)))
-    (unwind-protect
-        (progn
-          (make-directory (file-name-directory harness-file) t)
-          (with-temp-file harness-file
-            (insert "harness"))
-          (cl-letf (((symbol-function 'ai-code--git-root)
-                     (lambda (&optional _dir) temp-root)))
-            (should (equal "@.ai.code.files/harness/tdd.v1.md"
-                           (ai-code--auto-test-harness-prompt-path harness-file)))))
       (delete-directory temp-root t))))
 
 (ert-deftest ai-code-test-resolve-auto-test-type-for-send-off ()
