@@ -310,6 +310,10 @@ With the built-in =get_diagnostics= MCP tool, the loop can move further left:
 - treat completion as /no new diagnostics/ on the touched files relative to the baseline, instead of requiring the entire project to be clean
 - use tests as the next sensor in the loop, not the first one
 
+Screenshot:
+
+[[file:./emacs_mcp_tool_diagnosis.png]]
+
 The benefit is practical:
 
 - faster feedback after each AI code change
