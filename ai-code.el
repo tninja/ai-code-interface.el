@@ -204,14 +204,16 @@ Set this to a directory path to override the default location."
 
 (defun ai-code--auto-test-harness-directory ()
   "Return the directory used for generated auto-test harness files."
-  (if ai-code-auto-test-harness-cache-directory
-      (expand-file-name ai-code-auto-test-harness-cache-directory)
-    (expand-file-name "harness/" (ai-code--ensure-files-directory))))
+  (let ((cache-directory (and (boundp 'ai-code-auto-test-harness-cache-directory)
+                              ai-code-auto-test-harness-cache-directory)))
+    (if cache-directory
+        (expand-file-name cache-directory)
+      (expand-file-name "harness/" (ai-code--ensure-files-directory)))))
 
 (defun ai-code--auto-test-harness-prompt-path (file-path)
   "Return FILE-PATH formatted for prompt usage.
 When FILE-PATH is inside the current git repository, return an `@`-prefixed
-repo-relative path. Otherwise return the absolute FILE-PATH."
+repo-relative path.  Otherwise return the absolute FILE-PATH."
   (if-let ((git-root (ai-code--git-root)))
       (let ((git-root-truename (file-truename git-root))
             (file-truename (file-truename file-path)))

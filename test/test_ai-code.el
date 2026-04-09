@@ -140,6 +140,25 @@
                          (ai-code--auto-test-harness-directory))))
       (delete-directory temp-root t))))
 
+(ert-deftest ai-code-test-ensure-auto-test-harness-cache-directory-tolerates-unbound-custom ()
+  "Test that harness directory creation falls back when the custom is unbound."
+  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
+         (ai-files-dir (expand-file-name ".ai.code.files/" temp-root))
+         (expected-directory (expand-file-name "harness/" ai-files-dir))
+         (was-bound (boundp 'ai-code-auto-test-harness-cache-directory))
+         (original-value (when was-bound ai-code-auto-test-harness-cache-directory)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
+                   (lambda () ai-files-dir)))
+          (makunbound 'ai-code-auto-test-harness-cache-directory)
+          (should (equal expected-directory
+                         (ai-code--ensure-auto-test-harness-cache-directory)))
+          (should (file-directory-p expected-directory)))
+      (if was-bound
+          (setq ai-code-auto-test-harness-cache-directory original-value)
+        (makunbound 'ai-code-auto-test-harness-cache-directory))
+      (delete-directory temp-root t))))
+
 (ert-deftest ai-code-test-auto-test-harness-prompt-path-uses-repo-relative-at-path ()
   "Test that harness prompt path becomes an `@` repo-relative path."
   (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
