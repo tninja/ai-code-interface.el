@@ -14,6 +14,17 @@
 (require 'ai-code-prompt-mode)
 (require 'ai-code-discussion)
 
+(defun ai-code-test--gitignore-required-entries ()
+  "Return the default ignore entries expected from `ai-code-update-git-ignore'."
+  (list (concat ai-code-files-dir-name "/")
+        ".projectile"
+        "GTAGS"
+        "GRTAGS"
+        "GPATH"
+        "__pycache__/"
+        "*.elc"
+        "flycheck_*"))
+
 (ert-deftest ai-code-test-ai-code-gitignore-regex-pattern ()
   "Test that the regex pattern correctly matches entries in .gitignore.
 This is a unit test for the regex pattern used in ai-code-update-git-ignore."
@@ -94,12 +105,7 @@ When .gitignore already contains the required entries, they should
 not be added again."
   (let* ((temp-dir (file-truename (make-temp-file "ai-code-test-" t)))
          (gitignore-path (expand-file-name ".gitignore" temp-dir))
-         (required-entries (list (concat ai-code-files-dir-name "/")
-                                ".projectile"
-                                "GTAGS"
-                                "GRTAGS"
-                                "GPATH"
-                                "__pycache__/")))
+         (required-entries (ai-code-test--gitignore-required-entries)))
     (unwind-protect
         (progn
           ;; Initialize git repository
@@ -171,12 +177,8 @@ When .gitignore is missing some entries, they should be added."
                                    (insert-file-contents gitignore-path)
                                    (buffer-string))))
             ;; All required entries should be present
-            (should (string-match-p (regexp-quote (concat ai-code-files-dir-name "/")) updated-content))
-            (should (string-match-p (regexp-quote ".projectile") updated-content))
-            (should (string-match-p (regexp-quote "GTAGS") updated-content))
-            (should (string-match-p (regexp-quote "GRTAGS") updated-content))
-            (should (string-match-p (regexp-quote "GPATH") updated-content))
-            (should (string-match-p (regexp-quote "__pycache__/") updated-content))))
+            (dolist (entry (ai-code-test--gitignore-required-entries))
+              (should (string-match-p (regexp-quote entry) updated-content)))))
       ;; Cleanup
       (delete-directory temp-dir t))))
 
