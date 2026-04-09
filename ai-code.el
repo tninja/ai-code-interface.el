@@ -318,7 +318,7 @@ If the harness file cannot be prepared, fall back to the inline suffix."
   (condition-case err
       (when-let ((file-path (ai-code--ensure-auto-test-harness-file type)))
         (format
-         "Read and follow the local harness file `%s` for this request. Apply it without repeating its full contents."
+         "Read the local harness file: %s. Use its instructions for this work. Apply it without repeating its full contents."
          (ai-code--auto-test-harness-prompt-path file-path)))
     (file-error
      (message "Failed to prepare auto-test harness file for %s: %s"

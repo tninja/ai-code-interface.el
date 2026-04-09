@@ -102,6 +102,26 @@
             (should-not (string-match-p "diagnostics.v1.md" suffix))))
       (delete-directory temp-root t))))
 
+(ert-deftest ai-code-test-auto-test-harness-reference-suffix-tells-ai-to-use-local-harness ()
+  "Test that harness reference prompt tells AI to read and use the harness."
+  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
+         (ai-files-dir (expand-file-name ".ai.code.files/" temp-root))
+         (ai-code-auto-test-harness-cache-directory nil)
+         (ai-code-selected-backend 'codex)
+         (ai-code--tdd-test-pattern-instruction ""))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
+                   (lambda () ai-files-dir))
+                  ((symbol-function 'ai-code--git-root)
+                   (lambda (&optional _dir) temp-root)))
+          (let ((suffix (ai-code--auto-test-harness-reference-suffix 'tdd-with-refactoring)))
+            (should (string-match-p "Read the local harness file:" suffix))
+            (should (string-match-p "Use its instructions for this work\\." suffix))
+            (should (string-match-p
+                     (regexp-quote "@.ai.code.files/harness/tdd-with-refactoring-diagnostics.v1.md")
+                     suffix))))
+      (delete-directory temp-root t))))
+
 (ert-deftest ai-code-test-resolve-tdd-suffix-includes-diagnostics-first-loop ()
   "Test that TDD suffix requires diagnostics checks before completion."
   (let ((ai-code--tdd-test-pattern-instruction "")
