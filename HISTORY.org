@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- UX: Add onboarding quickstart and menu integration
+  - Also improve the Github PR action feature. It can look into CI checks status and provide analysis
 - Feat: Add diagnostics mcp support with Flycheck and Flymake
 - Fix: Add SPDX header and commentary tests for autoloads
   - Also added unit-test CI workflow
