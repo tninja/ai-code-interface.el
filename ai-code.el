@@ -185,6 +185,19 @@ with a newline separator."
   "Forward declaration for `ai-code-auto-test-type'.
 See the later `defcustom' for user-facing documentation and default.")
 
+(defconst ai-code--auto-test-harness-file-version "v1"
+  "Version tag appended to generated auto-test harness file names.")
+
+;;;###autoload
+(defcustom ai-code-auto-test-harness-cache-directory
+  (expand-file-name "ai-code-harness/" temporary-file-directory)
+  "Directory used to cache generated auto-test harness files.
+
+These harness files externalize long test workflow instructions so prompts can
+reference a stable local file instead of embedding the full instruction block."
+  :type 'directory
+  :group 'ai-code)
+
 (defun ai-code--auto-test-backend ()
   "Return the backend symbol used for auto-test prompt decisions."
   (if (fboundp 'ai-code--effective-backend)
@@ -226,6 +239,67 @@ When INLINE is non-nil, use the inline-formatted diagnostics instruction."
            ai-code--tdd-red-green-tail-instruction
            ai-code--tdd-run-test-after-each-stage-instruction
            ai-code--tdd-test-pattern-instruction)))
+
+(defun ai-code--auto-test-inline-suffix-for-type (type)
+  "Return the inline prompt suffix for auto test TYPE."
+  (pcase type
+    ('test-after-change
+     (ai-code--maybe-append-diagnostics-harness-instruction
+      ai-code-test-after-code-change-suffix t))
+    ('tdd (ai-code--test-after-code-change--resolve-tdd-suffix))
+    ('tdd-with-refactoring (ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix))
+    ('no-test "Do not write or run any test.")
+    (_ nil)))
+
+(defun ai-code--auto-test-harness-file-name (type)
+  "Return the stable harness file name for auto test TYPE."
+  (let ((base-name (symbol-name type)))
+    (format "%s%s.%s.md"
+            base-name
+            (if (ai-code--diagnostics-harness-enabled-p)
+                "-diagnostics"
+              "")
+            ai-code--auto-test-harness-file-version)))
+
+(defun ai-code--ensure-auto-test-harness-cache-directory ()
+  "Ensure the auto-test harness cache directory exists and return it."
+  (unless (file-directory-p ai-code-auto-test-harness-cache-directory)
+    (make-directory ai-code-auto-test-harness-cache-directory t))
+  ai-code-auto-test-harness-cache-directory)
+
+(defun ai-code--auto-test-harness-text-for-type (type)
+  "Return the externalized harness text for auto test TYPE."
+  (pcase type
+    ('no-test nil)
+    (_ (ai-code--auto-test-inline-suffix-for-type type))))
+
+(defun ai-code--ensure-auto-test-harness-file (type)
+  "Write and return the cached harness file path for auto test TYPE."
+  (when-let ((content (ai-code--auto-test-harness-text-for-type type)))
+    (let* ((directory (ai-code--ensure-auto-test-harness-cache-directory))
+           (file-path (expand-file-name
+                       (ai-code--auto-test-harness-file-name type)
+                       directory)))
+      (with-temp-file file-path
+        (insert content)
+        (unless (bolp)
+          (insert "\n")))
+      file-path)))
+
+(defun ai-code--auto-test-harness-reference-suffix (type)
+  "Return a short suffix that references the cached harness file for TYPE.
+
+If the harness file cannot be prepared, fall back to the inline suffix."
+  (condition-case err
+      (when-let ((file-path (ai-code--ensure-auto-test-harness-file type)))
+        (format
+         "Read and follow the local harness file `%s` for this request. Apply it without repeating its full contents."
+         file-path))
+    (file-error
+     (message "Failed to prepare auto-test harness file for %s: %s"
+              type
+              (error-message-string err))
+     (ai-code--auto-test-inline-suffix-for-type type))))
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
@@ -307,11 +381,8 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 (defun ai-code--auto-test-suffix-for-type (type)
   "Return prompt suffix for auto test TYPE."
   (pcase type
-    ('test-after-change
-     (ai-code--maybe-append-diagnostics-harness-instruction
-      ai-code-test-after-code-change-suffix t))
-    ('tdd (ai-code--test-after-code-change--resolve-tdd-suffix))
-    ('tdd-with-refactoring (ai-code--test-after-code-change--resolve-tdd-with-refactoring-suffix))
+    ((or 'test-after-change 'tdd 'tdd-with-refactoring)
+     (ai-code--auto-test-harness-reference-suffix type))
     ('no-test "Do not write or run any test.")
     (_ nil)))
 
