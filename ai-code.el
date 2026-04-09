@@ -136,6 +136,8 @@
 
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
+(declare-function ai-code--ensure-files-directory "ai-code-prompt-mode" ())
+(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 ;; Default aliases are set when a backend is applied via `ai-code-select-backend`.
 
@@ -190,13 +192,33 @@ See the later `defcustom' for user-facing documentation and default.")
 
 ;;;###autoload
 (defcustom ai-code-auto-test-harness-cache-directory
-  (expand-file-name "ai-code-harness/" temporary-file-directory)
+  nil
   "Directory used to cache generated auto-test harness files.
 
-These harness files externalize long test workflow instructions so prompts can
-reference a stable local file instead of embedding the full instruction block."
-  :type 'directory
+When nil, store harness files under `.ai.code.files/harness/` in the current
+repository so prompts can cite them with `@`-prefixed repo-relative paths.
+Set this to a directory path to override the default location."
+  :type '(choice (const :tag "Use .ai.code.files/harness under current repo" nil)
+                 directory)
   :group 'ai-code)
+
+(defun ai-code--auto-test-harness-directory ()
+  "Return the directory used for generated auto-test harness files."
+  (if ai-code-auto-test-harness-cache-directory
+      (expand-file-name ai-code-auto-test-harness-cache-directory)
+    (expand-file-name "harness/" (ai-code--ensure-files-directory))))
+
+(defun ai-code--auto-test-harness-prompt-path (file-path)
+  "Return FILE-PATH formatted for prompt usage.
+When FILE-PATH is inside the current git repository, return an `@`-prefixed
+repo-relative path. Otherwise return the absolute FILE-PATH."
+  (if-let ((git-root (ai-code--git-root)))
+      (let ((git-root-truename (file-truename git-root))
+            (file-truename (file-truename file-path)))
+        (if (string-prefix-p git-root-truename file-truename)
+            (concat "@" (file-relative-name file-truename git-root-truename))
+          file-path))
+    file-path))
 
 (defun ai-code--auto-test-backend ()
   "Return the backend symbol used for auto-test prompt decisions."
@@ -263,9 +285,10 @@ When INLINE is non-nil, use the inline-formatted diagnostics instruction."
 
 (defun ai-code--ensure-auto-test-harness-cache-directory ()
   "Ensure the auto-test harness cache directory exists and return it."
-  (unless (file-directory-p ai-code-auto-test-harness-cache-directory)
-    (make-directory ai-code-auto-test-harness-cache-directory t))
-  ai-code-auto-test-harness-cache-directory)
+  (let ((directory (ai-code--auto-test-harness-directory)))
+    (unless (file-directory-p directory)
+      (make-directory directory t))
+    directory))
 
 (defun ai-code--auto-test-harness-text-for-type (type)
   "Return the externalized harness text for auto test TYPE."
@@ -294,7 +317,7 @@ If the harness file cannot be prepared, fall back to the inline suffix."
       (when-let ((file-path (ai-code--ensure-auto-test-harness-file type)))
         (format
          "Read and follow the local harness file `%s` for this request. Apply it without repeating its full contents."
-         file-path))
+         (ai-code--auto-test-harness-prompt-path file-path)))
     (file-error
      (message "Failed to prepare auto-test harness file for %s: %s"
               type
