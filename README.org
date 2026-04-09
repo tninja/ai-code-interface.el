@@ -323,6 +323,12 @@ The benefit is practical:
 
 This is why features such as `ai-code-auto-test-type` and `ai-code-tdd-cycle` fit the idea of harness engineering: they turn testing and follow-up into part of the system, not an afterthought in each prompt.
 
+Nit: During using auto test feature, I prefer to turn off the approval request from AI, it will make the whole process more smooth. Eg. for Codex CLI, it is
+
+#+begin_src emacs-lisp
+(setq ai-code-codex-cli-program-switches '("-a" "never"))
+#+end_src
+
 - Relevant article: [[https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html][Harness Engineering]]
 
 *** Desktop Notifications (Experimental)
