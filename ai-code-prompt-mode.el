@@ -17,6 +17,8 @@
 (defvar ai-code-prompt-suffix)
 (defvar ai-code-auto-test-type)
 (defvar ai-code-auto-test-suffix)
+(defvar ai-code-discussion-auto-follow-up-enabled)
+(defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
 
 (declare-function yas-load-directory "yasnippet" (dir))
@@ -181,7 +183,9 @@ Returns the full prompt text with suffix for sending to AI."
   "Write PROMPT-TEXT to the AI prompt file."
   (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type
-                                         ai-code-auto-test-suffix))))
+                                         ai-code-auto-test-suffix)
+                                       (when ai-code-discussion-auto-follow-up-enabled
+                                         ai-code-discussion-auto-follow-up-suffix))))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (mapconcat #'identity suffix-parts "\n")))
          (full-prompt (concat (if suffix
@@ -458,8 +462,8 @@ It trims leading/trailing whitespace."
       (message "No text in the current block to send."))))
 
 (defun ai-code--mark-prompt-block ()
-  "Mark a code block. A code block is defined as multiple lines without empty lines inside,
-but with empty lines before and after the block."
+  "Mark the current prompt block.
+A prompt block is multiple non-empty lines surrounded by empty lines."
   (interactive)
   (let ((start (point))
         (end (point)))
