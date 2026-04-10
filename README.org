@@ -467,7 +467,7 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 
 - A: Enable auto-approval for your active AI coding CLI. For example, in Codex CLI, you can enable the following flag.
 #+begin_src elisp
-  (setq ai-code-codex-cli-program-switches '("--full-auto"))
+  (setq ai-code-codex-cli-program-switches '("-a" "never"))
 #+end_src
 
 ** AI Assisted Programming related books
