@@ -189,16 +189,22 @@
                (lambda (&rest _args) "TDD Red + Green + Blue (refactor after Green)")))
       (should (eq 'tdd-with-refactoring (ai-code--read-auto-test-type-choice))))))
 
-(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-off ()
-  "Test that off mode never resolves a discussion follow-up suffix."
-  (let ((ai-code-discussion-auto-follow-up-enabled nil)
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-ignores-disabled-setting ()
+  "Test that discussion follow-up suggestions stay enabled."
+  (let ((ai-code-use-gptel-classify-prompt t)
         (this-command 'ai-code-ask-question))
-    (should-not (ai-code--resolve-auto-follow-up-suffix-for-send "Explain this function"))))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'non-code-change))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () t)))
+      (should (string-match-p
+               "2-3 numbered candidate next[[:space:]\n]+steps"
+               (ai-code--resolve-auto-follow-up-suffix-for-send
+                "Explain this function"))))))
 
 (ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-ask-me-non-code-change ()
   "Test that ask-me mode can append next-step suggestions for discussion prompts."
-  (let ((ai-code-discussion-auto-follow-up-enabled t)
-        (ai-code-use-gptel-classify-prompt t)
+  (let ((ai-code-use-gptel-classify-prompt t)
         (this-command 'ai-code-ask-question))
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
@@ -211,8 +217,7 @@
 
 (ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-ask-me-code-change-skips ()
   "Test that ask-me mode does not offer next-step suggestions for code-change prompts."
-  (let ((ai-code-discussion-auto-follow-up-enabled t)
-        (ai-code-use-gptel-classify-prompt t)
+  (let ((ai-code-use-gptel-classify-prompt t)
         (this-command 'ai-code-ask-question)
         (asked nil))
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
@@ -228,8 +233,7 @@
 
 (ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-enabled-for-any-non-code-change-prompt ()
   "Test that the feature affects any prompt classified as non-code-change."
-  (let ((ai-code-discussion-auto-follow-up-enabled t)
-        (ai-code-use-gptel-classify-prompt t))
+  (let ((ai-code-use-gptel-classify-prompt t))
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
@@ -248,7 +252,6 @@
 (ert-deftest ai-code-test-write-prompt-appends-follow-up-suffix-for-discussion-prompts ()
   "Test that discussion prompts can append next-step suggestions."
   (let ((sent-command nil)
-        (ai-code-discussion-auto-follow-up-enabled t)
         (ai-code-use-gptel-classify-prompt t)
         (ai-code-use-prompt-suffix t)
         (ai-code-prompt-suffix "BASE SUFFIX")
@@ -273,7 +276,6 @@
   "Test that discussion follow-up suffix is also recorded in the prompt file."
   (let* ((temp-dir (make-temp-file "ai-code-prompt-" t))
          (prompt-file (expand-file-name ".ai.code.prompt.org" temp-dir))
-         (ai-code-discussion-auto-follow-up-enabled t)
          (ai-code-use-gptel-classify-prompt t)
          (ai-code-use-prompt-suffix t)
          (ai-code-prompt-suffix "BASE SUFFIX")
@@ -302,7 +304,6 @@
 (ert-deftest ai-code-test-write-prompt-appends-follow-up-suffix-for-send-command-non-code-change ()
   "Test that send-command also gets next-step suggestions when classified non-code-change."
   (let ((sent-command nil)
-        (ai-code-discussion-auto-follow-up-enabled t)
         (ai-code-use-gptel-classify-prompt t)
         (ai-code-use-prompt-suffix t)
         (this-command 'ai-code-send-command))
@@ -345,12 +346,9 @@
                    ("Off" . nil))
                  ai-code--auto-test-type-persistent-choices)))
 
-(ert-deftest ai-code-test-discussion-auto-follow-up-enabled-custom-option-is-boolean ()
-  "Test that discussion auto follow-up setting is a boolean toggle."
-  (should
-   (equal
-    'boolean
-    (get 'ai-code-discussion-auto-follow-up-enabled 'custom-type))))
+(ert-deftest ai-code-test-discussion-auto-follow-up-setting-is-removed ()
+  "Test that the legacy discussion follow-up setting has been removed."
+  (should-not (boundp 'ai-code-discussion-auto-follow-up-enabled)))
 
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-tdd-with-refactoring ()
   "Test that ask-me resolves to the repo-local TDD harness reference."
@@ -389,7 +387,9 @@
         (ai-code-prompt-suffix "BASE SUFFIX")
         (ai-code-auto-test-suffix "SHOULD NOT APPEAR"))
     (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
-               (lambda () 'no-test))
+                (lambda () 'no-test))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () nil))
               ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                (lambda () nil))
               ((symbol-function 'ai-code-cli-send-command)
@@ -417,6 +417,14 @@
   "Test that the default menu exposes a quickstart entry."
   (should (transient-get-suffix 'ai-code--menu-other-tools
                                 'ai-code-onboarding-open-quickstart)))
+
+(ert-deftest ai-code-test-menu-omits-discussion-auto-follow-up-toggle ()
+  "Test that the Other Tools menu no longer exposes follow-up toggle."
+  (should-not
+   (condition-case nil
+       (transient-get-suffix 'ai-code--menu-other-tools
+                             'ai-code--infix-toggle-auto-follow-up)
+     (error nil))))
 
 (ert-deftest ai-code-test-menu-calls-onboarding-gate-before-opening-transient ()
   "Test that `ai-code-menu' runs the onboarding gate before opening the menu."

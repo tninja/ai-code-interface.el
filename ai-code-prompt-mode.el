@@ -17,7 +17,6 @@
 (defvar ai-code-prompt-suffix)
 (defvar ai-code-auto-test-type)
 (defvar ai-code-auto-test-suffix)
-(defvar ai-code-discussion-auto-follow-up-enabled)
 (defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
 
@@ -184,8 +183,7 @@ that should be recorded in the prompt history file."
   (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type
                                          ai-code-auto-test-suffix)
-                                       (when ai-code-discussion-auto-follow-up-enabled
-                                         ai-code-discussion-auto-follow-up-suffix))))
+                                       ai-code-discussion-auto-follow-up-suffix)))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (mapconcat #'identity suffix-parts "\n")))
          (stored-prompt (if suffix
