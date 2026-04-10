@@ -188,6 +188,7 @@ that should be recorded in the prompt history file."
                                          ai-code-discussion-auto-follow-up-suffix))))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (mapconcat #'identity suffix-parts "\n")))
+         ;; Keep the recorded prompt aligned with the exact suffixes sent to AI.
          (stored-prompt (if suffix
                             (concat prompt-text "\n" suffix)
                           prompt-text))

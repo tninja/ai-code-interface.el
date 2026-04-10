@@ -58,6 +58,8 @@
 ;;   ;; (ai-code-prompt-filepath-completion-mode -1)
 ;;   ;; Optional: Configure AI test prompting mode (e.g., ask about running tests/TDD) for a tighter build-test loop
 ;;   (setq ai-code-auto-test-type 'ask-me)
+;;   ;; Optional: Offer numbered next steps for discussion prompts at send time
+;;   ;; (setq ai-code-discussion-auto-follow-up-enabled t)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
 ;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
@@ -220,10 +222,12 @@ See the later `defcustom' for user-facing documentation and default.")
 
 ;;;###autoload
 (defcustom ai-code-use-gptel-classify-prompt nil
-  "Whether to use GPTel to classify prompts in `ask-me` auto test mode.
-When non-nil and `ai-code-auto-test-type` is not nil, classify whether
-the current prompt is about code changes.  If not, skip test type selection
-and do not append auto test suffix."
+  "Whether to use GPTel to classify prompts before send-time suffix routing.
+When non-nil and `ai-code-auto-test-type` or
+`ai-code-discussion-auto-follow-up-enabled` is non-nil, classify whether
+the current prompt is about code changes.  This lets code-change prompts
+skip discussion follow-up suggestions, and discussion prompts skip auto
+test suffixes."
   :type 'boolean
   :group 'ai-code)
 
@@ -354,7 +358,10 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
   :group 'ai-code)
 
 (defcustom ai-code-discussion-auto-follow-up-enabled nil
-  "When non-nil, discussion prompts may request numbered next-step suggestions."
+  "When non-nil, prompts may request numbered next-step suggestions.
+Customize this to non-nil to turn on the send-time choice globally.
+Pair it with `ai-code-use-gptel-classify-prompt` when you want
+code-change prompts to skip these discussion follow-up suggestions."
   :type 'boolean
   :set (lambda (symbol value)
          (set-default symbol value)
