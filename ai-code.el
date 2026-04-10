@@ -172,6 +172,10 @@ See the later `defcustom' for user-facing documentation and default.")
 (defvar ai-code-discussion-auto-follow-up-suffix nil
   "Send-time prompt suffix that requests numbered next-step suggestions.")
 
+(defvar ai-code-discussion-auto-follow-up-enabled nil
+  "Forward declaration for `ai-code-discussion-auto-follow-up-enabled'.
+See the later `defcustom' for user-facing documentation and default.")
+
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
@@ -284,7 +288,8 @@ CLASSIFICATION is the optional GPTel prompt classification result."
 (defun ai-code--resolve-auto-follow-up-suffix-for-send (&optional prompt-text classification)
   "Resolve next-step suggestion suffix for current send action for PROMPT-TEXT.
 CLASSIFICATION is the optional GPTel prompt classification result."
-  (when ai-code-next-step-suggestion-suffix
+  (when (and ai-code-discussion-auto-follow-up-enabled
+             ai-code-next-step-suggestion-suffix)
     (let ((classification (or classification
                               (and ai-code-use-gptel-classify-prompt
                                    (ai-code--gptel-classify-prompt-code-change prompt-text)))))
@@ -303,7 +308,7 @@ CLASSIFICATION is the optional GPTel prompt classification result."
 Send-time routing uses this result for test and discussion follow-up suffixes."
   (when (and ai-code-use-gptel-classify-prompt
              (or ai-code-auto-test-type
-                 ai-code-next-step-suggestion-suffix))
+                 ai-code-discussion-auto-follow-up-enabled))
     (ai-code--gptel-classify-prompt-code-change prompt-text)))
 
 (defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)
@@ -336,12 +341,26 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
   (ai-code--test-after-code-change--set 'ai-code-auto-test-type value)
   value)
 
+(defun ai-code--apply-discussion-auto-follow-up-enabled (value)
+  "Set `ai-code-discussion-auto-follow-up-enabled` to VALUE."
+  (setq ai-code-discussion-auto-follow-up-enabled value)
+  value)
+
 (defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
   :type '(choice (const :tag "Ask every time" ask-me)
                  (const :tag "Off" nil))
   :set #'ai-code--test-after-code-change--set
   :group 'ai-code)
+
+(defcustom ai-code-discussion-auto-follow-up-enabled nil
+  "When non-nil, discussion prompts may request numbered next-step suggestions."
+  :type 'boolean
+  :set (lambda (symbol value)
+         (set-default symbol value)
+         (set symbol value))
+  :group 'ai-code)
+
 
 ;;;###autoload
 (defcustom ai-code-cli "claude"
@@ -456,6 +475,21 @@ Otherwise switch to AI CLI buffer."
                            (or ai-code-auto-test-suffix "cleared")))
                 value))))
 
+(defclass ai-code--discussion-auto-follow-up-enabled-type (transient-lisp-variable)
+  ((variable :initform 'ai-code-discussion-auto-follow-up-enabled)
+   (format :initform "%k %d %v")
+   (reader :initform #'transient-lisp-variable--read-value))
+  "Selection helper for `ai-code-discussion-auto-follow-up-enabled`.")
+
+(transient-define-infix ai-code--infix-toggle-auto-follow-up ()
+  "Toggle `ai-code-discussion-auto-follow-up-enabled`."
+  :class 'ai-code--discussion-auto-follow-up-enabled-type
+  :key "F"
+  :description "Discussion follow-up:"
+  :reader (lambda (_prompt _initial-input _history)
+            (ai-code--apply-discussion-auto-follow-up-enabled
+             (not ai-code-discussion-auto-follow-up-enabled))))
+
 (defun ai-code--select-backend-description (&rest _)
   "Dynamic description for the Select Backend menu item.
 Shows the current backend label to the right."
@@ -496,6 +530,7 @@ Shows the current backend label to the right."
   (":" "Speech to text input" ai-code-speech-to-text-input))
 
 (transient-define-group ai-code--menu-other-tools
+  (ai-code--infix-toggle-auto-follow-up)
   ("." "Init projectile and gtags" ai-code-init-project)
   ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
   ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
