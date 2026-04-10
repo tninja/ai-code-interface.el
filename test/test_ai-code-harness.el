@@ -128,6 +128,38 @@
                            (ai-code--auto-test-harness-prompt-path harness-file)))))
       (delete-directory temp-root t))))
 
+(ert-deftest ai-code-test-auto-test-harness-prompt-path-keeps-sibling-path-absolute ()
+  "Test that sibling paths with a shared prefix are not treated as repo-local."
+  (let* ((temp-root (make-temp-file "ai-code-harness-parent-" t))
+         (git-root (directory-file-name (expand-file-name "repo/" temp-root)))
+         (external-root (expand-file-name "repo-cache/" temp-root))
+         (harness-file (expand-file-name "harness/tdd.v1.md" external-root)))
+    (unwind-protect
+        (progn
+          (make-directory git-root t)
+          (make-directory (file-name-directory harness-file) t)
+          (with-temp-file harness-file
+            (insert "harness"))
+          (cl-letf (((symbol-function 'ai-code--git-root)
+                     (lambda (&optional _dir) git-root)))
+            (should (equal harness-file
+                           (ai-code--auto-test-harness-prompt-path harness-file)))))
+      (delete-directory temp-root t))))
+
+(ert-deftest ai-code-test-auto-test-harness-cache-directory-docs-cover-non-repo-fallback ()
+  "Test that the harness directory custom documents the non-repo fallback."
+  (let ((doc (documentation-property 'ai-code-auto-test-harness-cache-directory
+                                     'variable-documentation)))
+    (should (string-match-p "Outside a Git repository" doc))
+    (should (string-match-p "default-directory" doc))
+    (should
+     (equal
+      '(choice
+        (const :tag "Use default harness directory (.ai.code.files/harness in a repo, or harness under default-directory otherwise)"
+               nil)
+        directory)
+      (get 'ai-code-auto-test-harness-cache-directory 'custom-type)))))
+
 (provide 'test_ai-code-harness)
 
 ;;; test_ai-code-harness.el ends here

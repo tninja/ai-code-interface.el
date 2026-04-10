@@ -162,7 +162,6 @@ with a newline separator."
   :type 'boolean
   :group 'ai-code)
 
-;;;###autoload
 (defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix
   "Default prompt suffix to request running tests after code changes.")
 

@@ -33,6 +33,35 @@
   "Test that loading `ai-code` also loads the harness module."
   (should (featurep 'ai-code-harness)))
 
+(ert-deftest ai-code-test-autoloads-load-with-harness-custom-unbound ()
+  "Test that loading autoloads works before harness custom is defined."
+  (let* ((autoload-file (expand-file-name "ai-code-autoloads.el" default-directory))
+         (symbols '(ai-code-auto-test-suffix
+                    ai-code-test-after-code-change-suffix))
+         (saved-states
+          (mapcar (lambda (symbol)
+                    (list symbol
+                          (boundp symbol)
+                          (when (boundp symbol)
+                            (symbol-value symbol))))
+                  symbols)))
+    (unwind-protect
+        (progn
+          (mapc #'makunbound symbols)
+          (should
+           (eq 'loaded
+               (condition-case nil
+                   (progn
+                     (load autoload-file nil t)
+                     'loaded)
+                 (error 'failed))))
+          (should (boundp 'ai-code-test-after-code-change-suffix)))
+      (dolist (state saved-states)
+        (pcase-let ((`(,symbol ,was-bound ,value) state))
+          (if was-bound
+              (set symbol value)
+            (makunbound symbol)))))))
+
 (ert-deftest ai-code-test-set-auto-test-type-ask-me-clears-persistent-suffix ()
   "Test that setting auto test type to ask-me clears the persistent suffix."
   (let ((ai-code-auto-test-suffix "old")

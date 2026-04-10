@@ -31,8 +31,6 @@ with a newline separator.")
 (defvar ai-code-use-prompt-suffix t "\
 When non-nil, append `ai-code-prompt-suffix` where supported.")
 (custom-autoload 'ai-code-use-prompt-suffix "ai-code" t)
-(defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix "\
-Default prompt suffix to request running tests after code changes.")
 (defvar ai-code-use-gptel-classify-prompt nil "\
 Whether to use GPTel to classify prompts in `ask-me` auto test mode.
 When non-nil and `ai-code-auto-test-type` is not nil, classify whether
@@ -934,11 +932,16 @@ User-provided prompt suffix for test-after-code-change.")
 (defvar ai-code-auto-test-harness-cache-directory nil "\
 Directory used to cache generated auto-test harness files.
 
-When nil, store harness files under `.ai.code.files/harness/` in the current
-repository so prompts can cite them with `@`-prefixed repo-relative paths.
+When nil, store harness files under `harness/` inside the directory returned
+by `ai-code--ensure-files-directory`. In a Git repository, that is typically
+`.ai.code.files/harness/` under the current repository so prompts can cite
+them with `@`-prefixed repo-relative paths. Outside a Git repository, this
+falls back to `harness/` under `default-directory`.
+
 Set this to a directory path to override the default location.")
 (custom-autoload 'ai-code-auto-test-harness-cache-directory "ai-code-harness" t)
 (register-definition-prefixes "ai-code-harness" '("ai-code--"))
+
 
 ;;; End of scraped data
 

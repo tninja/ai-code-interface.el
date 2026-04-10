@@ -44,10 +44,16 @@
   nil
   "Directory used to cache generated auto-test harness files.
 
-When nil, store harness files under `.ai.code.files/harness/` in the current
-repository so prompts can cite them with `@`-prefixed repo-relative paths.
+When nil, store harness files under `harness/` inside the directory returned
+by `ai-code--ensure-files-directory`.  In a Git repository, that is typically
+`.ai.code.files/harness/` under the current repository so prompts can cite
+them with `@`-prefixed repo-relative paths.  Outside a Git repository, this
+falls back to `harness/` under `default-directory`.
+
 Set this to a directory path to override the default location."
-  :type '(choice (const :tag "Use .ai.code.files/harness under current repo" nil)
+  :type '(choice
+          (const :tag "Use default harness directory (.ai.code.files/harness in a repo, or harness under default-directory otherwise)"
+                 nil)
                  directory)
   :group 'ai-code)
 
@@ -64,9 +70,9 @@ Set this to a directory path to override the default location."
 When FILE-PATH is inside the current git repository, return an `@`-prefixed
 repo-relative path.  Otherwise return the absolute FILE-PATH."
   (if-let ((git-root (ai-code--git-root)))
-      (let ((git-root-truename (file-truename git-root))
+      (let ((git-root-truename (file-name-as-directory (file-truename git-root)))
             (file-truename (file-truename file-path)))
-        (if (string-prefix-p git-root-truename file-truename)
+        (if (file-in-directory-p file-truename git-root-truename)
             (concat "@" (file-relative-name file-truename git-root-truename))
           file-path))
     file-path))
