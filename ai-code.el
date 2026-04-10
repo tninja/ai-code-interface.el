@@ -285,16 +285,10 @@ CLASSIFICATION is the optional GPTel prompt classification result."
         (_ (ai-code--read-auto-test-type-choice)))
     (ai-code--read-auto-test-type-choice)))
 
-(defun ai-code--discussion-follow-up-command-p (&optional command)
-  "Return non-nil when COMMAND should offer discussion next-step suggestions."
-  (memq (or command this-command)
-        '(ai-code-ask-question ai-code-explain)))
-
 (defun ai-code--resolve-auto-follow-up-suffix-for-send (&optional prompt-text classification)
   "Resolve next-step suggestion suffix for current send action for PROMPT-TEXT.
 CLASSIFICATION is the optional GPTel prompt classification result."
   (when (and ai-code-discussion-auto-follow-up-enabled
-             (ai-code--discussion-follow-up-command-p)
              ai-code-next-step-suggestion-suffix)
     (let ((classification (or classification
                               (and ai-code-use-gptel-classify-prompt
@@ -314,8 +308,7 @@ CLASSIFICATION is the optional GPTel prompt classification result."
 Send-time routing uses this result for test and discussion follow-up suffixes."
   (when (and ai-code-use-gptel-classify-prompt
              (or ai-code-auto-test-type
-                 (and ai-code-discussion-auto-follow-up-enabled
-                      (ai-code--discussion-follow-up-command-p))))
+                 ai-code-discussion-auto-follow-up-enabled))
     (ai-code--gptel-classify-prompt-code-change prompt-text)))
 
 (defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)

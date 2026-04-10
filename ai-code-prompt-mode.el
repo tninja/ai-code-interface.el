@@ -164,15 +164,15 @@ Only works when gptel package is installed, otherwise shows error message."
     (insert (format ":AGENT: %s\n" label))
     (insert ":END:\n")))
 
-(defun ai-code--append-prompt-to-buffer (prompt-text)
-  "Append formatted PROMPT-TEXT to the end of the current buffer.
-This includes generating a headline and formatting the prompt.
-Returns the full prompt text with suffix for sending to AI."
+(defun ai-code--append-prompt-to-buffer (stored-prompt-text)
+  "Append formatted STORED-PROMPT-TEXT to the end of the current buffer.
+This includes generating a headline and formatting the prompt text
+that should be recorded in the prompt history file."
   (goto-char (point-max))
   (insert "\n\n")
-  (ai-code--generate-prompt-headline prompt-text)
+  (ai-code--generate-prompt-headline stored-prompt-text)
   (ai-code--insert-backend-label-drawer)
-  (ai-code--format-and-insert-prompt prompt-text))
+  (ai-code--format-and-insert-prompt stored-prompt-text))
 
 (defun ai-code--send-prompt (full-prompt)
   "Send FULL-PROMPT to AI."
@@ -188,6 +188,9 @@ Returns the full prompt text with suffix for sending to AI."
                                          ai-code-discussion-auto-follow-up-suffix))))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (mapconcat #'identity suffix-parts "\n")))
+         (stored-prompt (if suffix
+                            (concat prompt-text "\n" suffix)
+                          prompt-text))
          (full-prompt (concat (if suffix
                                   (concat prompt-text "\n" suffix)
                                 prompt-text) "\n"))
@@ -196,7 +199,7 @@ Returns the full prompt text with suffix for sending to AI."
     (if prompt-file
       (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
         (with-current-buffer buffer
-          (ai-code--append-prompt-to-buffer prompt-text)
+          (ai-code--append-prompt-to-buffer stored-prompt)
           (save-buffer)
           (message "Prompt added to %s" prompt-file))
         (let ((default-directory original-default-directory))
