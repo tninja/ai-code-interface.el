@@ -15,6 +15,17 @@
 (require 'ai-code-prompt-mode)
 
 (declare-function helm-gtags-create-tags "helm-gtags" (dir &optional label))
+(declare-function magit-anything-modified-p "magit" ())
+(declare-function magit-branch-p "magit" (branch))
+(declare-function magit-branch-read-args "magit-branch" (prompt))
+(declare-function magit-call-git "magit-git" (&rest args))
+(declare-function magit-diff-visit-directory "magit-diff" (directory))
+(declare-function magit-git-lines "magit-git" (&rest args))
+(declare-function magit-git-output "magit-git" (&rest args))
+(declare-function magit-git-string "magit-git" (&rest args))
+(declare-function magit-rev-verify "magit-git" (rev))
+(declare-function magit-run-git "magit-git" (&rest args))
+(declare-function magit-worktree-status "magit-worktree" ())
 
 (defcustom ai-code-init-project-gtags-label "pygments"
   "Default label passed to Helm-Gtags when initializing a project.
@@ -40,7 +51,7 @@ Candidate values:
 (defvar ai-code-files-dir-name)
 
 (defun ai-code--git-ignored-repo-file-p (file root)
-  "Return non-nil when FILE should be ignored for repo candidates."
+  "Return non-nil when FILE should be ignored for repo candidates under ROOT."
   (when (and file root)
     (let ((ignore-dir (file-truename (expand-file-name ai-code-files-dir-name root)))
           (truename (file-truename file)))
@@ -120,7 +131,7 @@ PR Description Steps:
             pr-url source-instruction)))
 
 (defun ai-code--build-pr-ci-check-init-prompt (review-source pr-url)
-  "Build CI checks review prompt for REVIEW-SOURCE with PR-URL."
+  "Build a CI check review prompt for REVIEW-SOURCE with PR-URL."
   (let ((source-instruction
          (ai-code--pull-or-review-source-instruction review-source 'review-ci-checks)))
     (format "Review GitHub CI checks for pull request: %s
@@ -168,19 +179,31 @@ CI Checks Review Steps:
 (defun ai-code--pull-or-review-pr-with-source (review-source)
   "Ask for a target URL and send a prompt for REVIEW-SOURCE to AI."
   (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice))
-         (url-prompt (ai-code--pull-or-review-url-prompt review-mode))
-         (target-url (ai-code-read-string url-prompt))
-         (init-prompt (ai-code--build-pr-init-prompt review-source target-url review-mode))
+         (init-prompt
+          (if (eq review-mode 'send-current-branch-pr)
+              (let* ((current-branch (ai-code--require-current-branch))
+                     (default-target-branch
+                      (ai-code--default-pr-target-branch current-branch))
+                     (target-branch
+                      (ai-code-read-string "Target branch to merge into: "
+                                           default-target-branch)))
+                (ai-code--build-send-current-branch-pr-init-prompt
+                 review-source current-branch target-branch))
+            (let* ((url-prompt (ai-code--pull-or-review-url-prompt review-mode))
+                   (target-url (ai-code-read-string url-prompt)))
+              (ai-code--build-pr-init-prompt review-source target-url review-mode))))
          (prompt (ai-code-read-string "Enter review prompt: " init-prompt)))
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code--pull-or-review-pr-mode-choice ()
   "Prompt user to choose analysis mode for a pull request or issue."
+  ;; DONE: add a choice: send out PR for current branch. The feature will ask user the target branch to merge. By default, it should be parent branch of current branch. AI should send out PR with description. The description should looks like it's written by the author, and it should be short.
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
                               ("Check unresolved feedback" . check-feedback)
                               ("Investigate issue" . investigate-issue)
                               ("Review GitHub CI checks" . review-ci-checks)
-                              ("Prepare PR description" . prepare-pr-description)))
+                              ("Prepare PR description" . prepare-pr-description)
+                              ("Send out PR for current branch" . send-current-branch-pr)))
          (review-mode (completing-read "Select analysis mode (PR or issue): "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
@@ -201,6 +224,58 @@ CI Checks Review Steps:
     (ai-code--build-pr-description-init-prompt review-source target-url))
    (_
     (ai-code--build-pr-review-init-prompt review-source target-url))))
+
+(defun ai-code--require-current-branch ()
+  "Return the current branch name or signal a user error."
+  (or (magit-get-current-branch)
+      (user-error "Current branch is not available")))
+
+(defun ai-code--normalize-branch-name (branch)
+  "Normalize BRANCH for display and user defaults."
+  (when branch
+    (replace-regexp-in-string
+     "\\`refs/heads/\\|\\`refs/remotes/[^/]+/\\|\\`origin/"
+     ""
+     branch)))
+
+(defun ai-code--default-pr-target-branch (current-branch)
+  "Return the default PR target branch for CURRENT-BRANCH."
+  (let* ((upstream-branch
+          (ignore-errors
+            (magit-git-string "rev-parse"
+                              "--abbrev-ref"
+                              "--symbolic-full-name"
+                              "@{upstream}")))
+         (normalized-upstream
+          (ai-code--normalize-branch-name upstream-branch)))
+    (cond
+     ((and normalized-upstream
+           (not (string-empty-p normalized-upstream))
+           (not (string= normalized-upstream current-branch)))
+      normalized-upstream)
+     ((or (magit-branch-p "main") (magit-branch-p "origin/main"))
+      "main")
+     ((or (magit-branch-p "master") (magit-branch-p "origin/master"))
+      "master")
+     (t "main"))))
+
+(defun ai-code--build-send-current-branch-pr-init-prompt (review-source current-branch target-branch)
+  "Build a PR creation prompt for REVIEW-SOURCE, CURRENT-BRANCH, and TARGET-BRANCH."
+  (let ((source-instruction
+         (ai-code--pull-or-review-source-instruction review-source)))
+    (format "Create a pull request from branch %s into %s.
+
+%s
+
+PR Creation Steps:
+1. Inspect the current branch changes and open or send out a pull request into %s.
+2. Write a short PR description that sounds like it was written by the author.
+3. Keep the description focused on the problem, the approach, and the most important verification.
+4. Return the final PR URL and the exact short description that was used."
+            current-branch
+            target-branch
+            source-instruction
+            target-branch)))
 
 ;;;###autoload
 (defun ai-code-pull-or-review-diff-file ()
@@ -742,7 +817,7 @@ PREFIX is the prefix argument."
 
 ;;;###autoload
 (defun ai-code-update-git-ignore ()
-  "Ensure repository .gitignore contains AI Code related entries.
+  "Ensure repository .gitignore has AI Code-related entries.
 If not inside a Git repository, do nothing."
   (interactive)
   (let ((git-root (ai-code--git-root)))
@@ -817,7 +892,7 @@ If BASE-DIR is in a Git repository, use `git ls-files' to enumerate files."
 
 ;;;###autoload
 (defun ai-code-git-repo-recent-modified-files (prefix)
-  "Open or insert one of the most recently modified files in the repo or current dir.
+  "Open or insert a recently modified file in the repo or current dir.
 With no PREFIX argument, prompt for a recently modified file and open it
 with `find-file'.
 
@@ -851,7 +926,7 @@ buffer from which this command was invoked, instead of visiting the file."
 ;;;###autoload
 (defun ai-code-git-worktree-branch (branch start-point)
   "Create BRANCH and check it out in a new centralized worktree.
-The worktree path is
+The worktree path for START-POINT is
 `ai-code-git-worktree-root/REPO-NAME/BRANCH'."
   (interactive
    (magit-branch-read-args "Create and checkout branch"))
@@ -872,7 +947,8 @@ The worktree path is
 (defun ai-code-git-worktree-action (&optional prefix)
   "Dispatch worktree action by PREFIX.
 Without PREFIX, call `ai-code-git-worktree-branch'.
-With PREFIX (for example C-u), call `magit-worktree-status'."
+With PREFIX (for example \\[universal-argument]), call
+`magit-worktree-status'."
   (interactive "P")
   (unless (and (stringp ai-code-git-worktree-root)
                (> (length ai-code-git-worktree-root) 0))

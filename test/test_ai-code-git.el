@@ -14,6 +14,8 @@
 (require 'ai-code-prompt-mode)
 (require 'ai-code-discussion)
 
+(declare-function magit-worktree-status "magit-worktree" ())
+
 (defun ai-code-test--gitignore-required-entries ()
   "Return the default ignore entries expected from `ai-code-update-git-ignore'."
   (list (concat ai-code-files-dir-name "/")
@@ -70,7 +72,7 @@ GPATH
                                gitignore-content))
     
     ;; Test entries with whitespace
-    (let ((gitignore-with-whitespace "  .projectile  
+    (let ((gitignore-with-whitespace "  .projectile
 GTAGS
 "))
       (should (string-match-p (concat "\\(?:^\\|\n\\)\\s-*"
@@ -126,7 +128,7 @@ not be added again."
 
             ;; Mock ai-code--git-root to return temp-dir
             (cl-letf (((symbol-function 'ai-code--git-root)
-                       (lambda (&optional dir) temp-dir)))
+                       (lambda (&optional _dir) temp-dir)))
               ;; Call the function
               (ai-code-update-git-ignore))
 
@@ -168,7 +170,7 @@ When .gitignore is missing some entries, they should be added."
 
           ;; Mock ai-code--git-root to return temp-dir
           (cl-letf (((symbol-function 'ai-code--git-root)
-                     (lambda (&optional dir) temp-dir)))
+                     (lambda (&optional _dir) temp-dir)))
             ;; Call the function
             (ai-code-update-git-ignore))
 
@@ -260,6 +262,27 @@ When .gitignore is missing some entries, they should be added."
              (lambda (&rest _args) "Review GitHub CI checks")))
     (should (eq (ai-code--pull-or-review-pr-mode-choice)
                 'review-ci-checks))))
+
+(ert-deftest ai-code-test-pull-or-review-pr-mode-choice-send-current-branch-pr ()
+  "Choosing current branch PR mode should return `send-current-branch-pr'."
+  (cl-letf (((symbol-function 'completing-read)
+             (lambda (&rest _args) "Send out PR for current branch")))
+    (should (eq (ai-code--pull-or-review-pr-mode-choice)
+                'send-current-branch-pr))))
+
+(ert-deftest ai-code-test-build-send-current-branch-pr-init-prompt ()
+  "Build a concise PR creation prompt for the current branch."
+  (let ((prompt (ai-code--build-send-current-branch-pr-init-prompt
+                 'gh-cli
+                 "feature/improve-pr-flow"
+                 "main")))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use gh CLI tool" prompt)))
+    (should (string-match-p "feature/improve-pr-flow" prompt))
+    (should (string-match-p "main" prompt))
+    (should (string-match-p "create a pull request" (downcase prompt)))
+    (should (string-match-p "short" (downcase prompt)))
+    (should (string-match-p "author" (downcase prompt)))))
 
 (ert-deftest ai-code-test-pull-or-review-diff-file-prepare-pr-description-github-mcp ()
   "When choosing PR description mode, prompt should ask AI to draft a PR description."
