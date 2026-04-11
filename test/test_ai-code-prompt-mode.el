@@ -334,6 +334,18 @@ and ensures everything is cleaned up afterward."
        (when (file-directory-p files-dir)
          (delete-directory files-dir t))))))
 
+(ert-deftest ai-code-test-read-task-search-directory-expands-relative-input-from-files-dir ()
+  "Relative search directories should resolve from AI-CODE-FILES-DIR."
+  (let* ((ai-code-files-dir "/tmp/project/.ai.code.files/")
+         (expected-dir (expand-file-name "notes" ai-code-files-dir)))
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (&rest _args) "notes"))
+              ((symbol-function 'file-directory-p)
+               (lambda (dir)
+                 (string= dir expected-dir))))
+      (should (equal (ai-code--read-task-search-directory ai-code-files-dir)
+                     expected-dir)))))
+
 (ert-deftest ai-code-test-create-or-open-task-file-create-new ()
   "Test that ai-code-create-or-open-task-file creates new task file with metadata."
   (ai-code-with-test-repo

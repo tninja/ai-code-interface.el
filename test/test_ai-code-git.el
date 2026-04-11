@@ -301,7 +301,7 @@ When .gitignore is missing some entries, they should be added."
 
 (ert-deftest ai-code-test-pull-or-review-pr-with-source-send-current-branch-pr-uses-neutral-prompt ()
   "Current branch PR flow should validate repo and use a PR creation prompt label."
-  (let (captured-read-prompts captured-inserted-prompt)
+  (let (captured-read-prompts captured-read-string-prompts captured-inserted-prompt)
     (cl-letf (((symbol-function 'completing-read)
                (lambda (&rest _args) "Send out PR for current branch"))
               ((symbol-function 'magit-toplevel)
@@ -316,18 +316,22 @@ When .gitignore is missing some entries, they should be added."
                  (cond
                   ((string= prompt "Target branch to merge into: ")
                    (or initial-input "main"))
-                  ((string= prompt "PR title (optional, leave empty for AI to generate): ")
-                   "")
                   ((string= prompt "Enter PR creation prompt: ")
                    initial-input)
                   (t initial-input))))
+              ((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input _history _default-value &rest _args)
+                 (push prompt captured-read-string-prompts)
+                 (if (string= prompt "PR title (optional, leave empty for AI to generate): ")
+                     ""
+                   initial-input)))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq captured-inserted-prompt prompt))))
       (ai-code--pull-or-review-pr-with-source 'gh-cli)
       (should (member "Target branch to merge into: " captured-read-prompts))
       (should (member "PR title (optional, leave empty for AI to generate): "
-                      captured-read-prompts))
+                      captured-read-string-prompts))
       (should (member "Enter PR creation prompt: " captured-read-prompts))
       (should-not (member "Enter review prompt: " captured-read-prompts))
       (should (string-match-p "feature/improve-pr-flow" captured-inserted-prompt))

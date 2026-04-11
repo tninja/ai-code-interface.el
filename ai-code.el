@@ -236,7 +236,7 @@ test suffixes."
   (concat
    "At the end of your response, provide 3-4 numbered candidate next\n"
    "steps. Keep each option to one sentence. At least 2 candidates must\n"
-   "be AI-actionable items: either a code change or tool usage. Mark the\n"
+   "be AI-actionable items as follow up: either a code change or tool usage. Mark the\n"
    "single best option with \"(Recommended)\". If the user replies with\n"
    "only a number such as 1, 2, 3, or 4, treat that as selecting the\n"
    "corresponding next step from your previous answer. The user may also\n"

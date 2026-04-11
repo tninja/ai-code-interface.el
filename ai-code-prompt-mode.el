@@ -667,9 +667,9 @@ Default to AI-CODE-FILES-DIR and keep a dedicated directory history."
                        ai-code-files-dir
                        'ai-code-task-search-directory-history
                        ai-code-files-dir))
-         (target-dir (expand-file-name (if (string-empty-p input)
-                                           ai-code-files-dir
-                                         input))))
+         (target-dir (if (string-empty-p input)
+                         ai-code-files-dir
+                       (expand-file-name input ai-code-files-dir))))
     (unless (file-directory-p target-dir)
       (user-error "Search directory does not exist: %s" target-dir))
     target-dir))
@@ -701,7 +701,6 @@ Prompts for a task name. If empty, opens the task directory.
 If non-empty, optionally prompts for a URL, generates a filename
 using GPTel, and creates the task file.
 With prefix ARG, prompt AI to search org file content under a target directory."
-  ;; DONE: when C-u pressed, let AI search content inside ai-code-files-dir given search target description. User firstly confirm the target dir to search (it support dedicate history entered), by default it is ai-code-files-dir, then input search description, it will build up prompt to search .org files inside target directory, and user confirm with ai-code-read-string. After that, the prompt will be sent to ai coding session to perform search.
   (interactive "P")
   (let ((ai-code-files-dir (ai-code--ensure-files-directory)))
     (if arg

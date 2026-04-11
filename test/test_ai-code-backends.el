@@ -297,6 +297,13 @@
       (should (string-match-p "superpowers" sent-command))
       (should (string-match-p "uninstall" sent-command)))))
 
+(ert-deftest ai-code-test-install-backend-skills-docstring-covers-uninstall ()
+  "Docstring should describe install and uninstall behavior."
+  (let ((doc (documentation #'ai-code-install-backend-skills)))
+    (should (string-match-p "Install or uninstall skills" doc))
+    (should (string-match-p "install-skills property" doc))
+    (should (string-match-p "uninstall" doc))))
+
 (ert-deftest ai-code-test-manage-backend-skills-fallback-errors-on-invalid-action ()
   "Fallback helper should reject invalid backend skills actions."
   (cl-letf (((symbol-function 'read-string)

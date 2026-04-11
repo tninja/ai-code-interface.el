@@ -616,13 +616,13 @@ ACTION should be the symbol `install' or `uninstall'."
 
 ;;;###autoload
 (defun ai-code-install-backend-skills ()
-  "Install skills for the currently selected backend.
-If the backend defines an :install-skills property, use it:
+  "Install or uninstall skills for the currently selected backend.
+Prompt for whether to install or uninstall first.
+When installing, if the backend defines an :install-skills property, use it:
   - string: run as a shell command via `compile'.
   - symbol: call the function.
-Otherwise fall back to prompting the AI session to install from a
-skills repository URL."
-  ;; DONE: firstly ask user if it is install or uninstall, then ask for the repo URL if needed, and finally run install / uninstall using corresponding prompt.
+Otherwise, or when uninstalling, fall back to prompting the AI session
+to manage skills from a skills repository URL."
   (interactive)
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
     (if (not spec)
