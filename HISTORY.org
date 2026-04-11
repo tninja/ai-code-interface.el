@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Add current-branch PR creation option
 
 ** 1.68
 - UX: TDD Harness loop externalize the long prompt
