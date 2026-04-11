@@ -49,6 +49,8 @@ Candidate values:
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 (defvar ai-code-files-dir-name)
+(defvar ai-code-pr-title-history nil
+  "Minibuffer history for optional PR titles.")
 
 (defun ai-code--git-ignored-repo-file-p (file root)
   "Return non-nil when FILE should be ignored for repo candidates under ROOT."
@@ -194,8 +196,10 @@ request or issue URL."
                         (ai-code-read-string "Target branch to merge into: "
                                              default-target-branch))
                        (pr-title
-                        (ai-code-read-string
-                         "PR title (optional, leave empty for AI to generate): ")))
+                        (read-string
+                         "PR title (optional, leave empty for AI to generate): "
+                         nil
+                         'ai-code-pr-title-history)))
                   (ai-code--build-send-current-branch-pr-init-prompt
                    review-source current-branch target-branch pr-title)))
             (let* ((url-prompt (ai-code--pull-or-review-url-prompt review-mode))
