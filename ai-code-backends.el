@@ -208,7 +208,7 @@ so the CLI itself handles the installation details."
      :config  "~/.claude.json"
      :agent-file "CLAUDE.md"
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
-     :install-skills ai-code-claude-code-install-skills
+     :install-skills nil
      :cli     "claude")
     (gemini
      :label "Gemini CLI"
