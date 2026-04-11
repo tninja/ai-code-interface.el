@@ -211,17 +211,25 @@
 (ert-deftest ai-code-test-install-skills-with-string-command ()
   "Backend with :install-skills string runs it via compile."
   (let* ((compiled-cmd nil)
+         (read-string-called nil)
          (ai-code-backends '((test-backend
                                :label "Test Backend"
                                :install-skills "npm install skills"
                                :cli "test")))
          (ai-code-selected-backend 'test-backend))
-    (cl-letf (((symbol-function 'compile)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "install"))
+              ((symbol-function 'read-string)
+               (lambda (&rest _args)
+                 (setq read-string-called t)
+                 "https://github.com/obra/superpowers"))
+              ((symbol-function 'compile)
                (lambda (cmd) (setq compiled-cmd cmd)))
               ((symbol-function 'message)
                (lambda (&rest _args) nil)))
       (ai-code-install-backend-skills)
-      (should (string= compiled-cmd "npm install skills")))))
+      (should (string= compiled-cmd "npm install skills"))
+      (should-not read-string-called))))
 
 (ert-deftest ai-code-test-install-skills-with-function-symbol ()
   "Backend with :install-skills as function symbol calls that function."
@@ -231,7 +239,9 @@
                                :install-skills ai-code-test--install-skills-fn
                                :cli "test")))
          (ai-code-selected-backend 'test-backend))
-    (cl-letf (((symbol-function 'ai-code-test--install-skills-fn)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "install"))
+              ((symbol-function 'ai-code-test--install-skills-fn)
                (lambda () (setq fn-called t)))
               ((symbol-function 'message)
                (lambda (&rest _args) nil)))
@@ -241,21 +251,51 @@
 (ert-deftest ai-code-test-install-skills-fallback-when-nil ()
   "Backend without :install-skills falls back to prompting AI via send-command."
   (let* ((sent-command nil)
+         (prompted-url nil)
          (ai-code-backends '((test-backend
                                :label "Test Backend"
                                :cli "test")))
          (ai-code-selected-backend 'test-backend))
-    (cl-letf (((symbol-function 'read-string)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "install"))
+              ((symbol-function 'read-string)
                (lambda (_prompt &optional _initial _history _default &rest _rest)
+                 (setq prompted-url t)
                  "https://github.com/obra/superpowers"))
               ((symbol-function 'ai-code-cli-send-command)
                (lambda (cmd) (setq sent-command cmd)))
               ((symbol-function 'message)
                (lambda (&rest _args) nil)))
       (ai-code-install-backend-skills)
+      (should prompted-url)
       (should (stringp sent-command))
       (should (string-match-p "superpowers" sent-command))
       (should (string-match-p "README" sent-command)))))
+
+(ert-deftest ai-code-test-uninstall-skills-fallback-prompts-for-url-and-sends-command ()
+  "Uninstall should prompt for a repo URL and send an uninstall prompt."
+  (let* ((sent-command nil)
+         (prompted-url nil)
+         (ai-code-backends '((test-backend
+                               :label "Test Backend"
+                               :install-skills "npm install skills"
+                               :cli "test")))
+         (ai-code-selected-backend 'test-backend))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "uninstall"))
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional _initial _history _default &rest _rest)
+                 (setq prompted-url t)
+                 "https://github.com/obra/superpowers"))
+              ((symbol-function 'ai-code-cli-send-command)
+               (lambda (cmd) (setq sent-command cmd)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (ai-code-install-backend-skills)
+      (should prompted-url)
+      (should (stringp sent-command))
+      (should (string-match-p "superpowers" sent-command))
+      (should (string-match-p "uninstall" sent-command)))))
 
 (ert-deftest ai-code-test-select-backend-shows-onboarding-hint ()
   "Explicit backend selection should show the onboarding next-step hint."
@@ -323,8 +363,10 @@
                                :install-skills ai-code-test-nonexistent-install-fn
                                :cli "test")))
          (ai-code-selected-backend 'test-backend))
-    (should-error (ai-code-install-backend-skills)
-                  :type 'user-error)))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "install")))
+      (should-error (ai-code-install-backend-skills)
+                    :type 'user-error))))
 
 (ert-deftest ai-code-test-claude-code-backend-has-install-skills ()
   "Claude Code backend spec should have :install-skills set to the dedicated function."
