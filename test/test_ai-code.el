@@ -205,7 +205,11 @@
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
                (lambda () t)))
       (should (string-match-p
-               "2-3 numbered candidate next[[:space:]\n]+steps"
+               "3-4 numbered candidate next[[:space:]\n]+steps"
+               (ai-code--resolve-auto-follow-up-suffix-for-send
+                "Explain this function")))
+      (should (string-match-p
+               "At least 2 candidates must[[:space:]\n]+be AI-actionable items"
                (ai-code--resolve-auto-follow-up-suffix-for-send
                 "Explain this function"))))))
 
@@ -265,9 +269,14 @@
                (lambda (&rest _args) nil)))
       (ai-code--write-prompt-to-file-and-send "Explain this function")
       (should (string-match-p "BASE SUFFIX" sent-command))
-      (should (string-match-p "2-3 numbered candidate next[[:space:]\n]+steps"
+      (should (string-match-p "3-4 numbered candidate next[[:space:]\n]+steps"
                               sent-command))
-      (should (string-match-p "If the user replies with only a number" sent-command)))))
+      (should (string-match-p
+               "At least 2 candidates must[[:space:]\n]+be AI-actionable items"
+               sent-command))
+      (should (string-match-p
+               "If the user replies with[[:space:]\n]+only a number"
+               sent-command)))))
 
 (ert-deftest ai-code-test-write-prompt-records-follow-up-suffix-in-prompt-file ()
   "Test that discussion follow-up suffix is also recorded in the prompt file."
@@ -295,8 +304,11 @@
             (let ((contents (buffer-string)))
               (should (string-match-p "Explain this function" contents))
               (should (string-match-p "BASE SUFFIX" contents))
-              (should (string-match-p "2-3 numbered candidate next[[:space:]\n]+steps"
-                                      contents)))))
+              (should (string-match-p "3-4 numbered candidate next[[:space:]\n]+steps"
+                                      contents))
+              (should (string-match-p
+                       "At least 2 candidates must[[:space:]\n]+be AI-actionable items"
+                       contents)))))
       (delete-directory temp-dir t))))
 
 (ert-deftest ai-code-test-write-prompt-appends-follow-up-suffix-for-send-command-non-code-change ()
@@ -317,8 +329,23 @@
               ((symbol-function 'ai-code-cli-switch-to-buffer)
                (lambda (&rest _args) nil)))
       (ai-code--write-prompt-to-file-and-send "Summarize this design")
-      (should (string-match-p "2-3 numbered candidate next[[:space:]\n]+steps"
-                              sent-command)))))
+      (should (string-match-p "3-4 numbered candidate next[[:space:]\n]+steps"
+                              sent-command))
+      (should (string-match-p
+               "either a code change or tool usage"
+               sent-command)))))
+
+(ert-deftest ai-code-test-next-step-suggestion-suffix-requires-actionable-items ()
+  "Test that numbered next-step suggestions require actionable AI items."
+  (should (string-match-p
+           "3-4 numbered candidate next[[:space:]\n]+steps"
+           ai-code-next-step-suggestion-suffix))
+  (should (string-match-p
+           "At least 2 candidates must[[:space:]\n]+be AI-actionable items"
+           ai-code-next-step-suggestion-suffix))
+  (should (string-match-p
+           "either a code change or tool usage"
+           ai-code-next-step-suggestion-suffix)))
 
 (ert-deftest ai-code-test-auto-test-type-ask-choices-use-explicit-red-green-blue-labels ()
   "Test that default ask choices use explicit staged TDD labels."

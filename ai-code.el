@@ -234,13 +234,13 @@ test suffixes."
 ;;;###autoload
 (defcustom ai-code-next-step-suggestion-suffix
   (concat
-   "At the end of your response, provide 2-3 numbered candidate next\n"
-   "steps. Keep each option to one sentence. Mark the single best option\n"
-   "with \"(Recommended)\". If the user replies with only a number such\n"
-   "as 1, 2, or 3, treat that as selecting the corresponding next step\n"
-   "from your previous answer. The user may also ignore these options\n"
-   "and send a different follow-up request instead. Do not suggest code\n"
-   "changes unless they are clearly warranted by the discussion.")
+   "At the end of your response, provide 3-4 numbered candidate next\n"
+   "steps. Keep each option to one sentence. At least 2 candidates must\n"
+   "be AI-actionable items: either a code change or tool usage. Mark the\n"
+   "single best option with \"(Recommended)\". If the user replies with\n"
+   "only a number such as 1, 2, 3, or 4, treat that as selecting the\n"
+   "corresponding next step from your previous answer. The user may also\n"
+   "ignore these options and send a different follow-up request instead.")
   "Prompt suffix for numbered next-step suggestions in discussion prompts."
   :type '(choice (const nil) string)
   :group 'ai-code)
