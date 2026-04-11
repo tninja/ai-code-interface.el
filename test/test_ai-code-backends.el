@@ -297,6 +297,17 @@
       (should (string-match-p "superpowers" sent-command))
       (should (string-match-p "uninstall" sent-command)))))
 
+(ert-deftest ai-code-test-manage-backend-skills-fallback-errors-on-invalid-action ()
+  "Fallback helper should reject invalid backend skills actions."
+  (cl-letf (((symbol-function 'read-string)
+             (lambda (&rest _args)
+               "https://github.com/obra/superpowers"))
+            ((symbol-function 'ai-code-cli-send-command)
+             (lambda (_cmd)
+               (ert-fail "invalid action should error before sending a command"))))
+    (should-error (ai-code--manage-backend-skills-fallback "Test Backend" 'remove)
+                  :type 'user-error)))
+
 (ert-deftest ai-code-test-select-backend-shows-onboarding-hint ()
   "Explicit backend selection should show the onboarding next-step hint."
   (let* ((hint-called nil)

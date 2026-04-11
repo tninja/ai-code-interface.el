@@ -589,7 +589,13 @@ to read the repo README and install the skills."
 (defun ai-code--manage-backend-skills-fallback (label action)
   "Fallback backend skills management for LABEL and ACTION.
 ACTION should be the symbol `install' or `uninstall'."
-  (let* ((action-name (if (eq action 'uninstall) "uninstall" "install"))
+  (let* ((action-name
+          (pcase action
+            ('install "install")
+            ('uninstall "uninstall")
+            (_ (user-error
+                "Invalid backend skills action: %S; expected `install' or `uninstall'"
+                action))))
          (url (read-string
                (format "Skills repo URL for %s %s: " label action-name)
                nil nil "https://github.com/obra/superpowers"))
