@@ -500,6 +500,9 @@ based on the task name. Otherwise, use cleaned-up task name directly."
   :type 'boolean
   :group 'ai-code)
 
+(defvar ai-code-task-search-directory-history nil
+  "Minibuffer history for task content search directories.")
+
 (defun ai-code--get-files-directory ()
   "Get the task directory path.
 If in a git repository, return `.ai.code.files/` under git root.
@@ -656,38 +659,77 @@ Returns the selected directory path."
   (when (member task-name task-file-candidates)
     (expand-file-name task-name ai-code-files-dir)))
 
+(defun ai-code--read-task-search-directory (ai-code-files-dir)
+  "Read a target directory for searching task content.
+Default to AI-CODE-FILES-DIR and keep a dedicated directory history."
+  (let* ((input
+          (read-string "Directory to search org files: "
+                       ai-code-files-dir
+                       'ai-code-task-search-directory-history
+                       ai-code-files-dir))
+         (target-dir (expand-file-name (if (string-empty-p input)
+                                           ai-code-files-dir
+                                         input))))
+    (unless (file-directory-p target-dir)
+      (user-error "Search directory does not exist: %s" target-dir))
+    target-dir))
+
+(defun ai-code--build-task-search-prompt (target-dir search-description)
+  "Build a prompt for searching org files in TARGET-DIR.
+SEARCH-DESCRIPTION describes what content the AI should search for."
+  (format
+   (concat
+    "Search the content of all .org files recursively under directory: %s\n"
+    "Search target description: %s\n"
+    "Focus on matching content inside the files, not just file names.\n"
+    "Return the relevant file paths, matched excerpts, and a concise summary.")
+   target-dir
+   search-description))
+
+(defun ai-code--search-task-files-with-ai (ai-code-files-dir)
+  "Prompt for task file search inputs and send a search request to AI."
+  (let* ((target-dir (ai-code--read-task-search-directory ai-code-files-dir))
+         (search-description (ai-code-read-string "Search description for .org files: "))
+         (default-prompt (ai-code--build-task-search-prompt target-dir search-description))
+         (confirmed-prompt (ai-code-read-string "Confirm search prompt: " default-prompt)))
+    (ai-code--execute-command confirmed-prompt)))
+
 ;;;###autoload
-(defun ai-code-create-or-open-task-file ()
+(defun ai-code-create-or-open-task-file (&optional arg)
   "Create or open an AI task file.
 Prompts for a task name. If empty, opens the task directory.
 If non-empty, optionally prompts for a URL, generates a filename
-using GPTel, and creates the task file."
-  (interactive)
-  (let* ((ai-code-files-dir (ai-code--ensure-files-directory))
-         (task-file-candidates (ai-code--task-file-candidates ai-code-files-dir))
-         (task-name (ai-code--read-task-name task-file-candidates))
-         (existing-task-file (ai-code--existing-task-file-path task-name task-file-candidates ai-code-files-dir)))
-    (cond
-     ((string-empty-p task-name)
-      (dired-other-window ai-code-files-dir)
-      (message "Opened task directory: %s" ai-code-files-dir))
-     (existing-task-file
-      (ai-code--open-or-create-task-file existing-task-file task-name task-name ""))
-     (t
-      (let* ((task-url (read-string "URL (optional, press Enter to skip): "))
-             (generated-filename (ai-code--generate-task-filename task-name))
-             (confirmed-filename (read-string "Confirm task filename (end with / to create subdirectory): " generated-filename))
-             (current-dir (expand-file-name default-directory))
-             (selected-dir (ai-code--select-task-target-directory ai-code-files-dir current-dir))
-             (create-dir-only-p (string-suffix-p "/" confirmed-filename))
-             (task-file (expand-file-name confirmed-filename selected-dir)))
-        (if create-dir-only-p
-            (let ((subdir (expand-file-name (directory-file-name confirmed-filename) selected-dir)))
-              (unless (file-directory-p subdir)
-                (make-directory subdir t))
-              (dired-other-window subdir)
-              (message "Opened directory: %s" subdir))
-          (ai-code--open-or-create-task-file task-file confirmed-filename task-name task-url)))))))
+using GPTel, and creates the task file.
+With prefix ARG, prompt AI to search org file content under a target directory."
+  ;; DONE: when C-u pressed, let AI search content inside ai-code-files-dir given search target description. User firstly confirm the target dir to search (it support dedicate history entered), by default it is ai-code-files-dir, then input search description, it will build up prompt to search .org files inside target directory, and user confirm with ai-code-read-string. After that, the prompt will be sent to ai coding session to perform search.
+  (interactive "P")
+  (let ((ai-code-files-dir (ai-code--ensure-files-directory)))
+    (if arg
+        (ai-code--search-task-files-with-ai ai-code-files-dir)
+      (let* ((task-file-candidates (ai-code--task-file-candidates ai-code-files-dir))
+             (task-name (ai-code--read-task-name task-file-candidates))
+             (existing-task-file (ai-code--existing-task-file-path task-name task-file-candidates ai-code-files-dir)))
+        (cond
+         ((string-empty-p task-name)
+          (dired-other-window ai-code-files-dir)
+          (message "Opened task directory: %s" ai-code-files-dir))
+         (existing-task-file
+          (ai-code--open-or-create-task-file existing-task-file task-name task-name ""))
+         (t
+          (let* ((task-url (read-string "URL (optional, press Enter to skip): "))
+                 (generated-filename (ai-code--generate-task-filename task-name))
+                 (confirmed-filename (read-string "Confirm task filename (end with / to create subdirectory): " generated-filename))
+                 (current-dir (expand-file-name default-directory))
+                 (selected-dir (ai-code--select-task-target-directory ai-code-files-dir current-dir))
+                 (create-dir-only-p (string-suffix-p "/" confirmed-filename))
+                 (task-file (expand-file-name confirmed-filename selected-dir)))
+            (if create-dir-only-p
+                (let ((subdir (expand-file-name (directory-file-name confirmed-filename) selected-dir)))
+                  (unless (file-directory-p subdir)
+                    (make-directory subdir t))
+                  (dired-other-window subdir)
+                  (message "Opened directory: %s" subdir))
+              (ai-code--open-or-create-task-file task-file confirmed-filename task-name task-url)))))))))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist

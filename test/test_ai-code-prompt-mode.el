@@ -281,6 +281,59 @@ and ensures everything is cleaned up afterward."
      (when (file-directory-p files-dir)
        (delete-directory files-dir t)))))
 
+(ert-deftest ai-code-test-create-or-open-task-file-with-prefix-sends-search-prompt ()
+  "Test that prefix arg sends a confirmed search prompt to the AI session."
+  (ai-code-with-test-repo
+   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
+          (search-dir (expand-file-name "notes" files-dir))
+          (read-calls nil)
+          (sent-command nil)
+          (switch-called nil))
+     (make-directory search-dir t)
+     (unwind-protect
+         (progn
+           (cl-letf (((symbol-function 'read-string)
+                      (lambda (prompt &optional initial-input history default-value _inherit)
+                        (push (list prompt initial-input history default-value) read-calls)
+                        (if (string-match-p "Directory to search" prompt)
+                            search-dir
+                          (ert-fail (format "Unexpected prompt: %s" prompt)))))
+                     ((symbol-function 'ai-code-read-string)
+                      (lambda (prompt &optional initial-input candidate-list)
+                        (push (list prompt initial-input candidate-list) read-calls)
+                        (cond
+                         ((string-match-p "Search description" prompt) "find todos about auth")
+                         ((string-match-p "Confirm search prompt" prompt) initial-input)
+                         (t (ert-fail (format "Unexpected prompt: %s" prompt))))))
+                     ((symbol-function 'ai-code-cli-send-command)
+                      (lambda (command)
+                        (setq sent-command command)))
+                     ((symbol-function 'ai-code-cli-switch-to-buffer)
+                      (lambda ()
+                        (setq switch-called t)))
+                     ((symbol-function 'message)
+                      (lambda (&rest _args) nil)))
+             (let ((current-prefix-arg '(4)))
+               (call-interactively #'ai-code-create-or-open-task-file))
+             (should switch-called)
+             (should (equal (car (car (last read-calls)))
+                            "Directory to search org files: "))
+             (should (equal (nth 1 (car (last read-calls))) files-dir))
+             (should (eq (nth 2 (car (last read-calls)))
+                         'ai-code-task-search-directory-history))
+             (should (equal sent-command
+                            (concat
+                             "Search the content of all .org files recursively under directory: "
+                             search-dir
+                             "\n"
+                             "Search target description: find todos about auth"
+                             "\n"
+                             "Focus on matching content inside the files, not just file names."
+                             "\n"
+                             "Return the relevant file paths, matched excerpts, and a concise summary.")))))
+       (when (file-directory-p files-dir)
+         (delete-directory files-dir t))))))
+
 (ert-deftest ai-code-test-create-or-open-task-file-create-new ()
   "Test that ai-code-create-or-open-task-file creates new task file with metadata."
   (ai-code-with-test-repo
