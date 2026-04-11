@@ -183,7 +183,7 @@ branch for the current branch PR.  Otherwise, ask for the relevant pull
 request or issue URL."
   (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice))
          (init-prompt
-          (if (eq review-mode 'send-current-branch-pr)
+         (if (eq review-mode 'send-current-branch-pr)
               (progn
                 (unless (magit-toplevel)
                   (user-error "Not inside a Git repository"))
@@ -192,9 +192,12 @@ request or issue URL."
                         (ai-code--default-pr-target-branch current-branch))
                        (target-branch
                         (ai-code-read-string "Target branch to merge into: "
-                                             default-target-branch)))
+                                             default-target-branch))
+                       (pr-title
+                        (ai-code-read-string
+                         "PR title (optional, leave empty for AI to generate): ")))
                   (ai-code--build-send-current-branch-pr-init-prompt
-                   review-source current-branch target-branch)))
+                   review-source current-branch target-branch pr-title)))
             (let* ((url-prompt (ai-code--pull-or-review-url-prompt review-mode))
                    (target-url (ai-code-read-string url-prompt)))
               (ai-code--build-pr-init-prompt review-source target-url review-mode))))
@@ -207,6 +210,7 @@ request or issue URL."
 (defun ai-code--pull-or-review-pr-mode-choice ()
   "Prompt user to choose analysis mode for a pull request or issue."
   ;; DONE: add a choice: send out PR for current branch. The feature will ask user the target branch to merge. By default, it should be parent branch of current branch. AI should send out PR with description. The description should looks like it's written by the author, and it should be short.
+  ;; DONE: for send out PR feature, it should ask user about the PR title. If user does not provide one, AI should generate a concise title based on the code change
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
                               ("Check unresolved feedback" . check-feedback)
                               ("Investigate issue" . investigate-issue)
@@ -298,24 +302,32 @@ request or issue URL."
       "Create the pull request using the backend's PR creation capability. "
       "Do not treat this as a PR review flow before the PR exists."))))
 
-(defun ai-code--build-send-current-branch-pr-init-prompt (review-source current-branch target-branch)
-  "Build a PR creation prompt for REVIEW-SOURCE, CURRENT-BRANCH, and TARGET-BRANCH."
+(defun ai-code--build-send-current-branch-pr-init-prompt
+    (review-source current-branch target-branch &optional pr-title)
+  "Build a PR creation prompt.
+REVIEW-SOURCE, CURRENT-BRANCH, TARGET-BRANCH, and PR-TITLE
+define the PR request."
   (let ((source-instruction
-         (ai-code--send-current-branch-pr-source-instruction review-source)))
+         (ai-code--send-current-branch-pr-source-instruction review-source))
+        (title-instruction
+         (if (string-empty-p (or pr-title ""))
+             "2. Generate a concise PR title based on the code change.\n"
+           (format "2. Use this PR title exactly: %s\n" pr-title))))
     (format "Create a pull request from branch %s into %s.
 
 %s
 
 PR Creation Steps:
 1. Inspect the current branch changes and open or send out a pull request into %s.
-2. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
-3. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
-4. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
-5. Return the final PR URL and the exact description that was used."
+%s3. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
+4. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
+5. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
+6. Return the final PR URL, the exact PR title, and the exact description that were used."
             current-branch
             target-branch
             source-instruction
-            target-branch)))
+            target-branch
+            title-instruction)))
 
 ;;;###autoload
 (defun ai-code-pull-or-review-diff-file ()

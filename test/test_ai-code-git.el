@@ -316,6 +316,8 @@ When .gitignore is missing some entries, they should be added."
                  (cond
                   ((string= prompt "Target branch to merge into: ")
                    (or initial-input "main"))
+                  ((string= prompt "PR title (optional, leave empty for AI to generate): ")
+                   "")
                   ((string= prompt "Enter PR creation prompt: ")
                    initial-input)
                   (t initial-input))))
@@ -324,9 +326,12 @@ When .gitignore is missing some entries, they should be added."
                  (setq captured-inserted-prompt prompt))))
       (ai-code--pull-or-review-pr-with-source 'gh-cli)
       (should (member "Target branch to merge into: " captured-read-prompts))
+      (should (member "PR title (optional, leave empty for AI to generate): "
+                      captured-read-prompts))
       (should (member "Enter PR creation prompt: " captured-read-prompts))
       (should-not (member "Enter review prompt: " captured-read-prompts))
-      (should (string-match-p "feature/improve-pr-flow" captured-inserted-prompt)))))
+      (should (string-match-p "feature/improve-pr-flow" captured-inserted-prompt))
+      (should (string-match-p "generate a concise pr title" (downcase captured-inserted-prompt))))))
 
 (ert-deftest ai-code-test-pull-or-review-diff-file-prepare-pr-description-github-mcp ()
   "When choosing PR description mode, prompt should ask AI to draft a PR description."
