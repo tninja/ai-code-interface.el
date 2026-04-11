@@ -17,6 +17,8 @@
 (defvar ai-code-prompt-suffix)
 (defvar ai-code-auto-test-type)
 (defvar ai-code-auto-test-suffix)
+(defvar ai-code-discussion-auto-follow-up-enabled)
+(defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
 
 (declare-function yas-load-directory "yasnippet" (dir))
@@ -162,15 +164,15 @@ Only works when gptel package is installed, otherwise shows error message."
     (insert (format ":AGENT: %s\n" label))
     (insert ":END:\n")))
 
-(defun ai-code--append-prompt-to-buffer (prompt-text)
-  "Append formatted PROMPT-TEXT to the end of the current buffer.
-This includes generating a headline and formatting the prompt.
-Returns the full prompt text with suffix for sending to AI."
+(defun ai-code--append-prompt-to-buffer (stored-prompt-text)
+  "Append formatted STORED-PROMPT-TEXT to the end of the current buffer.
+This includes generating a headline and formatting the prompt text
+that should be recorded in the prompt history file."
   (goto-char (point-max))
   (insert "\n\n")
-  (ai-code--generate-prompt-headline prompt-text)
+  (ai-code--generate-prompt-headline stored-prompt-text)
   (ai-code--insert-backend-label-drawer)
-  (ai-code--format-and-insert-prompt prompt-text))
+  (ai-code--format-and-insert-prompt stored-prompt-text))
 
 (defun ai-code--send-prompt (full-prompt)
   "Send FULL-PROMPT to AI."
@@ -181,9 +183,15 @@ Returns the full prompt text with suffix for sending to AI."
   "Write PROMPT-TEXT to the AI prompt file."
   (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type
-                                         ai-code-auto-test-suffix))))
+                                         ai-code-auto-test-suffix)
+                                       (when ai-code-discussion-auto-follow-up-enabled
+                                         ai-code-discussion-auto-follow-up-suffix))))
          (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
                    (mapconcat #'identity suffix-parts "\n")))
+         ;; Keep the recorded prompt aligned with the exact suffixes sent to AI.
+         (stored-prompt (if suffix
+                            (concat prompt-text "\n" suffix)
+                          prompt-text))
          (full-prompt (concat (if suffix
                                   (concat prompt-text "\n" suffix)
                                 prompt-text) "\n"))
@@ -192,7 +200,7 @@ Returns the full prompt text with suffix for sending to AI."
     (if prompt-file
       (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
         (with-current-buffer buffer
-          (ai-code--append-prompt-to-buffer prompt-text)
+          (ai-code--append-prompt-to-buffer stored-prompt)
           (save-buffer)
           (message "Prompt added to %s" prompt-file))
         (let ((default-directory original-default-directory))
@@ -458,8 +466,8 @@ It trims leading/trailing whitespace."
       (message "No text in the current block to send."))))
 
 (defun ai-code--mark-prompt-block ()
-  "Mark a code block. A code block is defined as multiple lines without empty lines inside,
-but with empty lines before and after the block."
+  "Mark the current prompt block.
+A prompt block is multiple non-empty lines surrounded by empty lines."
   (interactive)
   (let ((start (point))
         (end (point)))

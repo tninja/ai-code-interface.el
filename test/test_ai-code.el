@@ -189,6 +189,137 @@
                (lambda (&rest _args) "TDD Red + Green + Blue (refactor after Green)")))
       (should (eq 'tdd-with-refactoring (ai-code--read-auto-test-type-choice))))))
 
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-off ()
+  "Test that off mode never resolves a discussion follow-up suffix."
+  (let ((ai-code-discussion-auto-follow-up-enabled nil)
+        (this-command 'ai-code-ask-question))
+    (should-not (ai-code--resolve-auto-follow-up-suffix-for-send "Explain this function"))))
+
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-ask-me-non-code-change ()
+  "Test that ask-me mode can append next-step suggestions for discussion prompts."
+  (let ((ai-code-discussion-auto-follow-up-enabled t)
+        (ai-code-use-gptel-classify-prompt t)
+        (this-command 'ai-code-ask-question))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'non-code-change))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () t)))
+      (should (string-match-p
+               "2-3 numbered candidate next[[:space:]\n]+steps"
+               (ai-code--resolve-auto-follow-up-suffix-for-send
+                "Explain this function"))))))
+
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-ask-me-code-change-skips ()
+  "Test that ask-me mode does not offer next-step suggestions for code-change prompts."
+  (let ((ai-code-discussion-auto-follow-up-enabled t)
+        (ai-code-use-gptel-classify-prompt t)
+        (this-command 'ai-code-ask-question)
+        (asked nil))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'code-change))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda ()
+                 (setq asked t)
+                 t)))
+      (should-not
+       (ai-code--resolve-auto-follow-up-suffix-for-send
+        "Please update the code"))
+      (should-not asked))))
+
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-enabled-for-any-non-code-change-prompt ()
+  "Test that the feature affects any prompt classified as non-code-change."
+  (let ((ai-code-discussion-auto-follow-up-enabled t)
+        (ai-code-use-gptel-classify-prompt t))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'non-code-change))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () t)))
+      (let ((this-command 'ai-code-ask-question))
+        (should (string-match-p
+                 "The user may also ignore these options"
+                 (ai-code--resolve-auto-follow-up-suffix-for-send
+                  "Explain this function"))))
+      (let ((this-command 'ai-code-send-command))
+        (should (string-match-p
+                 "The user may also ignore these options"
+                 (ai-code--resolve-auto-follow-up-suffix-for-send
+                  "Summarize this design")))))))
+
+(ert-deftest ai-code-test-write-prompt-appends-follow-up-suffix-for-discussion-prompts ()
+  "Test that discussion prompts can append next-step suggestions."
+  (let ((sent-command nil)
+        (ai-code-discussion-auto-follow-up-enabled t)
+        (ai-code-use-gptel-classify-prompt t)
+        (ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix "BASE SUFFIX")
+        (this-command 'ai-code-ask-question))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'non-code-change))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () t))
+              ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+               (lambda () nil))
+              ((symbol-function 'ai-code-cli-send-command)
+               (lambda (command) (setq sent-command command)))
+              ((symbol-function 'ai-code-cli-switch-to-buffer)
+               (lambda (&rest _args) nil)))
+      (ai-code--write-prompt-to-file-and-send "Explain this function")
+      (should (string-match-p "BASE SUFFIX" sent-command))
+      (should (string-match-p "2-3 numbered candidate next[[:space:]\n]+steps"
+                              sent-command))
+      (should (string-match-p "If the user replies with only a number" sent-command)))))
+
+(ert-deftest ai-code-test-write-prompt-records-follow-up-suffix-in-prompt-file ()
+  "Test that discussion follow-up suffix is also recorded in the prompt file."
+  (let* ((temp-dir (make-temp-file "ai-code-prompt-" t))
+         (prompt-file (expand-file-name ".ai.code.prompt.org" temp-dir))
+         (ai-code-discussion-auto-follow-up-enabled t)
+         (ai-code-use-gptel-classify-prompt t)
+         (ai-code-use-prompt-suffix t)
+         (ai-code-prompt-suffix "BASE SUFFIX")
+         (this-command 'ai-code-ask-question))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+                   (lambda (_prompt-text) 'non-code-change))
+                  ((symbol-function 'ai-code--read-auto-follow-up-choice)
+                   (lambda () t))
+                  ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+                   (lambda () prompt-file))
+                  ((symbol-function 'ai-code-cli-send-command)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-cli-switch-to-buffer)
+                   (lambda (&rest _args) nil)))
+          (ai-code--write-prompt-to-file-and-send "Explain this function")
+          (with-temp-buffer
+            (insert-file-contents prompt-file)
+            (let ((contents (buffer-string)))
+              (should (string-match-p "Explain this function" contents))
+              (should (string-match-p "BASE SUFFIX" contents))
+              (should (string-match-p "2-3 numbered candidate next[[:space:]\n]+steps"
+                                      contents)))))
+      (delete-directory temp-dir t))))
+
+(ert-deftest ai-code-test-write-prompt-appends-follow-up-suffix-for-send-command-non-code-change ()
+  "Test that send-command also gets next-step suggestions when classified non-code-change."
+  (let ((sent-command nil)
+        (ai-code-discussion-auto-follow-up-enabled t)
+        (ai-code-use-gptel-classify-prompt t)
+        (ai-code-use-prompt-suffix t)
+        (this-command 'ai-code-send-command))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text) 'non-code-change))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () t))
+              ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+               (lambda () nil))
+              ((symbol-function 'ai-code-cli-send-command)
+               (lambda (command) (setq sent-command command)))
+              ((symbol-function 'ai-code-cli-switch-to-buffer)
+               (lambda (&rest _args) nil)))
+      (ai-code--write-prompt-to-file-and-send "Summarize this design")
+      (should (string-match-p "2-3 numbered candidate next[[:space:]\n]+steps"
+                              sent-command)))))
+
 (ert-deftest ai-code-test-auto-test-type-ask-choices-use-explicit-red-green-blue-labels ()
   "Test that default ask choices use explicit staged TDD labels."
   (should (assoc "TDD Red + Green (write failing test, then make it pass)"
@@ -213,6 +344,13 @@
   (should (equal '(("Ask every time" . ask-me)
                    ("Off" . nil))
                  ai-code--auto-test-type-persistent-choices)))
+
+(ert-deftest ai-code-test-discussion-auto-follow-up-enabled-custom-option-is-boolean ()
+  "Test that discussion auto follow-up setting is a boolean toggle."
+  (should
+   (equal
+    'boolean
+    (get 'ai-code-discussion-auto-follow-up-enabled 'custom-type))))
 
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-tdd-with-refactoring ()
   "Test that ask-me resolves to the repo-local TDD harness reference."
@@ -353,9 +491,9 @@
     (should (fboundp cmd))
     (should (commandp cmd))))
 
-(ert-deftest ai-code-test-menu-other-tools-includes-speech-to-text-input ()
-  "Test that Other Tools menu exposes speech-to-text input."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools ":")))
+(ert-deftest ai-code-test-menu-agile-development-includes-speech-to-text-input ()
+  "Test that Agile Development menu exposes speech-to-text input."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development ":")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-speech-to-text-input))

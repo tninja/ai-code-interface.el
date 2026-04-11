@@ -106,6 +106,10 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; (ai-code-prompt-filepath-completion-mode -1)
     ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
     (setq ai-code-auto-test-type 'ask-me)
+    ;; Optional: Offer numbered next steps for discussion prompts at send time
+    ;; Customize `ai-code-discussion-auto-follow-up-enabled` to non-nil
+    ;; or set it directly like this:
+    ;; (setq ai-code-discussion-auto-follow-up-enabled t)
     ;; Optional: In AI session buffers, SPC in Evil normal state triggers the prompt-enter UI
     (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
@@ -132,7 +136,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   - ai-code-task-use-gptel-filename: When non-nil, file name created by `ai-code-create-or-open-task-file` or `ai-code-create-file-or-dir` will have auto-generated filenames created by GPTel
   - ai-code-notes-use-gptel-headline: When non-nil, notes created by `ai-code-take-notes` will have auto-generated headlines created by GPTel
   - ai-code-use-gptel-headline: When non-nil, prompts sent to the AI will have auto-generated headlines created by GPTel, providing better organization and readability in the prompt file
-  - ai-code-use-gptel-classify-prompt: When no nil, and `ai-code-auto-test-type` is not nil, classify whether the current prompt is about code changes and need to trigger following test
+  - ai-code-use-gptel-classify-prompt: When non-nil, and `ai-code-auto-test-type` or `ai-code-discussion-auto-follow-up-enabled` is non-nil, classify whether the current prompt is about code changes so test prompts or discussion follow-up suggestions are only added when relevant
 - `flycheck`: To enable the `ai-code-flycheck-fix-errors-in-scope` command.
 - `yasnippet`: For snippet support in the prompt file. A library of snippets is included.
   - (emacs built-in) abbrev + skeleton is also a good way to expand prompt. [[./etc/prompt_expand_with_abbrev_skeleton.el][example abbrev to solve / iterate leetcode problem with tdd (need to set ai-code-auto-test-type with tdd)]], [[./examples/leetcode][example problem resolved]]
@@ -161,6 +165,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - *Implementing a TODO*: Write a comment in your code, like `;; TODO: Implement caching for this function`. Place your cursor on that line and press `C-c a`, then `i` (`ai-code-implement-todo`). The AI will generate the implementation based on the comment.
   - Relevant packages for TODO: [[https://github.com/tarsius/hl-todo][hl-todo]], [[https://github.com/alphapapa/magit-todos][magit-todos]]
 - *Asking a Question*: Place your cursor within a function, press `C-c a`, then `q` (`ai-code-ask-question`), type your question, and press Enter. The question, along with context, will be sent to the AI.
+- *Discussion follow-up suggestions*: Customize `ai-code-discussion-auto-follow-up-enabled` to non-nil, or set `(setq ai-code-discussion-auto-follow-up-enabled t)`. Then ask a question with `C-c a q` or use `C-c a <SPC>` for a design discussion. When enabled, AI Code asks at send time whether to append 2-3 numbered next-step suggestions, and the transient toggle on `C-c a F` lets you turn the feature on or off from the menu.
 - *Refactoring a Function*: With the cursor in a function, press `C-c a`, then `r` (`ai-code-refactor-book-method`). Select a refactoring technique from the list, provide any required input (e.g., a new method name), and the prompt will be generated.
 - *Automatically run tests after change*: When ai-code-auto-test-type is non-nil, AI will automatically run tests after code changes and follow up on results.
 - *One-prompt TDD with refactoring*: Press `C-c a`, then `t` (`ai-code-tdd-cycle`) and choose `5. Red + Green + Blue (One prompt)` to generate tests, implement code, run tests, and then refactor the changed code in one flow.
@@ -293,11 +298,14 @@ To expose your own Emacs function as a tool, use =ai-code-mcp-make-tool=.
 
 *** Harness Engineering Practice
 
-Harness engineering is about building a reliable loop around the model, so the AI does not stop at /make a change/ but continues into /verify the change and react to the result/. In this package, the clearest example is the auto test loop.
+Harness engineering is about building a reliable loop around the model, so the AI does not stop at /make a change/ but continues into /verify the change and react to the result/. In this package, the clearest examples are the auto test loop for code changes and the optional next-step loop for discussion prompts.
 
-Instead of manually telling the AI what to do after every edit, you can make test follow-up part of the workflow:
+Instead of manually telling the AI what to do after every code change or discussion turn, you can make follow-up part of the workflow:
 
 - `ai-code-auto-test-type`: choose how code-change prompts should continue after the edit. You can ask the AI to run tests after the change, use TDD Red+Green, use Red+Green+Blue with refactoring, turn it off, or decide case by case with `ask-me`.
+- `ai-code-discussion-auto-follow-up-enabled`: when non-nil, discussion-style prompts can offer a send-time choice to append 2-3 numbered candidate next steps. You can customize this variable directly or toggle it from the transient menu with `C-c a F`.
+- `ai-code-next-step-suggestion-suffix`: customize the exact instruction appended for those numbered next-step suggestions.
+- `ai-code-use-gptel-classify-prompt`: when paired with the settings above, GPTel can classify prompts so code-change prompts skip discussion follow-up suggestions and discussion prompts skip test follow-up.
 - `ai-code-tdd-cycle`: run a guided TDD flow from the menu, including separate Red, Green, Blue stages or the combined one-prompt flows.
 - `ai-code-build-or-test-project`: run build/test explicitly from `C-c a b` when you want a direct verification step in the middle of the loop.
 - `ai-code-prompt-suffix`: add persistent project rules when needed, so repeated instructions such as response language, coding constraints, or test expectations do not have to be retyped in every prompt.
@@ -321,7 +329,7 @@ The benefit is practical:
 - more consistent AI behavior because verification is part of the workflow
 - easier to let the AI continue with the next step after a failed or passing test
 
-This is why features such as `ai-code-auto-test-type` and `ai-code-tdd-cycle` fit the idea of harness engineering: they turn testing and follow-up into part of the system, not an afterthought in each prompt.
+This is why features such as `ai-code-auto-test-type`, `ai-code-discussion-auto-follow-up-enabled`, and `ai-code-tdd-cycle` fit the idea of harness engineering: they turn testing and follow-up into part of the system, not an afterthought in each prompt.
 
 Nit: During using auto test feature, I prefer to turn off the approval request from AI, it will make the whole process more smooth. Eg. for Codex CLI, it is
 
@@ -459,7 +467,7 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 
 - A: Enable auto-approval for your active AI coding CLI. For example, in Codex CLI, you can enable the following flag.
 #+begin_src elisp
-  (setq ai-code-codex-cli-program-switches '("--full-auto"))
+  (setq ai-code-codex-cli-program-switches '("-a" "never"))
 #+end_src
 
 ** AI Assisted Programming related books

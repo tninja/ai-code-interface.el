@@ -58,6 +58,8 @@
 ;;   ;; (ai-code-prompt-filepath-completion-mode -1)
 ;;   ;; Optional: Configure AI test prompting mode (e.g., ask about running tests/TDD) for a tighter build-test loop
 ;;   (setq ai-code-auto-test-type 'ask-me)
+;;   ;; Optional: Offer numbered next steps for discussion prompts at send time
+;;   ;; (setq ai-code-discussion-auto-follow-up-enabled t)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
 ;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
@@ -169,6 +171,13 @@ with a newline separator."
   "Forward declaration for `ai-code-auto-test-type'.
 See the later `defcustom' for user-facing documentation and default.")
 
+(defvar ai-code-discussion-auto-follow-up-suffix nil
+  "Send-time prompt suffix that requests numbered next-step suggestions.")
+
+(defvar ai-code-discussion-auto-follow-up-enabled nil
+  "Forward declaration for `ai-code-discussion-auto-follow-up-enabled'.
+See the later `defcustom' for user-facing documentation and default.")
+
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
@@ -180,6 +189,11 @@ See the later `defcustom' for user-facing documentation and default.")
   '(("Ask every time" . ask-me)
     ("Off" . nil))
   "Persistent choices for `ai-code-auto-test-type`.")
+
+(defconst ai-code--auto-follow-up-type-ask-choices
+  '(("Suggest next steps" . t)
+    ("No next-step suggestions" . nil))
+  "Resolve next-step suggestion choices for `ask-me` mode.")
 
 (defconst ai-code--auto-test-type-legacy-persistent-modes
   '(test-after-change tdd tdd-with-refactoring)
@@ -196,13 +210,39 @@ See the later `defcustom' for user-facing documentation and default.")
         (cdr choice-cell)
       'test-after-change)))
 
+(defun ai-code--read-auto-follow-up-choice ()
+  "Read whether to request numbered next-step suggestions for this send action."
+  (let* ((choice (completing-read "Discussion follow-up suggestions: "
+                                  (mapcar #'car ai-code--auto-follow-up-type-ask-choices)
+                                  nil t nil nil
+                                  (caar ai-code--auto-follow-up-type-ask-choices)))
+         (choice-cell (assoc choice ai-code--auto-follow-up-type-ask-choices)))
+    (and choice-cell
+         (cdr choice-cell))))
+
 ;;;###autoload
 (defcustom ai-code-use-gptel-classify-prompt nil
-  "Whether to use GPTel to classify prompts in `ask-me` auto test mode.
-When non-nil and `ai-code-auto-test-type` is not nil, classify whether
-the current prompt is about code changes.  If not, skip test type selection
-and do not append auto test suffix."
+  "Whether to use GPTel to classify prompts before send-time suffix routing.
+When non-nil and `ai-code-auto-test-type` or
+`ai-code-discussion-auto-follow-up-enabled` is non-nil, classify whether
+the current prompt is about code changes.  This lets code-change prompts
+skip discussion follow-up suggestions, and discussion prompts skip auto
+test suffixes."
   :type 'boolean
+  :group 'ai-code)
+
+;;;###autoload
+(defcustom ai-code-next-step-suggestion-suffix
+  (concat
+   "At the end of your response, provide 2-3 numbered candidate next\n"
+   "steps. Keep each option to one sentence. Mark the single best option\n"
+   "with \"(Recommended)\". If the user replies with only a number such\n"
+   "as 1, 2, or 3, treat that as selecting the corresponding next step\n"
+   "from your previous answer. The user may also ignore these options\n"
+   "and send a different follow-up request instead. Do not suggest code\n"
+   "changes unless they are clearly warranted by the discussion.")
+  "Prompt suffix for numbered next-step suggestions in discussion prompts."
+  :type '(choice (const nil) string)
   :group 'ai-code)
 
 (defun ai-code--gptel-classify-prompt-code-change (prompt-text)
@@ -229,31 +269,61 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
     (message "GPTel prompt classification result: %s" classification)
     classification))
 
-(defun ai-code--resolve-auto-test-type-for-send (&optional prompt-text)
-  "Resolve the concrete auto test type for current send action for PROMPT-TEXT."
+(defun ai-code--resolve-auto-test-type-for-send (&optional prompt-text classification)
+  "Resolve the concrete auto test type for current send action for PROMPT-TEXT.
+CLASSIFICATION is the optional GPTel prompt classification result."
   (if (eq ai-code-auto-test-type 'ask-me)
-      (ai-code--resolve-ask-auto-test-type-for-send prompt-text)
+      (ai-code--resolve-ask-auto-test-type-for-send prompt-text classification)
     (and (memq ai-code-auto-test-type
                ai-code--auto-test-type-legacy-persistent-modes)
          ai-code-auto-test-type)))
 
-(defun ai-code--resolve-ask-auto-test-type-for-send (&optional prompt-text)
-  "Resolve the send-time auto test type for ask-me mode with PROMPT-TEXT."
+(defun ai-code--resolve-ask-auto-test-type-for-send (&optional prompt-text classification)
+  "Resolve the send-time auto test type for ask-me mode with PROMPT-TEXT.
+CLASSIFICATION is the optional GPTel prompt classification result."
   (if ai-code-use-gptel-classify-prompt
-      (pcase (ai-code--gptel-classify-prompt-code-change prompt-text)
+      (pcase (or classification
+                 (ai-code--gptel-classify-prompt-code-change prompt-text))
         ('code-change (ai-code--read-auto-test-type-choice))
         ('non-code-change nil)
         (_ (ai-code--read-auto-test-type-choice)))
     (ai-code--read-auto-test-type-choice)))
 
-(defun ai-code--resolve-auto-test-suffix-for-send (&optional prompt-text)
-  "Resolve auto test suffix for current send action for PROMPT-TEXT."
+(defun ai-code--resolve-auto-follow-up-suffix-for-send (&optional prompt-text classification)
+  "Resolve next-step suggestion suffix for current send action for PROMPT-TEXT.
+CLASSIFICATION is the optional GPTel prompt classification result."
+  (when (and ai-code-discussion-auto-follow-up-enabled
+             ai-code-next-step-suggestion-suffix)
+    (let ((classification (or classification
+                              (and ai-code-use-gptel-classify-prompt
+                                   (ai-code--gptel-classify-prompt-code-change prompt-text)))))
+      (unless (eq classification 'code-change)
+        (and (ai-code--read-auto-follow-up-choice)
+             ai-code-next-step-suggestion-suffix)))))
+
+(defun ai-code--resolve-auto-test-suffix-for-send (&optional prompt-text classification)
+  "Resolve auto test suffix for current send action for PROMPT-TEXT.
+CLASSIFICATION is the optional GPTel prompt classification result."
   (ai-code--auto-test-suffix-for-type
-   (ai-code--resolve-auto-test-type-for-send prompt-text)))
+   (ai-code--resolve-auto-test-type-for-send prompt-text classification)))
+
+(defun ai-code--classify-prompt-for-send (&optional prompt-text)
+  "Return GPTel prompt classification for PROMPT-TEXT when needed.
+Send-time routing uses this result for test and discussion follow-up suffixes."
+  (when (and ai-code-use-gptel-classify-prompt
+             (or ai-code-auto-test-type
+                 ai-code-discussion-auto-follow-up-enabled))
+    (ai-code--gptel-classify-prompt-code-change prompt-text)))
 
 (defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)
-  "Resolve and bind auto test suffix before calling ORIG-FUN with PROMPT-TEXT."
-  (let ((ai-code-auto-test-suffix (ai-code--resolve-auto-test-suffix-for-send prompt-text)))
+  "Resolve and bind send-time suffixes before calling ORIG-FUN with PROMPT-TEXT."
+  (let* ((classification (ai-code--classify-prompt-for-send prompt-text))
+         (ai-code-auto-test-suffix
+          (ai-code--resolve-auto-test-suffix-for-send
+           prompt-text classification))
+         (ai-code-discussion-auto-follow-up-suffix
+          (ai-code--resolve-auto-follow-up-suffix-for-send
+           prompt-text classification)))
     (funcall orig-fun prompt-text)))
 
 (unless (advice-member-p #'ai-code--with-auto-test-suffix-for-send
@@ -275,11 +345,27 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
   (ai-code--test-after-code-change--set 'ai-code-auto-test-type value)
   value)
 
+(defun ai-code--apply-discussion-auto-follow-up-enabled (value)
+  "Set `ai-code-discussion-auto-follow-up-enabled` to VALUE."
+  (setq ai-code-discussion-auto-follow-up-enabled value)
+  value)
+
 (defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
   :type '(choice (const :tag "Ask every time" ask-me)
                  (const :tag "Off" nil))
   :set #'ai-code--test-after-code-change--set
+  :group 'ai-code)
+
+(defcustom ai-code-discussion-auto-follow-up-enabled nil
+  "When non-nil, prompts may request numbered next-step suggestions.
+Customize this to non-nil to turn on the send-time choice globally.
+Pair it with `ai-code-use-gptel-classify-prompt` when you want
+code-change prompts to skip these discussion follow-up suggestions."
+  :type 'boolean
+  :set (lambda (symbol value)
+         (set-default symbol value)
+         (set symbol value))
   :group 'ai-code)
 
 
@@ -396,6 +482,21 @@ Otherwise switch to AI CLI buffer."
                            (or ai-code-auto-test-suffix "cleared")))
                 value))))
 
+(defclass ai-code--discussion-auto-follow-up-enabled-type (transient-lisp-variable)
+  ((variable :initform 'ai-code-discussion-auto-follow-up-enabled)
+   (format :initform "%k %d %v")
+   (reader :initform #'transient-lisp-variable--read-value))
+  "Selection helper for `ai-code-discussion-auto-follow-up-enabled`.")
+
+(transient-define-infix ai-code--infix-toggle-auto-follow-up ()
+  "Toggle `ai-code-discussion-auto-follow-up-enabled`."
+  :class 'ai-code--discussion-auto-follow-up-enabled-type
+  :key "F"
+  :description "Discussion follow-up:"
+  :reader (lambda (_prompt _initial-input _history)
+            (ai-code--apply-discussion-auto-follow-up-enabled
+             (not ai-code-discussion-auto-follow-up-enabled))))
+
 (defun ai-code--select-backend-description (&rest _)
   "Dynamic description for the Select Backend menu item.
 Shows the current backend label to the right."
@@ -432,19 +533,20 @@ Shows the current backend label to the right."
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
   ("K" "Create or open task file" ai-code-create-or-open-task-file)
-  ("n" "Take notes from AI session region" ai-code-take-notes))
+  ("n" "Take notes from AI session region" ai-code-take-notes)
+  (":" "Speech to text input" ai-code-speech-to-text-input))
 
 (transient-define-group ai-code--menu-other-tools
+  (ai-code--infix-toggle-auto-follow-up)
   ("." "Init projectile and gtags" ai-code-init-project)
   ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
   ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
-  ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart)
   ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
   ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
   ("m" "Debug python MCP server" ai-code-debug-mcp)
-  (":" "Speech to text input" ai-code-speech-to-text-input)
-  ("N" "Toggle notifications" ai-code-notifications-toggle))
+  ("N" "Toggle notifications" ai-code-notifications-toggle)
+  ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))
 
 (transient-define-prefix ai-code-menu-default ()
   "Default transient menu for AI Code Interface interactive functions."
