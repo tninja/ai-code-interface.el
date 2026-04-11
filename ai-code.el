@@ -178,12 +178,6 @@ See the later `defcustom' for user-facing documentation and default.")
   "Forward declaration for `ai-code-discussion-auto-follow-up-enabled'.
 See the later `defcustom' for user-facing documentation and default.")
 
-(defvar ai-code-next-step-suggestion-suffix nil
-  "Forward declaration for `ai-code-next-step-suggestion-suffix'.")
-
-(defvar ai-code-next-discussion-question-suggestion-suffix nil
-  "Forward declaration for `ai-code-next-discussion-question-suggestion-suffix'.")
-
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
@@ -197,9 +191,7 @@ See the later `defcustom' for user-facing documentation and default.")
   "Persistent choices for `ai-code-auto-test-type`.")
 
 (defconst ai-code--auto-follow-up-type-ask-choices
-  ;; DONE: Update into three choices: 1. Suggest next action items to perform; 2. Suggest next discussion questions to ask the AI; 3. No next-step suggestions. Update prompt suffix accordingly to clarify the expected suggestions and user interaction with them.
-  '(("Suggest next action items to perform" . action-items)
-    ("Suggest next discussion questions to ask the AI" . discussion-questions)
+  '(("Suggest next steps" . t)
     ("No next-step suggestions" . nil))
   "Resolve next-step suggestion choices for `ask-me` mode.")
 
@@ -228,13 +220,6 @@ See the later `defcustom' for user-facing documentation and default.")
     (and choice-cell
          (cdr choice-cell))))
 
-(defun ai-code--auto-follow-up-suffix-for-choice (choice)
-  "Return the discussion follow-up suffix matching CHOICE."
-  (pcase choice
-    ('action-items ai-code-next-step-suggestion-suffix)
-    ('discussion-questions ai-code-next-discussion-question-suggestion-suffix)
-    (_ nil)))
-
 ;;;###autoload
 (defcustom ai-code-use-gptel-classify-prompt nil
   "Whether to use GPTel to classify prompts before send-time suffix routing.
@@ -250,28 +235,13 @@ test suffixes."
 (defcustom ai-code-next-step-suggestion-suffix
   (concat
    "At the end of your response, provide 2-3 numbered candidate next\n"
-   "action items the AI can perform as next step. Keep each option to one sentence.\n"
-   "Mark the single best option with \"(Recommended)\". If the user replies\n"
-   "with only a number such as 1, 2, or 3, treat that as selecting the\n"
-   "corresponding next action item from your previous answer. The user may\n"
-   "also ignore these options and send a different\n"
-   "follow-up request instead. Do not suggest code changes unless they\n"
-   "are clearly warranted by the discussion.")
-  "Prompt suffix for numbered next action item suggestions in discussion prompts."
-  :type '(choice (const nil) string)
-  :group 'ai-code)
-
-;;;###autoload
-(defcustom ai-code-next-discussion-question-suggestion-suffix
-  (concat
-   "At the end of your response, provide 2-3 numbered candidate\n"
-   "discussion questions to ask the AI next. Keep each option to one\n"
-   "sentence. Mark the single best option with \"(Recommended)\". If the user replies\n"
-   "with only a number such as 1, 2, or 3, treat that as selecting the\n"
-   "corresponding next discussion question from your previous answer. The user may also ignore these options and send a\n"
-   "different follow-up request instead. Focus on questions that would\n"
-   "move the discussion forward rather than proposing action items.")
-  "Prompt suffix for numbered next discussion question suggestions."
+   "steps. Keep each option to one sentence. Mark the single best option\n"
+   "with \"(Recommended)\". If the user replies with only a number such\n"
+   "as 1, 2, or 3, treat that as selecting the corresponding next step\n"
+   "from your previous answer. The user may also ignore these options\n"
+   "and send a different follow-up request instead. Do not suggest code\n"
+   "changes unless they are clearly warranted by the discussion.")
+  "Prompt suffix for numbered next-step suggestions in discussion prompts."
   :type '(choice (const nil) string)
   :group 'ai-code)
 
@@ -323,14 +293,13 @@ CLASSIFICATION is the optional GPTel prompt classification result."
   "Resolve next-step suggestion suffix for current send action for PROMPT-TEXT.
 CLASSIFICATION is the optional GPTel prompt classification result."
   (when (and ai-code-discussion-auto-follow-up-enabled
-             (or ai-code-next-step-suggestion-suffix
-                 ai-code-next-discussion-question-suggestion-suffix))
+             ai-code-next-step-suggestion-suffix)
     (let ((classification (or classification
                               (and ai-code-use-gptel-classify-prompt
                                    (ai-code--gptel-classify-prompt-code-change prompt-text)))))
       (unless (eq classification 'code-change)
-        (ai-code--auto-follow-up-suffix-for-choice
-         (ai-code--read-auto-follow-up-choice))))))
+        (and (ai-code--read-auto-follow-up-choice)
+             ai-code-next-step-suggestion-suffix)))))
 
 (defun ai-code--resolve-auto-test-suffix-for-send (&optional prompt-text classification)
   "Resolve auto test suffix for current send action for PROMPT-TEXT.
