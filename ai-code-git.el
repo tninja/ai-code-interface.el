@@ -269,9 +269,10 @@ CI Checks Review Steps:
 
 PR Creation Steps:
 1. Inspect the current branch changes and open or send out a pull request into %s.
-2. Write a short PR description that sounds like it was written by the author.
-3. Keep the description focused on the problem, the approach, and the most important verification.
-4. Return the final PR URL and the exact short description that was used."
+2. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
+3. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
+4. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
+5. Return the final PR URL and the exact description that was used."
             current-branch
             target-branch
             source-instruction
