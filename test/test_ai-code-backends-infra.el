@@ -723,6 +723,45 @@
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
+(ert-deftest test-ai-code-backends-infra-send-line-uses-remembered-renamed-session ()
+  "Sending should reuse a remembered session even if Ghostel renamed its buffer."
+  (let* ((prefix "opencode")
+         (working-dir "/tmp/ai-code-ghostel-renamed/")
+         (source (generate-new-buffer " *ai-code-source-renamed-session*"))
+         (session (get-buffer-create "*opencode[ghostel-renamed]*"))
+         (send-targets nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (when (boundp 'ai-code-backends-infra--file-session-map)
+            (clrhash ai-code-backends-infra--file-session-map))
+
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-ghostel-renamed/main.el")
+            (setq default-directory working-dir))
+          (with-current-buffer session
+            (setq-local ai-code-backends-infra--session-directory working-dir))
+          (ai-code-backends-infra--remember-session-buffer prefix working-dir session)
+          (with-current-buffer session
+            (rename-buffer "*ghostel: opencode*" t))
+
+          (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (&rest _args)
+                       (push (buffer-name (current-buffer)) send-targets)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda () nil))
+                    ((symbol-function 'sit-for)
+                     (lambda (&rest _args) nil)))
+            (with-current-buffer source
+              (ai-code-backends-infra--send-line-to-session
+               nil "missing" "line-1" prefix working-dir)))
+
+          (should (equal (nreverse send-targets)
+                         (list "*ghostel: opencode*"))))
+      (dolist (buf (list source session))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
 (ert-deftest test-ai-code-backends-infra-switch-force-prompt-rebinds-file-session ()
   "Force switching should rebind the current file to the newly selected session."
   (let* ((prefix "codex")

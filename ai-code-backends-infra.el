@@ -667,20 +667,20 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
         (puthash key session-buffer ai-code-backends-infra--file-session-map)
       (remhash key ai-code-backends-infra--file-session-map))))
 
-(defun ai-code-backends-infra--attached-file-session (prefix source-buffer _working-dir)
+(defun ai-code-backends-infra--attached-file-session (prefix source-buffer working-dir)
   "Return attached session state for PREFIX and SOURCE-BUFFER.
-The working-directory argument is accepted for interface compatibility but
-ignored here because
-an explicit file attachment should win as long as the attached buffer is live.
 Return a cons of (BUFFER . MISSING-P)."
   (let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
     (if (null key)
         (cons nil nil)
       (let* ((attached (gethash key ai-code-backends-infra--file-session-map))
              (valid (and (buffer-live-p attached)
-                         (ai-code-backends-infra--parse-session-buffer-name
-                          (buffer-name attached)
-                          prefix))))
+                         (or (ai-code-backends-infra--parse-session-buffer-name
+                             (buffer-name attached)
+                              prefix)
+                             (ai-code-backends-infra--session-buffer-matches-directory-p
+                              attached
+                              working-dir)))))
         (cond
          (valid
           (cons attached nil))
@@ -828,19 +828,34 @@ Return a cons of (base-name . instance-name) or nil."
       (when (eq existing buffer)
         (remhash key ai-code-backends-infra--directory-buffer-map)))))
 
+(defun ai-code-backends-infra--session-buffer-matches-directory-p (buffer directory)
+  "Return non-nil when BUFFER is live and still belongs to DIRECTORY."
+  (and (buffer-live-p buffer)
+       (when-let ((buffer-directory
+                   (ai-code-backends-infra--buffer-session-directory buffer)))
+         (string=
+          (ai-code-backends-infra--normalize-session-directory buffer-directory)
+          (ai-code-backends-infra--normalize-session-directory directory)))))
+
 (defun ai-code-backends-infra--select-session-buffer (prefix directory &optional force-prompt)
   "Select a session buffer for PREFIX in DIRECTORY.
 Returns the selected buffer or nil if none exist."
-  (let ((buffers (ai-code-backends-infra--find-session-buffers prefix directory)))
+  (let* ((remembered (gethash (ai-code-backends-infra--session-map-key prefix directory)
+                              ai-code-backends-infra--directory-buffer-map))
+         (buffers (ai-code-backends-infra--find-session-buffers prefix directory)))
+    (when (and remembered
+               (ai-code-backends-infra--session-buffer-matches-directory-p
+                remembered
+                directory)
+               (not (memq remembered buffers)))
+      (push remembered buffers))
     (cond
      ((null buffers) nil)
      ((= (length buffers) 1)
       (ai-code-backends-infra--remember-session-buffer prefix directory (car buffers))
       (car buffers))
      (t
-      (let* ((remembered (gethash (ai-code-backends-infra--session-map-key prefix directory)
-                                  ai-code-backends-infra--directory-buffer-map))
-             (preferred (if (memq ai-code-backends-infra--preferred-session-buffer buffers)
+      (let* ((preferred (if (memq ai-code-backends-infra--preferred-session-buffer buffers)
                             ai-code-backends-infra--preferred-session-buffer
                           (and (memq remembered buffers) remembered)))
              (ordered-buffers (if preferred
