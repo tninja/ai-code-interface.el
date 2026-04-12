@@ -396,6 +396,86 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-defers-init-until-displayed ()
+  "Ghostel should wait for a live window before creating terminal state."
+  (let ((hook-calls nil)
+        (ghostel-new-calls nil))
+    (cl-letf (((symbol-function 'ghostel-mode)
+               (lambda () nil))
+              ((symbol-function 'ghostel--new)
+               (lambda (&rest args)
+                 (push args ghostel-new-calls)
+                 'ghostel-term))
+              ((symbol-function 'get-buffer-window)
+               (lambda (&rest _args) nil))
+              ((symbol-function 'add-hook)
+               (lambda (hook function &optional append local)
+                 (push (list hook function append local) hook-calls))))
+      (with-temp-buffer
+        (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+        (ai-code-backends-infra--configure-ghostel-buffer)))
+    (should-not ghostel-new-calls)
+    (should (member '(window-configuration-change-hook
+                      ai-code-backends-infra--initialize-ghostel-when-displayed
+                      nil t)
+                    hook-calls))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-wraps-output-filter ()
+  "Ghostel session creation should track meaningful output and linkify output."
+  (let* ((buffer-name "*test-ai-code-ghostel-output*")
+         (buffer (get-buffer-create buffer-name))
+         (proc (make-process :name "ai-code-ghostel-output"
+                             :buffer buffer
+                             :command '("sleep" "10")
+                             :noquery t))
+         (orig-outputs nil)
+         (meaningful-outputs nil)
+         (linkify-outputs nil)
+         (ai-code-backends-infra-terminal-backend 'ghostel)
+         (note-advice (lambda (&rest _args)
+                        (push 'noted meaningful-outputs)))
+         (linkify-advice (lambda (orig-fun output)
+                           (push output linkify-outputs)
+                           (funcall orig-fun output))))
+    (unwind-protect
+        (progn
+          (set-process-filter
+           proc
+           (lambda (_process output)
+             (push output orig-outputs)))
+          (advice-add 'ai-code-backends-infra--note-meaningful-output
+                      :before note-advice)
+          (advice-add 'ai-code-session-link--linkify-recent-output
+                      :around linkify-advice)
+          (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                     (lambda () nil))
+                    ((symbol-function 'ghostel-mode)
+                     (lambda () nil))
+                    ((symbol-function 'ghostel--new)
+                     (lambda (&rest _args) 'ghostel-term))
+                    ((symbol-function 'ghostel--start-process)
+                     (lambda ()
+                       (with-current-buffer buffer
+                         (setq-local ghostel--process proc))
+                       proc))
+                    ((symbol-function 'process-send-string)
+                     (lambda (&rest _args) nil)))
+            (ai-code-backends-infra--create-terminal-session
+             buffer-name
+             default-directory
+             "echo hi"
+             nil))
+          (funcall (process-filter proc) proc "src/foo.el:12\n")
+          (should (equal orig-outputs '("src/foo.el:12\n")))
+          (should (equal meaningful-outputs '(noted)))
+          (should (equal linkify-outputs '("src/foo.el:12\n"))))
+      (advice-remove 'ai-code-backends-infra--note-meaningful-output note-advice)
+      (advice-remove 'ai-code-session-link--linkify-recent-output linkify-advice)
+      (when (process-live-p proc)
+        (delete-process proc))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-normalize-file-path-stable-across-existence ()
   "Normalization should stay stable when file existence changes."
   (let* ((root (make-temp-file "ai-code-normalize-file-path-" t))
@@ -761,6 +841,44 @@
       (dolist (buf (list source session))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-select-session-buffer-skips-renamed-remembered-on-force-prompt ()
+  "Force prompt should not offer renamed remembered buffers as completion candidates."
+  (let* ((prefix "codex")
+         (working-dir "/tmp/ai-code-force-prompt-renamed/")
+         (remembered (get-buffer-create "*ghostel: codex*"))
+         (session-a (get-buffer-create "*codex[force-prompt-renamed:a]*"))
+         (session-b (get-buffer-create "*codex[force-prompt-renamed:b]*"))
+         (captured-collection nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (dolist (buf (list remembered session-a session-b))
+            (with-current-buffer buf
+              (setq-local ai-code-backends-infra--session-directory working-dir)))
+          (ai-code-backends-infra--remember-session-buffer prefix working-dir remembered)
+          (cl-letf (((symbol-function 'completing-read)
+                     (lambda (_prompt collection _predicate _require-match
+                              &optional _initial-input _hist _def &rest _)
+                       (setq captured-collection collection)
+                       "b")))
+            (should (eq (ai-code-backends-infra--select-session-buffer
+                         prefix working-dir t)
+                        session-b)))
+          (should (equal captured-collection '("a" "b"))))
+      (dolist (buf (list remembered session-a session-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-readme-dependencies-mention-ghostel-as-backend-option ()
+  "README should list Ghostel in the native terminal backend dependency note."
+  (with-temp-buffer
+    (insert-file-contents
+     (expand-file-name "README.org" default-directory))
+    (should (re-search-forward
+             "One of vterm (default), eat, or .*ghostel.* needs to be installed"
+             nil
+             t))))
 
 (ert-deftest test-ai-code-backends-infra-switch-force-prompt-rebinds-file-session ()
   "Force switching should rebind the current file to the newly selected session."

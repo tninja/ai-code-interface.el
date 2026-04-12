@@ -398,13 +398,31 @@ returns to normal terminal interaction."
   "Configure the current Ghostel buffer for AI Code sessions."
   (unless (eq major-mode 'ghostel-mode)
     (ghostel-mode))
-  (let ((height (max 1 (window-body-height)))
-        (width (max 1 (window-max-chars-per-line))))
-    (setq-local ghostel--term
-                (ghostel--new height width ghostel-max-scrollback))
-    (setq-local ghostel--term-rows height))
+  (if-let ((window (get-buffer-window (current-buffer) t)))
+      (ai-code-backends-infra--initialize-ghostel-term window)
+    (add-hook 'window-configuration-change-hook
+              #'ai-code-backends-infra--initialize-ghostel-when-displayed
+              nil t))
   (ai-code-backends-infra--configure-session-input-shortcuts)
   (ai-code-backends-infra--install-navigation-cursor-sync))
+
+(defun ai-code-backends-infra--initialize-ghostel-term (window)
+  "Initialize the current Ghostel terminal state for WINDOW."
+  (let ((height (max 1 (window-body-height window)))
+        (width (max 1 (window-max-chars-per-line window))))
+    (setq-local ghostel--term
+                (ghostel--new height width ghostel-max-scrollback))
+    (setq-local ghostel--term-rows height)))
+
+(defun ai-code-backends-infra--initialize-ghostel-when-displayed ()
+  "Initialize the current Ghostel buffer once it has a live window."
+  (when (and (eq major-mode 'ghostel-mode)
+             (not (bound-and-true-p ghostel--term)))
+    (when-let ((window (get-buffer-window (current-buffer) t)))
+      (ai-code-backends-infra--initialize-ghostel-term window)
+      (remove-hook 'window-configuration-change-hook
+                   #'ai-code-backends-infra--initialize-ghostel-when-displayed
+                   t))))
 
 ;;; Terminal Backend Abstraction
 
@@ -861,12 +879,14 @@ Returns the selected buffer or nil if none exist."
              (ordered-buffers (if preferred
                                   (cons preferred (delq preferred (copy-sequence buffers)))
                                 buffers))
-             (choices (mapcar (lambda (buf)
-                                (cons (ai-code-backends-infra--session-instance-name
-                                       (buffer-name buf)
-                                       prefix)
-                                      buf))
-                              ordered-buffers))
+             (choices (delq nil
+                            (mapcar (lambda (buf)
+                                      (when-let ((instance
+                                                  (ai-code-backends-infra--session-instance-name
+                                                   (buffer-name buf)
+                                                   prefix)))
+                                        (cons instance buf)))
+                                    ordered-buffers)))
              (candidates (mapcar #'car choices))
              (default-candidate (car candidates)))
         (if (and (not force-prompt) remembered (memq remembered buffers))
@@ -1221,6 +1241,16 @@ ENV-VARS is a list of environment variables."
           (let ((proc (ghostel--start-process)))
             (when (processp proc)
               (set-process-query-on-exit-flag proc nil)
+              (let ((orig-filter (process-filter proc)))
+                (set-process-filter
+                 proc
+                 (lambda (process output)
+                   (when orig-filter
+                     (funcall orig-filter process output))
+                   (with-current-buffer (process-buffer process)
+                     (when (ai-code-backends-infra--output-meaningful-p output)
+                       (ai-code-backends-infra--note-meaningful-output))
+                     (ai-code-session-link--linkify-recent-output output)))))
               (when (and command (> (length command) 0))
                 (process-send-string proc (concat command "\r"))))
             (cons buffer proc)))))

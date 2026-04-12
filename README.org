@@ -129,7 +129,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - `org`: Org-mode support
 - `magit`: Git integration
 - `transient`: For the menu system
-- vterm (default) or eat needs to be installed to support native AI coding CLI backends.
+- One of vterm (default), eat, or [[https://github.com/dakra/ghostel][ghostel]] needs to be installed to support native AI coding CLI backends, depending on `ai-code-backends-infra-terminal-backend`.
 - [[https://github.com/dakra/ghostel][ghostel]] is also supported as an *experimental* native backend infra option.
   - Ghostel is an Emacs terminal emulator powered by libghostty-vt, the VT engine from Ghostty.
   - Compared with vterm and eat, ghostel support in ai-code-interface.el is still experimental and may behave differently in startup flow, shell integration, or buffer naming.
