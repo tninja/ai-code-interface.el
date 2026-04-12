@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Supporting search content inside task org files
 - Feat: Add current-branch PR creation option
 - Feat: Add optional numbered next-step suggestions for discussion prompts via `ai-code-discussion-auto-follow-up-enabled`
   - Reuse GPTel prompt classification when available, add a transient toggle on `C-c a F`, and record the follow-up suffix in prompt history
