@@ -240,12 +240,12 @@
                (lambda () t)))
       (let ((this-command 'ai-code-ask-question))
         (should (string-match-p
-                 "The user may also ignore these options"
+                 "The user may also[[:space:]\n]+ignore these options"
                  (ai-code--resolve-auto-follow-up-suffix-for-send
                   "Explain this function"))))
       (let ((this-command 'ai-code-send-command))
         (should (string-match-p
-                 "The user may also ignore these options"
+                 "The user may also[[:space:]\n]+ignore these options"
                  (ai-code--resolve-auto-follow-up-suffix-for-send
                   "Summarize this design")))))))
 

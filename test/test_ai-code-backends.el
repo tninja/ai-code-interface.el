@@ -387,11 +387,10 @@
                     :type 'user-error))))
 
 (ert-deftest ai-code-test-claude-code-backend-has-install-skills ()
-  "Claude Code backend spec should have :install-skills set to the dedicated function."
+  "Claude Code backend spec should use the generic skills fallback."
   (let ((spec (ai-code--backend-spec 'claude-code)))
     (should spec)
-    (should (eq (plist-get (cdr spec) :install-skills)
-                'ai-code-claude-code-install-skills))))
+    (should-not (plist-get (cdr spec) :install-skills))))
 
 (provide 'test_ai-code-backends)
 
