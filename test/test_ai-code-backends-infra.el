@@ -13,7 +13,11 @@
 (require 'ai-code-backends-infra)
 (require 'ai-code-notifications)
 
+(declare-function ghostel--window-adjust-process-window-size "ghostel" (process windows))
+
 (defvar vterm-copy-mode-hook)
+(defvar ghostel--copy-mode-active)
+(defvar ghostel--process)
 
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
@@ -276,6 +280,15 @@
     (should-not ai-code-backends-infra--navigation-cursor-active)
     (should (eq cursor-type 'bar))))
 
+(ert-deftest test-ai-code-backends-infra-terminal-navigation-mode-p-ghostel-copy-mode ()
+  "Ghostel copy mode should count as terminal navigation mode."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (setq-local ghostel--copy-mode-active t)
+    (should (ai-code-backends-infra--terminal-navigation-mode-p))
+    (setq-local ghostel--copy-mode-active nil)
+    (should-not (ai-code-backends-infra--terminal-navigation-mode-p))))
+
 (ert-deftest test-ai-code-backends-infra-configure-vterm-buffer-installs-cursor-sync-hook ()
   "Configuring a vterm buffer should install copy-mode cursor synchronization."
   (with-temp-buffer
@@ -324,6 +337,62 @@
             (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
             (ai-code-backends-infra--terminal-send-string "hello"))
           (should (equal calls '(vterm))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-sends-to-process ()
+  "Ghostel sessions should send input through the terminal process."
+  (let ((calls nil))
+    (cl-letf (((symbol-function 'process-live-p)
+               (lambda (_process) t))
+              ((symbol-function 'process-send-string)
+               (lambda (process string)
+                 (push (list process string) calls))))
+      (with-temp-buffer
+        (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+        (setq-local ghostel--process 'ghostel-proc)
+        (ai-code-backends-infra--terminal-send-string "hello"))
+      (should (equal calls '((ghostel-proc "hello")))))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-resize-handler-supports-ghostel ()
+  "Ghostel backend should expose its resize handler."
+  (let ((ai-code-backends-infra-terminal-backend 'ghostel))
+    (should (eq (ai-code-backends-infra--terminal-resize-handler)
+                #'ghostel--window-adjust-process-window-size))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel ()
+  "Ghostel backend should create and configure a session buffer."
+  (let* ((buffer-name "*test-ai-code-ghostel*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'ghostel-proc)
+         (ai-code-backends-infra-terminal-backend 'ghostel))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   (lambda () nil))
+                  ((symbol-function 'ghostel-mode)
+                   (lambda () nil))
+                  ((symbol-function 'ghostel--new)
+                   (lambda (&rest _args) 'ghostel-term))
+                  ((symbol-function 'ghostel--start-process)
+                   (lambda ()
+                     (with-current-buffer buffer
+                       (setq-local ghostel--process process))
+                     process))
+                  ((symbol-function 'get-buffer-process)
+                   (lambda (target-buffer)
+                     (with-current-buffer target-buffer
+                       ghostel--process))))
+          (ai-code-backends-infra--create-terminal-session
+           buffer-name
+           default-directory
+           "echo hi"
+           '("FOO=1"))
+          (with-current-buffer buffer
+            (should (eq ai-code-backends-infra--session-terminal-backend 'ghostel))
+            (should (equal ai-code-backends-infra--session-directory
+                           (file-name-as-directory
+                            (expand-file-name default-directory))))
+            (should (eq ghostel--process process))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
@@ -524,7 +593,7 @@
         (kill-buffer buf)))))
 
 (ert-deftest test-ai-code-backends-infra-find-session-buffers-legacy-default-directory-fallback ()
-  "Use buffer default-directory when explicit session directory metadata is absent."
+  "Use buffer `default-directory' when explicit session metadata is absent."
   (let* ((prefix "codex")
          (base (format "ai-code-legacy-%d" (random 1000000)))
          (dir-a (format "/tmp/a/%s/" base))
