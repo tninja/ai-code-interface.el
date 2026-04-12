@@ -10,10 +10,10 @@
 
 ;; Silence native-compiler warnings.
 (declare-function ai-code-backends-infra--configure-session-input-shortcuts "ai-code-backends-infra" ())
-(declare-function ai-code-backends-infra--install-navigation-cursor-sync "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--output-meaningful-p "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--set-session-directory "ai-code-backends-infra" (buffer directory))
+(declare-function ai-code-backends-infra--sync-terminal-cursor "ai-code-backends-infra" ())
 (declare-function ai-code-session-link--linkify-recent-output "ai-code-session-link" (output))
 (declare-function ghostel-mode "ghostel" ())
 (declare-function ghostel--new "ghostel" (rows cols scrollback-bytes))
@@ -47,7 +47,7 @@
               #'ai-code-backends-infra--initialize-ghostel-when-displayed
               nil t))
   (ai-code-backends-infra--configure-session-input-shortcuts)
-  (ai-code-backends-infra--install-navigation-cursor-sync))
+  (ai-code-backends-infra--ghostel-install-navigation-cursor-sync))
 
 (defun ai-code-backends-infra--initialize-ghostel-term (window)
   "Initialize the current Ghostel terminal state for WINDOW."
@@ -84,6 +84,15 @@
 (defun ai-code-backends-infra--ghostel-send-backspace ()
   "Send backspace to the current Ghostel process."
   (ai-code-backends-infra--ghostel-send-string "\177"))
+
+(defun ai-code-backends-infra--ghostel-navigation-mode-p ()
+  "Return non-nil when the current Ghostel buffer is in copy mode."
+  (bound-and-true-p ghostel--copy-mode-active))
+
+(defun ai-code-backends-infra--ghostel-install-navigation-cursor-sync ()
+  "Install Ghostel-specific hooks for cursor handoff."
+  (add-hook 'post-command-hook
+            #'ai-code-backends-infra--sync-terminal-cursor nil t))
 
 (defun ai-code-backends-infra--ghostel-resize-handler ()
   "Return the resize handler used by Ghostel."

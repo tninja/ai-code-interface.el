@@ -21,35 +21,13 @@
 
 ;; Silence native-compiler warnings.
 (declare-function browse-url "browse-url" (url &optional new-window))
-(declare-function ghostel-mode "ghostel" ())
-(declare-function ghostel--new "ghostel" (rows cols scrollback-bytes))
-(declare-function ghostel--start-process "ghostel" ())
-(declare-function ghostel--window-adjust-process-window-size "ghostel" (process windows))
-(declare-function vterm "vterm" (&optional buffer-name))
-(declare-function vterm-send-string "vterm" (&rest args))
-(declare-function vterm-send-escape "vterm" ())
-(declare-function vterm-send-return "vterm" ())
-(declare-function vterm--window-adjust-process-window-size "vterm" (&rest args))
-(declare-function vterm--filter "vterm" (&rest args))
-(declare-function eat-term-send-string "eat" (&rest args))
-(declare-function eat--adjust-process-window-size "eat" (&rest args))
-(declare-function eat-mode "eat" ())
-(declare-function eat-exec "eat" (&rest args))
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
-;; Declare vterm dynamic variables for let-binding to work with lexical-binding
-(defvar vterm-shell)
-(defvar vterm-environment)
-(defvar vterm-kill-buffer-on-exit)
-(defvar vterm-copy-mode)
-(defvar eat-terminal)
-(defvar eat--semi-char-mode)
-(defvar ghostel-shell nil)
-(defvar ghostel-enable-title-tracking t)
-(defvar ghostel-max-scrollback nil)
-(defvar ghostel--copy-mode-active nil)
-(defvar ghostel--process nil)
-(defvar ghostel--term nil)
-(defvar ghostel--term-rows nil)
+(declare-function ai-code-backends-infra--vterm-navigation-mode-p "ai-code-backends-infra-vterm" ())
+(declare-function ai-code-backends-infra--eat-navigation-mode-p "ai-code-backends-infra-eat" ())
+(declare-function ai-code-backends-infra--ghostel-navigation-mode-p "ai-code-backends-infra-ghostel" ())
+(declare-function ai-code-backends-infra--vterm-install-navigation-cursor-sync "ai-code-backends-infra-vterm" ())
+(declare-function ai-code-backends-infra--eat-install-navigation-cursor-sync "ai-code-backends-infra-eat" ())
+(declare-function ai-code-backends-infra--ghostel-install-navigation-cursor-sync "ai-code-backends-infra-ghostel" ())
 
 ;;; Customization
 
@@ -93,16 +71,6 @@ Can be either `vterm', `eat', or `ghostel'."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
-(defcustom ai-code-backends-infra-vterm-anti-flicker t
-  "Enable intelligent flicker reduction for vterm display."
-  :type 'boolean
-  :group 'ai-code-backends-infra)
-
-(defcustom ai-code-backends-infra-vterm-render-delay 0.01
-  "Rendering optimization delay for batched terminal updates."
-  :type 'number
-  :group 'ai-code-backends-infra)
-
 (defcustom ai-code-backends-infra-terminal-initialization-delay 0.1
   "Initialization delay for terminal stability."
   :type 'number
@@ -110,14 +78,6 @@ Can be either `vterm', `eat', or `ghostel'."
 
 (defcustom ai-code-backends-infra-prevent-reflow-glitch t
   "Workaround for terminal scrolling bug #1422."
-  :type 'boolean
-  :group 'ai-code-backends-infra)
-
-(defcustom ai-code-backends-infra-eat-preserve-position t
-  "Obsolete compatibility toggle for eat-specific reflow suppression.
-Eat sessions now always use the terminal's native resize and redisplay
-behavior because suppressing reflow can leave the screen stale when a
-window becomes visible again."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
@@ -277,13 +237,10 @@ The timer is reset only after meaningful output is observed."
 
 (defun ai-code-backends-infra--terminal-navigation-mode-p ()
   "Return non-nil when the current terminal buffer is in navigation mode."
-  (pcase (ai-code-backends-infra--current-terminal-backend)
-    ('vterm (bound-and-true-p vterm-copy-mode))
-    ('eat (and (bound-and-true-p eat-terminal)
-               (or buffer-read-only
-                   (not (bound-and-true-p eat--semi-char-mode)))))
-    ('ghostel (bound-and-true-p ghostel--copy-mode-active))
-    (_ nil)))
+  (ai-code-backends-infra--terminal-dispatch
+   #'ai-code-backends-infra--vterm-navigation-mode-p
+   #'ai-code-backends-infra--eat-navigation-mode-p
+   #'ai-code-backends-infra--ghostel-navigation-mode-p))
 
 (defun ai-code-backends-infra--sync-terminal-cursor ()
   "Hand cursor ownership between the terminal and Emacs navigation modes."
@@ -298,16 +255,10 @@ The timer is reset only after meaningful output is observed."
 
 (defun ai-code-backends-infra--install-navigation-cursor-sync ()
   "Install buffer-local hooks for cursor handoff in terminal navigation modes."
-  (pcase (ai-code-backends-infra--current-terminal-backend)
-    ('vterm
-     (add-hook 'vterm-copy-mode-hook
-               #'ai-code-backends-infra--sync-terminal-cursor nil t))
-    ('ghostel
-     (add-hook 'post-command-hook
-               #'ai-code-backends-infra--sync-terminal-cursor nil t))
-    ('eat
-     (add-hook 'post-command-hook
-               #'ai-code-backends-infra--sync-terminal-cursor nil t))))
+  (ai-code-backends-infra--terminal-dispatch
+   #'ai-code-backends-infra--vterm-install-navigation-cursor-sync
+   #'ai-code-backends-infra--eat-install-navigation-cursor-sync
+   #'ai-code-backends-infra--ghostel-install-navigation-cursor-sync))
 
 (defun ai-code-backends-infra--terminal-dispatch (vterm-fn eat-fn ghostel-fn)
   "Run VTERM-FN, EAT-FN, or GHOSTEL-FN based on selected terminal backend."

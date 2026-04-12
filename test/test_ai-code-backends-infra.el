@@ -24,6 +24,24 @@
   "Return SYMBOL definition file without extension."
   (file-name-sans-extension (symbol-file symbol 'defun)))
 
+(defun test-ai-code-backends-infra--variable-source-base (symbol)
+  "Return variable SYMBOL definition file without extension."
+  (file-name-sans-extension (symbol-file symbol 'defvar)))
+
+(defun test-ai-code-backends-infra--assert-function-source-module (symbol module)
+  "Assert function SYMBOL is defined in backend MODULE."
+  (should (fboundp symbol))
+  (should (string-suffix-p
+           module
+           (test-ai-code-backends-infra--symbol-source-base symbol))))
+
+(defun test-ai-code-backends-infra--assert-variable-source-module (symbol module)
+  "Assert variable SYMBOL is defined in backend MODULE."
+  (should (boundp symbol))
+  (should (string-suffix-p
+           module
+           (test-ai-code-backends-infra--variable-source-base symbol))))
+
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
   (should-not (ai-code-backends-infra--output-meaningful-p nil))
@@ -333,18 +351,39 @@
   (should (featurep 'ai-code-backends-infra-vterm))
   (should (featurep 'ai-code-backends-infra-eat))
   (should (featurep 'ai-code-backends-infra-ghostel))
-  (should (string-suffix-p
-           "ai-code-backends-infra-vterm"
-           (test-ai-code-backends-infra--symbol-source-base
-            'ai-code-backends-infra--configure-vterm-buffer)))
-  (should (string-suffix-p
-           "ai-code-backends-infra-eat"
-           (test-ai-code-backends-infra--symbol-source-base
-            'ai-code-backends-infra--create-eat-terminal-session)))
-  (should (string-suffix-p
-           "ai-code-backends-infra-ghostel"
-           (test-ai-code-backends-infra--symbol-source-base
-            'ai-code-backends-infra--configure-ghostel-buffer))))
+  (test-ai-code-backends-infra--assert-variable-source-module
+   'ai-code-backends-infra-vterm-anti-flicker
+   "ai-code-backends-infra-vterm")
+  (test-ai-code-backends-infra--assert-variable-source-module
+   'ai-code-backends-infra-eat-preserve-position
+   "ai-code-backends-infra-eat")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--configure-vterm-buffer
+   "ai-code-backends-infra-vterm")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--create-eat-terminal-session
+   "ai-code-backends-infra-eat")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--configure-ghostel-buffer
+   "ai-code-backends-infra-ghostel")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--vterm-navigation-mode-p
+   "ai-code-backends-infra-vterm")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--eat-navigation-mode-p
+   "ai-code-backends-infra-eat")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--ghostel-navigation-mode-p
+   "ai-code-backends-infra-ghostel")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--vterm-install-navigation-cursor-sync
+   "ai-code-backends-infra-vterm")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--eat-install-navigation-cursor-sync
+   "ai-code-backends-infra-eat")
+  (test-ai-code-backends-infra--assert-function-source-module
+   'ai-code-backends-infra--ghostel-install-navigation-cursor-sync
+   "ai-code-backends-infra-ghostel"))
 
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-prefers-session-backend ()
   "Send should use session-local backend even after global backend changes."

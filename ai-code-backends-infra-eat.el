@@ -10,10 +10,10 @@
 
 ;; Silence native-compiler warnings.
 (declare-function ai-code-backends-infra--configure-session-input-shortcuts "ai-code-backends-infra" ())
-(declare-function ai-code-backends-infra--install-navigation-cursor-sync "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--output-meaningful-p "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--set-session-directory "ai-code-backends-infra" (buffer directory))
+(declare-function ai-code-backends-infra--sync-terminal-cursor "ai-code-backends-infra" ())
 (declare-function ai-code-session-link--linkify-recent-output "ai-code-session-link" (output))
 (declare-function eat-term-send-string "eat" (&rest args))
 (declare-function eat--adjust-process-window-size "eat" (&rest args))
@@ -22,6 +22,15 @@
 
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar eat-terminal)
+(defvar eat--semi-char-mode)
+
+(defcustom ai-code-backends-infra-eat-preserve-position t
+  "Obsolete compatibility toggle for eat-specific reflow suppression.
+Eat sessions now always use the terminal's native resize and redisplay
+behavior because suppressing reflow can leave the screen stale when a
+window becomes visible again."
+  :type 'boolean
+  :group 'ai-code-backends-infra)
 
 (defun ai-code-backends-infra--ensure-eat-backend ()
   "Ensure the eat backend is available."
@@ -50,6 +59,17 @@
   (when (bound-and-true-p eat-terminal)
     (eat-term-send-string eat-terminal "\177")))
 
+(defun ai-code-backends-infra--eat-navigation-mode-p ()
+  "Return non-nil when the current Eat buffer is in navigation mode."
+  (and (bound-and-true-p eat-terminal)
+       (or buffer-read-only
+           (not (bound-and-true-p eat--semi-char-mode)))))
+
+(defun ai-code-backends-infra--eat-install-navigation-cursor-sync ()
+  "Install Eat-specific hooks for cursor handoff."
+  (add-hook 'post-command-hook
+            #'ai-code-backends-infra--sync-terminal-cursor nil t))
+
 (defun ai-code-backends-infra--eat-resize-handler ()
   "Return the resize handler used by Eat."
   #'eat--adjust-process-window-size)
@@ -67,7 +87,7 @@
       (unless (eq major-mode 'eat-mode)
         (eat-mode))
       (ai-code-backends-infra--configure-session-input-shortcuts)
-      (ai-code-backends-infra--install-navigation-cursor-sync)
+      (ai-code-backends-infra--eat-install-navigation-cursor-sync)
       (setq-local process-environment (append env-vars process-environment))
       (eat-exec buffer buffer-name program nil args)
       (when-let ((proc (get-buffer-process buffer)))

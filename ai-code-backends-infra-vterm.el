@@ -12,11 +12,11 @@
 
 ;; Silence native-compiler warnings.
 (declare-function ai-code-backends-infra--configure-session-input-shortcuts "ai-code-backends-infra" ())
-(declare-function ai-code-backends-infra--install-navigation-cursor-sync "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--output-meaningful-p "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--set-session-directory "ai-code-backends-infra" (buffer directory))
+(declare-function ai-code-backends-infra--sync-terminal-cursor "ai-code-backends-infra" ())
 (declare-function ai-code-session-link--schedule-linkify-recent-output "ai-code-session-link" (buffer output))
 (declare-function vterm "vterm" (&optional buffer-name))
 (declare-function vterm-send-string "vterm" (&rest args))
@@ -25,8 +25,6 @@
 (declare-function vterm--window-adjust-process-window-size "vterm" (&rest args))
 (declare-function vterm--filter "vterm" (&rest args))
 
-(defvar ai-code-backends-infra-vterm-anti-flicker)
-(defvar ai-code-backends-infra-vterm-render-delay)
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar vterm-copy-mode)
 (defvar vterm-copy-mode-hook)
@@ -47,6 +45,16 @@ updates are handled separately via carriage return counting.")
 
 (defvar ai-code-backends-infra--vterm-advices-installed nil
   "Flag indicating whether vterm filter advices have been installed globally.")
+
+(defcustom ai-code-backends-infra-vterm-anti-flicker t
+  "Enable intelligent flicker reduction for vterm display."
+  :type 'boolean
+  :group 'ai-code-backends-infra)
+
+(defcustom ai-code-backends-infra-vterm-render-delay 0.01
+  "Rendering optimization delay for batched terminal updates."
+  :type 'number
+  :group 'ai-code-backends-infra)
 
 (defun ai-code-backends-infra--ensure-vterm-backend ()
   "Ensure the vterm backend is available."
@@ -159,6 +167,15 @@ returns to normal terminal interaction."
           (setq ai-code-backends-infra--vterm-render-queue nil)
           (vterm--filter proc data))))))
 
+(defun ai-code-backends-infra--vterm-navigation-mode-p ()
+  "Return non-nil when the current vterm buffer is in copy mode."
+  (bound-and-true-p vterm-copy-mode))
+
+(defun ai-code-backends-infra--vterm-install-navigation-cursor-sync ()
+  "Install vterm-specific hooks for cursor handoff."
+  (add-hook 'vterm-copy-mode-hook
+            #'ai-code-backends-infra--sync-terminal-cursor nil t))
+
 (defun ai-code-backends-infra--configure-vterm-buffer ()
   "Configure vterm for enhanced performance."
   (setq-local vterm-scroll-to-bottom-on-output nil)
@@ -176,7 +193,7 @@ returns to normal terminal interaction."
   (add-hook 'vterm-copy-mode-hook
             #'ai-code-backends-infra--vterm-flush-on-copy-mode-exit nil t)
   ;; Hand cursor ownership to Emacs while browsing frozen terminal output.
-  (ai-code-backends-infra--install-navigation-cursor-sync)
+  (ai-code-backends-infra--vterm-install-navigation-cursor-sync)
   ;; Install vterm filter advices globally (only once).
   (unless ai-code-backends-infra--vterm-advices-installed
     ;; Always install notification tracker for session buffers.
