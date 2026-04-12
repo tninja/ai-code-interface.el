@@ -16,6 +16,7 @@
 (declare-function ghostel--window-adjust-process-window-size "ghostel" (process windows))
 
 (defvar vterm-copy-mode-hook)
+(defvar ghostel-enable-title-tracking)
 (defvar ghostel--copy-mode-active)
 (defvar ghostel--process)
 
@@ -419,6 +420,24 @@
                       ai-code-backends-infra--initialize-ghostel-when-displayed
                       nil t)
                     hook-calls))))
+
+(ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-disables-title-tracking ()
+  "Ghostel AI session buffers should keep their original buffer names."
+  (let ((saved-default (default-value 'ghostel-enable-title-tracking)))
+    (unwind-protect
+        (progn
+          (setq-default ghostel-enable-title-tracking t)
+          (cl-letf (((symbol-function 'ghostel-mode)
+                     (lambda () nil))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'add-hook)
+                     (lambda (&rest _args) nil)))
+            (with-temp-buffer
+              (ai-code-backends-infra--configure-ghostel-buffer)
+              (should-not ghostel-enable-title-tracking)
+              (should (eq (default-value 'ghostel-enable-title-tracking) t)))))
+      (setq-default ghostel-enable-title-tracking saved-default))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-wraps-output-filter ()
   "Ghostel session creation should track meaningful output and linkify output."

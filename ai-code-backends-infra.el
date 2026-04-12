@@ -44,6 +44,7 @@
 (defvar eat-terminal)
 (defvar eat--semi-char-mode)
 (defvar ghostel-shell nil)
+(defvar ghostel-enable-title-tracking t)
 (defvar ghostel-max-scrollback nil)
 (defvar ghostel--copy-mode-active nil)
 (defvar ghostel--process nil)
@@ -398,6 +399,9 @@ returns to normal terminal interaction."
   "Configure the current Ghostel buffer for AI Code sessions."
   (unless (eq major-mode 'ghostel-mode)
     (ghostel-mode))
+  ;; Keep AI session names stable so remembered sessions can still be
+  ;; resolved through the conventional *backend[project]* buffer title.
+  (setq-local ghostel-enable-title-tracking nil)
   (if-let ((window (get-buffer-window (current-buffer) t)))
       (ai-code-backends-infra--initialize-ghostel-term window)
     (add-hook 'window-configuration-change-hook
