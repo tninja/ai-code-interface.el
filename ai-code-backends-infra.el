@@ -177,19 +177,9 @@ if the AI session buffer is not currently visible."
   :type 'number
   :group 'ai-code-backends-infra)
 
-;;; Vterm Rendering Optimization
-
-(defconst ai-code-backends-infra--vterm-redraw-regexp
-  "\033\\[[0-9;?]*[A-GJKMH]"
-  "Regexp to detect ANSI terminal redraw or movement sequences.
-Standalone carriage returns are intentionally excluded so simple CR-based
-updates are handled separately via carriage return counting.")
-
-(defvar-local ai-code-backends-infra--vterm-render-queue nil)
-(defvar-local ai-code-backends-infra--vterm-render-timer nil)
-
-(defvar ai-code-backends-infra--vterm-advices-installed nil
-  "Flag indicating whether vterm filter advices have been installed globally.")
+(require 'ai-code-backends-infra-vterm)
+(require 'ai-code-backends-infra-eat)
+(require 'ai-code-backends-infra-ghostel)
 
 (declare-function ai-code-notifications-response-ready "ai-code-notifications" (&optional backend-name))
 
@@ -257,110 +247,6 @@ The timer is reset only after meaningful output is observed."
         ai-code-backends-infra--last-meaningful-output-time (float-time))
   (ai-code-backends-infra--schedule-idle-check))
 
-(defun ai-code-backends-infra--vterm-notification-tracker (orig-fun process input)
-  "Track vterm activity for notification purposes, then call ORIG-FUN."
-  (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
-    (with-current-buffer (process-buffer process)
-      (when (ai-code-backends-infra--output-meaningful-p input)
-        (ai-code-backends-infra--note-meaningful-output))))
-  (prog1
-      (funcall orig-fun process input)
-    (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
-      (ai-code-session-link--schedule-linkify-recent-output
-       (process-buffer process)
-       input))))
-
-(defun ai-code-backends-infra--vterm-render-preserving-copy-mode-view (render-fn)
-  "Call RENDER-FN while keeping the user's `vterm-copy-mode' viewport stable."
-  (if (not (bound-and-true-p vterm-copy-mode))
-      (funcall render-fn)
-    (let ((point-marker (copy-marker (point) t))
-          ;; Use advancing markers so output inserted at saved positions
-          ;; keeps the restored viewport aligned with the same content.
-          (window-states
-           (mapcar (lambda (window)
-                     (list window
-                           (copy-marker (window-start window) t)
-                           (copy-marker (window-point window) t)))
-                   (get-buffer-window-list (current-buffer) nil t))))
-      (unwind-protect
-          ;; Suppress intermediate redisplay until restoring the captured
-          ;; viewport state, avoiding visible jumps to live terminal output.
-          (let ((inhibit-redisplay t))
-            (funcall render-fn))
-        (dolist (state window-states)
-          (pcase-let ((`(,window ,start-marker ,window-point-marker) state))
-            (when (window-live-p window)
-              (set-window-start window start-marker t)
-              (set-window-point window window-point-marker))
-            (set-marker start-marker nil)
-            (set-marker window-point-marker nil)))
-        (goto-char point-marker)
-        (set-marker point-marker nil)))))
-
-(defun ai-code-backends-infra--vterm-render-queued-output (orig-fun buffer)
-  "Render queued vterm output for BUFFER using ORIG-FUN."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (setq ai-code-backends-infra--vterm-render-timer nil)
-      (when ai-code-backends-infra--vterm-render-queue
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
-          (when-let* ((process (get-buffer-process buffer))
-                      ((process-live-p process)))
-            (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
-             (lambda ()
-               (funcall orig-fun process data)))))))))
-
-(defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
-  "Smart rendering filter for optimized vterm display updates.
-Activity tracking for notifications is handled separately by
-`ai-code-backends-infra--vterm-notification-tracker'.
-When `vterm-copy-mode' is active, rendering preserves the current
-viewport so scrollback continues updating without yanking navigation."
-  (if (or (not ai-code-backends-infra-vterm-anti-flicker)
-          (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
-      (funcall orig-fun process input)
-    (with-current-buffer (process-buffer process)
-      (let* ((complex-redraw-detected
-              (string-match-p ai-code-backends-infra--vterm-redraw-regexp input))
-             (clear-count (1- (length (split-string input "\033\\[K"))))
-             (cr-count (cl-count ?\15 input))
-             (escape-count (cl-count ?\033 input))
-             (input-length (length input))
-             (escape-density (if (> input-length 0)
-                                 (/ (float escape-count) input-length)
-                               0)))
-        (if (or complex-redraw-detected
-                (>= cr-count 2)
-                (and (> escape-density 0.3) (>= clear-count 2))
-                ai-code-backends-infra--vterm-render-queue)
-            (let ((buffer (current-buffer)))
-              (setq ai-code-backends-infra--vterm-render-queue
-                    (concat ai-code-backends-infra--vterm-render-queue input))
-              (when ai-code-backends-infra--vterm-render-timer
-                (cancel-timer ai-code-backends-infra--vterm-render-timer))
-              (setq ai-code-backends-infra--vterm-render-timer
-                    (run-at-time ai-code-backends-infra-vterm-render-delay nil
-                                 #'ai-code-backends-infra--vterm-render-queued-output
-                                 orig-fun
-                                 buffer)))
-          (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
-           (lambda ()
-             (funcall orig-fun process input))))))))
-
-(defun ai-code-backends-infra--vterm-flush-on-copy-mode-exit ()
-  "Flush any pending render queue when exiting `vterm-copy-mode'.
-Added buffer-locally to `vterm-copy-mode-hook' so that terminal output
-queued while copy mode was active is rendered immediately when the user
-returns to normal terminal interaction."
-  (unless (bound-and-true-p vterm-copy-mode)
-    (when ai-code-backends-infra--vterm-render-queue
-      (when-let ((proc (get-buffer-process (current-buffer))))
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
-          (vterm--filter proc data))))))
-
 (defun ai-code-backends-infra--configure-session-input-shortcuts ()
   "Install session-local shortcuts for prompt-oriented terminal input."
   (when (fboundp 'ai-code--session-handle-at-input)
@@ -368,84 +254,19 @@ returns to normal terminal interaction."
   (when (fboundp 'ai-code--session-handle-hash-input)
     (local-set-key (kbd "#") #'ai-code--session-handle-hash-input)))
 
-(defun ai-code-backends-infra--configure-vterm-buffer ()
-  "Configure vterm for enhanced performance."
-  (setq-local vterm-scroll-to-bottom-on-output nil)
-  (when (boundp 'vterm--redraw-immididately)
-    (setq-local vterm--redraw-immididately nil))
-  (ai-code-backends-infra--configure-session-input-shortcuts)
-  (setq-local cursor-in-non-selected-windows nil)
-  (setq-local blink-cursor-mode nil)
-  (setq-local cursor-type nil)
-  (when-let ((proc (get-buffer-process (current-buffer))))
-    (set-process-query-on-exit-flag proc nil)
-    (when (fboundp 'process-put)
-      (process-put proc 'read-output-max 4096)))
-  ;; Flush queued render output when the user exits vterm-copy-mode.
-  (add-hook 'vterm-copy-mode-hook
-            #'ai-code-backends-infra--vterm-flush-on-copy-mode-exit nil t)
-  ;; Hand cursor ownership to Emacs while browsing frozen terminal output.
-  (ai-code-backends-infra--install-navigation-cursor-sync)
-  ;; Install vterm filter advices globally (only once)
-  (unless ai-code-backends-infra--vterm-advices-installed
-    ;; Always install notification tracker for session buffers
-    (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-notification-tracker)
-    ;; Conditionally install anti-flicker renderer
-    (when ai-code-backends-infra-vterm-anti-flicker
-      (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer))
-    (setq ai-code-backends-infra--vterm-advices-installed t)))
-
-(defun ai-code-backends-infra--configure-ghostel-buffer ()
-  "Configure the current Ghostel buffer for AI Code sessions."
-  (unless (eq major-mode 'ghostel-mode)
-    (ghostel-mode))
-  ;; Keep AI session names stable so remembered sessions can still be
-  ;; resolved through the conventional *backend[project]* buffer title.
-  (setq-local ghostel-enable-title-tracking nil)
-  (if-let ((window (get-buffer-window (current-buffer) t)))
-      (ai-code-backends-infra--initialize-ghostel-term window)
-    (add-hook 'window-configuration-change-hook
-              #'ai-code-backends-infra--initialize-ghostel-when-displayed
-              nil t))
-  (ai-code-backends-infra--configure-session-input-shortcuts)
-  (ai-code-backends-infra--install-navigation-cursor-sync))
-
-(defun ai-code-backends-infra--initialize-ghostel-term (window)
-  "Initialize the current Ghostel terminal state for WINDOW."
-  (let ((height (max 1 (window-body-height window)))
-        (width (max 1 (window-max-chars-per-line window))))
-    (setq-local ghostel--term
-                (ghostel--new height width ghostel-max-scrollback))
-    (setq-local ghostel--term-rows height)))
-
-(defun ai-code-backends-infra--initialize-ghostel-when-displayed ()
-  "Initialize the current Ghostel buffer once it has a live window."
-  (when (and (eq major-mode 'ghostel-mode)
-             (not (bound-and-true-p ghostel--term)))
-    (when-let ((window (get-buffer-window (current-buffer) t)))
-      (ai-code-backends-infra--initialize-ghostel-term window)
-      (remove-hook 'window-configuration-change-hook
-                   #'ai-code-backends-infra--initialize-ghostel-when-displayed
-                   t))))
-
 ;;; Terminal Backend Abstraction
 
 (defun ai-code-backends-infra--terminal-ensure-backend ()
   "Ensure the selected terminal backend is available."
-  (cond
-   ((eq ai-code-backends-infra-terminal-backend 'vterm)
-    (unless (featurep 'vterm) (require 'vterm nil t))
-    (unless (featurep 'vterm)
-      (user-error "The package vterm is not installed")))
-   ((eq ai-code-backends-infra-terminal-backend 'eat)
-    (unless (featurep 'eat) (require 'eat nil t))
-    (unless (featurep 'eat)
-      (user-error "The package eat is not installed")))
-   ((eq ai-code-backends-infra-terminal-backend 'ghostel)
-    (unless (featurep 'ghostel) (require 'ghostel nil t))
-    (unless (featurep 'ghostel)
-      (user-error "The package ghostel is not installed")))
-   (t (user-error "Invalid terminal backend: %s" ai-code-backends-infra-terminal-backend)))
+  (pcase ai-code-backends-infra-terminal-backend
+    ('vterm
+     (ai-code-backends-infra--ensure-vterm-backend))
+    ('eat
+     (ai-code-backends-infra--ensure-eat-backend))
+    ('ghostel
+     (ai-code-backends-infra--ensure-ghostel-backend))
+    (_
+     (user-error "Invalid terminal backend: %s" ai-code-backends-infra-terminal-backend)))
   ;; Keep reflow advice synchronized with current backend/settings.
   (ai-code-backends-infra--sync-reflow-filter-advice))
 
@@ -497,51 +318,33 @@ returns to normal terminal interaction."
     (_ (error "Unknown terminal backend: %s"
               (ai-code-backends-infra--current-terminal-backend)))))
 
-(defun ai-code-backends-infra--ghostel-send-string (string)
-  "Send STRING to the current Ghostel process."
-  (when (and (bound-and-true-p ghostel--process)
-             (process-live-p ghostel--process))
-    (process-send-string ghostel--process string)))
-
 (defun ai-code-backends-infra--terminal-send-string (string)
   "Send STRING to the terminal in the current buffer."
   (ai-code-backends-infra--terminal-dispatch
-   (lambda () (vterm-send-string string))
-   (lambda ()
-     (when (bound-and-true-p eat-terminal)
-       (eat-term-send-string eat-terminal string)))
-   (lambda ()
-     (ai-code-backends-infra--ghostel-send-string string))))
+   (lambda () (ai-code-backends-infra--vterm-send-string string))
+   (lambda () (ai-code-backends-infra--eat-send-string string))
+   (lambda () (ai-code-backends-infra--ghostel-send-string string))))
 
 (defun ai-code-backends-infra--terminal-send-escape ()
   "Send escape key to the terminal in the current buffer."
   (ai-code-backends-infra--terminal-dispatch
-   (lambda () (vterm-send-escape))
-   (lambda ()
-     (when (bound-and-true-p eat-terminal)
-       (eat-term-send-string eat-terminal "\e")))
-   (lambda ()
-     (ai-code-backends-infra--ghostel-send-string "\e"))))
+   #'ai-code-backends-infra--vterm-send-escape
+   #'ai-code-backends-infra--eat-send-escape
+   #'ai-code-backends-infra--ghostel-send-escape))
 
 (defun ai-code-backends-infra--terminal-send-return ()
   "Send return key to the terminal in the current buffer."
   (ai-code-backends-infra--terminal-dispatch
-   (lambda () (vterm-send-return))
-   (lambda ()
-     (when (bound-and-true-p eat-terminal)
-       (eat-term-send-string eat-terminal "\r")))
-   (lambda ()
-     (ai-code-backends-infra--ghostel-send-string "\r"))))
+   #'ai-code-backends-infra--vterm-send-return
+   #'ai-code-backends-infra--eat-send-return
+   #'ai-code-backends-infra--ghostel-send-return))
 
 (defun ai-code-backends-infra--terminal-send-backspace ()
   "Send backspace key to the terminal in the current buffer."
   (ai-code-backends-infra--terminal-dispatch
-   (lambda () (vterm-send-string "\177"))
-   (lambda ()
-     (when (bound-and-true-p eat-terminal)
-       (eat-term-send-string eat-terminal "\177")))
-   (lambda ()
-     (ai-code-backends-infra--ghostel-send-string "\177"))))
+   #'ai-code-backends-infra--vterm-send-backspace
+   #'ai-code-backends-infra--eat-send-backspace
+   #'ai-code-backends-infra--ghostel-send-backspace))
 
 (defun ai-code-backends-infra--terminal-send-multiline-input ()
   "Send the configured multiline-input sequence for the current session buffer."
@@ -579,9 +382,9 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 (defun ai-code-backends-infra--terminal-resize-handler ()
   "Retrieve the terminal's resize handling function based on backend."
   (pcase ai-code-backends-infra-terminal-backend
-    ('vterm #'vterm--window-adjust-process-window-size)
-    ('eat #'eat--adjust-process-window-size)
-    ('ghostel #'ghostel--window-adjust-process-window-size)
+    ('vterm (ai-code-backends-infra--vterm-resize-handler))
+    ('eat (ai-code-backends-infra--eat-resize-handler))
+    ('ghostel (ai-code-backends-infra--ghostel-resize-handler))
     (_ (error "Unsupported terminal backend"))))
 
 (defun ai-code-backends-infra--session-buffer-p (buffer)
@@ -1194,71 +997,27 @@ WORKING-DIR is the directory.
 COMMAND is the shell command to run.
 ENV-VARS is a list of environment variables."
   (ai-code-backends-infra--terminal-ensure-backend)
-  (let ((default-directory working-dir))
-    (cond
-     ((eq ai-code-backends-infra-terminal-backend 'vterm)
-      (let* ((vterm-shell command)
-             (vterm-kill-buffer-on-exit nil)  ; Keep buffer alive to show errors
-             (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
-        (let ((buffer (save-window-excursion (vterm buffer-name))))
-          (ai-code-backends-infra--set-session-directory buffer working-dir)
-          (with-current-buffer buffer
-            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
-            (ai-code-backends-infra--configure-vterm-buffer))
-          (cons buffer (get-buffer-process buffer)))))
-
-     ((eq ai-code-backends-infra-terminal-backend 'eat)
-     (let* ((buffer (get-buffer-create buffer-name))
-             (parts (split-string-shell-command command))
-             (program (car parts))
-             (args (cdr parts)))
-        (ai-code-backends-infra--set-session-directory buffer working-dir)
-        (with-current-buffer buffer
-          (setq-local ai-code-backends-infra--session-terminal-backend 'eat)
-          (unless (eq major-mode 'eat-mode) (eat-mode))
-          (ai-code-backends-infra--configure-session-input-shortcuts)
-          (ai-code-backends-infra--install-navigation-cursor-sync)
-          (setq-local process-environment (append env-vars process-environment))
-          (eat-exec buffer buffer-name program nil args)
-          ;; Add process filter to track activity for notifications
-          (when-let ((proc (get-buffer-process buffer)))
-            (let ((orig-filter (process-filter proc)))
-              (set-process-filter
-               proc
-               (lambda (process output)
-                 ;; Call original filter first
-                 (when orig-filter
-                   (funcall orig-filter process output))
-                 ;; Then track activity for notifications
-                 (with-current-buffer (process-buffer process)
-                   (when (ai-code-backends-infra--output-meaningful-p output)
-                     (ai-code-backends-infra--note-meaningful-output))
-                   (ai-code-session-link--linkify-recent-output output))))))
-           (cons buffer (get-buffer-process buffer)))))
-     ((eq ai-code-backends-infra-terminal-backend 'ghostel)
-      (let* ((buffer (get-buffer-create buffer-name))
-             (process-environment (append env-vars process-environment)))
-        (ai-code-backends-infra--set-session-directory buffer working-dir)
-        (with-current-buffer buffer
-          (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
-          (ai-code-backends-infra--configure-ghostel-buffer)
-          (let ((proc (ghostel--start-process)))
-            (when (processp proc)
-              (set-process-query-on-exit-flag proc nil)
-              (let ((orig-filter (process-filter proc)))
-                (set-process-filter
-                 proc
-                 (lambda (process output)
-                   (when orig-filter
-                     (funcall orig-filter process output))
-                   (with-current-buffer (process-buffer process)
-                     (when (ai-code-backends-infra--output-meaningful-p output)
-                       (ai-code-backends-infra--note-meaningful-output))
-                     (ai-code-session-link--linkify-recent-output output)))))
-              (when (and command (> (length command) 0))
-                (process-send-string proc (concat command "\r"))))
-            (cons buffer proc)))))
-     (t (error "Unknown backend")))))
+  (pcase ai-code-backends-infra-terminal-backend
+    ('vterm
+     (ai-code-backends-infra--create-vterm-terminal-session
+      buffer-name
+      working-dir
+      command
+      env-vars))
+    ('eat
+     (ai-code-backends-infra--create-eat-terminal-session
+      buffer-name
+      working-dir
+      command
+      env-vars))
+    ('ghostel
+     (ai-code-backends-infra--create-ghostel-terminal-session
+      buffer-name
+      working-dir
+      command
+      env-vars))
+    (_
+     (error "Unknown backend"))))
 
 (defun ai-code-backends-infra--cleanup-dead-processes (table)
   "Clean up dead processes from TABLE."

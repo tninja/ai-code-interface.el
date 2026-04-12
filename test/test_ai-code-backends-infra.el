@@ -20,6 +20,10 @@
 (defvar ghostel--copy-mode-active)
 (defvar ghostel--process)
 
+(defun test-ai-code-backends-infra--symbol-source-base (symbol)
+  "Return SYMBOL definition file without extension."
+  (file-name-sans-extension (symbol-file symbol 'defun)))
+
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
   (should-not (ai-code-backends-infra--output-meaningful-p nil))
@@ -323,6 +327,24 @@
                           post-command-hook))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-loads-terminal-backend-modules ()
+  "Keep terminal backend implementations in dedicated modules."
+  (should (featurep 'ai-code-backends-infra-vterm))
+  (should (featurep 'ai-code-backends-infra-eat))
+  (should (featurep 'ai-code-backends-infra-ghostel))
+  (should (string-suffix-p
+           "ai-code-backends-infra-vterm"
+           (test-ai-code-backends-infra--symbol-source-base
+            'ai-code-backends-infra--configure-vterm-buffer)))
+  (should (string-suffix-p
+           "ai-code-backends-infra-eat"
+           (test-ai-code-backends-infra--symbol-source-base
+            'ai-code-backends-infra--create-eat-terminal-session)))
+  (should (string-suffix-p
+           "ai-code-backends-infra-ghostel"
+           (test-ai-code-backends-infra--symbol-source-base
+            'ai-code-backends-infra--configure-ghostel-buffer))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-prefers-session-backend ()
   "Send should use session-local backend even after global backend changes."
