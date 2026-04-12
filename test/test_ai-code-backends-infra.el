@@ -17,30 +17,49 @@
 
 (defvar vterm-copy-mode-hook)
 (defvar ghostel-enable-title-tracking)
-(defvar ghostel--copy-mode-active)
 (defvar ghostel--process)
+
+(ert-deftest test-ai-code-backends-infra-source-base-strips-source-and-bytecode-suffixes ()
+  "Normalize both `.el' and `.elc' suffixes when comparing source paths."
+  (should (equal (test-ai-code-backends-infra--source-base "/tmp/example.el")
+                 "/tmp/example"))
+  (should (equal (test-ai-code-backends-infra--source-base "/tmp/example.elc")
+                 "/tmp/example")))
+
+(defun test-ai-code-backends-infra--source-base (file)
+  "Return FILE path without trailing `.elc' or `.el' extension."
+  (let ((base (file-name-sans-extension file)))
+    (if (string-suffix-p ".el" base)
+        (file-name-sans-extension base)
+      base)))
 
 (defun test-ai-code-backends-infra--symbol-source-base (symbol)
   "Return SYMBOL definition file without extension."
-  (file-name-sans-extension (symbol-file symbol 'defun)))
+  (test-ai-code-backends-infra--source-base
+   (symbol-file symbol 'defun)))
 
 (defun test-ai-code-backends-infra--variable-source-base (symbol)
   "Return variable SYMBOL definition file without extension."
-  (file-name-sans-extension (symbol-file symbol 'defvar)))
+  (test-ai-code-backends-infra--source-base
+   (symbol-file symbol 'defvar)))
+
+(defun test-ai-code-backends-infra--assert-source-module (symbol module
+                                                                 predicate source-fn)
+  "Assert SYMBOL satisfies PREDICATE and comes from MODULE via SOURCE-FN."
+  (should (funcall predicate symbol))
+  (should (string-suffix-p
+           module
+           (funcall source-fn symbol))))
 
 (defun test-ai-code-backends-infra--assert-function-source-module (symbol module)
   "Assert function SYMBOL is defined in backend MODULE."
-  (should (fboundp symbol))
-  (should (string-suffix-p
-           module
-           (test-ai-code-backends-infra--symbol-source-base symbol))))
+  (test-ai-code-backends-infra--assert-source-module
+   symbol module #'fboundp #'test-ai-code-backends-infra--symbol-source-base))
 
 (defun test-ai-code-backends-infra--assert-variable-source-module (symbol module)
   "Assert variable SYMBOL is defined in backend MODULE."
-  (should (boundp symbol))
-  (should (string-suffix-p
-           module
-           (test-ai-code-backends-infra--variable-source-base symbol))))
+  (test-ai-code-backends-infra--assert-source-module
+   symbol module #'boundp #'test-ai-code-backends-infra--variable-source-base))
 
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
@@ -357,6 +376,9 @@
   (test-ai-code-backends-infra--assert-variable-source-module
    'ai-code-backends-infra-eat-preserve-position
    "ai-code-backends-infra-eat")
+  (test-ai-code-backends-infra--assert-variable-source-module
+   'ghostel--copy-mode-active
+   "ai-code-backends-infra-ghostel")
   (test-ai-code-backends-infra--assert-function-source-module
    'ai-code-backends-infra--configure-vterm-buffer
    "ai-code-backends-infra-vterm")

@@ -26,6 +26,7 @@
 (defvar ghostel--process nil)
 (defvar ghostel--term nil)
 (defvar ghostel--term-rows nil)
+(defvar ghostel--copy-mode-active nil)
 
 (defun ai-code-backends-infra--ensure-ghostel-backend ()
   "Ensure the ghostel backend is available."
