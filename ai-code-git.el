@@ -998,18 +998,6 @@ already exists at the target."
       (make-symbolic-link source-dir link-path)
       (message "Created symlink: %s -> %s" link-path source-dir))))
 
-(defun ai-code--symlink-gitignore-to-worktree (git-root worktree-path)
-  "Create a symlink for .gitignore inside WORKTREE-PATH.
-The link points to the original .gitignore under GIT-ROOT.
-Does nothing when the source file does not exist or when a
-.gitignore already exists at the target (e.g. checked out by git)."
-  (let ((source-file (expand-file-name ".gitignore" git-root))
-        (link-path (expand-file-name ".gitignore" worktree-path)))
-    (when (and (file-exists-p source-file)
-               (not (file-exists-p link-path)))
-      (make-symbolic-link source-file link-path)
-      (message "Created symlink: %s -> %s" link-path source-file))))
-
 ;;;###autoload
 (defun ai-code-git-worktree-branch (branch start-point)
   "Create BRANCH and check it out in a new centralized worktree.
@@ -1035,7 +1023,6 @@ The worktree path for START-POINT is
                      (magit-call-git "worktree" "add" "-b" branch
                                      (file-truename path) start-point)))
         (ai-code--symlink-files-dir-to-worktree git-root path)
-        (ai-code--symlink-gitignore-to-worktree git-root path)
         (magit-diff-visit-directory path)))))
 
 ;;;###autoload
@@ -1046,7 +1033,6 @@ With PREFIX (for example \\[universal-argument]), call
 `magit-worktree-status'."
   (interactive "P")
   ;; DONE: after creating worktree folder, it should create symbolink link of ai-code-files-dir-name, under the worktree folder, pointing to the original ai-code-files-dir-name dir, inside original git repo.
-  ;; DONE: after create symbolink link, it should also symbol link .gitignore to from the original git repo to the new worktree folder
   ;; DONE: if the git branch to be created already exist, let user know and keep working
   (unless (and (stringp ai-code-git-worktree-root)
                (> (length ai-code-git-worktree-root) 0))
