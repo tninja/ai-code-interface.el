@@ -1026,11 +1026,17 @@ The worktree path for START-POINT is
     (when (and parent-dir
                (not (file-directory-p parent-dir)))
       (make-directory parent-dir t))
-    (when (zerop (magit-call-git "worktree" "add" "-b" branch
-                                 (file-truename path) start-point))
-      (ai-code--symlink-files-dir-to-worktree git-root path)
-      (ai-code--symlink-gitignore-to-worktree git-root path)
-      (magit-diff-visit-directory path))))
+    (let ((branch-exists (magit-branch-p branch)))
+      (when branch-exists
+        (message "Branch '%s' already exists; reusing it for the new worktree." branch))
+      (when (zerop (if branch-exists
+                       (magit-call-git "worktree" "add"
+                                       (file-truename path) branch)
+                     (magit-call-git "worktree" "add" "-b" branch
+                                     (file-truename path) start-point)))
+        (ai-code--symlink-files-dir-to-worktree git-root path)
+        (ai-code--symlink-gitignore-to-worktree git-root path)
+        (magit-diff-visit-directory path)))))
 
 ;;;###autoload
 (defun ai-code-git-worktree-action (&optional prefix)
@@ -1041,6 +1047,7 @@ With PREFIX (for example \\[universal-argument]), call
   (interactive "P")
   ;; DONE: after creating worktree folder, it should create symbolink link of ai-code-files-dir-name, under the worktree folder, pointing to the original ai-code-files-dir-name dir, inside original git repo.
   ;; DONE: after create symbolink link, it should also symbol link .gitignore to from the original git repo to the new worktree folder
+  ;; DONE: if the git branch to be created already exist, let user know and keep working
   (unless (and (stringp ai-code-git-worktree-root)
                (> (length ai-code-git-worktree-root) 0))
     (user-error "Please configure `ai-code-git-worktree-root` first"))
