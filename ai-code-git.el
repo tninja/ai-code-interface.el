@@ -831,6 +831,7 @@ Projectile, and configure Helm-Gtags with a pygments label.  Show a
 summary message of performed actions.
 PREFIX is the prefix argument."
   (interactive "P")
+  ;; DONE: this function should create ai-code-files-dir-name folder under git root direction
   (let* ((projectile-available (or (featurep 'projectile)
                                    (require 'projectile nil t)))
          (helm-gtags-available (or (featurep 'helm-gtags)
@@ -865,6 +866,12 @@ PREFIX is the prefix argument."
                   actions))
            ((and helm-gtags-available prefix)
             (push (format "skipped Helm-Gtags label for %s" dir) actions)))
+          (when git-root
+            (let ((files-dir (expand-file-name ai-code-files-dir-name git-root)))
+              (unless (file-directory-p files-dir)
+                (make-directory files-dir t)
+                (push (format "created %s in %s" ai-code-files-dir-name git-root)
+                      actions))))
           (if actions
               (message "ai-code-init-project: %s"
                        (mapconcat #'identity (nreverse actions) "; "))
@@ -979,6 +986,18 @@ buffer from which this command was invoked, instead of visiting the file."
   (let ((repo-name (file-name-nondirectory (directory-file-name git-root))))
     (expand-file-name repo-name ai-code-git-worktree-root)))
 
+(defun ai-code--symlink-files-dir-to-worktree (git-root worktree-path)
+  "Create a symlink for `ai-code-files-dir-name' inside WORKTREE-PATH.
+The link points to the original directory under GIT-ROOT.
+Does nothing when the source directory does not exist or a link
+already exists at the target."
+  (let ((source-dir (expand-file-name ai-code-files-dir-name git-root))
+        (link-path (expand-file-name ai-code-files-dir-name worktree-path)))
+    (when (and (file-directory-p source-dir)
+               (not (file-exists-p link-path)))
+      (make-symbolic-link source-dir link-path)
+      (message "Created symlink: %s -> %s" link-path source-dir))))
+
 ;;;###autoload
 (defun ai-code-git-worktree-branch (branch start-point)
   "Create BRANCH and check it out in a new centralized worktree.
@@ -997,6 +1016,7 @@ The worktree path for START-POINT is
       (make-directory parent-dir t))
     (when (zerop (magit-call-git "worktree" "add" "-b" branch
                                  (file-truename path) start-point))
+      (ai-code--symlink-files-dir-to-worktree git-root path)
       (magit-diff-visit-directory path))))
 
 ;;;###autoload
@@ -1006,6 +1026,7 @@ Without PREFIX, call `ai-code-git-worktree-branch'.
 With PREFIX (for example \\[universal-argument]), call
 `magit-worktree-status'."
   (interactive "P")
+  ;; DONE: after creating worktree folder, it should create symbolink link of ai-code-files-dir-name, under the worktree folder, pointing to the original ai-code-files-dir-name dir, inside original git repo.
   (unless (and (stringp ai-code-git-worktree-root)
                (> (length ai-code-git-worktree-root) 0))
     (user-error "Please configure `ai-code-git-worktree-root` first"))
