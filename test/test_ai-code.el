@@ -428,6 +428,34 @@
       (should (string-match-p "Do not write or run any test\\." sent-command))
       (should-not (string-match-p "SHOULD NOT APPEAR" sent-command)))))
 
+(ert-deftest ai-code-test-select-terminal-updates-terminal-backend-and-syncs-reflow-advice ()
+  "Test that selecting a terminal backend updates infra state."
+  (let ((ai-code-backends-infra-terminal-backend 'eat)
+        sync-called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (prompt collection &optional _predicate require-match
+                               _initial-input _hist def &rest _args)
+                 (should (equal prompt "Select terminal: "))
+                 (should require-match)
+                 (should (equal collection '("eat" "vterm" "ghostel")))
+                 (should (equal def "eat"))
+                 "ghostel"))
+              ((symbol-function 'ai-code-backends-infra--sync-reflow-filter-advice)
+               (lambda ()
+                 (setq sync-called t)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (ai-code-select-terminal)
+      (should (eq ai-code-backends-infra-terminal-backend 'ghostel))
+      (should sync-called))))
+
+(ert-deftest ai-code-test-menu-ai-cli-session-includes-select-terminal-entry ()
+  "Test that the AI CLI session menu exposes terminal backend selection."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "T")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-select-terminal))))
+
 (ert-deftest ai-code-test-menu-prefix-command-default-layout ()
   "Test that the default menu layout uses the original transient."
   (let ((ai-code-menu-layout 'default))

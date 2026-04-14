@@ -502,12 +502,53 @@ Otherwise switch to AI CLI buffer."
 Shows the current backend label to the right."
   (format "Select Backend (%s)" (ai-code-current-backend-label)))
 
+(defconst ai-code--terminal-backend-choices
+  '(("vterm" . vterm)
+    ("eat" . eat)
+    ("ghostel" . ghostel))
+  "Display choices for `ai-code-backends-infra-terminal-backend'.")
+
+(defun ai-code--ordered-terminal-backend-choices ()
+  "Return terminal backend choices with the current backend first."
+  (let ((current-label
+         (car (seq-find
+               (lambda (it)
+                 (eq (cdr it) ai-code-backends-infra-terminal-backend))
+               ai-code--terminal-backend-choices))))
+    (if current-label
+        (let ((current (assoc current-label ai-code--terminal-backend-choices)))
+          (cons current
+                (seq-remove (lambda (it)
+                              (equal (car it) current-label))
+                            ai-code--terminal-backend-choices)))
+      ai-code--terminal-backend-choices)))
+
+(defun ai-code-select-terminal ()
+  "Interactively select the terminal backend for AI sessions."
+  (interactive)
+  (let* ((ordered-choices (ai-code--ordered-terminal-backend-choices))
+         (current-label (caar ordered-choices))
+         (choice (completing-read "Select terminal: "
+                                  (mapcar #'car ordered-choices)
+                                  nil t nil nil current-label))
+         (backend (cdr (assoc choice ordered-choices))))
+    (setq ai-code-backends-infra-terminal-backend backend)
+    (ai-code-backends-infra--sync-reflow-filter-advice)
+    (message "AI Code terminal backend switched to: %s" choice)))
+
+(defun ai-code--select-terminal-description (&rest _)
+  "Dynamic description for the Select Terminal menu item."
+  (format "Select Terminal (%s)"
+          (symbol-name ai-code-backends-infra-terminal-backend)))
+
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
   ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
   ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
   ("s" ai-code-select-backend :description ai-code--select-backend-description)
+  ;; DONE: similar to ai-code-select-backend, add ai-code-select-terminal, it will use ai-code-backends-infra-terminal-backend to select between different terminal emulators for AI sessions, such as vterm, eat, and ghostel.
+  ("T" ai-code-select-terminal :description ai-code--select-terminal-description)
   ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
   ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
