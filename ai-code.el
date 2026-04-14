@@ -548,7 +548,7 @@ Shows the current backend label to the right."
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
   ("s" ai-code-select-backend :description ai-code--select-backend-description)
   ;; DONE: similar to ai-code-select-backend, add ai-code-select-terminal, it will use ai-code-backends-infra-terminal-backend to select between different terminal emulators for AI sessions, such as vterm, eat, and ghostel.
-  ("T" ai-code-select-terminal :description ai-code--select-terminal-description)
+  ("l" ai-code-select-terminal :description ai-code--select-terminal-description)
   ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
   ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
