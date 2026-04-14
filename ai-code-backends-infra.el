@@ -41,7 +41,9 @@
 (defvar vterm-environment)
 (defvar vterm-kill-buffer-on-exit)
 (defvar vterm-copy-mode)
+(defvar vterm-max-scrollback)
 (defvar eat-terminal)
+(defvar eat-term-scrollback-size)
 (defvar eat--semi-char-mode)
 (defvar ghostel-shell nil)
 (defvar ghostel-enable-title-tracking t)
@@ -119,6 +121,15 @@ Eat sessions now always use the terminal's native resize and redisplay
 behavior because suppressing reflow can leave the screen stale when a
 window becomes visible again."
   :type 'boolean
+  :group 'ai-code-backends-infra)
+
+(defcustom ai-code-backends-infra-scrollback-size nil
+  "Scrollback buffer size for terminal sessions.
+For vterm, this sets the number of scrollback lines (max 100000).
+For eat, this is converted to character count (lines * 100).
+nil means maximum available: 100000 lines for vterm, unlimited for eat/ghostel."
+  :type '(choice (natnum :tag "Number of lines")
+                 (const :tag "Maximum/unlimited" nil))
   :group 'ai-code-backends-infra)
 
 ;;; Variables
@@ -1199,6 +1210,7 @@ ENV-VARS is a list of environment variables."
      ((eq ai-code-backends-infra-terminal-backend 'vterm)
       (let* ((vterm-shell command)
              (vterm-kill-buffer-on-exit nil)  ; Keep buffer alive to show errors
+             (vterm-max-scrollback (or ai-code-backends-infra-scrollback-size 100000))
              (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
         (let ((buffer (save-window-excursion (vterm buffer-name))))
           (ai-code-backends-infra--set-session-directory buffer working-dir)
@@ -1218,6 +1230,10 @@ ENV-VARS is a list of environment variables."
           (unless (eq major-mode 'eat-mode) (eat-mode))
           (ai-code-backends-infra--configure-session-input-shortcuts)
           (ai-code-backends-infra--install-navigation-cursor-sync)
+          (setq-local eat-term-scrollback-size
+                      (if ai-code-backends-infra-scrollback-size
+                          (* ai-code-backends-infra-scrollback-size 100)
+                        nil))
           (setq-local process-environment (append env-vars process-environment))
           (eat-exec buffer buffer-name program nil args)
           ;; Add process filter to track activity for notifications
@@ -1241,6 +1257,7 @@ ENV-VARS is a list of environment variables."
         (ai-code-backends-infra--set-session-directory buffer working-dir)
         (with-current-buffer buffer
           (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+          (setq-local ghostel-max-scrollback ai-code-backends-infra-scrollback-size)
           (ai-code-backends-infra--configure-ghostel-buffer)
           (let ((proc (ghostel--start-process)))
             (when (processp proc)
