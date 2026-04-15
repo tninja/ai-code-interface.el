@@ -590,7 +590,9 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
     (string-match-p "\\`\\*.*\\[.*\\].*\\*\\'" name)))
 
 (defun ai-code-backends-infra--terminal-reflow-filter (original-fn &rest args)
-  "Filter terminal reflows to prevent height-only resize triggers."
+  "Filter terminal reflows to prevent height-only resize triggers.
+Suppress reflow when terminal width is unchanged or when the session
+buffer is in scroll/copy mode, working around bug #1422."
   (let* ((base-result (apply original-fn args))
          (dimensions-stable t))
     (dolist (win (window-list))
@@ -601,9 +603,21 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
           (unless (eql new-width cached-width)
             (setq dimensions-stable nil)
             (set-window-parameter win 'ai-code-backends-infra-cached-width new-width)))))
-    (if (and ai-code-backends-infra-prevent-reflow-glitch dimensions-stable)
-        nil
-      base-result)))
+    (cond
+     ;; Not in a session buffer - pass through
+     ((not (ai-code-backends-infra--session-buffer-p (current-buffer)))
+      base-result)
+     ;; In scroll/copy mode - suppress reflow to avoid disrupting navigation
+     ((ai-code-backends-infra--terminal-navigation-mode-p)
+      nil)
+     ;; Width changed - allow reflow
+     ((not dimensions-stable)
+      base-result)
+     ;; Height-only change with reflow glitch prevention - suppress
+     (ai-code-backends-infra-prevent-reflow-glitch
+      nil)
+     ;; Default - pass through
+     (t base-result))))
 
 (defun ai-code-backends-infra--sync-reflow-filter-advice ()
   "Add or remove terminal reflow advice according to current settings."
@@ -648,6 +662,11 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
     (setq ai-code-backends-infra--last-accessed-buffer buffer)
     (when (and window ai-code-backends-infra-focus-on-open)
       (select-window window))
+    ;; Sync terminal dimensions with the actual window size.
+    ;; The buffer may have been created with different dimensions before
+    ;; being displayed in this window.
+    (when (and window (buffer-live-p buffer))
+      (ai-code-backends-infra--sync-terminal-dimensions buffer window))
     window))
 
 (defun ai-code-backends-infra--fit-side-window-body-width (window)
@@ -656,6 +675,18 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
                   (window-body-width window))))
     (unless (zerop delta)
       (window-resize window delta t))))
+
+(defun ai-code-backends-infra--sync-terminal-dimensions (buffer window)
+  "Sync terminal dimensions in BUFFER to match WINDOW size.
+This ensures the terminal process has the correct dimensions after
+the buffer has been displayed in its final window, which may differ
+from the window where it was initially created."
+  (when (and buffer window (buffer-live-p buffer) (window-live-p window))
+    (with-current-buffer buffer
+      (when-let ((proc (get-buffer-process buffer)))
+        (let ((height (window-body-height window))
+              (width (window-body-width window)))
+          (set-process-window-size proc height width))))))
 
 ;;; Session Helpers
 
