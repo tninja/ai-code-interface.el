@@ -119,6 +119,12 @@ Use `auto' to prefer Flycheck and then Flymake when available."
      :name "get_project_buffers"
      :description "List open buffers that belong to the current project."
      :args nil)
+    (:function ai-code-mcp-notify-user
+     :name "notify_user"
+     :description "Show a notification to the Emacs user."
+     :args ((:name "message_text"
+             :type string
+             :description "Notification text to show in Emacs.")))
     (:function ai-code-mcp-imenu-list-symbols
      :name "imenu_list_symbols"
      :description "List useful symbols in a file via imenu."
@@ -172,6 +178,7 @@ The default tool list includes:
 - `get_diagnostics'
 - `get_project_files'
 - `get_project_buffers'
+- `notify_user'
 - `imenu_list_symbols'
 - `xref_find_references'
 - `xref_find_definitions_at_point'
@@ -794,6 +801,12 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
     (forward-line (1- line))
     (move-to-column column)
     (point)))
+
+(defun ai-code-mcp-notify-user (message-text)
+  "Show MESSAGE-TEXT to the Emacs user and beep."
+  (message "%s" message-text)
+  (beep)
+  (format "Notified user: %s" message-text))
 
 (require 'ai-code-mcp-editor-tools nil t)
 
