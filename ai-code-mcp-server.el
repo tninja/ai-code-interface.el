@@ -73,6 +73,9 @@ Use `auto' to prefer Flycheck and then Flymake when available."
                  (const :tag "Flymake" flymake))
   :group 'ai-code-mcp-server)
 
+(defvar ai-code-mcp-server-tool-setup-functions nil
+  "Functions that register optional MCP tool groups.")
+
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to session metadata.")
 
@@ -251,7 +254,9 @@ Required keys are `:function', `:name', and `:description'."
   "Register the built-in common Emacs MCP tools."
   (interactive)
   (dolist (tool ai-code-mcp--builtin-tool-specs)
-    (apply #'ai-code-mcp-make-tool tool)))
+    (apply #'ai-code-mcp-make-tool tool))
+  (dolist (setup-fn ai-code-mcp-server-tool-setup-functions)
+    (funcall setup-fn)))
 
 (defun ai-code-mcp--ensure-builtins ()
   "Ensure built-in MCP tools are registered."
@@ -420,7 +425,9 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
 
 (defun ai-code-mcp--make-diagnostic (start-line start-column end-line end-column
                                                 severity source message)
-  "Return an MCP diagnostics entry for START-LINE, START-COLUMN, END-LINE, END-COLUMN, SEVERITY, SOURCE, and MESSAGE."
+  "Return an MCP diagnostics entry.
+Use START-LINE, START-COLUMN, END-LINE, END-COLUMN, SEVERITY,
+SOURCE, and MESSAGE to describe the diagnostic payload."
   `((range . ((start . ((line . ,start-line)
                         (character . ,start-column)))
               (end . ((line . ,end-line)
@@ -787,6 +794,8 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
     (forward-line (1- line))
     (move-to-column column)
     (point)))
+
+(require 'ai-code-mcp-editor-tools nil t)
 
 (provide 'ai-code-mcp-server)
 
