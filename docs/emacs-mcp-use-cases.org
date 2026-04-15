@@ -1,0 +1,423 @@
+#+title: Emacs MCP Use Cases with AI Coding CLIs
+
+* Overview
+
+This document captures the main use cases for the Emacs MCP tools in
+AI Code Interface when they are paired with AI coding CLIs such as
+GitHub Copilot CLI, OpenAI Codex CLI, and Claude Code.
+
+The key idea is simple:
+
+- AI coding CLIs are already good at repository search, disk file
+  editing, diff analysis, and shell-driven workflows.
+- Emacs MCP should therefore focus on what those agents do *not* see
+  by default: the *live Emacs session*.
+
+In practice, Emacs MCP is most useful as a combination of:
+
+- a *session sensor* that exposes the current editor context, and
+- an *Emacs-side validation layer* for checks that only make sense
+  inside the running Emacs session.
+
+
+* Positioning
+
+Emacs MCP is most valuable when it helps an external AI coding CLI
+answer questions like:
+
+- What is the user looking at *right now*?
+- Is the current buffer modified but not yet saved?
+- Which buffers are visible in the current frame?
+- What did Emacs just report in =*Messages*=?
+- What is the current Emacs Lisp state for this buffer or session?
+
+Emacs MCP is *less* valuable when it duplicates capabilities that the
+AI coding CLI already has, such as:
+
+- editing normal files on disk
+- running shell commands
+- doing broad repository search
+- acting as a second general-purpose execution environment
+
+
+* Current Tool Layers
+
+** Core built-in MCP tools
+
+The existing built-in tools already cover repository and code-structure
+questions well:
+
+- =project_info=
+- =buffer_query=
+- =get_diagnostics=
+- =get_project_files=
+- =get_project_buffers=
+- =imenu_list_symbols=
+- =xref_find_references=
+- =xref_find_definitions_at_point=
+- =treesit_info=
+
+These are useful for code understanding, navigation, and diagnostics.
+
+** Optional editor-session MCP tools
+
+The optional editor-session tools extend the built-in layer with
+live-editor awareness:
+
+- =editor_state=
+- =visible_buffers=
+- =messages_tail=
+- =eval_elisp=
+
+These tools should be understood as *Emacs-aware context and
+validation tools*, not as a replacement for the AI CLI's normal
+editing and shell workflow.
+
+
+* Why Emacs MCP Matters Even When the Agent Can Edit Files
+
+The strongest argument for Emacs MCP is that the live Emacs session
+contains information that does not exist in the repository or on disk.
+
+** Unsaved buffers
+
+An AI coding CLI may read the file from disk, but the user may be
+looking at a modified buffer that has not been saved yet.
+
+Use case:
+
+- The user asks the agent about a bug in the current function before
+  saving.
+- The correct source of truth is the current Emacs buffer, not the file
+  on disk.
+
+Useful tools:
+
+- =editor_state=
+- =buffer_query=
+
+** Current point, region, and narrowing
+
+The user is often focused on a very specific place in the file.
+The repository alone does not tell the agent:
+
+- where point is
+- whether a region is active
+- whether the buffer is narrowed
+
+Use case:
+
+- The user says "explain what is wrong here" or "review the selected
+  code" without manually copying the exact location.
+
+Useful tools:
+
+- =editor_state=
+- =buffer_query=
+- =xref_find_definitions_at_point=
+
+** Visible working set
+
+Users often work with multiple windows at once:
+
+- implementation on the left
+- test on the right
+- =*Messages*= or scratch buffer below
+
+The repository cannot tell the agent which files or buffers the user is
+currently comparing.
+
+Use case:
+
+- The agent should interpret the current visible buffers as the user's
+  active working set instead of scanning the whole project first.
+
+Useful tools:
+
+- =visible_buffers=
+
+** Emacs-side runtime feedback
+
+Many Emacs problems surface in =*Messages*=, not in the shell.
+
+Use case:
+
+- package load issues
+- mode hook failures
+- parser or navigation backends not activating
+- command warnings that are only visible in Emacs
+
+Useful tools:
+
+- =messages_tail=
+
+** Live Emacs Lisp validation
+
+Some questions can only be answered from inside the running Emacs
+session:
+
+- is this function actually bound?
+- is this feature loaded?
+- what is the current buffer-local value?
+- is this parser or backend available in this buffer?
+
+Use case:
+
+- debugging Emacs Lisp package behavior
+- validating assumptions about the current editor session
+
+Useful tools:
+
+- =eval_elisp= in =query= mode
+
+
+* High-Value Use Cases
+
+** 1. Current-location-aware explanation
+
+The user is in a buffer and wants an explanation about the code at
+point or in the active region.
+
+Recommended flow:
+
+1. Call =editor_state=
+2. If needed, call =buffer_query=
+3. Use =imenu_list_symbols= or =xref_find_definitions_at_point=
+4. Explain based on the live buffer context
+
+Why this matters:
+
+- The answer is anchored to what the user is currently reading, not
+  just to a file path.
+
+** 2. Debugging an unsaved change
+
+The user has changed a buffer but has not saved it yet, and wants to
+know why the change is wrong or incomplete.
+
+Recommended flow:
+
+1. Call =editor_state=
+2. If =modified= is true, use =buffer_query=
+3. Optionally combine with =get_diagnostics=
+4. Explain or suggest a patch
+
+Why this matters:
+
+- Disk content is stale; only Emacs knows the real current text.
+
+** 3. Working-set-aware review
+
+The user has split windows for implementation and tests and wants a
+review or debugging pass.
+
+Recommended flow:
+
+1. Call =visible_buffers=
+2. Read the visible source and test buffers first
+3. Only then widen the investigation to the project if necessary
+
+Why this matters:
+
+- The current frame layout often represents the user's actual problem
+  boundary better than the whole repository.
+
+** 4. Emacs-side failure diagnosis
+
+The user reports that something "does not work in Emacs", but the code
+looks fine on disk.
+
+Recommended flow:
+
+1. Call =messages_tail=
+2. If needed, call =editor_state=
+3. Use =eval_elisp= in =query= mode for state checks
+4. Suggest the fix
+
+Why this matters:
+
+- The root cause may be a mode issue, hook problem, missing feature, or
+  runtime state mismatch rather than a plain source bug.
+
+** 5. Emacs Lisp package and mode debugging
+
+This is one of the strongest use cases for Emacs MCP.
+
+Recommended flow:
+
+1. Use the structural tools for source understanding
+2. Use =messages_tail= for runtime evidence
+3. Use =eval_elisp= in =query= mode for live checks
+
+Why this matters:
+
+- Emacs Lisp behavior depends heavily on live session state, buffer
+  local values, and loaded features.
+
+** 6. Lightweight runtime verification
+
+The agent has a hypothesis and wants to confirm it before suggesting a
+change.
+
+Examples:
+
+- check whether a variable is bound
+- check whether a feature is loaded
+- inspect the current major mode
+- inspect whether a backend is available
+
+Recommended flow:
+
+- Use =eval_elisp= in =query= mode for short, explicit checks
+
+Why this matters:
+
+- The agent can move from speculation to evidence while staying inside
+  the editor session boundary.
+
+
+* Lower-Value or Lower-Priority Use Cases
+
+These are possible, but should not be the first focus of Emacs MCP.
+
+** Normal file editing
+
+Why lower priority:
+
+- The AI coding CLI already edits files on disk well.
+- A second editing path in Emacs creates more overlap and more room for
+  confusion.
+
+** Shell, process, or network execution through Emacs
+
+Why lower priority:
+
+- The AI coding CLI already has a more natural shell-facing execution
+  model.
+- Using Emacs MCP for OS-level execution blurs the responsibility
+  boundary.
+
+** General project crawling
+
+Why lower priority:
+
+- The core MCP tools plus the AI CLI's normal search capabilities are
+  already strong here.
+- The unique value of Emacs MCP is the live session, not another search
+  engine.
+
+
+* Recommended Tool Priorities
+
+| Priority | Tool | Main purpose |
+|----------+------+--------------|
+| High | =editor_state= | Anchor the agent to the current live editing context |
+| High | =messages_tail= | Expose Emacs-side runtime feedback and errors |
+| High | =eval_elisp= in =query= mode | Validate live Emacs assumptions |
+| Medium | =visible_buffers= | Expose the user's current visible working set |
+| Low | effectful =eval_elisp= | Powerful, but should remain explicitly gated |
+
+
+* Backend-Specific Notes
+
+** GitHub Copilot CLI
+
+GitHub Copilot CLI benefits from exact editor context when the user
+already knows the task and wants the agent to stay tightly anchored to
+the current buffer or visible working set.
+
+Best fit:
+
+- =editor_state=
+- =visible_buffers=
+- =messages_tail=
+
+Typical pattern:
+
+- "Use the Emacs MCP tools to inspect what I am currently looking at,
+  then explain the bug in the selected code."
+
+** OpenAI Codex CLI
+
+Codex CLI is naturally strong at repository reasoning and code search.
+Emacs MCP is most valuable when it gives Codex the *missing live
+context* that the repository does not contain.
+
+Best fit:
+
+- =editor_state=
+- =buffer_query=
+- =eval_elisp= in =query= mode
+
+Typical pattern:
+
+- "Use the Emacs MCP tools to inspect the current buffer and tell me if
+  my unsaved change is consistent with the surrounding code."
+
+** Claude Code
+
+Claude Code is especially strong when it can move through a
+hypothesis-check loop.
+Emacs MCP makes that loop stronger by exposing live editor state and
+allowing controlled session-side validation.
+
+Best fit:
+
+- =messages_tail=
+- =eval_elisp= in =query= mode
+- =editor_state=
+
+Typical pattern:
+
+- "Use the Emacs MCP tools to check the current mode, inspect the
+  latest messages, and verify whether the function I expect is actually
+  bound."
+
+
+* Recommended Workflow Pattern
+
+For the current toolset, the best general-purpose workflow is:
+
+1. Start with =editor_state=
+2. If the buffer is modified or the question is local, call
+   =buffer_query=
+3. If the issue is about code structure, use the built-in structural
+   tools such as =imenu_list_symbols=, =xref_find_definitions_at_point=,
+   or =get_diagnostics=
+4. If the issue may be Emacs-runtime-specific, call =messages_tail=
+5. If a live check is needed, use =eval_elisp= in =query= mode
+
+This keeps the AI CLI focused on the repository and filesystem while
+using Emacs MCP only where it adds unique value.
+
+
+* Anti-Goals
+
+Emacs MCP should *not* become:
+
+- a second general-purpose file editor
+- a second shell execution layer
+- a replacement for the AI CLI's repository search
+- a wide-open remote execution channel
+
+Its best identity is:
+
+#+begin_quote
+An editor-aware context and validation layer for AI coding CLIs.
+#+end_quote
+
+
+* Summary
+
+The most useful Emacs MCP use cases are the ones that expose what only
+Emacs knows at runtime:
+
+- current live buffer state
+- current point or selection
+- current visible working set
+- latest Emacs runtime messages
+- live Emacs Lisp session facts
+
+That is where Emacs MCP can make GitHub Copilot CLI, Codex CLI, and
+Claude Code feel significantly more native inside Emacs without
+duplicating the strengths they already have.
