@@ -114,10 +114,10 @@ Can be either `vterm', `eat', or `ghostel'."
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-eat-preserve-position t
-  "Obsolete compatibility toggle for eat-specific reflow suppression.
-Eat sessions now always use the terminal's native resize and redisplay
-behavior because suppressing reflow can leave the screen stale when a
-window becomes visible again."
+  "Maintain terminal scroll position when switching windows in eat.
+When enabled, prevents the eat terminal from jumping to the top
+when you switch focus to other windows and return.  This provides
+a more stable viewing experience when working with multiple windows."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
@@ -576,6 +576,27 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 
 ;;; Reflow and Window Management
 
+(defun ai-code-backends-infra--eat-terminal-position-keeper (window-list)
+  "Maintain stable terminal view position across window switches.
+WINDOW-LIST contains windows requiring position synchronization.
+Implements intelligent scroll management to preserve user context
+when navigating between terminal and other buffers."
+  (dolist (win window-list)
+    (if (eq win 'buffer)
+        (goto-char (eat-term-display-cursor eat-terminal))
+      (unless buffer-read-only
+        (let ((terminal-point (eat-term-display-cursor eat-terminal)))
+          (set-window-point win terminal-point)
+          (cond
+           ((>= terminal-point (- (point-max) 2))
+            (with-selected-window win
+              (goto-char terminal-point)
+              (recenter -1)))
+           ((not (pos-visible-in-window-p terminal-point win))
+            (with-selected-window win
+              (goto-char terminal-point)
+              (recenter)))))))))
+
 (defun ai-code-backends-infra--terminal-resize-handler ()
   "Retrieve the terminal's resize handling function based on backend."
   (pcase ai-code-backends-infra-terminal-backend
@@ -623,7 +644,7 @@ buffer is in scroll/copy mode, working around bug #1422."
   "Add or remove terminal reflow advice according to current settings."
   (let* ((resize-handler (ai-code-backends-infra--terminal-resize-handler))
          (enabled (and ai-code-backends-infra-prevent-reflow-glitch
-                       (eq ai-code-backends-infra-terminal-backend 'vterm))))
+                       (memq ai-code-backends-infra-terminal-backend '(vterm eat)))))
     (dolist (handler (cl-copy-list ai-code-backends-infra--reflow-advised-handlers))
       (unless (and enabled (eq handler resize-handler))
         (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
@@ -1240,6 +1261,7 @@ ENV-VARS is a list of environment variables."
 
      ((eq ai-code-backends-infra-terminal-backend 'eat)
      (let* ((buffer (get-buffer-create buffer-name))
+             (eat-term-name "xterm-256color")
              (parts (split-string-shell-command command))
              (program (car parts))
              (args (cdr parts)))
@@ -1247,6 +1269,9 @@ ENV-VARS is a list of environment variables."
         (with-current-buffer buffer
           (setq-local ai-code-backends-infra--session-terminal-backend 'eat)
           (unless (eq major-mode 'eat-mode) (eat-mode))
+          (when ai-code-backends-infra-eat-preserve-position
+            (setq-local eat--synchronize-scroll-function
+                        #'ai-code-backends-infra--eat-terminal-position-keeper))
           (ai-code-backends-infra--configure-session-input-shortcuts)
           (ai-code-backends-infra--install-navigation-cursor-sync)
           (setq-local process-environment (append env-vars process-environment))
