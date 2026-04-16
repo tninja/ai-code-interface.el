@@ -451,7 +451,7 @@
 
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-select-terminal-entry ()
   "Test that the AI CLI session menu exposes terminal backend selection."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "T")))
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "l")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-select-terminal))))

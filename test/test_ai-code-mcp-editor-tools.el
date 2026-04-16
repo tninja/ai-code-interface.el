@@ -44,19 +44,20 @@
                                        (alist-get 'name tool))
                                      (alist-get 'tools tools-result))
                              #'string<)))
-      (should (equal '("buffer_query"
-                       "editor_state"
-                       "eval_elisp"
-                       "get_diagnostics"
-                       "get_project_buffers"
-                       "get_project_files"
-                       "imenu_list_symbols"
-                       "messages_tail"
-                       "project_info"
-                       "treesit_info"
-                       "visible_buffers"
-                       "xref_find_definitions_at_point"
-                       "xref_find_references")
+       (should (equal '("buffer_query"
+                        "editor_state"
+                        "eval_elisp"
+                        "get_diagnostics"
+                        "get_project_buffers"
+                        "get_project_files"
+                        "imenu_list_symbols"
+                        "messages_tail"
+                        "notify_user"
+                        "project_info"
+                        "treesit_info"
+                        "visible_buffers"
+                        "xref_find_definitions_at_point"
+                        "xref_find_references")
                      tool-names)))))
 
 (ert-deftest ai-code-test-mcp-editor-state-reports-selected-buffer ()
