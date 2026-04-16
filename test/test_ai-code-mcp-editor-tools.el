@@ -162,6 +162,54 @@
       (should (equal "query_symbol_denied"
                      (alist-get 'type error-object))))))
 
+(ert-deftest ai-code-test-mcp-eval-elisp-query-rejects-indirect-insert ()
+  "Query evaluation should reject indirect calls to denied mutators."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-editor-tools-enabled t)
+        (buffer (generate-new-buffer " *ai-code-mcp-indirect*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (insert "hello\n"))
+          (let* ((payload
+                  (ai-code-test-mcp-editor-tools--read-payload
+                   "eval_elisp"
+                   `((code . "(apply #'insert '(\"boom\"))")
+                     (buffer_name . ,(buffer-name buffer)))))
+                 (error-object (alist-get 'error payload)))
+            (should (equal :json-false (alist-get 'ok payload)))
+            (should (equal "query_symbol_denied"
+                           (alist-get 'type error-object)))
+            (should (equal "hello\n"
+                           (with-current-buffer buffer
+                             (buffer-string))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-mcp-eval-elisp-query-rejects-symbol-function-indirection ()
+  "Query evaluation should reject quoted mutators passed through `symbol-function'."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-editor-tools-enabled t)
+        (buffer (generate-new-buffer " *ai-code-mcp-symbol-function*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (insert "hello\n"))
+          (let* ((payload
+                  (ai-code-test-mcp-editor-tools--read-payload
+                   "eval_elisp"
+                   `((code . "(apply (symbol-function 'insert) '(\"boom\"))")
+                     (buffer_name . ,(buffer-name buffer)))))
+                 (error-object (alist-get 'error payload)))
+            (should (equal :json-false (alist-get 'ok payload)))
+            (should (equal "query_symbol_denied"
+                           (alist-get 'type error-object)))
+            (should (equal "hello\n"
+                           (with-current-buffer buffer
+                             (buffer-string))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (provide 'test_ai-code-mcp-editor-tools)
 
 ;;; test_ai-code-mcp-editor-tools.el ends here

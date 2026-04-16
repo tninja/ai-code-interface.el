@@ -276,9 +276,8 @@
    ((consp form)
     (let ((head (car form)))
       (cond
-       ((memq head '(quote function)) nil)
        ((and (symbolp head)
-             (memq head denied-symbols))
+              (memq head denied-symbols))
         head)
        (t
         (or (ai-code-mcp-editor-tools--symbol-denied-p head denied-symbols)
