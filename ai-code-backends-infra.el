@@ -121,6 +121,16 @@ a more stable viewing experience when working with multiple windows."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
+(defcustom ai-code-backends-infra-strip-alternate-screen t
+  "Strip alternate screen buffer sequences from terminal output.
+When non-nil, remove the escape sequences that switch to and from
+the alternate screen buffer (\\e[?1049h and \\e[?1049l).  TUI
+applications like GitHub Copilot CLI hardcode these sequences,
+which disables terminal scrollback.  Stripping them forces output
+onto the normal screen buffer where scrollback is preserved."
+  :type 'boolean
+  :group 'ai-code-backends-infra)
+
 ;;; Variables
 
 (defvar ai-code-backends-infra--processes (make-hash-table :test 'equal)
@@ -178,6 +188,21 @@ if the AI session buffer is not currently visible."
   :group 'ai-code-backends-infra)
 
 ;;; Vterm Rendering Optimization
+
+(defconst ai-code-backends-infra--alternate-screen-regexp
+  "\033\\[\\?1049[hl]"
+  "Regexp matching alternate screen buffer enter/exit sequences.
+Matches \\e[?1049h (enter) and \\e[?1049l (exit).")
+
+(defun ai-code-backends-infra--strip-alternate-screen-sequences (str)
+  "Remove alternate screen buffer sequences from STR.
+Only strips when `ai-code-backends-infra-strip-alternate-screen' is non-nil
+and the current buffer is an AI session buffer."
+  (if (and ai-code-backends-infra-strip-alternate-screen
+           (ai-code-backends-infra--session-buffer-p (current-buffer)))
+      (replace-regexp-in-string
+       ai-code-backends-infra--alternate-screen-regexp "" str)
+    str))
 
 (defconst ai-code-backends-infra--vterm-redraw-regexp
   "\033\\[[0-9;?]*[A-GJKMH]"
@@ -258,17 +283,25 @@ The timer is reset only after meaningful output is observed."
   (ai-code-backends-infra--schedule-idle-check))
 
 (defun ai-code-backends-infra--vterm-notification-tracker (orig-fun process input)
-  "Track vterm activity for notification purposes, then call ORIG-FUN."
-  (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
-    (with-current-buffer (process-buffer process)
-      (when (ai-code-backends-infra--output-meaningful-p input)
-        (ai-code-backends-infra--note-meaningful-output))))
-  (prog1
-      (funcall orig-fun process input)
+  "Track vterm activity for notification purposes, then call ORIG-FUN.
+When `ai-code-backends-infra-strip-alternate-screen' is non-nil,
+strip alternate screen buffer sequences from INPUT so that TUI
+applications write to the normal screen buffer (preserving scrollback)."
+  (let ((filtered-input
+         (if (ai-code-backends-infra--session-buffer-p (process-buffer process))
+             (with-current-buffer (process-buffer process)
+               (ai-code-backends-infra--strip-alternate-screen-sequences input))
+           input)))
+    (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+      (with-current-buffer (process-buffer process)
+        (when (ai-code-backends-infra--output-meaningful-p filtered-input)
+          (ai-code-backends-infra--note-meaningful-output))))
+    (prog1
+      (funcall orig-fun process filtered-input)
     (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
       (ai-code-session-link--schedule-linkify-recent-output
        (process-buffer process)
-       input))))
+       filtered-input)))))
 
 (defun ai-code-backends-infra--vterm-render-preserving-copy-mode-view (render-fn)
   "Call RENDER-FN while keeping the user's `vterm-copy-mode' viewport stable."
@@ -1282,14 +1315,17 @@ ENV-VARS is a list of environment variables."
               (set-process-filter
                proc
                (lambda (process output)
-                 ;; Call original filter first
-                 (when orig-filter
-                   (funcall orig-filter process output))
-                 ;; Then track activity for notifications
-                 (with-current-buffer (process-buffer process)
-                   (when (ai-code-backends-infra--output-meaningful-p output)
-                     (ai-code-backends-infra--note-meaningful-output))
-                   (ai-code-session-link--linkify-recent-output output))))))
+                 (let ((filtered-output
+                        (with-current-buffer (process-buffer process)
+                          (ai-code-backends-infra--strip-alternate-screen-sequences output))))
+                   ;; Call original filter first
+                   (when orig-filter
+                     (funcall orig-filter process filtered-output))
+                   ;; Then track activity for notifications
+                   (with-current-buffer (process-buffer process)
+                     (when (ai-code-backends-infra--output-meaningful-p filtered-output)
+                       (ai-code-backends-infra--note-meaningful-output))
+                     (ai-code-session-link--linkify-recent-output filtered-output)))))))
            (cons buffer (get-buffer-process buffer)))))
      ((eq ai-code-backends-infra-terminal-backend 'ghostel)
       (let* ((buffer (get-buffer-create buffer-name))
