@@ -1006,7 +1006,7 @@ ENV-VARS is a list of environment variables."
       buffer-name
       working-dir
       command
-       env-vars))
+      env-vars))
     ('eat
      (ai-code-backends-infra--create-eat-terminal-session
       buffer-name
@@ -1018,7 +1018,7 @@ ENV-VARS is a list of environment variables."
       buffer-name
       working-dir
       command
-     env-vars))
+      env-vars))
     (_
      (error "Unknown backend"))))
 
