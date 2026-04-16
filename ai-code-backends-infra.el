@@ -229,6 +229,12 @@ Set to t to debug scrollback-preservation transformations.")
   "Timestamp of the last scrollback-preservation injection.
 Used to throttle injections per `ai-code-backends-infra-scrollback-inject-interval'.")
 
+(defvar-local ai-code-backends-infra--sync-redraw-scrollback nil
+  "When non-nil, inject scrollback-preserving newlines before
+synchronized-update frame redraws (\\e[?2026h\\e[1;1H).
+Backends that hardcode alternate screen buffer should set this
+to t via their post-start-fn.")
+
 (defun ai-code-backends-infra--scroll-to-scrollback-sequence ()
   "Return a sequence that pushes visible content into scrollback.
 Move cursor to the last row, emit enough newlines to scroll all
@@ -291,8 +297,12 @@ the current buffer is an AI session buffer, apply these transformations:
         ;;    cursor to row 1) and inject scrollback preservation before
         ;;    the frame redraw, throttled to avoid flooding the scrollback
         ;;    ring.  Only trigger on chunks > 500 bytes (meaningful
-        ;;    redraws, not small cursor movements).
-        (when (and (> (length result) 500)
+        ;;    redraws, not small cursor movements).  Guarded by the
+        ;;    buffer-local `--sync-redraw-scrollback' flag so that only
+        ;;    backends that explicitly opt in (e.g. Copilot CLI) get
+        ;;    the injection.
+        (when (and ai-code-backends-infra--sync-redraw-scrollback
+                   (> (length result) 500)
                    (string-match ai-code-backends-infra--sync-redraw-regexp result)
                    (>= (- (float-time)
                           ai-code-backends-infra--last-scrollback-inject-time)

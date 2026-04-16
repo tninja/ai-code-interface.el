@@ -68,7 +68,17 @@ With prefix ARG, prompt for CLI args using
                                                        command))
          (launch-command (or (plist-get mcp-launch :command) command))
          (cleanup-fn (plist-get mcp-launch :cleanup-fn))
-         (post-start-fn (plist-get mcp-launch :post-start-fn)))
+         (post-start-fn (plist-get mcp-launch :post-start-fn))
+         ;; Wrap post-start-fn to enable sync-redraw scrollback injection.
+         ;; Copilot CLI hardcodes \e[?1049h and redraws via \e[?2026h\e[1;1H,
+         ;; so T5 in the strip function must be active for this backend.
+         (post-start-fn
+          (let ((orig post-start-fn))
+            (lambda (buffer process instance-name)
+              (with-current-buffer buffer
+                (setq ai-code-backends-infra--sync-redraw-scrollback t))
+              (when orig
+                (funcall orig buffer process instance-name))))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil
