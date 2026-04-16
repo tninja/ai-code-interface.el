@@ -31,8 +31,13 @@
   :type '(repeat string)
   :group 'ai-code-claude-code)
 
-(defcustom ai-code-claude-code-no-flicker t
-  "Enable experimental flicker-free terminal renderer in Claude Code."
+(defcustom ai-code-claude-code-no-flicker nil
+  "Enable experimental flicker-free terminal renderer in Claude Code.
+When non-nil, set CLAUDE_CODE_NO_FLICKER=1 which uses full-screen
+redraw rendering.  This can break vterm scrollback because the
+screen-clearing sequences overwrite the scrollback buffer.  Leave
+nil unless you specifically need flicker-free rendering and do not
+rely on scrolling back through terminal history."
   :type 'boolean
   :group 'ai-code-claude-code)
 
@@ -65,8 +70,10 @@ With prefix ARG, prompt for CLI args using
          (launch-command (or (plist-get mcp-launch :command) command))
          (cleanup-fn (plist-get mcp-launch :cleanup-fn))
          (post-start-fn (plist-get mcp-launch :post-start-fn))
-         (env-vars (list (format "CLAUDE_CODE_NO_FLICKER=%s"
-                                 (if ai-code-claude-code-no-flicker "1" "0")))))
+         (env-vars (append (list "TERM_PROGRAM=emacs"
+                                "FORCE_CODE_TERMINAL=true")
+                          (when ai-code-claude-code-no-flicker
+                            (list "CLAUDE_CODE_NO_FLICKER=1")))))
     (ai-code-backends-infra--toggle-or-create-session
      working-dir
      nil

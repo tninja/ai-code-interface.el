@@ -692,7 +692,7 @@ SEARCH-DESCRIPTION describes what content the AI should search for."
          (search-description (ai-code-read-string "Search description for .org files: "))
          (default-prompt (ai-code--build-task-search-prompt target-dir search-description))
          (confirmed-prompt (ai-code-read-string "Confirm search prompt: " default-prompt)))
-    (ai-code--execute-command confirmed-prompt)))
+    (ai-code--insert-prompt confirmed-prompt)))
 
 ;;;###autoload
 (defun ai-code-create-or-open-task-file (&optional arg)

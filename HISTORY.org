@@ -2,6 +2,9 @@
 * Release history
 
 ** Main branch change
+- Feat: Add terminal backend selection menu item to switch between vterm, eat, and ghostel
+
+** 1.70
 - Feat: Add experimental Ghostel backend infra support
 - Feat: Supporting search content inside task org files
 - Feat: Add current-branch PR creation option

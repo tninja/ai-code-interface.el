@@ -221,6 +221,24 @@ AI Code includes an Emacs MCP server with these built-in tools:
 - =xref_find_definitions_at_point=: find definitions at a file location
 - =treesit_info=: inspect tree-sitter node information for a file location
 
+Optional editor-session tools are available when you explicitly enable them:
+
+#+begin_src emacs-lisp
+(setq ai-code-mcp-editor-tools-enabled t)
+#+end_src
+
+When enabled, AI Code also registers:
+- =editor_state=: inspect the currently selected buffer, point, mode, region, and buffer flags
+- =visible_buffers=: list the buffers visible in the selected frame windows
+- =messages_tail=: return the latest lines from =*Messages*=
+- =eval_elisp=: evaluate a single Emacs Lisp form in a chosen buffer context
+
+By default, =eval_elisp= only allows =query= mode. To allow editor-local side effects too, opt in explicitly:
+
+#+begin_src emacs-lisp
+(setq ai-code-mcp-editor-tools-allow-effect-eval t)
+#+end_src
+
 screenshot inside Codex cli:
 
 [[file:./emacs_mcp_tools.png]]

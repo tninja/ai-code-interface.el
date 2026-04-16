@@ -389,6 +389,8 @@ When .gitignore is missing some entries, they should be added."
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code--validate-git-repository)
                    (lambda () git-root))
+                  ((symbol-function 'magit-branch-p)
+                   (lambda (_b) nil))
                   ((symbol-function 'magit-run-git)
                    (lambda (&rest _args)
                      (ert-fail "`magit-run-git' should not be used for worktree add status check")))
@@ -412,6 +414,44 @@ When .gitignore is missing some entries, they should be added."
                                start-point)))
           (should (equal captured-visited-path worktree-path)))
       (delete-directory temp-worktree-root t))))
+
+(ert-deftest ai-code-test-git-worktree-branch-uses-existing-branch ()
+  "When branch already exists, add worktree without -b and notify user."
+  (let* ((temp-worktree-root (make-temp-file "ai-code-worktree-root-" t))
+         (temp-git-root (make-temp-file "ai-code-git-root-" t))
+         (ai-code-git-worktree-root temp-worktree-root)
+         (branch "feature/existing-branch")
+         (start-point "main")
+         (repo-dir (expand-file-name
+                    (file-name-nondirectory (directory-file-name temp-git-root))
+                    temp-worktree-root))
+         (worktree-path (expand-file-name branch repo-dir))
+         captured-git-args
+         captured-visited-path)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+                   (lambda () temp-git-root))
+                  ((symbol-function 'magit-branch-p)
+                   (lambda (b) (string= b branch)))
+                  ((symbol-function 'magit-call-git)
+                   (lambda (&rest args)
+                     (setq captured-git-args args)
+                     (make-directory worktree-path t)
+                     0))
+                  ((symbol-function 'magit-diff-visit-directory)
+                   (lambda (path)
+                     (setq captured-visited-path path))))
+          (ai-code-git-worktree-branch branch start-point)
+          ;; Should NOT contain "-b" since branch already exists
+          (should-not (member "-b" captured-git-args))
+          ;; Should still create worktree and visit it
+          (should (equal captured-git-args
+                         (list "worktree" "add"
+                               (file-truename worktree-path)
+                               branch)))
+          (should (equal captured-visited-path worktree-path)))
+      (delete-directory temp-worktree-root t)
+      (delete-directory temp-git-root t))))
 
 (ert-deftest ai-code-test-git-worktree-action-without-prefix-calls-worktree-branch ()
   "Without prefix arg, dispatch to `ai-code-git-worktree-branch'."

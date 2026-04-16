@@ -29,6 +29,19 @@
 (cl-defstruct ai-code-test-mcp-mock-diagnostic
   beg end type text backend)
 
+(defconst ai-code-test-mcp--builtin-tool-names
+  '("buffer_query"
+    "get_diagnostics"
+    "get_project_buffers"
+    "get_project_files"
+    "imenu_list_symbols"
+    "notify_user"
+    "project_info"
+    "treesit_info"
+    "xref_find_definitions_at_point"
+    "xref_find_references")
+  "Expected built-in MCP tool names.")
+
 (ert-deftest ai-code-test-mcp-dispatch-initialize-returns-server-info ()
   "Initialize should expose MCP protocol metadata."
   (should (fboundp 'ai-code-mcp-dispatch))
@@ -124,6 +137,7 @@
                        "get_project_buffers"
                        "get_project_files"
                        "imenu_list_symbols"
+                       "notify_user"
                        "project_info"
                        "treesit_info"
                        "xref_find_definitions_at_point"
@@ -138,16 +152,30 @@
                                        (alist-get 'name tool))
                                      (alist-get 'tools tools-result))
                              #'string<)))
-      (should (equal '("buffer_query"
-                       "get_diagnostics"
-                       "get_project_buffers"
-                       "get_project_files"
-                       "imenu_list_symbols"
-                       "project_info"
-                       "treesit_info"
-                       "xref_find_definitions_at_point"
-                       "xref_find_references")
+      (should (equal ai-code-test-mcp--builtin-tool-names
                      tool-names)))))
+
+(ert-deftest ai-code-test-mcp-notify-user-calls-message-and-beep ()
+  "Notification tool should relay the message text and beep."
+  (let ((ai-code-mcp-server-tools nil)
+        captured-message
+        beep-called)
+    (cl-letf (((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (setq captured-message
+                       (apply #'format format-string args))
+                 captured-message))
+              ((symbol-function 'beep)
+               (lambda (&rest _args)
+                 (setq beep-called t))))
+      (let ((result (ai-code-mcp-dispatch
+                     "tools/call"
+                     '((name . "notify_user")
+                       (arguments . ((message_text . "Build finished")))))))
+        (should (equal "Build finished" captured-message))
+        (should beep-called)
+        (should (equal "Notified user: Build finished"
+                       (ai-code-test-mcp--content-text result)))))))
 
 (ert-deftest ai-code-test-mcp-tools-list-encodes-empty-input-schema-properties ()
   "No-argument tools should encode empty schema properties as an object."
