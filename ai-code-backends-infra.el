@@ -131,6 +131,14 @@ onto the normal screen buffer where scrollback is preserved."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
+(defcustom ai-code-backends-infra-scrollback-inject-interval 1.0
+  "Minimum seconds between scrollback-preservation injections.
+When a TUI application redraws via synchronized output, we inject
+newlines to push visible content into the scrollback ring.  This
+interval prevents flooding the scrollback with duplicate frames."
+  :type 'number
+  :group 'ai-code-backends-infra)
+
 ;;; Variables
 
 (defvar ai-code-backends-infra--processes (make-hash-table :test 'equal)
@@ -194,14 +202,107 @@ if the AI session buffer is not currently visible."
   "Regexp matching alternate screen buffer enter/exit sequences.
 Matches \\e[?1049h (enter) and \\e[?1049l (exit).")
 
+(defconst ai-code-backends-infra--screen-clear-regexp
+  "\033\\[2J"
+  "Regexp matching the Erase Display (ED 2) screen clear sequence.")
+
+(defconst ai-code-backends-infra--scrollback-clear-regexp
+  "\033\\[3J"
+  "Regexp matching the Erase Display (ED 3) scrollback clear sequence.")
+
+(defconst ai-code-backends-infra--erase-to-end-regexp
+  "\033\\[J\\|\033\\[0J"
+  "Regexp matching Erase to End of Display (ED 0) sequences.")
+
+(defconst ai-code-backends-infra--sync-redraw-regexp
+  "\033\\[\\?2026h\033\\[1;1H"
+  "Regexp matching synchronized-update frame start with cursor home.
+Copilot CLI uses \\e[?2026h (begin synchronized update) followed
+immediately by \\e[1;1H (cursor to row 1, col 1) to redraw the
+entire screen in place.")
+
+(defvar ai-code-backends-infra-strip-alternate-screen-debug nil
+  "When non-nil, log alternate-screen filter matches to *Messages*.
+Set to t to debug scrollback-preservation transformations.")
+
+(defvar-local ai-code-backends-infra--last-scrollback-inject-time 0
+  "Timestamp of the last scrollback-preservation injection.
+Used to throttle injections per `ai-code-backends-infra-scrollback-inject-interval'.")
+
+(defun ai-code-backends-infra--scroll-to-scrollback-sequence ()
+  "Return a sequence that pushes visible content into scrollback.
+Move cursor to the last row, emit enough newlines to scroll all
+visible lines into the scrollback buffer, then cursor home."
+  (let ((height (or (when-let ((win (get-buffer-window (current-buffer) t)))
+                      (window-body-height win))
+                    50)))
+    (concat "\033[" (number-to-string height) ";1H"
+            (make-string height ?\n)
+            "\033[H")))
+
 (defun ai-code-backends-infra--strip-alternate-screen-sequences (str)
-  "Remove alternate screen buffer sequences from STR.
-Only strips when `ai-code-backends-infra-strip-alternate-screen' is non-nil
-and the current buffer is an AI session buffer."
+  "Normalize terminal sequences in STR to preserve scrollback.
+When `ai-code-backends-infra-strip-alternate-screen' is non-nil and
+the current buffer is an AI session buffer, apply these transformations:
+1. Strip alternate screen enter/exit (\\e[?1049h, \\e[?1049l).
+2. Convert screen clear (\\e[2J) to a newline-scroll sequence so
+   the current content is pushed into scrollback.
+3. Strip scrollback clear (\\e[3J).
+4. Convert erase-to-end (\\e[J / \\e[0J) preceded by cursor-home
+   into a scrollback-preserving sequence.
+5. Detect synchronized-update frame redraws (\\e[?2026h\\e[1;1H)
+   and inject scrollback preservation before the frame, throttled
+   to avoid flooding."
   (if (and ai-code-backends-infra-strip-alternate-screen
            (ai-code-backends-infra--session-buffer-p (current-buffer)))
-      (replace-regexp-in-string
-       ai-code-backends-infra--alternate-screen-regexp "" str)
+      (let ((result str)
+            (scroll-seq (ai-code-backends-infra--scroll-to-scrollback-sequence)))
+        (when (and ai-code-backends-infra-strip-alternate-screen-debug
+                   (string-match-p "\033\\[" str))
+          (let ((visible (replace-regexp-in-string
+                          "\033" "<ESC>" (substring str 0 (min 200 (length str))))))
+            (message "alt-screen-filter: len=%d alt=%s 2J=%s 3J=%s H+J=%s sync=%s seq=[%s]"
+                     (length str)
+                     (if (string-match-p ai-code-backends-infra--alternate-screen-regexp str) "Y" "N")
+                     (if (string-match-p ai-code-backends-infra--screen-clear-regexp str) "Y" "N")
+                     (if (string-match-p ai-code-backends-infra--scrollback-clear-regexp str) "Y" "N")
+                     (if (string-match-p "\033\\[H.*\033\\[J\\|\033\\[H.*\033\\[0J" str) "Y" "N")
+                     (if (string-match-p ai-code-backends-infra--sync-redraw-regexp str) "Y" "N")
+                     visible)))
+        ;; 1. Strip alternate screen transitions.
+        (setq result (replace-regexp-in-string
+                      ai-code-backends-infra--alternate-screen-regexp "" result))
+        ;; 2. Convert ED 2 (clear screen) to newline-scroll: move cursor
+        ;;    to the last row, emit height newlines (which libvterm pushes
+        ;;    into the scrollback ring), then cursor home.
+        (setq result (replace-regexp-in-string
+                      ai-code-backends-infra--screen-clear-regexp
+                      scroll-seq result t t))
+        ;; 3. Strip ED 3 (clear scrollback).
+        (setq result (replace-regexp-in-string
+                      ai-code-backends-infra--scrollback-clear-regexp "" result))
+        ;; 4. Convert cursor-home + erase-to-end (\e[H\e[J) into a
+        ;;    scrollback-preserving sequence.  Ink/React-based TUIs use
+        ;;    this pattern instead of \e[2J.
+        (setq result (replace-regexp-in-string
+                      "\033\\[H\033\\[J\\|\033\\[H\033\\[0J"
+                      (concat scroll-seq "\033[H") result t t))
+        ;; 5. Detect synchronized-update frames (\e[?2026h followed by
+        ;;    cursor to row 1) and inject scrollback preservation before
+        ;;    the frame redraw, throttled to avoid flooding the scrollback
+        ;;    ring.  Only trigger on chunks > 500 bytes (meaningful
+        ;;    redraws, not small cursor movements).
+        (when (and (> (length result) 500)
+                   (string-match ai-code-backends-infra--sync-redraw-regexp result)
+                   (>= (- (float-time)
+                          ai-code-backends-infra--last-scrollback-inject-time)
+                       ai-code-backends-infra-scrollback-inject-interval))
+          (setq ai-code-backends-infra--last-scrollback-inject-time (float-time))
+          (let ((match-start (match-beginning 0)))
+            (setq result (concat (substring result 0 match-start)
+                                 scroll-seq
+                                 (substring result match-start)))))
+        result)
     str))
 
 (defconst ai-code-backends-infra--vterm-redraw-regexp
