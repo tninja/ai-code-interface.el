@@ -70,14 +70,23 @@ With prefix ARG, prompt for CLI args using
          (launch-command (or (plist-get mcp-launch :command) command))
          (cleanup-fn (plist-get mcp-launch :cleanup-fn))
          (mcp-post-start-fn (plist-get mcp-launch :post-start-fn))
-         ;; Wrap post-start-fn to disable strip-alternate-screen for Claude Code.
-         ;; That feature was introduced for Copilot CLI (PR #298) and causes
-         ;; the Claude Code badge to repeat in scrollback because the Ink/React
-         ;; TUI redraws the full screen (including badge) on every frame.
+         ;; Wrap post-start-fn to conditionally disable strip-alternate-screen.
+         ;; strip-alternate-screen (PR #298) strips \e[?1049h/l so scrollback
+         ;; is preserved, but it causes the Claude Code badge to repeat
+         ;; because the Ink/React TUI redraws the full screen every frame.
+         ;;
+         ;; - vterm: KEEP strip-alternate-screen enabled (with throttling).
+         ;;   libvterm's alternate screen has no scrollback ring, so letting
+         ;;   \e[?1049h through truncates scrollback to vterm-max-scrollback
+         ;;   (~1000 lines).
+         ;; - eat/ghostel: DISABLE strip-alternate-screen.  eat saves the
+         ;;   entire buffer on alternate-screen entry and restores on exit,
+         ;;   so scrollback is never lost.
          (post-start-fn
           (lambda (buffer process instance-name)
             (with-current-buffer buffer
-              (setq-local ai-code-backends-infra-strip-alternate-screen nil))
+              (unless (eq ai-code-backends-infra-terminal-backend 'vterm)
+                (setq-local ai-code-backends-infra-strip-alternate-screen nil)))
             (when mcp-post-start-fn
               (funcall mcp-post-start-fn buffer process instance-name))))
          (env-vars (append (list "TERM_PROGRAM=emacs"
