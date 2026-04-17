@@ -362,21 +362,19 @@
                 #'ghostel--window-adjust-process-window-size))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel ()
-  "Ghostel backend should create and configure a session buffer."
+  "Ghostel backend should start sessions via `ghostel-exec'."
   (let* ((buffer-name "*test-ai-code-ghostel*")
          (buffer (get-buffer-create buffer-name))
          (process 'ghostel-proc)
+         (ghostel-exec-call nil)
          (ai-code-backends-infra-terminal-backend 'ghostel))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
                    (lambda () nil))
-                  ((symbol-function 'ghostel-mode)
-                   (lambda () nil))
-                  ((symbol-function 'ghostel--new)
-                   (lambda (&rest _args) 'ghostel-term))
-                  ((symbol-function 'ghostel--start-process)
-                   (lambda ()
-                     (with-current-buffer buffer
+                  ((symbol-function 'ghostel-exec)
+                   (lambda (target-buffer program &optional args)
+                     (setq ghostel-exec-call (list target-buffer program args))
+                     (with-current-buffer target-buffer
                        (setq-local ghostel--process process))
                      process))
                   ((symbol-function 'get-buffer-process)
@@ -386,40 +384,36 @@
           (ai-code-backends-infra--create-terminal-session
            buffer-name
            default-directory
-           "echo hi"
+           "echo \"hello world\" --flag"
            '("FOO=1"))
           (with-current-buffer buffer
             (should (eq ai-code-backends-infra--session-terminal-backend 'ghostel))
             (should (equal ai-code-backends-infra--session-directory
                            (file-name-as-directory
                             (expand-file-name default-directory))))
-            (should (eq ghostel--process process))))
+            (should (eq ghostel--process process)))
+          (should (equal ghostel-exec-call
+                         (list buffer "echo" '("hello world" "--flag")))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
-(ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-defers-init-until-displayed ()
-  "Ghostel should wait for a live window before creating terminal state."
-  (let ((hook-calls nil)
-        (ghostel-new-calls nil))
-    (cl-letf (((symbol-function 'ghostel-mode)
-               (lambda () nil))
-              ((symbol-function 'ghostel--new)
-               (lambda (&rest args)
-                 (push args ghostel-new-calls)
-                 'ghostel-term))
-              ((symbol-function 'get-buffer-window)
-               (lambda (&rest _args) nil))
-              ((symbol-function 'add-hook)
+(ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-installs-cursor-sync-hook ()
+  "Ghostel session configuration should only add AI Code local behavior."
+  (let ((hook-calls nil))
+    (cl-letf (((symbol-function 'add-hook)
                (lambda (hook function &optional append local)
                  (push (list hook function append local) hook-calls))))
       (with-temp-buffer
         (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
         (ai-code-backends-infra--configure-ghostel-buffer)))
-    (should-not ghostel-new-calls)
-    (should (member '(window-configuration-change-hook
-                      ai-code-backends-infra--initialize-ghostel-when-displayed
+    (should (member '(post-command-hook
+                      ai-code-backends-infra--sync-terminal-cursor
                       nil t)
-                    hook-calls))))
+                    hook-calls))
+    (should-not (member '(window-configuration-change-hook
+                          ai-code-backends-infra--initialize-ghostel-when-displayed
+                          nil t)
+                        hook-calls))))
 
 (ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-disables-title-tracking ()
   "Ghostel AI session buffers should keep their original buffer names."
@@ -468,17 +462,11 @@
                       :around linkify-advice)
           (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
                      (lambda () nil))
-                    ((symbol-function 'ghostel-mode)
-                     (lambda () nil))
-                    ((symbol-function 'ghostel--new)
-                     (lambda (&rest _args) 'ghostel-term))
-                    ((symbol-function 'ghostel--start-process)
-                     (lambda ()
-                       (with-current-buffer buffer
+                    ((symbol-function 'ghostel-exec)
+                     (lambda (target-buffer _program &optional _args)
+                       (with-current-buffer target-buffer
                          (setq-local ghostel--process proc))
-                       proc))
-                    ((symbol-function 'process-send-string)
-                     (lambda (&rest _args) nil)))
+                       proc)))
             (ai-code-backends-infra--create-terminal-session
              buffer-name
              default-directory
