@@ -2,6 +2,9 @@
 * Release history
 
 ** Main branch change
+- Chore: bypass gptel prompt classification for existing menu items (code change, ask question, explain)
+- Fix: Scroll back issue for vterm & eat
+- Feat: Add optional editor-session MCP tools
 - Feat: Add terminal backend selection menu item to switch between vterm, eat, and ghostel
 
 ** 1.70
