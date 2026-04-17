@@ -513,6 +513,26 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
       (ai-code--pull-or-review-pr-with-source 'github-mcp)
       (should diff-called))))
 
+(ert-deftest ai-code-test-pull-or-review-pr-mode-choice-resolve-merge-conflict ()
+  "Choosing resolve merge conflict mode should return `resolve-merge-conflict'."
+  (cl-letf (((symbol-function 'completing-read)
+             (lambda (&rest _args) "Resolve merge conflict")))
+    (should (eq (ai-code--pull-or-review-pr-mode-choice)
+                'resolve-merge-conflict))))
+
+(ert-deftest ai-code-test-pull-or-review-diff-file-resolve-merge-conflict-github-mcp ()
+  "When choosing resolve merge conflict mode with GitHub MCP, prompt should target merge conflicts."
+  (pcase-let ((`(,captured-prompt ,diff-called)
+               (ai-code-test--run-pull-or-review-diff-file "Use GitHub MCP server"
+                                                           "https://github.com/acme/demo/pull/999"
+                                                           "Resolve merge conflict")))
+    (let ((case-fold-search nil))
+      (should (string-match-p "Use GitHub MCP server" captured-prompt)))
+    (should (string-match-p "https://github.com/acme/demo/pull/999" captured-prompt))
+    (should (string-match-p "merge" (downcase captured-prompt)))
+    (should (string-match-p "conflict" (downcase captured-prompt)))
+    (should-not diff-called)))
+
 (ert-deftest ai-code-test-action-choice-returns-github-mcp-when-default-set ()
   "When `ai-code-default-review-source' is `github-mcp', return it directly."
   (let ((ai-code-default-review-source 'github-mcp)

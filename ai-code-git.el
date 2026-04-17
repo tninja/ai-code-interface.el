@@ -159,6 +159,24 @@ CI Checks Review Steps:
 4. No need to make code change. Provide analysis only."
             pr-url source-instruction)))
 
+(defun ai-code--build-resolve-merge-conflict-init-prompt (review-source pr-url)
+  "Build merge conflict resolution prompt for REVIEW-SOURCE with PR-URL."
+  (let ((source-instruction
+         (ai-code--pull-or-review-source-instruction review-source 'resolve-merge-conflict)))
+    (format "Resolve merge conflict for pull request: %s
+
+%s
+
+Merge Conflict Resolution Steps:
+1. Identify the current working branch and the target branch from the PR.
+2. Verify the current working branch matches the PR source branch.
+3. Update the local target branch to the latest remote version.
+4. Attempt to merge the target branch into the current working branch.
+5. If there are merge conflicts, analyze each conflict and provide detailed instructions on how to resolve them, including which files to change and how.
+6. Do not make code changes. Provide analysis and resolution suggestions only.
+7. If there are no merge conflicts, finish the merge and return a success message."
+            pr-url source-instruction)))
+
 (defun ai-code--pull-or-review-source-instruction (review-source &optional review-mode)
   "Return source instruction string for REVIEW-SOURCE and REVIEW-MODE."
   (pcase review-mode
@@ -176,6 +194,13 @@ CI Checks Review Steps:
        ('gh-cli
         "Use gh CLI tool to fetch pull request details and CI checks.")
        (_ "Review the GitHub CI checks for this pull request.")))
+    ('resolve-merge-conflict
+     (pcase review-source
+       ('github-mcp
+        "Use GitHub MCP server to fetch pull request branch details and merge status.")
+       ('gh-cli
+        "Use gh CLI tool to fetch pull request branch details and merge status.")
+       (_ "Resolve merge conflicts for this pull request.")))
     (_
      (pcase review-source
        ('github-mcp
@@ -230,12 +255,14 @@ Otherwise, ask for the relevant pull request or issue URL."
   ;; DONE: add a choice: send out PR for current branch. The feature will ask user the target branch to merge. By default, it should be parent branch of current branch. AI should send out PR with description. The description should looks like it's written by the author, and it should be short.
   ;; DONE: for send out PR feature, it should ask user about the PR title. If user does not provide one, AI should generate a concise title based on the code change
   ;; DONE: the generate diff file function should be moved here, in the tail as an option. It shouldn't be in ai-code--pull-or-review-action-choice function. and downstream process should be moved and not inside ai-code-pull-or-review-diff-file
+  ;; DONE: add an option: resolve merge conflict. It accept a PR URL, which want to merge current working branch (you should verify) and target branch to merge to. AI should update local target branch to the latest, and try to merge the target branch into current working branch. If there is any merge conflict, AI should analyze the conflict and provide detailed instruction on how to resolve the conflict, including which files to change and how to change. Do not make code change, just provide suggestion on how to resolve conflicts. If there is no merge conflict, AI should just finish the merge and return a success message.
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
                               ("Check unresolved feedback" . check-feedback)
                               ("Prepare PR description" . prepare-pr-description)
                               ("Send out PR for current branch" . send-current-branch-pr)
                               ("Investigate issue" . investigate-issue)
                               ("Review GitHub CI checks" . review-ci-checks)
+                              ("Resolve merge conflict" . resolve-merge-conflict)
                               ("Generate diff file" . generate-diff-file)))
          (review-mode (completing-read "Select analysis mode (PR or issue): "
                                        review-mode-alist
@@ -255,6 +282,8 @@ Otherwise, ask for the relevant pull request or issue URL."
     (ai-code--build-pr-ci-check-init-prompt review-source target-url))
    ('prepare-pr-description
     (ai-code--build-pr-description-init-prompt review-source target-url))
+   ('resolve-merge-conflict
+    (ai-code--build-resolve-merge-conflict-init-prompt review-source target-url))
    (_
     (ai-code--build-pr-review-init-prompt review-source target-url))))
 
