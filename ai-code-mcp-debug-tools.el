@@ -9,13 +9,12 @@
 ;;; Code:
 
 (require 'json)
+(require 'ai-code-mcp-common)
 (require 'nadvice)
 (require 'seq)
 (require 'subr-x)
 
 (declare-function ai-code-mcp-make-tool "ai-code-mcp-server")
-
-(defvar ai-code-mcp-server-tool-setup-functions nil)
 
 (defgroup ai-code-mcp-debug-tools nil
   "Optional MCP debugging tools."
@@ -81,19 +80,6 @@
     (ai-code-mcp--ensure-error-capture)
     (dolist (tool ai-code-mcp-debug-tools--specs)
       (apply #'ai-code-mcp-make-tool tool))))
-
-(defun ai-code-mcp--json-bool (value)
-  "Return VALUE as a JSON boolean token."
-  (if value t :json-false))
-
-(defun ai-code-mcp--message-lines ()
-  "Return the current `*Messages*' contents as a list of lines."
-  (if-let ((buffer (get-buffer "*Messages*")))
-      (with-current-buffer buffer
-        (split-string (buffer-substring-no-properties (point-min) (point-max))
-                      "\n"
-                      t))
-    '()))
 
 (defun ai-code-mcp--documentation-summary (documentation)
   "Return a trimmed summary line for DOCUMENTATION."

@@ -38,6 +38,7 @@
 (ert-deftest ai-code-test-mcp-editor-tools-register-when-enabled ()
   "Optional editor tools should be registered when explicitly enabled."
   (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled nil)
         (ai-code-mcp-editor-tools-enabled t))
     (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
            (tool-names (sort (mapcar (lambda (tool)
@@ -50,7 +51,6 @@
                         "get_diagnostics"
                         "get_project_buffers"
                         "get_project_files"
-                        "get_variable_value"
                         "imenu_list_symbols"
                         "messages_tail"
                         "notify_user"

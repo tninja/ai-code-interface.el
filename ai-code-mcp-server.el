@@ -13,6 +13,7 @@
 
 (require 'cl-lib)
 (require 'json)
+(require 'ai-code-mcp-common)
 (require 'imenu)
 (require 'project)
 (require 'seq)
@@ -72,9 +73,6 @@ Use `auto' to prefer Flycheck and then Flymake when available."
                  (const :tag "Flycheck" flycheck)
                  (const :tag "Flymake" flymake))
   :group 'ai-code-mcp-server)
-
-(defvar ai-code-mcp-server-tool-setup-functions nil
-  "Functions that register optional MCP tool groups.")
 
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to session metadata.")

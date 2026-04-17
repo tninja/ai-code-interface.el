@@ -42,6 +42,47 @@
     "get_variable_value")
   "Expected MCP debug tool names.")
 
+(ert-deftest ai-code-test-mcp-debug-tools-source-uses-common-module ()
+  "Debug and editor MCP modules should depend on a shared common module."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-mcp-debug-tools.el")
+    (goto-char (point-min))
+    (should (search-forward "(require 'ai-code-mcp-common" nil t))
+    (should-not (search-forward "(defun ai-code-mcp--json-bool" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "(defun ai-code-mcp--message-lines" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "(defvar ai-code-mcp-server-tool-setup-functions nil)" nil t)))
+  (with-temp-buffer
+    (insert-file-contents "ai-code-mcp-editor-tools.el")
+    (goto-char (point-min))
+    (should (search-forward "(require 'ai-code-mcp-common" nil t))
+    (should-not (search-forward "(defun ai-code-mcp-editor-tools--json-bool" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "(defun ai-code-mcp-editor-tools--message-lines" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "(defvar ai-code-mcp-server-tool-setup-functions nil)" nil t))))
+
+(ert-deftest ai-code-test-mcp-common-module-defines-shared-helpers ()
+  "The shared MCP common module should define the extracted helpers."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-mcp-common.el")
+    (goto-char (point-min))
+    (should (search-forward "(defvar ai-code-mcp-server-tool-setup-functions" nil t))
+    (goto-char (point-min))
+    (should (search-forward "(defun ai-code-mcp--json-bool" nil t))
+    (goto-char (point-min))
+    (should (search-forward "(defun ai-code-mcp--message-lines" nil t))))
+
+(ert-deftest ai-code-test-mcp-server-source-uses-common-module-for-setup-registry ()
+  "The MCP server source should use the shared setup registry declaration."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-mcp-server.el")
+    (goto-char (point-min))
+    (should (search-forward "(require 'ai-code-mcp-common" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "(defvar ai-code-mcp-server-tool-setup-functions" nil t))))
+
 (ert-deftest ai-code-test-mcp-debug-tools-register-by-default ()
   "Optional debug tools should register by default."
   (let ((ai-code-mcp-server-tools nil))

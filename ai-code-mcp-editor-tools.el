@@ -9,12 +9,11 @@
 
 (require 'cl-lib)
 (require 'json)
+(require 'ai-code-mcp-common)
 (require 'seq)
 (require 'subr-x)
 
 (declare-function ai-code-mcp-make-tool "ai-code-mcp-server")
-
-(defvar ai-code-mcp-server-tool-setup-functions nil)
 
 (defgroup ai-code-mcp-editor-tools nil
   "Optional editor-session MCP tools."
@@ -100,10 +99,6 @@
     (dolist (tool ai-code-mcp-editor-tools--specs)
       (apply #'ai-code-mcp-make-tool tool))))
 
-(defun ai-code-mcp-editor-tools--json-bool (value)
-  "Return VALUE as a JSON boolean token."
-  (if value t :json-false))
-
 (defun ai-code-mcp-editor-tools--bool-arg (value default)
   "Return boolean VALUE, falling back to DEFAULT when VALUE is omitted."
   (cond
@@ -167,10 +162,10 @@
         (buffer_name . ,(buffer-name buffer))
         (file_path . ,(buffer-file-name buffer))
         (major_mode . ,(symbol-name major-mode))
-        (modified . ,(ai-code-mcp-editor-tools--json-bool
+        (modified . ,(ai-code-mcp--json-bool
                       (buffer-modified-p)))
-        (read_only . ,(ai-code-mcp-editor-tools--json-bool buffer-read-only))
-        (narrowed . ,(ai-code-mcp-editor-tools--json-bool
+        (read_only . ,(ai-code-mcp--json-bool buffer-read-only))
+        (narrowed . ,(ai-code-mcp--json-bool
                       (buffer-narrowed-p)))
         (point . ,point)
         (line . ,(alist-get 'line position))
@@ -193,7 +188,7 @@
         (buffer_name . ,(buffer-name buffer))
         (file_path . ,(buffer-file-name buffer))
         (major_mode . ,(symbol-name major-mode))
-        (modified . ,(ai-code-mcp-editor-tools--json-bool
+        (modified . ,(ai-code-mcp--json-bool
                       (buffer-modified-p)))
         (line . ,(alist-get 'line position))
         (column . ,(alist-get 'column position))))))
@@ -211,19 +206,10 @@
        (selected_index . ,selected-index)
        (items . ,(vconcat entries))))))
 
-(defun ai-code-mcp-editor-tools--message-lines ()
-  "Return the current `*Messages*' contents as a list of lines."
-  (if-let ((buffer (get-buffer "*Messages*")))
-      (with-current-buffer buffer
-        (split-string (buffer-substring-no-properties (point-min) (point-max))
-                      "\n"
-                      t))
-    '()))
-
 (defun ai-code-mcp-messages-tail (&optional limit)
   "Return a JSON payload for recent messages using LIMIT."
   (let* ((limit (or limit 50))
-         (messages (ai-code-mcp-editor-tools--message-lines)))
+         (messages (ai-code-mcp--message-lines)))
     (unless (and (integerp limit) (> limit 0))
       (error "Argument limit must be a positive integer"))
     (setq messages (last messages (min limit (length messages))))
@@ -254,7 +240,7 @@
                   (not (eq before-modified after-modified)))
           (push `((buffer_name . ,(buffer-name buffer))
                   (file_path . ,(buffer-file-name buffer))
-                  (modified . ,(ai-code-mcp-editor-tools--json-bool
+                  (modified . ,(ai-code-mcp--json-bool
                                 after-modified)))
                 changed))))))
 
@@ -306,7 +292,7 @@
 (defun ai-code-mcp-editor-tools--evaluation-messages (before capture-messages)
   "Return messages added after BEFORE when CAPTURE-MESSAGES."
   (if capture-messages
-      (nthcdr (length before) (ai-code-mcp-editor-tools--message-lines))
+      (nthcdr (length before) (ai-code-mcp--message-lines))
     '()))
 
 (defun ai-code-mcp-editor-tools--error-alist (type message)
@@ -330,7 +316,7 @@ TIMED-OUT records timeout state, VALUE carries the result,
 CHANGED-BUFFERS lists modified buffers, and ERROR-OBJECT or BACKTRACE
 describe failures."
   (json-encode
-   `((ok . ,(ai-code-mcp-editor-tools--json-bool (null error-object)))
+   `((ok . ,(ai-code-mcp--json-bool (null error-object)))
      (mode . ,mode)
      (value_repr . ,(and (null error-object) (prin1-to-string value)))
      (value_type . ,(and (null error-object)
@@ -344,7 +330,7 @@ describe failures."
      (changed_buffers . ,(vconcat changed-buffers))
      (context_after . ,(ai-code-mcp-editor-tools--context-summary
                         target-buffer))
-     (timed_out . ,(ai-code-mcp-editor-tools--json-bool timed-out)))))
+     (timed_out . ,(ai-code-mcp--json-bool timed-out)))))
 
 (defun ai-code-mcp-editor-tools--run-eval (form mode target-buffer timeout-ms
                                                 capture-messages
@@ -352,7 +338,7 @@ describe failures."
   "Evaluate FORM in MODE within TARGET-BUFFER using TIMEOUT-MS.
 CAPTURE-MESSAGES controls message collection, and INCLUDE-BACKTRACE
 keeps the backtrace on failures."
-  (let ((before-messages (ai-code-mcp-editor-tools--message-lines))
+  (let ((before-messages (ai-code-mcp--message-lines))
         (before-snapshot (ai-code-mcp-editor-tools--modified-buffer-snapshot))
         (value nil)
         (timed-out nil)
@@ -431,7 +417,7 @@ CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS."
       (ai-code-mcp-editor-tools--encode-eval-result
        mode
        target-buffer
-       (ai-code-mcp-editor-tools--message-lines)
+       (ai-code-mcp--message-lines)
        capture-messages
        nil
        nil
@@ -454,11 +440,11 @@ CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS."
       (cond
        (always-denied
         (ai-code-mcp-editor-tools--encode-eval-result
-         mode
-         target-buffer
-         (ai-code-mcp-editor-tools--message-lines)
-         capture-messages
-         nil
+        mode
+        target-buffer
+        (ai-code-mcp--message-lines)
+        capture-messages
+        nil
          nil
          '()
          (ai-code-mcp-editor-tools--error-alist
@@ -468,11 +454,11 @@ CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS."
          nil))
        (query-denied
         (ai-code-mcp-editor-tools--encode-eval-result
-         mode
-         target-buffer
-         (ai-code-mcp-editor-tools--message-lines)
-         capture-messages
-         nil
+        mode
+        target-buffer
+        (ai-code-mcp--message-lines)
+        capture-messages
+        nil
          nil
          '()
          (ai-code-mcp-editor-tools--error-alist
@@ -483,11 +469,11 @@ CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS."
        ((and (string= mode "effect")
              (not ai-code-mcp-editor-tools-allow-effect-eval))
         (ai-code-mcp-editor-tools--encode-eval-result
-         mode
-         target-buffer
-         (ai-code-mcp-editor-tools--message-lines)
-         capture-messages
-         nil
+        mode
+        target-buffer
+        (ai-code-mcp--message-lines)
+        capture-messages
+        nil
          nil
          '()
          (ai-code-mcp-editor-tools--error-alist
