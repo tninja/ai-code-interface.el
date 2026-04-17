@@ -377,6 +377,55 @@
                   (ai-code--classify-prompt-for-send
                    "Please explain the following file:\nFile: ai-code.el"))))))
 
+(ert-deftest ai-code-test-classify-prompt-for-send-mixed-explain-edit-falls-back-to-gptel ()
+  "Test that mixed explain/edit prompts still fall back to GPTel."
+  (let ((ai-code-use-gptel-classify-prompt t)
+        (ai-code-auto-test-type 'ask-me)
+        (captured-prompt nil))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (prompt-text)
+                 (setq captured-prompt prompt-text)
+                 'code-change)))
+      (should (eq 'code-change
+                  (ai-code--classify-prompt-for-send
+                   "Please explain why this fails, then update the implementation.")))
+      (should (equal "Please explain why this fails, then update the implementation."
+                     captured-prompt)))))
+
+(ert-deftest ai-code-test-simple-classifier-reuses-shared-prompt-markers ()
+  "Test that classifier markers reuse shared prompt-builder constants."
+  (should (boundp 'ai-code-change--selected-region-note))
+  (should (boundp 'ai-code-change--generic-note))
+  (should (boundp 'ai-code-change--selected-files-note))
+  (should (boundp 'ai-code-discussion--question-only-note))
+  (should (boundp 'ai-code-discussion--selected-region-note))
+  (should (boundp 'ai-code-discussion--explain-prompt-prefixes))
+  (should (equal ai-code--code-change-prompt-markers
+                 (mapcar #'downcase
+                         (list ai-code-change--selected-region-note
+                               ai-code-change--generic-note
+                               ai-code-change--selected-files-note))))
+  (should (equal ai-code--non-code-change-prompt-markers
+                 (append
+                  (mapcar #'downcase
+                          (list ai-code-discussion--question-only-note
+                                ai-code-discussion--selected-region-note))
+                  (mapcar #'downcase
+                          ai-code-discussion--explain-prompt-prefixes)))))
+
+(ert-deftest ai-code-test-prompt-classification-docstrings-are-not-gptel-specific ()
+  "Test that prompt classification docstrings are not GPTel-specific."
+  (should-not
+   (string-match-p "GPTel prompt classification"
+                   (documentation 'ai-code--classify-prompt-for-send)))
+  (dolist (fn '(ai-code--resolve-auto-test-type-for-send
+                ai-code--resolve-ask-auto-test-type-for-send
+                ai-code--resolve-auto-follow-up-suffix-for-send
+                ai-code--resolve-auto-test-suffix-for-send))
+    (should-not
+     (string-match-p "optional GPTel prompt classification result"
+                     (documentation fn)))))
+
 (ert-deftest ai-code-test-next-step-suggestion-suffix-requires-actionable-items ()
   "Test that numbered next-step suggestions require actionable AI items."
   (should (string-match-p

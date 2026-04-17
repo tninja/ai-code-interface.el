@@ -246,16 +246,24 @@ test suffixes."
   :group 'ai-code)
 
 ;; DONE: add a wrapper to the following function. Before really calling this, just do simple string check: if the prompt-text contains suffix from ai-code-code-change, it should be classfied as code change; if it contains suffix from ai-code-ask-question, or "Please explain" etc, it should be classified as non-code change. This is to reduce unnecessary calls to GPTel for simple prompts that are easy to classify with simple keyword matching. Finally, all previous call to following function should call the wrapper instead.
+(defun ai-code--downcase-strings (strings)
+  "Return STRINGS converted to lowercase."
+  (mapcar #'downcase strings))
+
 (defconst ai-code--code-change-prompt-markers
-  '("note: please apply the code change to the selected region specified above."
-    "note: please make the code change described above."
-    "note: please make the code change described above for the selected files/directories.")
+  (ai-code--downcase-strings
+   (list ai-code-change--selected-region-note
+         ai-code-change--generic-note
+         ai-code-change--selected-files-note))
   "Prompt markers that clearly indicate a code-change request.")
 
 (defconst ai-code--non-code-change-prompt-markers
-  '("note: this is a question only - please do not modify the code."
-    "note: this is a question about the selected region - please do not modify the code."
-    "please explain")
+  (append
+   (ai-code--downcase-strings
+    (list ai-code-discussion--question-only-note
+          ai-code-discussion--selected-region-note))
+   (ai-code--downcase-strings
+    ai-code-discussion--explain-prompt-prefixes))
   "Prompt markers that clearly indicate a non-code-change request.")
 
 (defun ai-code--prompt-contains-any-marker-p (text markers)
@@ -312,16 +320,16 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
 
 (defun ai-code--resolve-auto-test-type-for-send (&optional prompt-text classification)
   "Resolve the concrete auto test type for current send action for PROMPT-TEXT.
-CLASSIFICATION is the optional GPTel prompt classification result."
+CLASSIFICATION is the optional prompt classification result."
   (if (eq ai-code-auto-test-type 'ask-me)
       (ai-code--resolve-ask-auto-test-type-for-send prompt-text classification)
     (and (memq ai-code-auto-test-type
                ai-code--auto-test-type-legacy-persistent-modes)
-         ai-code-auto-test-type)))
+          ai-code-auto-test-type)))
 
 (defun ai-code--resolve-ask-auto-test-type-for-send (&optional prompt-text classification)
   "Resolve the send-time auto test type for ask-me mode with PROMPT-TEXT.
-CLASSIFICATION is the optional GPTel prompt classification result."
+CLASSIFICATION is the optional prompt classification result."
   (if ai-code-use-gptel-classify-prompt
       (pcase (or classification
                  (ai-code--classify-prompt-code-change prompt-text))
@@ -332,7 +340,7 @@ CLASSIFICATION is the optional GPTel prompt classification result."
 
 (defun ai-code--resolve-auto-follow-up-suffix-for-send (&optional prompt-text classification)
   "Resolve next-step suggestion suffix for current send action for PROMPT-TEXT.
-CLASSIFICATION is the optional GPTel prompt classification result."
+CLASSIFICATION is the optional prompt classification result."
   (when (and ai-code-discussion-auto-follow-up-enabled
              ai-code-next-step-suggestion-suffix)
     (let ((classification (or classification
@@ -344,12 +352,12 @@ CLASSIFICATION is the optional GPTel prompt classification result."
 
 (defun ai-code--resolve-auto-test-suffix-for-send (&optional prompt-text classification)
   "Resolve auto test suffix for current send action for PROMPT-TEXT.
-CLASSIFICATION is the optional GPTel prompt classification result."
+CLASSIFICATION is the optional prompt classification result."
   (ai-code--auto-test-suffix-for-type
    (ai-code--resolve-auto-test-type-for-send prompt-text classification)))
 
 (defun ai-code--classify-prompt-for-send (&optional prompt-text)
-  "Return GPTel prompt classification for PROMPT-TEXT when needed.
+  "Return prompt classification for PROMPT-TEXT when needed.
 Send-time routing uses this result for test and discussion follow-up suffixes."
   (when (and ai-code-use-gptel-classify-prompt
              (or ai-code-auto-test-type

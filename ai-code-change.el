@@ -31,10 +31,22 @@
 
 (defvar flycheck-current-errors)
 
+(defconst ai-code-change--selected-region-note
+  "Note: Please apply the code change to the selected region specified above."
+  "Prompt note for code changes scoped to the selected region.")
+
+(defconst ai-code-change--generic-note
+  "Note: Please make the code change described above."
+  "Prompt note for generic code-change requests.")
+
+(defconst ai-code-change--selected-files-note
+  "Note: Please make the code change described above for the selected files/directories."
+  "Prompt note for code changes scoped to selected files or directories.")
+
 (defun ai-code--is-comment-line (line)
   "Check if LINE is a comment line based on current buffer's comment syntax.
 Returns non-nil if LINE starts with one or more comment characters,
-ignoring leading whitespace. Returns nil when the comment content
+ignoring leading whitespace.  Returns nil when the comment content
 begins with a DONE: prefix."
   (when comment-start
     (let* ((comment-str (string-trim-right comment-start))
@@ -58,7 +70,7 @@ begins with a DONE: prefix."
 (defun ai-code--get-function-name-for-comment ()
   "Get the appropriate function name when cursor is on a comment line.
 If the comment precedes a function definition or is inside a function body,
-returns that function's name. Otherwise returns the result of `which-function`."
+returns that function's name.  Otherwise returns the result of `which-function`."
   (interactive)
   (let* ((current-func (which-function))
          (resolved-func
@@ -172,11 +184,11 @@ REGION-ACTIVE indicates whether a region is selected."
                   files-context-string
                   repo-context-string
                   (when (and clipboard-context
-                            (string-match-p "\\S-" clipboard-context))
+                             (string-match-p "\\S-" clipboard-context))
                     (concat "\n\nClipboard context:\n" clipboard-context))
                   (if region-text
-                      "\nNote: Please apply the code change to the selected region specified above."
-                    "\nNote: Please make the code change described above."))))
+                      (concat "\n" ai-code-change--selected-region-note)
+                    (concat "\n" ai-code-change--generic-note)))))
     (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--handle-dired-code-change (arg)
@@ -201,7 +213,7 @@ ARG is the prefix argument."
                   (when (and clipboard-context
                              (string-match-p "\\S-" clipboard-context))
                     (concat "\n\nClipboard context:\n" clipboard-context))
-                  "\nNote: Please make the code change described above for the selected files/directories.")))
+                  (concat "\n" ai-code-change--selected-files-note))))
     (ai-code--insert-prompt final-prompt)))
 
 ;;;###autoload
@@ -502,18 +514,20 @@ or whole file.  Requires the `flycheck` package to be installed and available."
                    (error-list-string
                     (ai-code-flycheck--format-error-list errors-in-scope
                                                          rel-file))
-                   (prompt
-                    (if (string-equal "the entire file" scope-description)
-                        (format "Please fix the following Flycheck errors in file %s:\n\n%s\n%s\nNote: Please make the code change described above."
-                                rel-file error-list-string
-                                files-context-string)
-                      (format "Please fix the following Flycheck errors in %s of file %s:\n\n%s\n%s\nNote: Please make the code change described above."
-                              scope-description
-                              rel-file
-                              error-list-string
-                              files-context-string)))
-                   (edited-prompt (ai-code-read-string "Edit prompt for AI: "
-                                                       prompt)))
+                    (prompt
+                     (if (string-equal "the entire file" scope-description)
+                         (format "Please fix the following Flycheck errors in file %s:\n\n%s\n%s\n%s"
+                                 rel-file error-list-string
+                                 files-context-string
+                                 ai-code-change--generic-note)
+                       (format "Please fix the following Flycheck errors in %s of file %s:\n\n%s\n%s\n%s"
+                               scope-description
+                               rel-file
+                               error-list-string
+                               files-context-string
+                               ai-code-change--generic-note)))
+                    (edited-prompt (ai-code-read-string "Edit prompt for AI: "
+                                                        prompt)))
               (when (and edited-prompt (not (string-blank-p edited-prompt)))
                 (ai-code--insert-prompt edited-prompt)
                 (message "Generated prompt to fix %d Flycheck error(s) in %s."
