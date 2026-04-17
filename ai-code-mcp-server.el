@@ -121,7 +121,7 @@ Use `auto' to prefer Flycheck and then Flymake when available."
      :args nil)
     (:function ai-code-mcp-get-variable-value
      :name "get_variable_value"
-     :description "Get the string value of an Emacs variable by name."
+     :description "Get the printed representation of an Emacs variable value by name."
      :args ((:name "variable_name"
              :type string
              :description "Emacs variable name to inspect.")))
@@ -815,11 +815,23 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   (beep)
   (format "Notified user: %s" message-text))
 
-;; DONE: add a mcp tool, given emacs variable name as string, that returns the variable's value as a string. This would be a very general-purpose tool for debugging and introspection.
+(defun ai-code-mcp--find-existing-variable-symbol (variable-name)
+  "Return the interned symbol for VARIABLE-NAME, or nil when missing."
+  (and (stringp variable-name)
+       (intern-soft variable-name)))
 
 (defun ai-code-mcp-get-variable-value (variable-name)
-  "Return the value of VARIABLE-NAME as a string."
-  (format "%S" (symbol-value (intern variable-name))))
+  "Return the printed representation of VARIABLE-NAME.
+Return a friendly error string when VARIABLE-NAME does not name an
+existing bound variable."
+  (let ((symbol (ai-code-mcp--find-existing-variable-symbol variable-name)))
+    (cond
+     ((not symbol)
+      (format "Variable not found: %s" variable-name))
+     ((not (boundp symbol))
+      (format "Variable is unbound: %s" variable-name))
+     (t
+      (format "%S" (symbol-value symbol))))))
 
 (require 'ai-code-mcp-editor-tools nil t)
 
