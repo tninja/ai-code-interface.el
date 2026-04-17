@@ -33,10 +33,11 @@
   :type '(repeat string)
   :group 'ai-code-opencode)
 
-(defcustom ai-code-opencode-extra-env-vars '("OTUI_USE_ALTERNATE_SCREEN=main-screen")
+(defcustom ai-code-opencode-extra-env-vars
+  '("OTUI_USE_ALTERNATE_SCREEN=main-screen")
   "Extra environment variables passed to the Opencode terminal session.
-By default, `OTUI_USE_ALTERNATE_SCREEN=main-screen' disables the
-alternate screen buffer so that terminal scrollback is preserved."
+`OTUI_USE_ALTERNATE_SCREEN=main-screen' avoids the alternate screen
+buffer so that terminal scrollback is partially preserved."
   :type '(repeat string)
   :group 'ai-code-opencode)
 
