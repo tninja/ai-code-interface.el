@@ -167,6 +167,20 @@
       (should (eq 'test-after-change
                   (ai-code--resolve-auto-test-type-for-send "Please update code"))))))
 
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-ask-me-simple-question-match-skips-gptel ()
+  "Test that question-only prompt markers skip GPTel classification."
+  (let ((ai-code-auto-test-type 'ask-me)
+        (ai-code-use-gptel-classify-prompt t))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text)
+                 (ert-fail "Should not call GPTel for question-only prompt markers.")))
+              ((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda ()
+                 (ert-fail "Should not ask test type for question-only prompts."))))
+      (should-not
+       (ai-code--resolve-auto-test-type-for-send
+        "Explain this function\nNote: This is a question only - please do not modify the code.")))))
+
 (ert-deftest ai-code-test-read-auto-test-type-choice-allow-no-test ()
   "Test that ask choices support selecting no test run."
   (let ((ai-code--auto-test-type-ask-choices
@@ -228,6 +242,23 @@
       (should-not
        (ai-code--resolve-auto-follow-up-suffix-for-send
         "Please update the code"))
+      (should-not asked))))
+
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-simple-code-change-match-skips-gptel ()
+  "Test that code-change prompt markers skip GPTel classification."
+  (let ((ai-code-discussion-auto-follow-up-enabled t)
+        (ai-code-use-gptel-classify-prompt t)
+        (asked nil))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text)
+                 (ert-fail "Should not call GPTel for code-change prompt markers.")))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda ()
+                 (setq asked t)
+                 t)))
+      (should-not
+       (ai-code--resolve-auto-follow-up-suffix-for-send
+        "Refactor this function\nNote: Please make the code change described above."))
       (should-not asked))))
 
 (ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-enabled-for-any-non-code-change-prompt ()
@@ -334,6 +365,17 @@
       (should (string-match-p
                "either a code change or tool usage"
                sent-command)))))
+
+(ert-deftest ai-code-test-classify-prompt-for-send-simple-explain-match-skips-gptel ()
+  "Test that explain prompts use simple non-code-change heuristics first."
+  (let ((ai-code-use-gptel-classify-prompt t)
+        (ai-code-auto-test-type 'ask-me))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text)
+                 (ert-fail "Should not call GPTel for explain prompts."))))
+      (should (eq 'non-code-change
+                  (ai-code--classify-prompt-for-send
+                   "Please explain the following file:\nFile: ai-code.el"))))))
 
 (ert-deftest ai-code-test-next-step-suggestion-suffix-requires-actionable-items ()
   "Test that numbered next-step suggestions require actionable AI items."
