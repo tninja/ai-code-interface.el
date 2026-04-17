@@ -207,7 +207,7 @@ When .gitignore is missing some entries, they should be added."
 (ert-deftest ai-code-test-pull-or-review-diff-file-generate-diff-option ()
   "When user chooses diff generation in non-diff buffer, keep existing logic."
   (pcase-let ((`(,captured-prompt ,diff-called)
-               (ai-code-test--run-pull-or-review-diff-file "Generate diff file" nil)))
+               (ai-code-test--run-pull-or-review-diff-file "Use GitHub MCP server" nil "Generate diff file")))
     (should diff-called)
     (should-not captured-prompt)))
 
@@ -495,6 +495,23 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
                  (lambda () (setq diff-called t))))
         (ai-code-pull-or-review-diff-file)))
     (list captured-prompt diff-called)))
+
+(ert-deftest ai-code-test-pull-or-review-pr-mode-choice-generate-diff-file ()
+  "Choosing generate diff file mode should return `generate-diff-file'."
+  (cl-letf (((symbol-function 'completing-read)
+             (lambda (&rest _args) "Generate diff file")))
+    (should (eq (ai-code--pull-or-review-pr-mode-choice)
+                'generate-diff-file))))
+
+(ert-deftest ai-code-test-pull-or-review-pr-with-source-generate-diff-file-calls-diff-generation ()
+  "When mode is generate-diff-file, call diff generation instead of building a prompt."
+  (let (diff-called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Generate diff file"))
+              ((symbol-function 'ai-code--magit-generate-feature-branch-diff-file)
+               (lambda () (setq diff-called t))))
+      (ai-code--pull-or-review-pr-with-source 'github-mcp)
+      (should diff-called))))
 
 (ert-deftest ai-code-test-action-choice-returns-github-mcp-when-default-set ()
   "When `ai-code-default-review-source' is `github-mcp', return it directly."

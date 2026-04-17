@@ -75,8 +75,7 @@ or nil (prompt the user)."
 When `ai-code-default-review-source' is set, return it directly."
   (or ai-code-default-review-source
       (let* ((action-alist '(("Use GitHub MCP server" . github-mcp)
-                             ("Use gh CLI tool" . gh-cli)
-                             ("Generate diff file" . diff-file)))
+                             ("Use gh CLI tool" . gh-cli)))
              (choice (completing-read "Select review source: "
                                       action-alist
                                       nil t nil nil "Use GitHub MCP server")))
@@ -193,47 +192,51 @@ CI Checks Review Steps:
 
 (defun ai-code--pull-or-review-pr-with-source (review-source)
   "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI.
-If the selected mode is `send-current-branch-pr', ask for the target
-branch for the current branch PR.  Otherwise, ask for the relevant pull
-request or issue URL."
-  (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice))
-         (init-prompt
-         (if (eq review-mode 'send-current-branch-pr)
-              (progn
-                (unless (magit-toplevel)
-                  (user-error "Not inside a Git repository"))
-                (let* ((current-branch (ai-code--require-current-branch))
-                       (default-target-branch
-                        (ai-code--default-pr-target-branch current-branch))
-                       (target-branch
-                        (ai-code-read-string "Target branch to merge into: "
-                                             default-target-branch))
-                       (pr-title
-                        (read-string
-                         "PR title (optional, leave empty for AI to generate): "
-                         nil
-                         'ai-code-pr-title-history)))
-                  (ai-code--build-send-current-branch-pr-init-prompt
-                   review-source current-branch target-branch pr-title)))
-            (let* ((url-prompt (ai-code--pull-or-review-url-prompt review-mode))
-                   (target-url (ai-code-read-string url-prompt)))
-              (ai-code--build-pr-init-prompt review-source target-url review-mode))))
-         (prompt-label (if (eq review-mode 'send-current-branch-pr)
-                           "Enter PR creation prompt: "
-                         "Enter review prompt: "))
-         (prompt (ai-code-read-string prompt-label init-prompt)))
-    (ai-code--insert-prompt prompt)))
+If the selected mode is `generate-diff-file', generate a diff file.
+If `send-current-branch-pr', ask for the target branch.
+Otherwise, ask for the relevant pull request or issue URL."
+  (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
+    (if (eq review-mode 'generate-diff-file)
+        (ai-code--magit-generate-feature-branch-diff-file)
+      (let* ((init-prompt
+              (if (eq review-mode 'send-current-branch-pr)
+                  (progn
+                    (unless (magit-toplevel)
+                      (user-error "Not inside a Git repository"))
+                    (let* ((current-branch (ai-code--require-current-branch))
+                           (default-target-branch
+                            (ai-code--default-pr-target-branch current-branch))
+                           (target-branch
+                            (ai-code-read-string "Target branch to merge into: "
+                                                 default-target-branch))
+                           (pr-title
+                            (read-string
+                             "PR title (optional, leave empty for AI to generate): "
+                             nil
+                             'ai-code-pr-title-history)))
+                      (ai-code--build-send-current-branch-pr-init-prompt
+                       review-source current-branch target-branch pr-title)))
+                (let* ((url-prompt (ai-code--pull-or-review-url-prompt review-mode))
+                       (target-url (ai-code-read-string url-prompt)))
+                  (ai-code--build-pr-init-prompt review-source target-url review-mode))))
+             (prompt-label (if (eq review-mode 'send-current-branch-pr)
+                               "Enter PR creation prompt: "
+                             "Enter review prompt: "))
+             (prompt (ai-code-read-string prompt-label init-prompt)))
+        (ai-code--insert-prompt prompt)))))
 
 (defun ai-code--pull-or-review-pr-mode-choice ()
   "Prompt user to choose analysis mode for a pull request or issue."
   ;; DONE: add a choice: send out PR for current branch. The feature will ask user the target branch to merge. By default, it should be parent branch of current branch. AI should send out PR with description. The description should looks like it's written by the author, and it should be short.
   ;; DONE: for send out PR feature, it should ask user about the PR title. If user does not provide one, AI should generate a concise title based on the code change
+  ;; DONE: the generate diff file function should be moved here, in the tail as an option. It shouldn't be in ai-code--pull-or-review-action-choice function. and downstream process should be moved and not inside ai-code-pull-or-review-diff-file
   (let* ((review-mode-alist '(("Review the PR" . review-pr)
                               ("Check unresolved feedback" . check-feedback)
+                              ("Prepare PR description" . prepare-pr-description)
+                              ("Send out PR for current branch" . send-current-branch-pr)
                               ("Investigate issue" . investigate-issue)
                               ("Review GitHub CI checks" . review-ci-checks)
-                              ("Prepare PR description" . prepare-pr-description)
-                              ("Send out PR for current branch" . send-current-branch-pr)))
+                              ("Generate diff file" . generate-diff-file)))
          (review-mode (completing-read "Select analysis mode (PR or issue): "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
@@ -348,9 +351,9 @@ PR Creation Steps:
 
 ;;;###autoload
 (defun ai-code-pull-or-review-diff-file ()
-  "Review a diff file with AI Code or generate one if not viewing a diff.
+  "Review a diff file with AI Code or choose a PR review workflow.
 If current buffer is a .diff file, ask AI Code to review it.
-Otherwise, generate the diff."
+Otherwise, prompt for a review source and analysis mode."
   (interactive)
   (if (and buffer-file-name (string-match-p "\\.diff$" buffer-file-name))
       (let* ((file-name (file-name-nondirectory buffer-file-name))
@@ -366,11 +369,8 @@ Provide overall assessment.
 **Requirement**: " file-name))
              (prompt (ai-code-read-string "Enter review prompt (type requirement at end): " init-prompt)))
         (ai-code--insert-prompt prompt))
-    ;; For non-diff files, let user choose PR review via MCP/gh CLI or keep diff generation.
-    (pcase (ai-code--pull-or-review-action-choice)
-      ('github-mcp (ai-code--pull-or-review-pr-with-source 'github-mcp))
-      ('gh-cli (ai-code--pull-or-review-pr-with-source 'gh-cli))
-      (_ (ai-code--magit-generate-feature-branch-diff-file)))))
+    ;; For non-diff files, let user choose PR review via MCP/gh CLI.
+    (ai-code--pull-or-review-pr-with-source (ai-code--pull-or-review-action-choice))))
 
 (defun ai-code--validate-git-repository ()
   "Validate that current directory is in a git repository.
