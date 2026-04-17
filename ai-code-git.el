@@ -38,6 +38,16 @@ Candidate values:
   :type 'string
   :group 'ai-code)
 
+(defcustom ai-code-default-review-source nil
+  "Default review source for pull request and issue analysis.
+When set, `ai-code--pull-or-review-action-choice' returns this value
+directly without prompting.  Valid values are `github-mcp', `gh-cli',
+or nil (prompt the user)."
+  :type '(choice (const :tag "Prompt user" nil)
+                 (const :tag "GitHub MCP server" github-mcp)
+                 (const :tag "gh CLI tool" gh-cli))
+  :group 'ai-code)
+
 (defcustom ai-code-git-worktree-root
   (expand-file-name "ai-code-worktrees" user-emacs-directory)
   "Directory used to host centralized Git worktrees for all repositories."
@@ -59,15 +69,18 @@ Candidate values:
           (truename (file-truename file)))
       (string-prefix-p ignore-dir truename))))
 
+;; DONE: add a customize variable, default value is nil. It will be used to indicate if we want to use GitHub MCP server or gh CLI tool by default. If it is setting, it will return github-mcp or gh-cli. If it's nil, keep the current code path.
 (defun ai-code--pull-or-review-action-choice ()
-  "Prompt user for action in `ai-code-pull-or-review-diff-file'."
-  (let* ((action-alist '(("Use GitHub MCP server" . github-mcp)
-                         ("Use gh CLI tool" . gh-cli)
-                         ("Generate diff file" . diff-file)))
-         (choice (completing-read "Select review source: "
-                                  action-alist
-                                  nil t nil nil "Use GitHub MCP server")))
-    (alist-get choice action-alist nil nil #'string=)))
+  "Prompt user for action in `ai-code-pull-or-review-diff-file'.
+When `ai-code-default-review-source' is set, return it directly."
+  (or ai-code-default-review-source
+      (let* ((action-alist '(("Use GitHub MCP server" . github-mcp)
+                             ("Use gh CLI tool" . gh-cli)
+                             ("Generate diff file" . diff-file)))
+             (choice (completing-read "Select review source: "
+                                      action-alist
+                                      nil t nil nil "Use GitHub MCP server")))
+        (alist-get choice action-alist nil nil #'string=))))
 
 (defun ai-code--build-pr-review-init-prompt (review-source pr-url)
   "Build PR review initial prompt for REVIEW-SOURCE with PR-URL."

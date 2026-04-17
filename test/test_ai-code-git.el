@@ -496,6 +496,39 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
         (ai-code-pull-or-review-diff-file)))
     (list captured-prompt diff-called)))
 
+(ert-deftest ai-code-test-action-choice-returns-github-mcp-when-default-set ()
+  "When `ai-code-default-review-source' is `github-mcp', return it directly."
+  (let ((ai-code-default-review-source 'github-mcp)
+        (completing-read-called nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 (setq completing-read-called t)
+                 "Use GitHub MCP server")))
+      (should (eq (ai-code--pull-or-review-action-choice) 'github-mcp))
+      (should-not completing-read-called))))
+
+(ert-deftest ai-code-test-action-choice-returns-gh-cli-when-default-set ()
+  "When `ai-code-default-review-source' is `gh-cli', return it directly."
+  (let ((ai-code-default-review-source 'gh-cli)
+        (completing-read-called nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 (setq completing-read-called t)
+                 "Use gh CLI tool")))
+      (should (eq (ai-code--pull-or-review-action-choice) 'gh-cli))
+      (should-not completing-read-called))))
+
+(ert-deftest ai-code-test-action-choice-prompts-when-default-nil ()
+  "When `ai-code-default-review-source' is nil, use completing-read."
+  (let ((ai-code-default-review-source nil)
+        (completing-read-called nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 (setq completing-read-called t)
+                 "Use GitHub MCP server")))
+      (should (eq (ai-code--pull-or-review-action-choice) 'github-mcp))
+      (should completing-read-called))))
+
 (provide 'test_ai-code-git)
 
 ;;; test_ai-code-git.el ends here
