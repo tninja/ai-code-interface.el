@@ -169,9 +169,10 @@
         (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
       (fmakunbound handler))))
 
-(ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-eat-disabled ()
-  "Never install reflow advice for eat backend."
-  (let ((handler 'ai-code-backends-infra--test-resize-eat))
+(ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-eat ()
+  "Install reflow advice for eat when glitch prevention is enabled."
+  (let ((handler 'ai-code-backends-infra--test-resize-eat)
+        (ai-code-backends-infra--reflow-advised-handlers nil))
     (fset handler (lambda (&rest args) args))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-resize-handler)
@@ -180,14 +181,18 @@
                 (ai-code-backends-infra-prevent-reflow-glitch t)
                 (ai-code-backends-infra-eat-preserve-position nil))
             (ai-code-backends-infra--sync-reflow-filter-advice)
-            (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                                         handler)))
+            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                     handler)))
+          (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                 handler)
+            (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
+          (setq ai-code-backends-infra--reflow-advised-handlers nil)
           (let ((ai-code-backends-infra-terminal-backend 'eat)
                 (ai-code-backends-infra-prevent-reflow-glitch t)
                 (ai-code-backends-infra-eat-preserve-position t))
             (ai-code-backends-infra--sync-reflow-filter-advice)
-            (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                                         handler))))
+            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                     handler))))
       (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter handler)
         (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
       (fmakunbound handler))))
@@ -397,6 +402,57 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-errors-without-exec ()
+  "Ghostel startup should raise a clear error when `ghostel-exec' is unavailable."
+  (let* ((buffer-name "*test-ai-code-ghostel-missing-exec*")
+         (buffer (get-buffer-create buffer-name))
+         (ai-code-backends-infra-terminal-backend 'ghostel))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   (lambda () nil)))
+          (should-error
+           (ai-code-backends-infra--create-terminal-session
+            buffer-name
+            default-directory
+            "echo hi"
+            nil)
+           :type 'user-error))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-disables-title-tracking-before-start ()
+  "Ghostel startup should disable title tracking before spawning the process."
+  (let* ((buffer-name "*test-ai-code-ghostel-title-tracking*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'ghostel-proc)
+         (title-tracking-before-start :unset)
+         (saved-default (default-value 'ghostel-enable-title-tracking))
+         (ai-code-backends-infra-terminal-backend 'ghostel))
+    (unwind-protect
+        (progn
+          (setq-default ghostel-enable-title-tracking t)
+          (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                     (lambda () nil))
+                    ((symbol-function 'ghostel-exec)
+                     (lambda (target-buffer _program &optional _args)
+                       (with-current-buffer target-buffer
+                         (setq title-tracking-before-start ghostel-enable-title-tracking)
+                         (setq-local ghostel--process process))
+                       process))
+                    ((symbol-function 'get-buffer-process)
+                     (lambda (target-buffer)
+                       (with-current-buffer target-buffer
+                         ghostel--process))))
+            (ai-code-backends-infra--create-terminal-session
+             buffer-name
+             default-directory
+             "echo hi"
+             nil)
+            (should (eq title-tracking-before-start nil))))
+      (setq-default ghostel-enable-title-tracking saved-default)
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-installs-cursor-sync-hook ()
   "Ghostel session configuration should only add AI Code local behavior."
   (let ((hook-calls nil))
@@ -482,6 +538,18 @@
         (delete-process proc))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-source-comment-uses-repo-stable-rationale ()
+  "Source comments should avoid local paths and chat transcripts."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-backends-infra.el")
+    (goto-char (point-min))
+    (should (search-forward "Prefer `ghostel-exec' for Ghostel backend startup" nil t))
+    (should-not (search-forward "/home/tninja/" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "Background:" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "@tninja" nil t))))
 
 (ert-deftest test-ai-code-backends-infra-normalize-file-path-stable-across-existence ()
   "Normalization should stay stable when file existence changes."

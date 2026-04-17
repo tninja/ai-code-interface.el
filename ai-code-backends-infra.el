@@ -19,10 +19,8 @@
 (require 'project)
 (require 'ai-code-session-link)
 
-;; DONE: Use `ghostel-exec' to simplify Ghostel backend startup code.
-;; Background: The author of ghostel package told me:
-;; @tninja jFYI, in the latest ghostel version I added a ghostel-exec function because I needed it for eshell integration. Maybe that's useful here to and simplifies stuff. (haven't looked into it, just a heads up)
-;; Please take a look at /home/tninja/.emacs.d/elpa/ghostel-20260417.1010, there is definition of ghostel-exec
+;; DONE: Prefer `ghostel-exec' for Ghostel backend startup when available,
+;; as it simplifies process startup integration.
 
 ;; Silence native-compiler warnings.
 (declare-function browse-url "browse-url" (url &optional new-window))
@@ -542,6 +540,21 @@ returns to normal terminal interaction."
   (setq-local ghostel-enable-title-tracking nil)
   (ai-code-backends-infra--configure-session-input-shortcuts)
   (ai-code-backends-infra--install-navigation-cursor-sync))
+
+(defun ai-code-backends-infra--start-ghostel-process (buffer command)
+  "Start a Ghostel session in BUFFER for COMMAND."
+  (with-current-buffer buffer
+    (ai-code-backends-infra--configure-ghostel-buffer)
+    (let* ((argv (split-string-shell-command command))
+           (program (car argv))
+           (args (cdr argv)))
+      (cond
+       ((not program) nil)
+       ((fboundp 'ghostel-exec)
+        (ghostel-exec buffer program args))
+       (t
+        (user-error
+         "Ghostel backend requires a Ghostel version that provides `ghostel-exec`"))))))
 
 ;;; Terminal Backend Abstraction
 
@@ -1415,11 +1428,7 @@ ENV-VARS is a list of environment variables."
         (ai-code-backends-infra--set-session-directory buffer working-dir)
         (with-current-buffer buffer
           (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
-          (let* ((argv (split-string-shell-command command))
-                 (program (car argv))
-                 (args (cdr argv))
-                 (proc (and program (ghostel-exec buffer program args))))
-            (ai-code-backends-infra--configure-ghostel-buffer)
+          (let ((proc (ai-code-backends-infra--start-ghostel-process buffer command)))
             (when (processp proc)
               (set-process-query-on-exit-flag proc nil)
               (let ((orig-filter (process-filter proc)))
