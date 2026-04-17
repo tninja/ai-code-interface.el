@@ -210,10 +210,6 @@ Matches \\e[?1049h (enter) and \\e[?1049l (exit).")
   "\033\\[3J"
   "Regexp matching the Erase Display (ED 3) scrollback clear sequence.")
 
-(defconst ai-code-backends-infra--erase-to-end-regexp
-  "\033\\[J\\|\033\\[0J"
-  "Regexp matching Erase to End of Display (ED 0) sequences.")
-
 (defconst ai-code-backends-infra--sync-redraw-regexp
   "\033\\[\\?2026h\033\\[1;1H"
   "Regexp matching synchronized-update frame start with cursor home.
