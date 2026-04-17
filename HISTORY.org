@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Use ghostel-exec for Ghostel backend startup
 
 ** 1.71
 - Feat: Add get_variable_value MCP tool
