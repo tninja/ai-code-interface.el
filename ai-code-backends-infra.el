@@ -246,17 +246,23 @@ When `ai-code-backends-infra-strip-alternate-screen' is non-nil and
 the current buffer is an AI session buffer, apply these transformations:
 1. Strip alternate screen enter/exit (\\e[?1049h, \\e[?1049l).
 2. Convert screen clear (\\e[2J) to a newline-scroll sequence so
-   the current content is pushed into scrollback.
+   the current content is pushed into scrollback.  Throttled via
+   `ai-code-backends-infra-scrollback-inject-interval'.
 3. Strip scrollback clear (\\e[3J).
 4. Convert erase-to-end (\\e[J / \\e[0J) preceded by cursor-home
-   into a scrollback-preserving sequence.
+   into a scrollback-preserving sequence.  Throttled to avoid
+   flooding the scrollback ring with repeated TUI frames.
 5. Detect synchronized-update frame redraws (\\e[?2026h\\e[1;1H)
    and inject scrollback preservation before the frame, throttled
    to avoid flooding."
   (if (and ai-code-backends-infra-strip-alternate-screen
            (ai-code-backends-infra--session-buffer-p (current-buffer)))
-      (let ((result str)
-            (scroll-seq (ai-code-backends-infra--scroll-to-scrollback-sequence)))
+      (let* ((result str)
+             (scroll-seq (ai-code-backends-infra--scroll-to-scrollback-sequence))
+             (now (float-time))
+             (inject-ok (>= (- now
+                               ai-code-backends-infra--last-scrollback-inject-time)
+                            ai-code-backends-infra-scrollback-inject-interval)))
         (when (and ai-code-backends-infra-strip-alternate-screen-debug
                    (string-match-p "\033\\[" str))
           (let ((visible (replace-regexp-in-string
@@ -272,21 +278,31 @@ the current buffer is an AI session buffer, apply these transformations:
         ;; 1. Strip alternate screen transitions.
         (setq result (replace-regexp-in-string
                       ai-code-backends-infra--alternate-screen-regexp "" result))
-        ;; 2. Convert ED 2 (clear screen) to newline-scroll: move cursor
-        ;;    to the last row, emit height newlines (which libvterm pushes
-        ;;    into the scrollback ring), then cursor home.
-        (setq result (replace-regexp-in-string
-                      ai-code-backends-infra--screen-clear-regexp
-                      scroll-seq result t t))
+        ;; 2. Convert ED 2 (clear screen) to newline-scroll, throttled
+        ;;    to avoid flooding the scrollback ring with repeated TUI
+        ;;    frames.  When throttled the plain \e[2J clears the screen
+        ;;    without preserving content, which is acceptable since a
+        ;;    recent snapshot was already pushed.
+        (when (and inject-ok
+                   (string-match-p ai-code-backends-infra--screen-clear-regexp result))
+          (setq ai-code-backends-infra--last-scrollback-inject-time now)
+          (setq result (replace-regexp-in-string
+                        ai-code-backends-infra--screen-clear-regexp
+                        scroll-seq result t t)))
         ;; 3. Strip ED 3 (clear scrollback).
         (setq result (replace-regexp-in-string
                       ai-code-backends-infra--scrollback-clear-regexp "" result))
         ;; 4. Convert cursor-home + erase-to-end (\e[H\e[J) into a
-        ;;    scrollback-preserving sequence.  Ink/React-based TUIs use
-        ;;    this pattern instead of \e[2J.
-        (setq result (replace-regexp-in-string
-                      "\033\\[H\033\\[J\\|\033\\[H\033\\[0J"
-                      (concat scroll-seq "\033[H") result t t))
+        ;;    scrollback-preserving sequence, throttled to avoid flooding
+        ;;    the scrollback ring with repeated TUI frames (e.g. the
+        ;;    Claude Code badge appearing on every redraw).
+        (when inject-ok
+          (let ((home-erase-re "\033\\[H\033\\[J\\|\033\\[H\033\\[0J"))
+            (when (string-match-p home-erase-re result)
+              (setq ai-code-backends-infra--last-scrollback-inject-time now)
+              (setq result (replace-regexp-in-string
+                            home-erase-re
+                            (concat scroll-seq "\033[H") result t t)))))
         ;; 5. Detect synchronized-update frames (\e[?2026h followed by
         ;;    cursor to row 1) and inject scrollback preservation before
         ;;    the frame redraw, throttled to avoid flooding the scrollback

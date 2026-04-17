@@ -69,7 +69,17 @@ With prefix ARG, prompt for CLI args using
          (mcp-launch (ai-code-mcp-agent-prepare-launch 'claude-code working-dir command))
          (launch-command (or (plist-get mcp-launch :command) command))
          (cleanup-fn (plist-get mcp-launch :cleanup-fn))
-         (post-start-fn (plist-get mcp-launch :post-start-fn))
+         (mcp-post-start-fn (plist-get mcp-launch :post-start-fn))
+         ;; Wrap post-start-fn to disable strip-alternate-screen for Claude Code.
+         ;; That feature was introduced for Copilot CLI (PR #298) and causes
+         ;; the Claude Code badge to repeat in scrollback because the Ink/React
+         ;; TUI redraws the full screen (including badge) on every frame.
+         (post-start-fn
+          (lambda (buffer process instance-name)
+            (with-current-buffer buffer
+              (setq-local ai-code-backends-infra-strip-alternate-screen nil))
+            (when mcp-post-start-fn
+              (funcall mcp-post-start-fn buffer process instance-name))))
          (env-vars (append (list "TERM_PROGRAM=emacs"
                                 "FORCE_CODE_TERMINAL=true")
                           (when ai-code-claude-code-no-flicker
