@@ -26,28 +26,14 @@
   (alist-get 'text
              (car (alist-get 'content result))))
 
-(defun ai-code-test-mcp--read-json-payload (result)
-  "Decode the JSON text content from RESULT."
-  (let ((json-object-type 'alist)
-        (json-array-type 'vector)
-        (json-key-type 'symbol))
-    (json-read-from-string
-     (ai-code-test-mcp--content-text result))))
-
 (cl-defstruct ai-code-test-mcp-mock-diagnostic
   beg end type text backend)
 
 (defconst ai-code-test-mcp--builtin-tool-names
   '("buffer_query"
     "get_diagnostics"
-    "get_feature_load_state"
-    "get_function_info"
-    "get_last_error_backtrace"
     "get_project_buffers"
     "get_project_files"
-    "get_recent_messages"
-    "get_variable_binding_info"
-    "get_variable_value"
     "imenu_list_symbols"
     "notify_user"
     "project_info"
@@ -139,7 +125,8 @@
 
 (ert-deftest ai-code-test-mcp-builtins-setup-registers-common-tools-once ()
   "Built-in setup should register the common Emacs tools without duplicates."
-  (let ((ai-code-mcp-server-tools nil))
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled nil))
     (ai-code-mcp-builtins-setup)
     (ai-code-mcp-builtins-setup)
     (let ((tool-names (sort (mapcar (lambda (tool)
@@ -148,14 +135,8 @@
                             #'string<)))
        (should (equal '("buffer_query"
                         "get_diagnostics"
-                        "get_feature_load_state"
-                        "get_function_info"
-                        "get_last_error_backtrace"
                         "get_project_buffers"
                         "get_project_files"
-                        "get_recent_messages"
-                        "get_variable_binding_info"
-                        "get_variable_value"
                         "imenu_list_symbols"
                         "notify_user"
                         "project_info"
@@ -166,7 +147,8 @@
 
 (ert-deftest ai-code-test-mcp-tools-list-registers-builtins-by-default ()
   "Tools list should expose built-in tools without manual setup."
-  (let ((ai-code-mcp-server-tools nil))
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled nil))
     (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
            (tool-names (sort (mapcar (lambda (tool)
                                        (alist-get 'name tool))
@@ -196,247 +178,6 @@
         (should beep-called)
         (should (equal "Notified user: Build finished"
                        (ai-code-test-mcp--content-text result)))))))
-
-(ert-deftest ai-code-test-mcp-get-variable-value-returns-bound-variable ()
-  "Variable value tool should stringify the requested Emacs variable."
-  (let ((ai-code-mcp-server-tools nil)
-        (ai-code-mcp-diagnostics-backend 'flymake))
-    (let ((result (ai-code-mcp-dispatch
-                   "tools/call"
-                   '((name . "get_variable_value")
-                     (arguments . ((variable_name . "ai-code-mcp-diagnostics-backend")))))))
-      (should (equal "flymake"
-                     (ai-code-test-mcp--content-text result))))))
-
-(ert-deftest ai-code-test-mcp-get-variable-value-reports-missing-variable-without-interning ()
-  "Unknown variable names should not be interned and should return a friendly error."
-  (let* ((ai-code-mcp-server-tools nil)
-         (variable-name "ai-code-test-mcp-missing-variable")
-         (result nil))
-    (when (intern-soft variable-name)
-      (ert-fail "Test requires a missing symbol name"))
-    (setq result
-          (ai-code-mcp-dispatch
-           "tools/call"
-           `((name . "get_variable_value")
-             (arguments . ((variable_name . ,variable-name))))))
-    (should (equal (format "Variable not found: %s" variable-name)
-                   (ai-code-test-mcp--content-text result)))
-    (should-not (intern-soft variable-name))))
-
-(ert-deftest ai-code-test-mcp-get-variable-value-reports-unbound-variable ()
-  "Unbound variable names should return a friendly error."
-  (let ((ai-code-mcp-server-tools nil)
-        (variable-name "ai-code-test-mcp-unbound-variable"))
-    (unwind-protect
-        (let ((symbol (intern variable-name)))
-          (setplist symbol nil)
-          (makunbound symbol)
-          (let ((result (ai-code-mcp-dispatch
-                         "tools/call"
-                         `((name . "get_variable_value")
-                           (arguments . ((variable_name . ,variable-name)))))))
-            (should (equal (format "Variable is unbound: %s" variable-name)
-                           (ai-code-test-mcp--content-text result)))))
-      (unintern variable-name obarray))))
-
-(ert-deftest ai-code-test-mcp-tools-list-describes-variable-value-as-printed-representation ()
-  "Variable value tool metadata should match the returned representation."
-  (let ((ai-code-mcp-server-tools nil))
-    (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
-           (variable-tool (seq-find
-                           (lambda (tool)
-                             (equal "get_variable_value" (alist-get 'name tool)))
-                           (alist-get 'tools tools-result))))
-      (should variable-tool)
-      (should (equal "Get the printed representation of an Emacs variable value by name."
-                     (alist-get 'description variable-tool))))))
-
-(ert-deftest ai-code-test-mcp-get-variable-binding-info-reports-default-and-local-values ()
-  "Variable binding info should report current and default values."
-  (let ((ai-code-mcp-server-tools nil)
-        (variable-name "ai-code-test-mcp-buffer-local-variable")
-        (buffer (generate-new-buffer " *ai-code-mcp-binding-info*")))
-    (unwind-protect
-        (progn
-          (set-default (intern variable-name) 2)
-          (with-current-buffer buffer
-            (setq-local ai-code-test-mcp-buffer-local-variable 8))
-          (let* ((payload
-                  (ai-code-test-mcp--read-json-payload
-                   (ai-code-mcp-dispatch
-                    "tools/call"
-                    `((name . "get_variable_binding_info")
-                      (arguments . ((variable_name . ,variable-name)
-                                    (buffer_name . ,(buffer-name buffer))))))))
-                 (documentation-summary
-                  (alist-get 'documentation_summary payload)))
-            (should (equal t (alist-get 'exists payload)))
-            (should (equal t (alist-get 'buffer_local payload)))
-            (should (equal "8" (alist-get 'current_value_repr payload)))
-            (should (equal "2" (alist-get 'default_value_repr payload)))
-            (should (equal (buffer-name buffer)
-                           (alist-get 'buffer_name payload)))
-            (should (stringp documentation-summary))))
-      (when (buffer-live-p buffer)
-        (kill-buffer buffer))
-      (when (intern-soft variable-name)
-        (unintern variable-name obarray)))))
-
-(ert-deftest ai-code-test-mcp-get-variable-binding-info-reports-missing-variable ()
-  "Variable binding info should report a missing variable without interning it."
-  (let ((ai-code-mcp-server-tools nil)
-        (variable-name "ai-code-test-mcp-missing-binding-variable"))
-    (when (intern-soft variable-name)
-      (ert-fail "Test requires a missing symbol name"))
-    (let ((payload
-           (ai-code-test-mcp--read-json-payload
-            (ai-code-mcp-dispatch
-             "tools/call"
-             `((name . "get_variable_binding_info")
-               (arguments . ((variable_name . ,variable-name))))))))
-      (should (equal :json-false (alist-get 'exists payload)))
-      (should-not (alist-get 'current_value_repr payload))
-      (should-not (intern-soft variable-name)))))
-
-(ert-deftest ai-code-test-mcp-get-function-info-reports-alias-and-advice-state ()
-  "Function info should report alias and advice metadata."
-  (let ((ai-code-mcp-server-tools nil)
-        (base-name "ai-code-test-mcp-base-function")
-        (alias-name "ai-code-test-mcp-aliased-function")
-        (advice-name "ai-code-test-mcp-around-advice"))
-    (unwind-protect
-        (progn
-          (fset (intern base-name) (lambda () :ok))
-          (defalias (intern alias-name) (intern base-name))
-          (fset (intern advice-name)
-                (lambda (fn &rest args)
-                  (apply fn args)))
-          (advice-add (intern alias-name) :around (intern advice-name))
-          (let ((payload
-                 (ai-code-test-mcp--read-json-payload
-                  (ai-code-mcp-dispatch
-                   "tools/call"
-                   `((name . "get_function_info")
-                     (arguments . ((function_name . ,alias-name))))))))
-            (should (equal t (alist-get 'exists payload)))
-            (should (equal "lambda" (alist-get 'kind payload)))
-            (should (equal t (alist-get 'advised payload)))
-            (should (equal base-name (alist-get 'aliased_to payload)))))
-      (when (fboundp (intern-soft alias-name))
-        (ignore-errors
-          (advice-remove (intern alias-name) (intern advice-name)))
-        (fmakunbound (intern alias-name)))
-      (when (fboundp (intern-soft base-name))
-        (fmakunbound (intern base-name)))
-      (when (fboundp (intern-soft advice-name))
-        (fmakunbound (intern advice-name)))
-      (when (intern-soft alias-name)
-        (unintern alias-name obarray))
-      (when (intern-soft base-name)
-        (unintern base-name obarray))
-      (when (intern-soft advice-name)
-        (unintern advice-name obarray)))))
-
-(ert-deftest ai-code-test-mcp-get-function-info-reports-missing-functions ()
-  "Function info should report missing function symbols cleanly."
-  (let ((ai-code-mcp-server-tools nil)
-        (function-name "ai-code-test-mcp-missing-function"))
-    (when (intern-soft function-name)
-      (ert-fail "Test requires a missing function symbol"))
-    (let ((payload
-           (ai-code-test-mcp--read-json-payload
-            (ai-code-mcp-dispatch
-             "tools/call"
-             `((name . "get_function_info")
-               (arguments . ((function_name . ,function-name))))))))
-      (should (equal :json-false (alist-get 'exists payload)))
-      (should-not (intern-soft function-name)))))
-
-(ert-deftest ai-code-test-mcp-get-feature-load-state-reports-loaded-feature-details ()
-  "Feature load state should report loaded features and their providers."
-  (let ((ai-code-mcp-server-tools nil))
-    (let* ((payload
-            (ai-code-test-mcp--read-json-payload
-             (ai-code-mcp-dispatch
-              "tools/call"
-              '((name . "get_feature_load_state")
-                (arguments . ((feature_name . "json")))))))
-           (provided-by-files (append (alist-get 'provided_by_files payload) nil))
-           (load-path-matches (append (alist-get 'load_path_matches payload) nil)))
-      (should (equal t (alist-get 'loaded payload)))
-      (should (stringp (alist-get 'library_path payload)))
-      (should provided-by-files)
-      (should load-path-matches))))
-
-(ert-deftest ai-code-test-mcp-get-feature-load-state-reports-missing-features ()
-  "Feature load state should report missing features without errors."
-  (let ((ai-code-mcp-server-tools nil)
-        (feature-name "ai-code-test-mcp-missing-feature"))
-    (when (intern-soft feature-name)
-      (ert-fail "Test requires a missing feature symbol"))
-    (let ((payload
-           (ai-code-test-mcp--read-json-payload
-            (ai-code-mcp-dispatch
-             "tools/call"
-             `((name . "get_feature_load_state")
-               (arguments . ((feature_name . ,feature-name))))))))
-      (should (equal :json-false (alist-get 'loaded payload)))
-      (should-not (alist-get 'library_path payload)))))
-
-(ert-deftest ai-code-test-mcp-get-recent-messages-returns-latest-messages ()
-  "Recent messages should return the latest entries from `*Messages*'."
-  (let ((ai-code-mcp-server-tools nil))
-    (message "ai-code-mcp-server-test-message")
-    (let* ((payload
-            (ai-code-test-mcp--read-json-payload
-             (ai-code-mcp-dispatch
-              "tools/call"
-              '((name . "get_recent_messages")
-                (arguments . ((limit . 1)))))))
-           (messages (alist-get 'messages payload)))
-      (should (equal t (alist-get 'ok payload)))
-      (should (= 1 (length messages)))
-      (should (string-match-p "ai-code-mcp-server-test-message"
-                              (aref messages 0))))))
-
-(ert-deftest ai-code-test-mcp-get-last-error-backtrace-reports-empty-state ()
-  "Last error backtrace should report when no error has been captured."
-  (let ((ai-code-mcp-server-tools nil)
-        (ai-code-mcp--last-error-record nil))
-    (let ((payload
-           (ai-code-test-mcp--read-json-payload
-            (ai-code-mcp-dispatch
-             "tools/call"
-             '((name . "get_last_error_backtrace")
-               (arguments . ()))))))
-      (should (equal :json-false (alist-get 'recorded payload)))
-      (should-not (alist-get 'error_message payload))
-      (should-not (alist-get 'frames payload)))))
-
-(ert-deftest ai-code-test-mcp-get-last-error-backtrace-returns-recorded-error ()
-  "Last error backtrace should return the recorded error snapshot."
-  (let ((ai-code-mcp-server-tools nil)
-        (ai-code-mcp--last-error-record nil))
-    (cl-letf (((symbol-function 'backtrace-frames)
-               (lambda (&optional _base)
-                 '((t ai-code-test-mcp-frame-a nil nil)
-                   (t ai-code-test-mcp-frame-b ("x") nil)))))
-      (ai-code-mcp--record-command-error '(error "Boom") 'command t))
-    (let* ((payload
-            (ai-code-test-mcp--read-json-payload
-             (ai-code-mcp-dispatch
-              "tools/call"
-              '((name . "get_last_error_backtrace")
-                (arguments . ())))))
-           (frames (append (alist-get 'frames payload) nil)))
-      (should (equal t (alist-get 'recorded payload)))
-      (should (equal "error" (alist-get 'error_symbol payload)))
-      (should (equal "Boom" (alist-get 'error_message payload)))
-      (should (equal "command" (alist-get 'context payload)))
-      (should (= 2 (alist-get 'frame_count payload)))
-      (should (string-match-p "ai-code-test-mcp-frame-a"
-                              (car frames))))))
 
 (ert-deftest ai-code-test-mcp-tools-list-encodes-empty-input-schema-properties ()
   "No-argument tools should encode empty schema properties as an object."
