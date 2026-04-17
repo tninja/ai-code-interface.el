@@ -13,6 +13,13 @@
 (require 'magit)
 (require 'cl-lib)
 
+(defvar ai-code-prompt-suffix)
+(defvar ai-code-auto-test-type)
+(defvar ai-code-auto-test-suffix)
+(defvar ai-code-discussion-auto-follow-up-enabled)
+(defvar ai-code-discussion-auto-follow-up-suffix)
+(defvar ai-code-use-prompt-suffix)
+
 ;; Helper macro to set up and tear down the test environment
 (defmacro ai-code-with-test-repo (&rest body)
   "Set up a temporary git repository environment for testing.
@@ -308,31 +315,39 @@ and ensures everything is cleaned up afterward."
                      ((symbol-function 'ai-code-cli-send-command)
                       (lambda (command)
                         (setq sent-command command)))
-                     ((symbol-function 'ai-code-cli-switch-to-buffer)
-                      (lambda ()
-                        (setq switch-called t)))
-                     ((symbol-function 'message)
-                      (lambda (&rest _args) nil)))
-             (let ((current-prefix-arg '(4)))
-               (call-interactively #'ai-code-create-or-open-task-file))
-             (should switch-called)
+	                     ((symbol-function 'ai-code-cli-switch-to-buffer)
+	                      (lambda ()
+	                        (setq switch-called t)))
+	                     ((symbol-function 'message)
+	                      (lambda (&rest _args) nil)))
+	             (let ((current-prefix-arg '(4))
+	                   (ai-code-prompt-suffix nil)
+	                   (ai-code-auto-test-type nil)
+	                   (ai-code-auto-test-suffix nil)
+	                   (ai-code-discussion-auto-follow-up-enabled nil)
+	                   (ai-code-discussion-auto-follow-up-suffix nil)
+	                   (ai-code-use-prompt-suffix nil))
+	               (call-interactively #'ai-code-create-or-open-task-file))
+	             (should switch-called)
              (should (equal (car (car (last read-calls)))
                             "Directory to search org files: "))
              (should (equal (nth 1 (car (last read-calls))) files-dir))
              (should (eq (nth 2 (car (last read-calls)))
                          'ai-code-task-search-directory-history))
-             (should (equal sent-command
-                            (concat
-                             "Search the content of all .org files recursively under directory: "
-                             search-dir
-                             "\n"
-                             "Search target description: find todos about auth"
-                             "\n"
-                             "Focus on matching content inside the files, not just file names."
-                             "\n"
-                             "Return the relevant file paths, matched excerpts, and a concise summary.")))))
-       (when (file-directory-p files-dir)
-         (delete-directory files-dir t))))))
+	             (should (equal sent-command
+	                            (concat
+	                             "Search the content of all .org files recursively under directory: "
+	                             "@"
+	                             (file-relative-name search-dir git-root)
+	                             "\n"
+	                             "Search target description: find todos about auth"
+	                             "\n"
+	                             "Focus on matching content inside the files, not just file names."
+	                             "\n"
+	                             "Return the relevant file paths, matched excerpts, and a concise summary."
+	                             "\n")))))
+	       (when (file-directory-p files-dir)
+	         (delete-directory files-dir t))))))
 
 (ert-deftest ai-code-test-read-task-search-directory-expands-relative-input-from-files-dir ()
   "Relative search directories should resolve from AI-CODE-FILES-DIR."

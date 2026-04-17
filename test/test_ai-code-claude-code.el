@@ -60,7 +60,8 @@
         (should (member "CLAUDE_CODE_NO_FLICKER=1" captured-env-vars)))
       (let ((ai-code-claude-code-no-flicker nil))
         (ai-code-claude-code)
-        (should (member "CLAUDE_CODE_NO_FLICKER=0" captured-env-vars))))))
+        (should-not (member "CLAUDE_CODE_NO_FLICKER=0" captured-env-vars))
+        (should-not (member "CLAUDE_CODE_NO_FLICKER=1" captured-env-vars))))))
 
 (provide 'test_ai-code-claude-code)
 
