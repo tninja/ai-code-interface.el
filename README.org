@@ -216,6 +216,7 @@ AI Code includes an Emacs MCP server with these built-in tools:
 - =get_diagnostics=: return Flycheck or Flymake diagnostics for one file or open project buffers
 - =get_project_files=: list regular files in the current project
 - =get_project_buffers=: list open buffers that belong to the current project
+- =get_variable_value=: return the printed value of an Emacs variable by name
 - =imenu_list_symbols=: list useful symbols from a file via imenu
 - =xref_find_references=: find references to an identifier in project context
 - =xref_find_definitions_at_point=: find definitions at a file location

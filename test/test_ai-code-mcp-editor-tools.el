@@ -50,14 +50,15 @@
                         "get_diagnostics"
                         "get_project_buffers"
                         "get_project_files"
+                        "get_variable_value"
                         "imenu_list_symbols"
                         "messages_tail"
                         "notify_user"
                         "project_info"
-                        "treesit_info"
-                        "visible_buffers"
-                        "xref_find_definitions_at_point"
-                        "xref_find_references")
+                         "treesit_info"
+                         "visible_buffers"
+                         "xref_find_definitions_at_point"
+                         "xref_find_references")
                      tool-names)))))
 
 (ert-deftest ai-code-test-mcp-editor-state-reports-selected-buffer ()

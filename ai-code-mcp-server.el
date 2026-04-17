@@ -119,11 +119,17 @@ Use `auto' to prefer Flycheck and then Flymake when available."
      :name "get_project_buffers"
      :description "List open buffers that belong to the current project."
      :args nil)
+    (:function ai-code-mcp-get-variable-value
+     :name "get_variable_value"
+     :description "Get the string value of an Emacs variable by name."
+     :args ((:name "variable_name"
+             :type string
+             :description "Emacs variable name to inspect.")))
     (:function ai-code-mcp-notify-user
      :name "notify_user"
      :description "Show a notification to the Emacs user."
      :args ((:name "message_text"
-             :type string
+              :type string
              :description "Notification text to show in Emacs.")))
     (:function ai-code-mcp-imenu-list-symbols
      :name "imenu_list_symbols"
@@ -178,6 +184,7 @@ The default tool list includes:
 - `get_diagnostics'
 - `get_project_files'
 - `get_project_buffers'
+- `get_variable_value'
 - `notify_user'
 - `imenu_list_symbols'
 - `xref_find_references'
@@ -807,6 +814,12 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   (message "%s" message-text)
   (beep)
   (format "Notified user: %s" message-text))
+
+;; DONE: add a mcp tool, given emacs variable name as string, that returns the variable's value as a string. This would be a very general-purpose tool for debugging and introspection.
+
+(defun ai-code-mcp-get-variable-value (variable-name)
+  "Return the value of VARIABLE-NAME as a string."
+  (format "%S" (symbol-value (intern variable-name))))
 
 (require 'ai-code-mcp-editor-tools nil t)
 

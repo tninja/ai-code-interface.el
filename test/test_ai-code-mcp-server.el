@@ -34,6 +34,7 @@
     "get_diagnostics"
     "get_project_buffers"
     "get_project_files"
+    "get_variable_value"
     "imenu_list_symbols"
     "notify_user"
     "project_info"
@@ -132,15 +133,16 @@
                                       (plist-get tool :name))
                                     ai-code-mcp-server-tools)
                             #'string<)))
-      (should (equal '("buffer_query"
-                       "get_diagnostics"
-                       "get_project_buffers"
-                       "get_project_files"
-                       "imenu_list_symbols"
-                       "notify_user"
-                       "project_info"
-                       "treesit_info"
-                       "xref_find_definitions_at_point"
+       (should (equal '("buffer_query"
+                        "get_diagnostics"
+                        "get_project_buffers"
+                        "get_project_files"
+                        "get_variable_value"
+                        "imenu_list_symbols"
+                        "notify_user"
+                        "project_info"
+                        "treesit_info"
+                        "xref_find_definitions_at_point"
                        "xref_find_references")
                      tool-names)))))
 
@@ -168,14 +170,25 @@
               ((symbol-function 'beep)
                (lambda (&rest _args)
                  (setq beep-called t))))
-      (let ((result (ai-code-mcp-dispatch
-                     "tools/call"
-                     '((name . "notify_user")
-                       (arguments . ((message_text . "Build finished")))))))
+       (let ((result (ai-code-mcp-dispatch
+                      "tools/call"
+                      '((name . "notify_user")
+                        (arguments . ((message_text . "Build finished")))))))
         (should (equal "Build finished" captured-message))
         (should beep-called)
         (should (equal "Notified user: Build finished"
                        (ai-code-test-mcp--content-text result)))))))
+
+(ert-deftest ai-code-test-mcp-get-variable-value-returns-bound-variable ()
+  "Variable value tool should stringify the requested Emacs variable."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-diagnostics-backend 'flymake))
+    (let ((result (ai-code-mcp-dispatch
+                   "tools/call"
+                   '((name . "get_variable_value")
+                     (arguments . ((variable_name . "ai-code-mcp-diagnostics-backend")))))))
+      (should (equal "flymake"
+                     (ai-code-test-mcp--content-text result))))))
 
 (ert-deftest ai-code-test-mcp-tools-list-encodes-empty-input-schema-properties ()
   "No-argument tools should encode empty schema properties as an object."
