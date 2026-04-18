@@ -174,7 +174,7 @@ Merge Conflict Resolution Steps:
 4. Attempt to merge the target branch into the current working branch.
 5. If there are merge conflicts, analyze each conflict and provide detailed instructions on how to resolve them, including which files to change and how.
 6. Do not make code changes. Provide analysis and resolution suggestions only.
-7. If there are no merge conflicts, finish the merge and return a success message."
+7. If there are no merge conflicts, report that the merge would succeed and return a success message."
             pr-url source-instruction)))
 
 (defun ai-code--pull-or-review-source-instruction (review-source &optional review-mode)
