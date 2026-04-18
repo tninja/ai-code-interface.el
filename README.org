@@ -210,17 +210,33 @@ The generated prompt will include the function/region scope, visible file list, 
 
 **** Built-in Emacs MCP Tools
 
-AI Code includes an Emacs MCP server with these built-in tools:
+AI Code includes an Emacs MCP server with these core built-in tools:
 - =project_info=: summarize the current project, active buffer, and file count
 - =buffer_query=: read buffer contents, optionally by line range
 - =get_diagnostics=: return Flycheck or Flymake diagnostics for one file or open project buffers
 - =get_project_files=: list regular files in the current project
 - =get_project_buffers=: list open buffers that belong to the current project
-- =get_variable_value=: return the printed value of an Emacs variable by name
 - =imenu_list_symbols=: list useful symbols from a file via imenu
 - =xref_find_references=: find references to an identifier in project context
 - =xref_find_definitions_at_point=: find definitions at a file location
 - =treesit_info=: inspect tree-sitter node information for a file location
+
+Optional debugging tools are registered from a separate module and are enabled by default:
+
+#+begin_src emacs-lisp
+(setq ai-code-mcp-debug-tools-enabled t)  ;; default
+;; (setq ai-code-mcp-debug-tools-enabled nil) ;; disable them
+#+end_src
+
+When enabled, AI Code also registers:
+- =get_variable_value=: return the printed value of an Emacs variable by name
+- =get_variable_binding_info=: inspect current and default bindings for an Emacs variable
+- =get_function_info=: inspect function metadata such as kind, aliasing, and advice state
+- =get_feature_load_state=: inspect whether an Emacs feature is loaded and where it comes from
+- =get_recent_messages=: return the latest lines from =*Messages*=
+- =get_last_error_backtrace=: return the most recently recorded Emacs command error snapshot
+
+This split keeps the MCP core small while still exposing debugging-oriented tools by default.
 
 Optional editor-session tools are available when you explicitly enable them:
 

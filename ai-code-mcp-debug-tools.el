@@ -11,7 +11,6 @@
 (require 'json)
 (require 'ai-code-mcp-common)
 (require 'nadvice)
-(require 'seq)
 (require 'subr-x)
 
 (declare-function ai-code-mcp-make-tool "ai-code-mcp-server")
@@ -209,19 +208,21 @@ existing bound variable."
 
 (defun ai-code-mcp--function-kind (symbol)
   "Return a string describing SYMBOL's callable kind."
-  (let* ((root-definition (ai-code-mcp--function-root-definition symbol))
-         (resolved-definition (if (symbolp root-definition)
-                                  (indirect-function root-definition)
-                                (indirect-function symbol))))
+  (let ((root-definition (ai-code-mcp--function-root-definition symbol)))
     (cond
-     ((macrop symbol) "macro")
      ((autoloadp root-definition) "autoload")
-     ((subrp resolved-definition) "subr")
-     ((or (functionp resolved-definition)
-          (and (consp resolved-definition)
-               (memq (car resolved-definition) '(lambda closure))))
-      "lambda")
-     (t "unknown"))))
+     ((macrop symbol) "macro")
+     (t
+      (let ((resolved-definition (if (symbolp root-definition)
+                                     (indirect-function root-definition)
+                                   (indirect-function symbol))))
+        (cond
+         ((subrp resolved-definition) "subr")
+         ((or (functionp resolved-definition)
+              (and (consp resolved-definition)
+                   (memq (car resolved-definition) '(lambda closure))))
+          "lambda")
+         (t "unknown")))))))
 
 (defun ai-code-mcp-get-function-info (function-name)
   "Return JSON metadata describing FUNCTION-NAME."
@@ -300,22 +301,38 @@ existing bound variable."
             (when (file-exists-p candidate)
               (push candidate matches))))))))
 
+(defun ai-code-mcp--valid-feature-name-p (feature-name)
+  "Return non-nil when FEATURE-NAME is a non-empty string."
+  (and (stringp feature-name)
+       (not (string-empty-p feature-name))))
+
+(defun ai-code-mcp--invalid-feature-load-state-payload (feature-name)
+  "Return a JSON payload for invalid FEATURE-NAME input."
+  `((feature_name . ,feature-name)
+    (loaded . :json-false)
+    (error_message . "feature_name must be a non-empty string")
+    (library_path . nil)
+    (provided_by_files . nil)
+    (load_path_matches . nil)))
+
 (defun ai-code-mcp-get-feature-load-state (feature-name)
   "Return JSON load-state details for FEATURE-NAME."
-  (let* ((feature-symbol (and (stringp feature-name)
-                              (intern-soft feature-name)))
-         (loaded (and feature-symbol (featurep feature-symbol)))
-         (library-path (locate-library feature-name))
-         (providers (and feature-symbol
-                         (ai-code-mcp--feature-providers feature-symbol))))
-    (json-encode
-     `((feature_name . ,feature-name)
-       (loaded . ,(ai-code-mcp--json-bool loaded))
-       (library_path . ,library-path)
-       (provided_by_files . ,(vconcat providers))
-       (load_history_entries . ,(vconcat providers))
-       (load_path_matches
-        . ,(vconcat (ai-code-mcp--feature-library-matches feature-name)))))))
+  (if (not (ai-code-mcp--valid-feature-name-p feature-name))
+      (json-encode
+       (ai-code-mcp--invalid-feature-load-state-payload feature-name))
+    (let* ((feature-symbol (intern-soft feature-name))
+           (loaded (and feature-symbol (featurep feature-symbol)))
+           (library-path (locate-library feature-name))
+           (providers (and feature-symbol
+                           (ai-code-mcp--feature-providers feature-symbol))))
+      (json-encode
+       `((feature_name . ,feature-name)
+         (loaded . ,(ai-code-mcp--json-bool loaded))
+         (error_message . nil)
+         (library_path . ,library-path)
+         (provided_by_files . ,(vconcat providers))
+         (load_path_matches
+          . ,(vconcat (ai-code-mcp--feature-library-matches feature-name))))))))
 
 (defun ai-code-mcp-get-recent-messages (&optional limit)
   "Return a JSON payload for recent messages using LIMIT."

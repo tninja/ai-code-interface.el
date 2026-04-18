@@ -48,6 +48,8 @@
     (insert-file-contents "ai-code-mcp-debug-tools.el")
     (goto-char (point-min))
     (should (search-forward "(require 'ai-code-mcp-common" nil t))
+    (goto-char (point-min))
+    (should-not (search-forward "(require 'seq)" nil t))
     (should-not (search-forward "(defun ai-code-mcp--json-bool" nil t))
     (goto-char (point-min))
     (should-not (search-forward "(defun ai-code-mcp--message-lines" nil t))
@@ -271,6 +273,20 @@
       (should (equal :json-false (alist-get 'exists payload)))
       (should-not (intern-soft function-name)))))
 
+(ert-deftest ai-code-test-mcp-function-kind-does-not-resolve-autoloads ()
+  "Autoload classification should not force indirect resolution."
+  (let ((symbol (make-symbol "ai-code-test-mcp-autoload-function")))
+    (unwind-protect
+        (progn
+          (fset symbol '(autoload "ai-code-test-autoload-lib" nil nil nil))
+          (cl-letf (((symbol-function 'indirect-function)
+                     (lambda (&rest _args)
+                       (ert-fail "autoload classification should not resolve"))))
+            (should (equal "autoload"
+                           (ai-code-mcp--function-kind symbol)))))
+      (when (fboundp symbol)
+        (fmakunbound symbol)))))
+
 (ert-deftest ai-code-test-mcp-get-feature-load-state-reports-loaded-feature-details ()
   "Feature load state should report loaded features and their providers."
   (let ((ai-code-mcp-server-tools nil)
@@ -286,7 +302,8 @@
       (should (equal t (alist-get 'loaded payload)))
       (should (stringp (alist-get 'library_path payload)))
       (should provided-by-files)
-      (should load-path-matches))))
+      (should load-path-matches)
+      (should-not (alist-get 'load_history_entries payload)))))
 
 (ert-deftest ai-code-test-mcp-get-feature-load-state-reports-missing-features ()
   "Feature load state should report missing features without errors."
@@ -303,6 +320,22 @@
                (arguments . ((feature_name . ,feature-name))))))))
       (should (equal :json-false (alist-get 'loaded payload)))
       (should-not (alist-get 'library_path payload)))))
+
+(ert-deftest ai-code-test-mcp-get-feature-load-state-rejects-invalid-feature-name ()
+  "Feature load state should reject non-string feature names clearly."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t))
+    (let ((payload
+           (ai-code-test-mcp-debug-tools--read-json-payload
+            (ai-code-mcp-dispatch
+             "tools/call"
+             '((name . "get_feature_load_state")
+               (arguments . ((feature_name . 7))))))))
+      (should (equal :json-false (alist-get 'loaded payload)))
+      (should (equal "feature_name must be a non-empty string"
+                     (alist-get 'error_message payload)))
+      (should-not (alist-get 'library_path payload))
+      (should-not (alist-get 'load_path_matches payload)))))
 
 (ert-deftest ai-code-test-mcp-get-recent-messages-returns-latest-messages ()
   "Recent messages should return the latest entries from `*Messages*'."
