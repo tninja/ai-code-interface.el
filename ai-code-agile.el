@@ -836,32 +836,11 @@ to fix code."
 
 ;;;###autoload
 (defun ai-code-run-test ()
-  "Run a test command based on the current buffer's mode.
-Checks for specific test runners \(python-pytest, jest, ert) and runs
-them if available."
+  "Ask AI to run the relevant tests for the current context."
+  ;; DONE: remove pytest / jest / ert usage here, simply call ai-code--run-test-ai-assisted
+  ;; DONE: Remove related information from README / autoloads / @test as well, since we want to keep the @test running experience consistent across languages and rely on AI to figure out the test pattern and command.
   (interactive)
-  (cond
-   ((derived-mode-p 'python-mode)
-    (if (fboundp 'python-pytest-popup)
-        (python-pytest-popup)
-      (progn
-        (message "emacs-python-pytest package is required to run python test.")
-        (ai-code--run-test-ai-assisted))))
-   ((or (derived-mode-p 'js-mode)
-        (derived-mode-p 'js-ts-mode)
-        (derived-mode-p 'typescript-mode)
-        (derived-mode-p 'typescript-ts-mode)
-        (derived-mode-p 'rjsx-mode))
-    (if (fboundp 'jest-popup)
-        (jest-popup)
-      (progn
-        (message "jest package is required to run js/ts test.")
-        (ai-code--run-test-ai-assisted))))
-   ((derived-mode-p 'emacs-lisp-mode)
-    (require 'ert)
-    (ert t))
-   (t
-    (ai-code--run-test-ai-assisted))))
+  (ai-code--run-test-ai-assisted))
 
 ;;;###autoload
 (defun ai-code-tdd-cycle ()

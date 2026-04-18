@@ -152,8 +152,6 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   - (emacs built-in) abbrev + skeleton is also a good way to expand prompt. [[./etc/prompt_expand_with_abbrev_skeleton.el][example abbrev to solve / iterate leetcode problem with tdd (need to set ai-code-auto-test-type with tdd)]], [[./examples/leetcode][example problem resolved]]
 - `projectile`: For project root initialization.
 - `helm-gtags`: For tags creation and symbol navigation fallback from clickable session symbols.
-- `python-pytest`: For running python tests in the TDD workflow.
-- `jest`: For running JavaScript / TypeScript tests in the TDD workflow.
 
 ** Key Features
 

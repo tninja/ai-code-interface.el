@@ -89,9 +89,7 @@ TDD refactor stage.
 
 (fn &optional TDD-MODE)" t)
 (autoload 'ai-code-run-test "ai-code-agile" "\
-Run a test command based on the current buffer's mode.
-Checks for specific test runners (python-pytest, jest, ert) and runs
-them if available." t)
+Ask AI to run the relevant tests for the current context." t)
 (autoload 'ai-code-tdd-cycle "ai-code-agile" "\
 Guide through Test Driven Development cycle (Red-Green-Refactor).
 Helps users follow Kent Beck's TDD methodology with AI assistance.

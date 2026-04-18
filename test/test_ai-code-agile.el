@@ -140,6 +140,31 @@
         (ai-code-tdd-cycle)
         (should (equal called-function-name "my-function"))))))
 
+(ert-deftest ai-code-test-run-test-always-delegates-to-ai-assisted-runner ()
+  "Verify `ai-code-run-test' always delegates to the AI-assisted test runner."
+  (dolist (mode-setup '(emacs-lisp-mode
+                        python-mode
+                        js-mode
+                        text-mode))
+    (ert-info ((format "Mode setup: %S" mode-setup))
+      (with-temp-buffer
+        (funcall mode-setup)
+        (let ((ai-assisted-call-count 0))
+          (cl-letf (((symbol-function 'ai-code--run-test-ai-assisted)
+                     (lambda ()
+                       (setq ai-assisted-call-count (1+ ai-assisted-call-count))))
+                    ((symbol-function 'python-pytest-popup)
+                     (lambda ()
+                       (ert-fail "python-pytest-popup should not be called")))
+                    ((symbol-function 'jest-popup)
+                     (lambda ()
+                       (ert-fail "jest-popup should not be called")))
+                    ((symbol-function 'ert)
+                     (lambda (&rest _args)
+                       (ert-fail "ert should not be called"))))
+            (ai-code-run-test)
+            (should (= ai-assisted-call-count 1))))))))
+
 (ert-deftest ai-code-test-tdd-red-green-blue-stage-prompt-includes-xp-rules ()
   "Verify Red + Green + Blue prompt includes TDD flow and XP simplicity rules."
   (with-temp-buffer
