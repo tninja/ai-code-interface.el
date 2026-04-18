@@ -85,7 +85,10 @@ With prefix ARG, prompt for CLI args using
          (post-start-fn
           (lambda (buffer process instance-name)
             (with-current-buffer buffer
-              (unless (eq ai-code-backends-infra-terminal-backend 'vterm)
+              (if (eq ai-code-backends-infra-terminal-backend 'vterm)
+                  ;; Explicitly re-enable for vterm to guard against stale
+                  ;; buffer-local nil from a previous session or backend switch.
+                  (setq-local ai-code-backends-infra-strip-alternate-screen t)
                 (setq-local ai-code-backends-infra-strip-alternate-screen nil)))
             (when mcp-post-start-fn
               (funcall mcp-post-start-fn buffer process instance-name))))
