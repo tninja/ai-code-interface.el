@@ -10,6 +10,14 @@
 
 (require 'ai-code-session-link)
 
+(defcustom ai-code-backends-infra-eat-preserve-position t
+  "Maintain terminal scroll position when switching windows in eat.
+When enabled, prevents the eat terminal from jumping to the top
+when you switch focus to other windows and return.  This provides
+a more stable viewing experience when working with multiple windows."
+  :type 'boolean
+  :group 'ai-code-backends-infra)
+
 (declare-function ai-code-backends-infra--configure-session-input-shortcuts
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--install-navigation-cursor-sync
@@ -30,7 +38,6 @@
 (declare-function eat-exec "eat" (&rest args))
 (declare-function eat-term-display-cursor "eat" (terminal))
 
-(defvar ai-code-backends-infra-eat-preserve-position)
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar eat--semi-char-mode)
 (defvar eat--synchronize-scroll-function)

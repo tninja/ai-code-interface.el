@@ -11,6 +11,16 @@
 (require 'cl-lib)
 (require 'ai-code-session-link)
 
+(defcustom ai-code-backends-infra-vterm-anti-flicker t
+  "Enable intelligent flicker reduction for vterm display."
+  :type 'boolean
+  :group 'ai-code-backends-infra)
+
+(defcustom ai-code-backends-infra-vterm-render-delay 0.01
+  "Rendering optimization delay for batched terminal updates."
+  :type 'number
+  :group 'ai-code-backends-infra)
+
 (declare-function ai-code-backends-infra--configure-session-input-shortcuts
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--install-navigation-cursor-sync
@@ -37,8 +47,6 @@
 (declare-function vterm--filter "vterm" (&rest args))
 
 (defvar ai-code-backends-infra-strip-alternate-screen)
-(defvar ai-code-backends-infra-vterm-anti-flicker)
-(defvar ai-code-backends-infra-vterm-render-delay)
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar vterm-copy-mode)
 (defvar vterm-copy-mode-hook)

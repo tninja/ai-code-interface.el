@@ -33,6 +33,36 @@
   "Ensure printable content is still detected after stripping noise."
   (should (ai-code-backends-infra--output-meaningful-p "\x1b[31mhello\x1b[0m")))
 
+(ert-deftest test-ai-code-backends-infra-main-file-keeps-backend-defcustoms-out ()
+  "Backend-specific defcustoms should no longer be defined in the main infra file."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-backends-infra.el")
+    (goto-char (point-min))
+    (should-not (re-search-forward
+                 "^(defcustom ai-code-backends-infra-vterm-anti-flicker\\_>" nil t))
+    (goto-char (point-min))
+    (should-not (re-search-forward
+                 "^(defcustom ai-code-backends-infra-vterm-render-delay\\_>" nil t))
+    (goto-char (point-min))
+    (should-not (re-search-forward
+                 "^(defcustom ai-code-backends-infra-eat-preserve-position\\_>" nil t))))
+
+(ert-deftest test-ai-code-backends-infra-backend-files-own-backend-defcustoms ()
+  "Backend-specific defcustoms should live in their backend modules."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-backends-infra-vterm.el")
+    (goto-char (point-min))
+    (should (re-search-forward
+             "^(defcustom ai-code-backends-infra-vterm-anti-flicker\\_>" nil t))
+    (goto-char (point-min))
+    (should (re-search-forward
+             "^(defcustom ai-code-backends-infra-vterm-render-delay\\_>" nil t)))
+  (with-temp-buffer
+    (insert-file-contents "ai-code-backends-infra-eat.el")
+    (goto-char (point-min))
+    (should (re-search-forward
+             "^(defcustom ai-code-backends-infra-eat-preserve-position\\_>" nil t))))
+
 (ert-deftest test-ai-code-backends-infra-buffer-user-visible-p ()
   "Return non-nil only when buffer has a visible window."
   (with-temp-buffer

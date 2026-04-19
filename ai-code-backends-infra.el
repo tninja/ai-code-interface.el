@@ -68,16 +68,6 @@ Can be either `vterm', `eat', or `ghostel'."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
-(defcustom ai-code-backends-infra-vterm-anti-flicker t
-  "Enable intelligent flicker reduction for vterm display."
-  :type 'boolean
-  :group 'ai-code-backends-infra)
-
-(defcustom ai-code-backends-infra-vterm-render-delay 0.01
-  "Rendering optimization delay for batched terminal updates."
-  :type 'number
-  :group 'ai-code-backends-infra)
-
 (defcustom ai-code-backends-infra-terminal-initialization-delay 0.1
   "Initialization delay for terminal stability."
   :type 'number
@@ -85,14 +75,6 @@ Can be either `vterm', `eat', or `ghostel'."
 
 (defcustom ai-code-backends-infra-prevent-reflow-glitch t
   "Workaround for terminal scrolling bug #1422."
-  :type 'boolean
-  :group 'ai-code-backends-infra)
-
-(defcustom ai-code-backends-infra-eat-preserve-position t
-  "Maintain terminal scroll position when switching windows in eat.
-When enabled, prevents the eat terminal from jumping to the top
-when you switch focus to other windows and return.  This provides
-a more stable viewing experience when working with multiple windows."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
