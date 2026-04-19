@@ -16,6 +16,7 @@
 (declare-function ghostel--window-adjust-process-window-size "ghostel" (process windows))
 
 (defvar vterm-copy-mode-hook)
+(defvar eat-term-name)
 (defvar ghostel-enable-title-tracking)
 (defvar ghostel--copy-mode-active)
 (defvar ghostel--process)
@@ -363,6 +364,31 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-eat-uses-portable-term-name ()
+  "Eat startup should preserve the portable TERM value used before the refactor."
+  (let* ((buffer-name "*test-ai-code-eat-term-name*")
+         (buffer (get-buffer-create buffer-name))
+         (ai-code-backends-infra-terminal-backend 'eat)
+         captured-term-name)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   (lambda () nil))
+                  ((symbol-function 'eat-mode)
+                   (lambda () nil))
+                  ((symbol-function 'eat-exec)
+                   (lambda (&rest _args)
+                     (setq captured-term-name eat-term-name)))
+                  ((symbol-function 'get-buffer-process)
+                   (lambda (_buffer) nil)))
+          (ai-code-backends-infra--create-terminal-session
+           buffer-name
+           default-directory
+           "echo hi"
+           nil)
+          (should (equal captured-term-name "xterm-256color")))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-delegates-to-vterm-module ()
   "Terminal send should delegate vterm specifics to the vterm module."
   (let ((buffer (generate-new-buffer " *ai-code-terminal-send-delegate*"))
@@ -524,6 +550,41 @@
       (setq-default ghostel-enable-title-tracking saved-default)
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-uses-working-directory ()
+  "Ghostel startup should spawn the process from WORKING-DIR."
+  (let* ((buffer-name "*test-ai-code-ghostel-working-dir*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'ghostel-proc)
+         (working-dir (make-temp-file "ai-code-ghostel-working-dir-" t))
+         observed-default-directory
+         (ai-code-backends-infra-terminal-backend 'ghostel))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   (lambda () nil))
+                  ((symbol-function 'ghostel-exec)
+                   (lambda (target-buffer _program &optional _args)
+                     (setq observed-default-directory default-directory)
+                     (with-current-buffer target-buffer
+                       (setq-local ghostel--process process))
+                     process))
+                  ((symbol-function 'get-buffer-process)
+                   (lambda (target-buffer)
+                     (with-current-buffer target-buffer
+                       ghostel--process))))
+          (let ((default-directory "/tmp/"))
+            (ai-code-backends-infra--create-terminal-session
+             buffer-name
+             working-dir
+             "echo hi"
+             nil))
+          (should (equal observed-default-directory
+                         (file-name-as-directory
+                          (expand-file-name working-dir)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (when (file-directory-p working-dir)
+        (delete-directory working-dir t)))))
 
 (ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-installs-cursor-sync-hook ()
   "Ghostel session configuration should only add AI Code local behavior."

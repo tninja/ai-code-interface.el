@@ -96,12 +96,15 @@
   "Create a Ghostel session named BUFFER-NAME in WORKING-DIR.
 COMMAND is the shell command to run and ENV-VARS are extra environment
 variables for the terminal process."
-  (let* ((buffer (get-buffer-create buffer-name))
+  (let* ((working-dir (file-name-as-directory (expand-file-name working-dir)))
+         (buffer (get-buffer-create buffer-name))
          (process-environment (append env-vars process-environment)))
     (ai-code-backends-infra--set-session-directory buffer working-dir)
     (with-current-buffer buffer
+      (setq-local default-directory working-dir)
       (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
-      (let ((proc (ai-code-backends-infra--start-ghostel-process buffer command)))
+      (let ((default-directory working-dir)
+            (proc (ai-code-backends-infra--start-ghostel-process buffer command)))
         (when (processp proc)
           (set-process-query-on-exit-flag proc nil)
           (let ((orig-filter (process-filter proc)))

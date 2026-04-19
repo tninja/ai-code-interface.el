@@ -34,6 +34,7 @@
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar eat--semi-char-mode)
 (defvar eat--synchronize-scroll-function)
+(defvar eat-term-name)
 (defvar eat-terminal)
 
 (defun ai-code-backends-infra-eat-ensure-backend ()
@@ -103,6 +104,7 @@ when navigating between terminal and other buffers."
 COMMAND is the shell command to run and ENV-VARS are extra environment
 variables for the terminal process."
   (let* ((buffer (get-buffer-create buffer-name))
+         (eat-term-name "xterm-256color")
          (parts (split-string-shell-command command))
          (program (car parts))
          (args (cdr parts)))
