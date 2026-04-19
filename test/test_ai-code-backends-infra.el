@@ -304,6 +304,40 @@
     (should (memq #'ai-code-backends-infra--sync-terminal-cursor
                   vterm-copy-mode-hook))))
 
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-delegates-to-vterm-module ()
+  "Session creation should delegate vterm specifics to the vterm module."
+  (let* ((ai-code-backends-infra-terminal-backend 'vterm)
+         (buffer-name "*test-ai-code-vterm-delegate*")
+         (expected (cons 'delegated-buffer 'delegated-process))
+         delegated-call)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+               (lambda () nil))
+              ((symbol-function 'ai-code-backends-infra-vterm-create-session)
+               (lambda (target-buffer working-dir command env-vars)
+                 (setq delegated-call
+                       (list target-buffer working-dir command env-vars))
+                 expected))
+              ((symbol-function 'vterm)
+               (lambda (target-buffer)
+                 (get-buffer-create target-buffer)))
+              ((symbol-function 'get-buffer-process)
+               (lambda (_buffer) 'legacy-process))
+              ((symbol-function 'ai-code-backends-infra--set-session-directory)
+               (lambda (&rest _args) nil))
+              ((symbol-function 'ai-code-backends-infra--configure-vterm-buffer)
+               (lambda () nil)))
+      (should (equal (ai-code-backends-infra--create-terminal-session
+                      buffer-name
+                      default-directory
+                      "echo hi"
+                      '("FOO=1"))
+                     expected))
+      (should (equal delegated-call
+                     (list buffer-name
+                           default-directory
+                           "echo hi"
+                           '("FOO=1")))))))
+
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-adds-eat-cursor-sync-hook ()
   "Eat sessions should track navigation-mode cursor handoff locally."
   (let* ((buffer-name "*test-ai-code-eat-cursor-sync*")
@@ -326,6 +360,23 @@
           (with-current-buffer buffer
             (should (memq #'ai-code-backends-infra--sync-terminal-cursor
                           post-command-hook))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-send-string-delegates-to-vterm-module ()
+  "Terminal send should delegate vterm specifics to the vterm module."
+  (let ((buffer (generate-new-buffer " *ai-code-terminal-send-delegate*"))
+        delegated-string)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra-vterm-send-string)
+                   (lambda (string)
+                     (setq delegated-string string)))
+                  ((symbol-function 'vterm-send-string)
+                   (lambda (&rest _args) nil)))
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+            (ai-code-backends-infra--terminal-send-string "hello"))
+          (should (equal delegated-string "hello")))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
@@ -360,11 +411,32 @@
         (ai-code-backends-infra--terminal-send-string "hello"))
       (should (equal calls '((ghostel-proc "hello")))))))
 
+(ert-deftest test-ai-code-backends-infra-terminal-navigation-mode-delegates-to-ghostel-module ()
+  "Navigation-mode detection should delegate ghostel specifics to the ghostel module."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (setq-local ghostel--copy-mode-active nil)
+    (cl-letf (((symbol-function 'ai-code-backends-infra-ghostel-navigation-mode-p)
+               (lambda () t)))
+      (should (ai-code-backends-infra--terminal-navigation-mode-p)))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-resize-handler-supports-ghostel ()
   "Ghostel backend should expose its resize handler."
   (let ((ai-code-backends-infra-terminal-backend 'ghostel))
     (should (eq (ai-code-backends-infra--terminal-resize-handler)
                 #'ghostel--window-adjust-process-window-size))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-resize-handler-delegates-to-eat-module ()
+  "Resize handler lookup should delegate eat specifics to the eat module."
+  (let ((ai-code-backends-infra-terminal-backend 'eat)
+        (expected 'ai-code-backends-infra--test-eat-resize-handler))
+    (fset expected (lambda (&rest _args) nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra-eat-resize-handler)
+                   (lambda () expected)))
+          (should (eq (ai-code-backends-infra--terminal-resize-handler)
+                      expected)))
+      (fmakunbound expected))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel ()
   "Ghostel backend should start sessions via `ghostel-exec'."
@@ -541,15 +613,21 @@
 
 (ert-deftest test-ai-code-backends-infra-source-comment-uses-repo-stable-rationale ()
   "Source comments should avoid local paths and chat transcripts."
-  (with-temp-buffer
-    (insert-file-contents "ai-code-backends-infra.el")
-    (goto-char (point-min))
-    (should (search-forward "Prefer `ghostel-exec' for Ghostel backend startup" nil t))
-    (should-not (search-forward "/home/tninja/" nil t))
-    (goto-char (point-min))
-    (should-not (search-forward "Background:" nil t))
-    (goto-char (point-min))
-    (should-not (search-forward "@tninja" nil t))))
+  (let ((comment-found nil))
+    (dolist (file '("ai-code-backends-infra.el"
+                    "ai-code-backends-infra-ghostel.el"))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (goto-char (point-min))
+        (when (search-forward "Prefer `ghostel-exec' for Ghostel backend startup" nil t)
+          (setq comment-found t))
+        (goto-char (point-min))
+        (should-not (search-forward "/home/tninja/" nil t))
+        (goto-char (point-min))
+        (should-not (search-forward "Background:" nil t))
+        (goto-char (point-min))
+        (should-not (search-forward "@tninja" nil t))))
+    (should comment-found)))
 
 (ert-deftest test-ai-code-backends-infra-normalize-file-path-stable-across-existence ()
   "Normalization should stay stable when file existence changes."

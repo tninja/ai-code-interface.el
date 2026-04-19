@@ -597,11 +597,11 @@ Shows the current backend label to the right."
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
   ("s" ai-code-select-backend :description ai-code--select-backend-description)
   ;; DONE: similar to ai-code-select-backend, add ai-code-select-terminal, it will use ai-code-backends-infra-terminal-backend to select between different terminal emulators for AI sessions, such as vterm, eat, and ghostel.
-  ("l" ai-code-select-terminal :description ai-code--select-terminal-description)
   ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
   ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
   ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
+  ("l" ai-code-select-terminal :description ai-code--select-terminal-description)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file))
 
 (transient-define-group ai-code--menu-actions-with-context
@@ -632,7 +632,7 @@ Shows the current backend label to the right."
   ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
   ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
   ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
-  ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
+  ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
   ("m" "Debug python MCP server" ai-code-debug-mcp)
   ("N" "Toggle notifications" ai-code-notifications-toggle)
