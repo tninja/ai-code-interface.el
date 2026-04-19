@@ -419,6 +419,36 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-eat-uses-working-directory ()
+  "Eat session buffers should keep WORKING-DIR as `default-directory'."
+  (let* ((buffer-name "*test-ai-code-eat-working-dir*")
+         (buffer (get-buffer-create buffer-name))
+         (working-dir (make-temp-file "ai-code-eat-working-dir-" t))
+         (ai-code-backends-infra-terminal-backend 'eat))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   (lambda () nil))
+                  ((symbol-function 'eat-mode)
+                   (lambda () nil))
+                  ((symbol-function 'eat-exec)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'get-buffer-process)
+                   (lambda (_buffer) nil)))
+          (let ((default-directory "/tmp/"))
+            (ai-code-backends-infra--create-terminal-session
+             buffer-name
+             working-dir
+             "echo hi"
+             nil))
+          (with-current-buffer buffer
+            (should (equal default-directory
+                           (file-name-as-directory
+                            (expand-file-name working-dir))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (when (file-directory-p working-dir)
+        (delete-directory working-dir t)))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-delegates-to-vterm-module ()
   "Terminal send should delegate vterm specifics to the vterm module."
   (let ((buffer (generate-new-buffer " *ai-code-terminal-send-delegate*"))
