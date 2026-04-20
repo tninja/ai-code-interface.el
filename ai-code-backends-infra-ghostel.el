@@ -26,12 +26,13 @@
 (declare-function ai-code-backends-infra--sync-terminal-cursor
                   "ai-code-backends-infra" ())
 (declare-function ghostel-exec "ghostel" (buffer program &optional args))
+(declare-function ghostel-send-key "ghostel" (key-name &optional mods))
+(declare-function ghostel-send-string "ghostel" (string))
 (declare-function ghostel--window-adjust-process-window-size
                   "ghostel" (process windows))
 
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar ghostel--copy-mode-active nil)
-(defvar ghostel--process nil)
 (defvar ghostel-enable-title-tracking t)
 
 (defun ai-code-backends-infra-ghostel-ensure-backend ()
@@ -51,21 +52,19 @@
 
 (defun ai-code-backends-infra-ghostel-send-string (string)
   "Send STRING to the current Ghostel process."
-  (when (and (bound-and-true-p ghostel--process)
-             (process-live-p ghostel--process))
-    (process-send-string ghostel--process string)))
+  (ghostel-send-string string))
 
 (defun ai-code-backends-infra-ghostel-send-escape ()
   "Send escape to the current Ghostel process."
-  (ai-code-backends-infra-ghostel-send-string "\e"))
+  (ghostel-send-key "escape"))
 
 (defun ai-code-backends-infra-ghostel-send-return ()
   "Send return to the current Ghostel process."
-  (ai-code-backends-infra-ghostel-send-string "\r"))
+  (ghostel-send-key "return"))
 
 (defun ai-code-backends-infra-ghostel-send-backspace ()
   "Send backspace to the current Ghostel process."
-  (ai-code-backends-infra-ghostel-send-string "\177"))
+  (ghostel-send-key "backspace"))
 
 (defun ai-code-backends-infra-ghostel-resize-handler ()
   "Return the Ghostel resize handler."

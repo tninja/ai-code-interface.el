@@ -483,19 +483,32 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
-(ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-sends-to-process ()
-  "Ghostel sessions should send input through the terminal process."
+(ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-uses-public-api ()
+  "Ghostel sessions should send input through `ghostel-send-string'."
   (let ((calls nil))
-    (cl-letf (((symbol-function 'process-live-p)
-               (lambda (_process) t))
-              ((symbol-function 'process-send-string)
-               (lambda (process string)
-                 (push (list process string) calls))))
+    (cl-letf (((symbol-function 'ghostel-send-string)
+               (lambda (string)
+                 (push string calls))))
       (with-temp-buffer
         (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
-        (setq-local ghostel--process 'ghostel-proc)
         (ai-code-backends-infra--terminal-send-string "hello"))
-      (should (equal calls '((ghostel-proc "hello")))))))
+      (should (equal calls '("hello"))))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-send-special-keys-ghostel-uses-public-api ()
+  "Ghostel sessions should send special keys through `ghostel-send-key'."
+  (let ((calls nil))
+    (cl-letf (((symbol-function 'ghostel-send-key)
+               (lambda (key-name &optional mods)
+                 (push (list key-name mods) calls))))
+      (with-temp-buffer
+        (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+        (ai-code-backends-infra--terminal-send-escape)
+        (ai-code-backends-infra--terminal-send-return)
+        (ai-code-backends-infra--terminal-send-backspace))
+      (should (equal calls
+                     '(("backspace" nil)
+                       ("return" nil)
+                       ("escape" nil)))))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-navigation-mode-delegates-to-ghostel-module ()
   "Navigation-mode detection should delegate ghostel specifics to the ghostel module."
