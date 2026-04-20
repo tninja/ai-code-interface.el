@@ -21,11 +21,6 @@
   :type 'boolean
   :group 'ai-code-notifications)
 
-(defcustom ai-code-notifications-show-on-response nil
-  "Whether to show a notification when AI completes a response."
-  :type 'boolean
-  :group 'ai-code-notifications)
-
 (defcustom ai-code-notifications-timeout 5000
   "Timeout in milliseconds for notifications.
 Set to 0 for no timeout (notification stays until dismissed)."
@@ -63,20 +58,19 @@ Respects the notification interval to avoid spamming."
   (when (and ai-code-notifications-enabled
              (ai-code-notifications--can-notify-p))
     (setq ai-code-notifications--last-notification-time (current-time))
-    (if (ai-code-notifications--dbus-available-p)
-        ;; Use D-Bus notifications if available
-        (notifications-notify
-         :title title
-         :body message
-         :timeout ai-code-notifications-timeout
-         :app-name "Emacs AI Code")
-      ;; Fallback to message in minibuffer
-      (message "[AI Code] %s: %s" title message))))
+    (beep)
+    (message "[AI Code] %s: %s" title message)
+    (when (ai-code-notifications--dbus-available-p)
+      (notifications-notify
+       :title title
+       :body message
+       :timeout ai-code-notifications-timeout
+       :app-name "Emacs AI Code"))))
 
 (defun ai-code-notifications-response-ready (&optional backend-name)
   "Notify that an AI response is ready.
 BACKEND-NAME is the name of the backend that completed the response."
-  (when ai-code-notifications-show-on-response
+  (when ai-code-notifications-enabled
     (let ((backend (or backend-name "AI"))
           (buffer (current-buffer)))
       (ai-code-notifications-notify

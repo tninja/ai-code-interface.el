@@ -66,7 +66,6 @@
 (ert-deftest test-ai-code-notifications-response-ready ()
   "Test response ready notification."
   (let ((ai-code-notifications-enabled t)
-        (ai-code-notifications-show-on-response t)
         (ai-code-notifications--last-notification-time nil)
         (notification-title nil)
         (notification-body nil))
@@ -84,6 +83,26 @@
         ;; Notification should have been sent
         (should (string-match-p "testbackend" (or notification-title "")))
         (should (string-match-p "test-project" (or notification-body "")))))))
+
+(ert-deftest test-ai-code-notifications-notify-beeps-and-messages-before-dbus ()
+  "Beep and minibuffer message should happen before D-Bus notification."
+  (let ((ai-code-notifications-enabled t)
+        (ai-code-notifications--last-notification-time nil)
+        (call-order nil))
+    (cl-letf (((symbol-function 'ai-code-notifications--dbus-available-p)
+               (lambda () t))
+              ((symbol-function 'beep)
+               (lambda (&rest _args)
+                 (push 'beep call-order)))
+              ((symbol-function 'message)
+               (lambda (_format &rest _args)
+                 (push 'message call-order)))
+              ((symbol-function 'notifications-notify)
+               (lambda (&rest _args)
+                 (push 'dbus call-order))))
+      (ai-code-notifications-notify "Test" "Message")
+      (should (equal (nreverse call-order)
+                     '(beep message dbus))))))
 
 (provide 'test_ai-code-notifications)
 

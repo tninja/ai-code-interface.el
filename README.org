@@ -392,7 +392,6 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 - To enable notifications in your config:
 #+begin_src emacs-lisp
 (setq ai-code-notifications-enabled t)
-(setq ai-code-notifications-show-on-response t)
 #+end_src
 
 **** How It Works
