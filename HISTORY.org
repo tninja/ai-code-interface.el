@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Refactor: Use Ghostel public API for sending input
+- Chore: Notify on response and beep before D-Bus
 
 ** 1.72
 - Chore: Add action intent prompt to TODO implementation flow
