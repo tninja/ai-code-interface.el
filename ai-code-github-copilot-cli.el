@@ -44,6 +44,8 @@ that `/terminal-setup' installs for Shift+Enter and Ctrl+Enter."
   :type 'string
   :group 'ai-code-github-copilot-cli)
 
+(defvar ghostel-full-redraw)
+
 (defconst ai-code-github-copilot-cli--session-prefix "copilot"
   "Session prefix used in GitHub Copilot CLI buffer names.")
 
@@ -75,7 +77,9 @@ With prefix ARG, prompt for CLI args using
          (post-start-fn
           (lambda (buffer process instance-name)
             (with-current-buffer buffer
-              (setq ai-code-backends-infra--sync-redraw-scrollback t))
+              (setq ai-code-backends-infra--sync-redraw-scrollback t)
+              (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
+                (setq-local ghostel-full-redraw t)))
             (when mcp-post-start-fn
               (funcall mcp-post-start-fn buffer process instance-name)))))
     (ai-code-backends-infra--toggle-or-create-session
