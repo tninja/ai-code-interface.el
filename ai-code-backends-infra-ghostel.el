@@ -110,12 +110,15 @@ variables for the terminal process."
             (set-process-filter
              proc
              (lambda (process output)
-               (when orig-filter
-                 (funcall orig-filter process output))
-               (with-current-buffer (process-buffer process)
-                 (when (ai-code-backends-infra--output-meaningful-p output)
-                   (ai-code-backends-infra--note-meaningful-output))
-                 (ai-code-session-link--linkify-recent-output output))))))
+               (when-let ((buf (process-buffer process)))
+                 (when (buffer-live-p buf)
+                   (when orig-filter
+                     (funcall orig-filter process output))
+                   (when (buffer-live-p buf)
+                     (with-current-buffer buf
+                       (when (ai-code-backends-infra--output-meaningful-p output)
+                         (ai-code-backends-infra--note-meaningful-output))
+                       (ai-code-session-link--linkify-recent-output output)))))))))
         (cons buffer proc)))))
 
 (provide 'ai-code-backends-infra-ghostel)

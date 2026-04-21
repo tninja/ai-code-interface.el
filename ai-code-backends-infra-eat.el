@@ -134,15 +134,18 @@ variables for the terminal process."
           (set-process-filter
            proc
            (lambda (process output)
-             (let ((filtered-output
-                    (with-current-buffer (process-buffer process)
-                      (ai-code-backends-infra--strip-alternate-screen-sequences output))))
-               (when orig-filter
-                 (funcall orig-filter process filtered-output))
-               (with-current-buffer (process-buffer process)
-                 (when (ai-code-backends-infra--output-meaningful-p filtered-output)
-                   (ai-code-backends-infra--note-meaningful-output))
-                 (ai-code-session-link--linkify-recent-output filtered-output)))))))
+             (when-let ((buf (process-buffer process)))
+               (when (buffer-live-p buf)
+                 (let ((filtered-output
+                        (with-current-buffer buf
+                          (ai-code-backends-infra--strip-alternate-screen-sequences output))))
+                   (when orig-filter
+                     (funcall orig-filter process filtered-output))
+                   (when (buffer-live-p buf)
+                     (with-current-buffer buf
+                       (when (ai-code-backends-infra--output-meaningful-p filtered-output)
+                         (ai-code-backends-infra--note-meaningful-output))
+                       (ai-code-session-link--linkify-recent-output filtered-output)))))))))))
       (cons buffer (get-buffer-process buffer)))))
 
 (provide 'ai-code-backends-infra-eat)
