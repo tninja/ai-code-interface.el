@@ -105,20 +105,20 @@ variables for the terminal process."
       (let ((default-directory working-dir)
             (proc (ai-code-backends-infra--start-ghostel-process buffer command)))
         (when (processp proc)
-          (set-process-query-on-exit-flag proc nil)
+          (ignore-errors
+            (set-process-query-on-exit-flag proc nil))
           (let ((orig-filter (process-filter proc)))
             (set-process-filter
              proc
              (lambda (process output)
-               (when-let ((buf (process-buffer process)))
-                 (when (buffer-live-p buf)
-                   (when orig-filter
-                     (funcall orig-filter process output))
-                   (when (buffer-live-p buf)
-                     (with-current-buffer buf
-                       (when (ai-code-backends-infra--output-meaningful-p output)
-                         (ai-code-backends-infra--note-meaningful-output))
-                       (ai-code-session-link--linkify-recent-output output)))))))))
+               (when (buffer-live-p buffer)
+                 (when orig-filter
+                   (funcall orig-filter process output))
+                 (when (buffer-live-p buffer)
+                   (with-current-buffer buffer
+                     (when (ai-code-backends-infra--output-meaningful-p output)
+                       (ai-code-backends-infra--note-meaningful-output))
+                     (ai-code-session-link--linkify-recent-output output))))))))
         (cons buffer proc)))))
 
 (provide 'ai-code-backends-infra-ghostel)

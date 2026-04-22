@@ -363,10 +363,13 @@ ARG is the prefix argument for clipboard context."
                                        (format "Selected region starting on line %d"
                                                region-start-line)))))
          (files-context-string (ai-code--get-context-files-string))
-         (repo-context-string (ai-code--format-repo-context-info))
+         (region-comment-block-p (or (not region-text)
+                                     (ai-code--is-comment-block region-text)))
          ;; Validate scenario before prompting user
          (_ (unless (or region-text is-comment)
               (user-error "Current line is not a TODO comment and cannot proceed with `ai-code-implement-todo'.  Please select a TODO comment (not DONE), a region of comments, or activate on a blank line")))
+         (_ (unless region-comment-block-p
+              (user-error "Selected region must be a comment block")))
          (action-intent (completing-read "Select action: "
                                          '("Code change" "Ask question")
                                          nil t))
@@ -391,16 +394,12 @@ ARG is the prefix argument for clipboard context."
          (initial-input
           (cond
            ((and ask-question-p region-text)
-            (unless (ai-code--is-comment-block region-text)
-              (user-error "Selected region must be a comment block"))
             (format "Regarding this TODO comment block in the selected region:\n%s\n%s%s%s"
                     region-location-line region-text function-context files-context-string))
            ((and ask-question-p is-comment)
             (format "Regarding this TODO comment on line %d: '%s'%s%s"
                     current-line-number current-line function-context files-context-string))
            (region-text
-            (unless (ai-code--is-comment-block region-text)
-              (user-error "Selected region must be a comment block"))
             (format
              "Please implement code for this requirement comment block in the selected region first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.\n%s\n%s%s%s"
              region-location-line region-text function-context
@@ -409,6 +408,7 @@ ARG is the prefix argument for clipboard context."
             (format "Please implement code for this requirement comment on line %d: '%s' first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.%s%s"
                     current-line-number current-line function-context files-context-string))
            (t "")))
+         (repo-context-string (ai-code--format-repo-context-info))
          (prompt (ai-code-read-string prompt-label initial-input))
          (final-prompt
           (concat prompt
