@@ -477,6 +477,7 @@ Otherwise, ask AI to generate a build command."
 When no region is selected, use the full file path and current function
 \(if any).  When a region is active, use the file path with line range
 in the form filepath#Lstart-Lend."
+  ;; DONE: allow adding non git file / path to existing context candidates, it just use full path
   (interactive)
   (let* ((current-root (ai-code--git-root))
          (all-roots (let ((roots '()))
@@ -495,9 +496,24 @@ in the form filepath#Lstart-Lend."
                                 (when (and root (not (member root roots)))
                                   (push root roots)))))))
                       (nreverse roots)))
-         (ordered-roots (if (and current-root (member current-root all-roots))
-                            (cons current-root (remove current-root all-roots))
-                          all-roots))
+         (existing-roots (let ((roots '()))
+                           (maphash (lambda (root _contexts)
+                                      (when (and (stringp root)
+                                                 (not (member root roots)))
+                                        (push root roots)))
+                                    ai-code--repo-context-info)
+                           (nreverse roots)))
+         (candidate-roots (let ((roots (reverse existing-roots)))
+                            (dolist (root (reverse all-roots))
+                              (unless (member root roots)
+                                (push root roots)))
+                            (when (and current-root
+                                       (not (member current-root roots)))
+                              (push current-root roots))
+                            roots))
+         (ordered-roots (if (and current-root (member current-root candidate-roots))
+                            (cons current-root (remove current-root candidate-roots))
+                          candidate-roots))
          (repo-root (cond
                      ((null ordered-roots)
                       (user-error "Not inside a Git repository"))
