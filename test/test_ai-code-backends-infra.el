@@ -454,11 +454,11 @@
   (let* ((buffer-name "*test-ai-code-eat-dead-buffer*")
          (buffer (get-buffer-create buffer-name))
          (ai-code-backends-infra-terminal-backend 'eat)
-         wrapped-filter
-         orig-filter-called
-         strip-called
-         note-called
-         linkify-called)
+         (wrapped-filter nil)
+         (orig-filter-called nil)
+         (strip-called nil)
+         (note-called nil)
+         (linkify-called nil))
     (unwind-protect
         (progn
           (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
@@ -493,8 +493,8 @@
              default-directory
              "echo hi"
              nil))
-          (kill-buffer buffer)
           (should wrapped-filter)
+          (kill-buffer buffer)
           (should-not
            (condition-case nil
                (progn (funcall wrapped-filter 'eat-proc "src/foo.el:12\n")
@@ -848,8 +848,8 @@
              default-directory
              "echo hi"
              nil))
-          (kill-buffer buffer)
           (should wrapped-filter)
+          (kill-buffer buffer)
           (should-not
            (condition-case nil
                (progn (funcall wrapped-filter 'ghostel-proc "src/foo.el:12\n")
