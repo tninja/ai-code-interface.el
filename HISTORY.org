@@ -5,6 +5,7 @@
 - Fix: Enable ghostel full-redraw mode for Claude Code and Copilot CLI sessions
 - Refactor: Use Ghostel public API for sending input
 - Chore: Notify on response and beep before D-Bus
+- Chore: Allow adding non-git files and directories to existing repo context candidates
 
 ** 1.72
 - Chore: Add action intent prompt to TODO implementation flow
