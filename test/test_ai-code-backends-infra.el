@@ -449,6 +449,64 @@
       (when (file-directory-p working-dir)
         (delete-directory working-dir t)))))
 
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-eat-filter-ignores-dead-buffer ()
+  "Eat filter wrapper should skip bookkeeping when session buffer is dead."
+  (let* ((buffer-name "*test-ai-code-eat-dead-buffer*")
+         (buffer (get-buffer-create buffer-name))
+         (ai-code-backends-infra-terminal-backend 'eat)
+         wrapped-filter
+         orig-filter-called
+         strip-called
+         note-called
+         linkify-called)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                     (lambda () nil))
+                    ((symbol-function 'eat-mode)
+                     (lambda () nil))
+                    ((symbol-function 'eat-exec)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'get-buffer-process)
+                     (lambda (_buffer) 'eat-proc))
+                    ((symbol-function 'process-filter)
+                     (lambda (_process)
+                       (lambda (_process _output)
+                         (setq orig-filter-called t))))
+                    ((symbol-function 'set-process-filter)
+                     (lambda (_process filter)
+                       (setq wrapped-filter filter)))
+                    ((symbol-function 'process-buffer)
+                     (lambda (_process) buffer))
+                    ((symbol-function 'ai-code-backends-infra--strip-alternate-screen-sequences)
+                     (lambda (output)
+                       (setq strip-called t)
+                       output))
+                    ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
+                     (lambda (&rest _args)
+                       (setq note-called t)))
+                    ((symbol-function 'ai-code-session-link--linkify-recent-output)
+                     (lambda (&rest _args)
+                       (setq linkify-called t))))
+            (ai-code-backends-infra--create-terminal-session
+             buffer-name
+             default-directory
+             "echo hi"
+             nil))
+          (kill-buffer buffer)
+          (should wrapped-filter)
+          (should-not
+           (condition-case nil
+               (progn (funcall wrapped-filter 'eat-proc "src/foo.el:12\n")
+                      nil)
+             (error t)))
+          (should-not orig-filter-called)
+          (should-not strip-called)
+          (should-not note-called)
+          (should-not linkify-called))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-delegates-to-vterm-module ()
   "Terminal send should delegate vterm specifics to the vterm module."
   (let ((buffer (generate-new-buffer " *ai-code-terminal-send-delegate*"))
@@ -742,6 +800,64 @@
       (advice-remove 'ai-code-session-link--linkify-recent-output linkify-advice)
       (when (process-live-p proc)
         (delete-process proc))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-filter-ignores-dead-buffer ()
+  "Ghostel filter wrapper should skip bookkeeping when session buffer is dead."
+  (let* ((buffer-name "*test-ai-code-ghostel-dead-buffer*")
+         (buffer (get-buffer-create buffer-name))
+         (orig-filter-called nil)
+         (note-called nil)
+         (linkify-called nil)
+         (wrapped-filter nil)
+         (ai-code-backends-infra-terminal-backend 'ghostel))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                     (lambda () nil))
+                    ((symbol-function 'ghostel-exec)
+                     (lambda (target-buffer _program &optional _args)
+                       (with-current-buffer target-buffer
+                         (setq-local ghostel--process 'ghostel-proc))
+                       'ghostel-proc))
+                    ((symbol-function 'get-buffer-process)
+                     (lambda (target-buffer)
+                       (with-current-buffer target-buffer
+                         ghostel--process)))
+                    ((symbol-function 'process-filter)
+                     (lambda (_process)
+                       (lambda (_process _output)
+                         (setq orig-filter-called t))))
+                    ((symbol-function 'set-process-filter)
+                     (lambda (_process filter)
+                       (setq wrapped-filter filter)))
+                    ((symbol-function 'processp)
+                     (lambda (proc)
+                       (eq proc 'ghostel-proc)))
+                    ((symbol-function 'process-buffer)
+                     (lambda (_process) buffer))
+                    ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
+                     (lambda (&rest _args)
+                       (setq note-called t)))
+                    ((symbol-function 'ai-code-session-link--linkify-recent-output)
+                     (lambda (&rest _args)
+                       (setq linkify-called t))))
+            (ai-code-backends-infra--create-terminal-session
+             buffer-name
+             default-directory
+             "echo hi"
+             nil))
+          (kill-buffer buffer)
+          (should wrapped-filter)
+          (should-not
+           (condition-case nil
+               (progn (funcall wrapped-filter 'ghostel-proc "src/foo.el:12\n")
+                      nil)
+             (error t)))
+          (should-not orig-filter-called)
+          (should-not note-called)
+          (should-not linkify-called))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
