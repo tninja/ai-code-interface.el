@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Fix: Guard eat/ghostel process filters against deleted buffers on exit and add regression tests
 - Fix: Enable ghostel full-redraw mode for Claude Code and Copilot CLI sessions
 - Refactor: Use Ghostel public API for sending input
 - Chore: Notify on response and beep before D-Bus
