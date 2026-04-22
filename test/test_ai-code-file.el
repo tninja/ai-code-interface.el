@@ -678,8 +678,9 @@ everything is cleaned up afterward."
 (ert-deftest ai-code-test-add-context-allows-non-git-file-for-existing-repo-context ()
   "Test `ai-code-add-context' can add a non-git file to an existing repo context."
   (let ((ai-code--repo-context-info (make-hash-table :test #'equal))
-        (repo-root "/tmp/existing-repo/")
-        (new-file (make-temp-file "ai-code-context-")))
+         (repo-root "/tmp/existing-repo/")
+         (new-file (make-temp-file "ai-code-context-"))
+         (completing-read-called nil))
     (unwind-protect
         (with-temp-buffer
           (setq buffer-file-name new-file)
@@ -691,17 +692,18 @@ everything is cleaned up afterward."
                     ((symbol-function 'walk-windows)
                      (lambda (&rest _args) nil))
                     ((symbol-function 'completing-read)
-                     (lambda (_prompt collection &rest _args)
-                       (should (equal collection (list repo-root)))
+                     (lambda (&rest _args)
+                       (setq completing-read-called t)
                        repo-root))
                     ((symbol-function 'derived-mode-p)
                      (lambda (&rest _args) nil))
                     ((symbol-function 'message)
-                     (lambda (&rest _args) nil)))
-            (ai-code-add-context)
-            (should (equal (gethash repo-root ai-code--repo-context-info)
-                           (list new-file
-                                 "/tmp/existing-repo/lib/existing-context.el")))))
+                      (lambda (&rest _args) nil)))
+             (ai-code-add-context)
+             (should-not completing-read-called)
+             (should (equal (gethash repo-root ai-code--repo-context-info)
+                            (list new-file
+                                  "/tmp/existing-repo/lib/existing-context.el")))))
       (when (file-exists-p new-file)
         (delete-file new-file)))))
 
