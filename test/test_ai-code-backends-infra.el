@@ -273,7 +273,7 @@
                    (setq captured-entry (car display-buffer-alist))
                    'fake-window))
                 ((symbol-function 'window-body-width)
-                 (lambda (_window) 96))
+                 (lambda (&rest _args) 96))
                 ((symbol-function 'window-resize)
                  (lambda (window delta horizontal)
                    (setq resize-call (list window delta horizontal)))))

@@ -198,7 +198,7 @@ The generated prompt will include the function/region scope, visible file list, 
 
 **** Built-in Emacs MCP Tools
 
-AI Code includes an Emacs MCP server with these core built-in tools:
+AI Code includes an Emacs MCP server with these built-in tools:
 - =project_info=: summarize the current project, active buffer, and file count
 - =editor_state=: inspect the currently selected buffer, point, mode, region, and buffer flags
 - =visible_buffers=: list the buffers visible in the selected frame windows
@@ -211,14 +211,14 @@ AI Code includes an Emacs MCP server with these core built-in tools:
 - =xref_find_definitions_at_point=: find definitions at a file location
 - =treesit_info=: inspect tree-sitter node information for a file location
 
-Optional debugging tools are registered from a separate module and are enabled by default:
+Additional debugging tools come from =ai-code-mcp-debug-tools.el= and are enabled by default:
 
 #+begin_src emacs-lisp
 (setq ai-code-mcp-debug-tools-enabled t)  ;; default
 ;; (setq ai-code-mcp-debug-tools-enabled nil) ;; disable them
 #+end_src
 
-When enabled, AI Code also registers:
+These tools add:
 - =get_variable_value=: return the printed value of an Emacs variable by name
 - =get_variable_binding_info=: inspect current and default bindings for an Emacs variable
 - =get_function_info=: inspect function metadata such as kind, aliasing, and advice state
@@ -227,15 +227,15 @@ When enabled, AI Code also registers:
 - =get_last_error_backtrace=: return the most recently recorded Emacs command error snapshot
 - =eval_elisp=: evaluate a single Emacs Lisp form in a chosen buffer context when explicitly enabled
 
-This split keeps the MCP core small while still exposing debugging-oriented tools by default.
+The old =ai-code-mcp-editor-tools.el= module has been removed. Its live-editor read tools are now built in, while =eval_elisp= remains an explicit opt-in.
 
-By default, =eval_elisp= is not registered. To opt in explicitly:
+To register =eval_elisp=:
 
 #+begin_src emacs-lisp
 (setq ai-code-mcp-debug-tools-enable-eval-elisp t)
 #+end_src
 
-By default, =eval_elisp= only allows =query= mode. To allow editor-local side effects too, opt in explicitly:
+=eval_elisp= only allows =query= mode by default. To allow editor-local side effects too:
 
 #+begin_src emacs-lisp
 (setq ai-code-mcp-debug-tools-allow-effect-eval t)
@@ -252,7 +252,7 @@ Set the backend to =claude-code=, =codex=, or =github-copilot-cli= and start a s
 - register the current project/buffer as the MCP session context
 - inject a session-scoped MCP config into that agent session automatically
 
-Today this auto-wiring is enabled for =claude-code=, =codex=, and =github-copilot-cli=. The adapter layer is designed so other backends can be added later.
+Auto-wiring is currently enabled for =claude-code=, =codex=, and =github-copilot-cli=.
 
 If you disabled it before, enable it again with:
 
@@ -272,10 +272,9 @@ If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has
 - use =imenu_list_symbols= for the current file
 - use =get_diagnostics= and summarize the current file diagnostics
 
-The status command only proves the Emacs side is wired.
-The real proof is that the started agent returns your current project path, buffer context, or current-file symbols from those tools.
+The status command only proves the Emacs side is wired. The real proof is that the agent returns your current project path, buffer context, or current-file symbols from those tools.
 
-***** Add New MCP function
+***** Add a New MCP Tool
 
 1. Define an Emacs Lisp function.
 
@@ -309,8 +308,7 @@ If the agent session is already running, restart it after registering the new to
 (ai-code-mcp-dispatch "tools/list")
 #+end_src
 
-If =current_buffer_name= appears in the tool list, Emacs has registered it.
-If the started agent can call it and returns the expected buffer name, the tool is available inside the AI coding agent.
+If =current_buffer_name= appears in the tool list, Emacs has registered it. If the agent can call it and returns the expected buffer name, the tool is available inside the AI coding session.
 
 ***** Use the MCP Core Directly from Elisp
 

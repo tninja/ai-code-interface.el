@@ -377,7 +377,7 @@ and ensures everything is cleaned up afterward."
 	                       ((string-match-p "Create task file in" prompt)
 	                        (format "ai-code-files-dir: %s" files-dir)))))
                     ((symbol-function 'read-string)
-                     (lambda (prompt &optional initial-input)
+                     (lambda (prompt &optional initial-input &rest _args)
                        (cond
                         ((string-match-p "URL" prompt) "https://example.com")
                         ((string-match-p "Confirm task filename" prompt) initial-input))))
@@ -571,7 +571,7 @@ and ensures everything is cleaned up afterward."
                        ((string-match-p "Create task file in" prompt)
                         (format "ai-code-files-dir: %s" files-dir)))))
                    ((symbol-function 'read-string)
-                    (lambda (prompt &optional _initial-input)
+                    (lambda (prompt &optional _initial-input &rest _args)
                       (cond
                        ((string-match-p "URL" prompt) "")
                        ;; User removes .org extension
@@ -615,7 +615,7 @@ and ensures everything is cleaned up afterward."
                        ((string-match-p "Create task file in" prompt)
                         (format "current directory: %s" default-directory)))))
                    ((symbol-function 'read-string)
-                    (lambda (prompt &optional _initial-input)
+                    (lambda (prompt &optional _initial-input &rest _args)
                       (cond
                        ((string-match-p "URL" prompt) "")
                        ((string-match-p "Confirm task filename" prompt) "task_20260101_my_task/"))))
@@ -1295,7 +1295,7 @@ and ensures everything is cleaned up afterward."
 
 (ert-deftest ai-code-test-prompt-auto-trigger-hash-in-minibuffer ()
   "Test that # auto-trigger doesn't work in minibuffer in prompt mode."
-  (cl-letf (((symbol-function 'minibufferp) (lambda (&optional buffer) t)))
+  (cl-letf (((symbol-function 'minibufferp) (lambda (&rest _args) t)))
     (with-temp-buffer
       (insert "@src/test.el#")
       
@@ -1339,7 +1339,7 @@ and ensures everything is cleaned up afterward."
 (ert-deftest ai-code-test-prompt-filepath-capf-in-minibuffer ()
   "Test that capf returns nil in minibuffer in prompt mode."
   (ai-code-with-test-repo
-   (cl-letf (((symbol-function 'minibufferp) (lambda (&optional buffer) t)))
+   (cl-letf (((symbol-function 'minibufferp) (lambda (&rest _args) t)))
      (with-temp-buffer
        (insert "@src/")
        (goto-char (point-max))

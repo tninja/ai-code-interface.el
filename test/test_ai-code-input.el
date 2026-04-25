@@ -223,7 +223,7 @@
   (let ((ai-code-prompt-filepath-completion-enabled t))
     ;; Mock minibufferp to return true
     (cl-letf (((symbol-function 'minibufferp)
-               (lambda (&optional buffer) t))
+               (lambda (&rest _args) t))
               ((symbol-function 'ai-code--any-ai-session-active-p)
                (lambda () t))
               ((symbol-function 'magit-toplevel)
@@ -568,7 +568,7 @@
         (completion-called nil))
     ;; Mock minibufferp to return true
     (cl-letf (((symbol-function 'minibufferp)
-               (lambda (&optional buffer) t))
+               (lambda (&rest _args) t))
               ((symbol-function 'ai-code--any-ai-session-active-p)
                (lambda () t))
               ((symbol-function 'completion-at-point)
