@@ -43,7 +43,7 @@
   "Expected MCP debug tool names.")
 
 (ert-deftest ai-code-test-mcp-debug-tools-source-uses-common-module ()
-  "Debug and editor MCP modules should depend on a shared common module."
+  "Debug MCP modules should depend on the shared common module."
   (with-temp-buffer
     (insert-file-contents "ai-code-mcp-debug-tools.el")
     (goto-char (point-min))
@@ -53,15 +53,6 @@
     (should-not (search-forward "(defun ai-code-mcp--json-bool" nil t))
     (goto-char (point-min))
     (should-not (search-forward "(defun ai-code-mcp--message-lines" nil t))
-    (goto-char (point-min))
-    (should-not (search-forward "(defvar ai-code-mcp-server-tool-setup-functions nil)" nil t)))
-  (with-temp-buffer
-    (insert-file-contents "ai-code-mcp-editor-tools.el")
-    (goto-char (point-min))
-    (should (search-forward "(require 'ai-code-mcp-common" nil t))
-    (should-not (search-forward "(defun ai-code-mcp-editor-tools--json-bool" nil t))
-    (goto-char (point-min))
-    (should-not (search-forward "(defun ai-code-mcp-editor-tools--message-lines" nil t))
     (goto-char (point-min))
     (should-not (search-forward "(defvar ai-code-mcp-server-tool-setup-functions nil)" nil t))))
 
@@ -97,6 +88,16 @@
       (dolist (tool-name ai-code-test-mcp-debug-tools--tool-names)
         (should (member tool-name tool-names))))))
 
+(ert-deftest ai-code-test-mcp-debug-tools-do-not-register-eval-elisp-by-default ()
+  "Eval should remain opt-in even when debug tools are enabled."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t))
+    (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
+           (tool-names (mapcar (lambda (tool)
+                                 (alist-get 'name tool))
+                               (alist-get 'tools tools-result))))
+      (should-not (member "eval_elisp" tool-names)))))
+
 (ert-deftest ai-code-test-mcp-debug-tools-skip-registration-when-disabled ()
   "Optional debug tools should not register when disabled."
   (let ((ai-code-mcp-server-tools nil)
@@ -108,6 +109,58 @@
                              #'string<)))
       (dolist (tool-name ai-code-test-mcp-debug-tools--tool-names)
         (should-not (member tool-name tool-names))))))
+
+(ert-deftest ai-code-test-mcp-debug-tools-register-eval-when-enabled ()
+  "Eval should register when the explicit opt-in is enabled."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t))
+    (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
+           (tool-names (mapcar (lambda (tool)
+                                 (alist-get 'name tool))
+                               (alist-get 'tools tools-result))))
+      (should (member "eval_elisp" tool-names)))))
+
+(ert-deftest ai-code-test-mcp-eval-elisp-query-uses-target-buffer ()
+  "Query evaluation should run against the requested buffer context."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t)
+        (buffer (generate-new-buffer " *ai-code-mcp-eval*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (insert "hello\n"))
+          (let ((payload
+                 (ai-code-test-mcp-debug-tools--read-json-payload
+                  (ai-code-mcp-dispatch
+                   "tools/call"
+                   `((name . "eval_elisp")
+                     (arguments . ((code . "(buffer-name)")
+                                   (buffer_name . ,(buffer-name buffer)))))))))
+            (should (equal t (alist-get 'ok payload)))
+            (should (equal "\" *ai-code-mcp-eval*\""
+                           (alist-get 'value_repr payload)))
+            (should (equal "string"
+                           (alist-get 'value_type payload)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-mcp-eval-elisp-query-rejects-denied-symbols ()
+  "Query evaluation should reject denied symbols before running them."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t))
+    (let* ((payload
+            (ai-code-test-mcp-debug-tools--read-json-payload
+             (ai-code-mcp-dispatch
+              "tools/call"
+              '((name . "eval_elisp")
+                (arguments . ((code . "(insert \"boom\")")))))))
+           (error-object (alist-get 'error payload)))
+      (should (equal :json-false (alist-get 'ok payload)))
+      (should (equal "query_symbol_denied"
+                     (alist-get 'type error-object))))))
 
 (ert-deftest ai-code-test-mcp-get-variable-value-returns-bound-variable ()
   "Variable value tool should stringify the requested Emacs variable."

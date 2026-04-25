@@ -31,6 +31,7 @@
 
 (defconst ai-code-test-mcp--builtin-tool-names
   '("buffer_query"
+    "editor_state"
     "get_diagnostics"
     "get_project_buffers"
     "get_project_files"
@@ -38,6 +39,7 @@
     "notify_user"
     "project_info"
     "treesit_info"
+    "visible_buffers"
     "xref_find_definitions_at_point"
     "xref_find_references")
   "Expected built-in MCP tool names.")
@@ -134,6 +136,7 @@
                                     ai-code-mcp-server-tools)
                             #'string<)))
        (should (equal '("buffer_query"
+                        "editor_state"
                         "get_diagnostics"
                         "get_project_buffers"
                         "get_project_files"
@@ -141,6 +144,7 @@
                         "notify_user"
                         "project_info"
                         "treesit_info"
+                        "visible_buffers"
                         "xref_find_definitions_at_point"
                        "xref_find_references")
                      tool-names)))))
@@ -156,6 +160,70 @@
                              #'string<)))
       (should (equal ai-code-test-mcp--builtin-tool-names
                      tool-names)))))
+
+(ert-deftest ai-code-test-mcp-editor-state-reports-selected-buffer ()
+  "Editor state should describe the selected window buffer."
+  (let ((ai-code-mcp-server-tools nil)
+        (buffer (generate-new-buffer " *ai-code-mcp-editor-state*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (emacs-lisp-mode)
+            (setq-local default-directory "/tmp/")
+            (insert "alpha\nbeta\n")
+            (goto-char (point-min))
+            (forward-line 1)
+            (move-to-column 2))
+          (let* ((result (ai-code-mcp-dispatch "tools/call"
+                                               '((name . "editor_state")
+                                                 (arguments . ()))))
+                 (payload (let ((json-object-type 'alist)
+                                (json-array-type 'vector)
+                                (json-key-type 'symbol))
+                            (json-read-from-string
+                             (ai-code-test-mcp--content-text result)))))
+            (should (equal t (alist-get 'ok payload)))
+            (should (equal (buffer-name buffer)
+                           (alist-get 'buffer_name payload)))
+            (should (equal "emacs-lisp-mode"
+                           (alist-get 'major_mode payload)))
+            (should (equal t (alist-get 'modified payload)))
+            (should (= 2 (alist-get 'line payload)))
+            (should (= 2 (alist-get 'column payload)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-mcp-visible-buffers-lists-current-windows ()
+  "Visible buffers should mirror the selected frame windows."
+  (let ((ai-code-mcp-server-tools nil)
+        (left-buffer (generate-new-buffer " *ai-code-mcp-left*"))
+        (right-buffer (generate-new-buffer " *ai-code-mcp-right*")))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (switch-to-buffer left-buffer)
+          (set-window-buffer (split-window-right) right-buffer)
+          (let* ((result (ai-code-mcp-dispatch "tools/call"
+                                               '((name . "visible_buffers")
+                                                 (arguments . ()))))
+                 (payload (let ((json-object-type 'alist)
+                                (json-array-type 'vector)
+                                (json-key-type 'symbol))
+                            (json-read-from-string
+                             (ai-code-test-mcp--content-text result))))
+                 (items (alist-get 'items payload))
+                 (names (sort (mapcar (lambda (item)
+                                        (alist-get 'buffer_name item))
+                                      (append items nil))
+                              #'string<)))
+            (should (equal t (alist-get 'ok payload)))
+            (should (equal '(" *ai-code-mcp-left*" " *ai-code-mcp-right*")
+                           names))))
+      (when (buffer-live-p left-buffer)
+        (kill-buffer left-buffer))
+      (when (buffer-live-p right-buffer)
+        (kill-buffer right-buffer)))))
 
 (ert-deftest ai-code-test-mcp-notify-user-calls-message-and-beep ()
   "Notification tool should relay the message text and beep."

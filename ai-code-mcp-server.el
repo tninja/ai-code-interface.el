@@ -88,6 +88,14 @@ Use `auto' to prefer Flycheck and then Flymake when available."
      :name "project_info"
      :description "Get information about the current project context."
      :args nil)
+    (:function ai-code-mcp-editor-state
+     :name "editor_state"
+     :description "Get the current editor state."
+     :args nil)
+    (:function ai-code-mcp-visible-buffers
+     :name "visible_buffers"
+     :description "List buffers visible in the selected frame."
+     :args nil)
     (:function ai-code-mcp-buffer-query
      :name "buffer_query"
      :description "Read contents from an Emacs buffer by line range."
@@ -170,11 +178,13 @@ Use `auto' to prefer Flycheck and then Flymake when available."
              :optional t))))
   "Built-in MCP tool specifications.
 
-The default tool list includes:
-- `project_info'
-- `buffer_query'
-- `get_diagnostics'
-- `get_project_files'
+	The default tool list includes:
+	- `project_info'
+	- `editor_state'
+	- `visible_buffers'
+	- `buffer_query'
+	- `get_diagnostics'
+	- `get_project_files'
 - `get_project_buffers'
 - `notify_user'
 - `imenu_list_symbols'
@@ -279,6 +289,91 @@ Required keys are `:function', `:name', and `:description'."
                 (buffer-name active-buffer)
               "No active buffer")
             file-count)))
+
+(defun ai-code-mcp--selected-window ()
+  "Return the selected window, falling back to the frame root window."
+  (or (and (window-live-p (selected-window))
+           (selected-window))
+      (frame-root-window)))
+
+(defun ai-code-mcp--point-line-column (buffer point)
+  "Return line and column for POINT in BUFFER."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char point)
+      `((line . ,(line-number-at-pos))
+        (column . ,(current-column))))))
+
+(defun ai-code-mcp--region-state (buffer point)
+  "Return region metadata for BUFFER at POINT."
+  (with-current-buffer buffer
+    (let ((mark (mark t)))
+      (if (and mark mark-active)
+          (let* ((start (min point mark))
+                 (end (max point mark))
+                 (start-pos (ai-code-mcp--point-line-column buffer start))
+                 (end-pos (ai-code-mcp--point-line-column buffer end)))
+            `((region_active . t)
+              (region . ((start . ,start-pos)
+                         (end . ,end-pos)))))
+        '((region_active . :json-false)
+          (region . nil))))))
+
+(defun ai-code-mcp--editor-state-data ()
+  "Return an alist describing the selected window buffer."
+  (let* ((window (ai-code-mcp--selected-window))
+         (buffer (window-buffer window))
+         (point (window-point window))
+         (position (ai-code-mcp--point-line-column buffer point))
+         (region-state (ai-code-mcp--region-state buffer point)))
+    (with-current-buffer buffer
+      `((ok . t)
+        (buffer_name . ,(buffer-name buffer))
+        (file_path . ,(buffer-file-name buffer))
+        (major_mode . ,(symbol-name major-mode))
+        (modified . ,(ai-code-mcp--json-bool
+                      (buffer-modified-p)))
+        (read_only . ,(ai-code-mcp--json-bool buffer-read-only))
+        (narrowed . ,(ai-code-mcp--json-bool
+                      (buffer-narrowed-p)))
+        (point . ,point)
+        (line . ,(alist-get 'line position))
+        (column . ,(alist-get 'column position))
+        (region_active . ,(alist-get 'region_active region-state))
+        (region . ,(alist-get 'region region-state))
+        (default_directory . ,default-directory)))))
+
+(defun ai-code-mcp-editor-state ()
+  "Return a JSON payload for the current editor state."
+  (json-encode (ai-code-mcp--editor-state-data)))
+
+(defun ai-code-mcp--visible-buffer-entry (window index)
+  "Return a visible buffer entry for WINDOW at INDEX."
+  (let* ((buffer (window-buffer window))
+         (point (window-point window))
+         (position (ai-code-mcp--point-line-column buffer point)))
+    (with-current-buffer buffer
+      `((index . ,index)
+        (buffer_name . ,(buffer-name buffer))
+        (file_path . ,(buffer-file-name buffer))
+        (major_mode . ,(symbol-name major-mode))
+        (modified . ,(ai-code-mcp--json-bool
+                      (buffer-modified-p)))
+        (line . ,(alist-get 'line position))
+        (column . ,(alist-get 'column position))))))
+
+(defun ai-code-mcp-visible-buffers ()
+  "Return a JSON payload for visible buffers."
+  (let* ((selected-window (ai-code-mcp--selected-window))
+         (windows (window-list (selected-frame) 'no-minibuffer))
+         (entries (cl-mapcar #'ai-code-mcp--visible-buffer-entry
+                             windows
+                             (number-sequence 0 (1- (length windows)))))
+         (selected-index (or (cl-position selected-window windows) 0)))
+    (json-encode
+     `((ok . t)
+       (selected_index . ,selected-index)
+       (items . ,(vconcat entries))))))
 
 (defun ai-code-mcp--validate-buffer-query-range (start-line num-lines)
   "Validate optional buffer query range arguments START-LINE and NUM-LINES."
@@ -807,7 +902,6 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   (format "Notified user: %s" message-text))
 
 (require 'ai-code-mcp-debug-tools nil t)
-(require 'ai-code-mcp-editor-tools nil t)
 
 (provide 'ai-code-mcp-server)
 

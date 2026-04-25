@@ -59,15 +59,15 @@ questions well:
 
 These are useful for code understanding, navigation, and diagnostics.
 
-** Optional editor-session MCP tools
+** Live editor MCP tools
 
-The optional editor-session tools extend the built-in layer with
+The built-in editor-session tools extend the MCP layer with
 live-editor awareness:
 
 - =editor_state=
 - =visible_buffers=
-- =messages_tail=
-- =eval_elisp=
+- =get_recent_messages=
+- =eval_elisp= when explicitly enabled
 
 These tools should be understood as *Emacs-aware context and
 validation tools*, not as a replacement for the AI CLI's normal
@@ -149,7 +149,7 @@ Use case:
 
 Useful tools:
 
-- =messages_tail=
+- =get_recent_messages=
 
 ** Live Emacs Lisp validation
 
@@ -229,7 +229,7 @@ looks fine on disk.
 
 Recommended flow:
 
-1. Call =messages_tail=
+1. Call =get_recent_messages=
 2. If needed, call =editor_state=
 3. Use =eval_elisp= in =query= mode for state checks
 4. Suggest the fix
@@ -246,7 +246,7 @@ This is one of the strongest use cases for Emacs MCP.
 Recommended flow:
 
 1. Use the structural tools for source understanding
-2. Use =messages_tail= for runtime evidence
+2. Use =get_recent_messages= for runtime evidence
 3. Use =eval_elisp= in =query= mode for live checks
 
 Why this matters:
@@ -312,7 +312,7 @@ Why lower priority:
 | Priority | Tool | Main purpose |
 |----------+------+--------------|
 | High | =editor_state= | Anchor the agent to the current live editing context |
-| High | =messages_tail= | Expose Emacs-side runtime feedback and errors |
+| High | =get_recent_messages= | Expose Emacs-side runtime feedback and errors |
 | High | =eval_elisp= in =query= mode | Validate live Emacs assumptions |
 | Medium | =visible_buffers= | Expose the user's current visible working set |
 | Low | effectful =eval_elisp= | Powerful, but should remain explicitly gated |
@@ -330,7 +330,7 @@ Best fit:
 
 - =editor_state=
 - =visible_buffers=
-- =messages_tail=
+- =get_recent_messages=
 
 Typical pattern:
 
@@ -363,7 +363,7 @@ allowing controlled session-side validation.
 
 Best fit:
 
-- =messages_tail=
+- =get_recent_messages=
 - =eval_elisp= in =query= mode
 - =editor_state=
 
@@ -384,7 +384,7 @@ For the current toolset, the best general-purpose workflow is:
 3. If the issue is about code structure, use the built-in structural
    tools such as =imenu_list_symbols=, =xref_find_definitions_at_point=,
    or =get_diagnostics=
-4. If the issue may be Emacs-runtime-specific, call =messages_tail=
+4. If the issue may be Emacs-runtime-specific, call =get_recent_messages=
 5. If a live check is needed, use =eval_elisp= in =query= mode
 
 This keeps the AI CLI focused on the repository and filesystem while

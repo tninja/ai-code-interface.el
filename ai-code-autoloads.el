@@ -1021,9 +1021,6 @@ prompt for the project directory.
 (register-definition-prefixes "ai-code-mcp-debug-tools" '("ai-code-mcp-"))
 
 
-;;; Generated autoloads from ai-code-mcp-editor-tools.el
-
-(register-definition-prefixes "ai-code-mcp-editor-tools" '("ai-code-mcp-"))
 
 ;;; End of scraped data
 
