@@ -61,11 +61,13 @@ These are useful for code understanding, navigation, and diagnostics.
 
 ** Live editor MCP tools
 
-The built-in editor-session tools extend the MCP layer with
-live-editor awareness:
+The built-in editor-session tools expose live editor awareness:
 
 - =editor_state=
 - =visible_buffers=
+
+Related debug tools:
+
 - =get_recent_messages=
 - =eval_elisp= when explicitly enabled
 

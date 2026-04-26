@@ -161,6 +161,12 @@
    ((eq value :json-false) nil)
    (t (not (null value)))))
 
+(defun ai-code-mcp-debug-tools--selected-window ()
+  "Return the selected window, falling back to the frame root window."
+  (or (and (window-live-p (selected-window))
+           (selected-window))
+      (frame-root-window)))
+
 (defun ai-code-mcp-debug-tools--resolve-eval-buffer (&optional buffer-name file-path)
   "Return the requested live buffer from BUFFER-NAME or FILE-PATH."
   (when (and buffer-name file-path)
@@ -172,7 +178,7 @@
    (file-path
     (find-file-noselect (expand-file-name file-path) t))
    (t
-    (current-buffer))))
+    (window-buffer (ai-code-mcp-debug-tools--selected-window)))))
 
 (defun ai-code-mcp-debug-tools--point-line-column (buffer point)
   "Return line and column for POINT in BUFFER."

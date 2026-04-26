@@ -178,13 +178,13 @@ Use `auto' to prefer Flycheck and then Flymake when available."
              :optional t))))
   "Built-in MCP tool specifications.
 
-	The default tool list includes:
-	- `project_info'
-	- `editor_state'
-	- `visible_buffers'
-	- `buffer_query'
-	- `get_diagnostics'
-	- `get_project_files'
+The default tool list includes:
+- `project_info'
+- `editor_state'
+- `visible_buffers'
+- `buffer_query'
+- `get_diagnostics'
+- `get_project_files'
 - `get_project_buffers'
 - `notify_user'
 - `imenu_list_symbols'

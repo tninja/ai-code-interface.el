@@ -146,6 +146,38 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest ai-code-test-mcp-eval-elisp-defaults-to-selected-window-buffer ()
+  "Eval should use the selected window buffer when no buffer context is given."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t)
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (session-id "mcp-eval-session")
+        (session-buffer (generate-new-buffer " *ai-code-mcp-session*"))
+        (target-buffer (generate-new-buffer " *ai-code-mcp-target*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer target-buffer)
+          (with-current-buffer session-buffer
+            (rename-buffer "mcp-session-buffer" t))
+          (with-current-buffer target-buffer
+            (rename-buffer "mcp-target-buffer" t))
+          (ai-code-mcp-register-session session-id default-directory session-buffer)
+          (let* ((ai-code-mcp--current-session-id session-id)
+                 (payload
+                  (ai-code-test-mcp-debug-tools--read-json-payload
+                   (ai-code-mcp-dispatch
+                    "tools/call"
+                    '((name . "eval_elisp")
+                      (arguments . ((code . "(buffer-name)"))))))))
+            (should (equal t (alist-get 'ok payload)))
+            (should (equal "\"mcp-target-buffer\""
+                           (alist-get 'value_repr payload)))))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (when (buffer-live-p target-buffer)
+        (kill-buffer target-buffer)))))
+
 (ert-deftest ai-code-test-mcp-eval-elisp-query-rejects-denied-symbols ()
   "Query evaluation should reject denied symbols before running them."
   (let ((ai-code-mcp-server-tools nil)
