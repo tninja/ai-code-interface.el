@@ -10,6 +10,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'dired)
+(require 'ai-code-change)
 (require 'ai-code-discussion)
 
 (ert-deftest ai-code-test-explain-dired-uses-marked-files-as-git-relative-context ()
@@ -33,6 +34,69 @@
       (should (string-match-p (regexp-quote "Please explain the selected files or directories.") captured-initial-prompt))
       (should (string-match-p (regexp-quote "\nFiles:\n@a.el\n@b.el") captured-initial-prompt))
       (should (equal captured-final-prompt captured-initial-prompt)))))
+
+(ert-deftest ai-code-test-ask-question-routes-to-implement-todo-on-todo-comment ()
+  "Test `ai-code-ask-question' calls `ai-code-implement-todo' when on a TODO comment."
+  (with-temp-buffer
+    (setq buffer-file-name "test.el")
+    (setq-local comment-start ";")
+    (setq-local comment-end "")
+    (insert ";; TODO: implement feature\n")
+    (goto-char (point-min))
+
+    (let (implement-todo-called)
+      (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code-implement-todo)
+                 (lambda (_arg) (setq implement-todo-called t)))
+                ((symbol-function 'ai-code--ask-question-file)
+                 (lambda (_ctx) (error "Should not reach ask-question-file")))
+                ((symbol-function 'region-active-p) (lambda () nil)))
+
+        (ai-code-ask-question nil)
+
+        (should implement-todo-called)))))
+
+(ert-deftest ai-code-test-ask-question-falls-through-on-non-todo ()
+  "Test `ai-code-ask-question' calls `ai-code--ask-question-file' on non-TODO lines."
+  (with-temp-buffer
+    (setq buffer-file-name "test.el")
+    (setq-local comment-start ";")
+    (setq-local comment-end "")
+    (insert "some code line\n")
+    (goto-char (point-min))
+
+    (let (ask-file-called)
+      (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code-implement-todo)
+                 (lambda (_arg) (error "Should not reach implement-todo")))
+                ((symbol-function 'ai-code--ask-question-file)
+                 (lambda (_ctx) (setq ask-file-called t)))
+                ((symbol-function 'region-active-p) (lambda () nil)))
+
+        (ai-code-ask-question nil)
+
+        (should ask-file-called)))))
+
+(ert-deftest ai-code-test-ask-question-routes-to-implement-todo-on-org-headline ()
+  "Test `ai-code-ask-question' calls `ai-code-implement-todo' on Org TODO headline."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "plan.org")
+    (insert "* TODO Build search feature\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (let (implement-todo-called)
+      (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code-implement-todo)
+                 (lambda (_arg) (setq implement-todo-called t)))
+                ((symbol-function 'ai-code--ask-question-file)
+                 (lambda (_ctx) (error "Should not reach ask-question-file")))
+                ((symbol-function 'region-active-p) (lambda () nil)))
+
+        (ai-code-ask-question nil)
+
+        (should implement-todo-called)))))
 
 (provide 'test_ai-code-discussion)
 

@@ -21,6 +21,8 @@
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
+(declare-function ai-code--detect-todo-info "ai-code-change" (region-active))
+(declare-function ai-code-implement-todo "ai-code-change" (arg))
 
 (defvar ai-code--repo-context-info)
 
@@ -102,13 +104,17 @@ Inserts the prompt into the AI prompt file and optionally sends to AI.
 
 Argument ARG is the prefix argument."
   (interactive "P")
-  (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
-    (cond
-     ;; Handle dired buffer
-     ((derived-mode-p 'dired-mode)
-      (ai-code--ask-question-dired clipboard-context))
-     ;; Handle regular file buffer
-     (t (ai-code--ask-question-file clipboard-context)))))
+  ;; DONE: similar to ai-code-code-change, when todo-info is available, call ai-code-implement-todo
+  (cond
+   ((derived-mode-p 'dired-mode)
+    (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
+      (ai-code--ask-question-dired clipboard-context)))
+   (t
+    (let ((todo-info (ai-code--detect-todo-info (region-active-p))))
+      (if todo-info
+          (ai-code-implement-todo arg)
+        (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
+          (ai-code--ask-question-file clipboard-context)))))))
 
 (defun ai-code--ask-question-dired (clipboard-context)
   "Handle ask question for Dired buffer.
