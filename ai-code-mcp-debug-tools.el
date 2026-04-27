@@ -81,7 +81,7 @@
 (defconst ai-code-mcp-debug-tools--eval-spec
   '(:function ai-code-mcp-eval-elisp
     :name "eval_elisp"
-    :description "Evaluate a single Emacs Lisp form."
+    :description "Evaluate arbitrary Emacs Lisp with possible side effects once explicitly enabled."
     :args ((:name "code"
             :type string
             :description "Single Emacs Lisp form to evaluate.")
@@ -190,14 +190,16 @@
                 changed))))))
 
 (defun ai-code-mcp-debug-tools--context-summary (buffer)
-  "Return a summary of BUFFER after an evaluation."
-  (let ((position (ai-code-mcp-debug-tools--point-line-column
-                   buffer
-                   (with-current-buffer buffer (point)))))
-    `((buffer_name . ,(buffer-name buffer))
-      (file_path . ,(buffer-file-name buffer))
-      (line . ,(alist-get 'line position))
-      (column . ,(alist-get 'column position)))))
+  "Return a summary of BUFFER after an evaluation.
+Return nil when BUFFER is no longer live."
+  (when (buffer-live-p buffer)
+    (let ((position (ai-code-mcp-debug-tools--point-line-column
+                     buffer
+                     (with-current-buffer buffer (point)))))
+      `((buffer_name . ,(buffer-name buffer))
+        (file_path . ,(buffer-file-name buffer))
+        (line . ,(alist-get 'line position))
+        (column . ,(alist-get 'column position))))))
 
 (defun ai-code-mcp-debug-tools--parse-single-form (code)
   "Parse CODE and return exactly one top-level Emacs Lisp form."

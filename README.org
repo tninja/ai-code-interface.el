@@ -225,7 +225,7 @@ These tools add:
 - =get_feature_load_state=: inspect whether an Emacs feature is loaded and where it comes from
 - =get_recent_messages=: return the latest lines from =*Messages*=
 - =get_last_error_backtrace=: return the most recently recorded Emacs command error snapshot
-- =eval_elisp=: evaluate a single Emacs Lisp form in a chosen buffer context when explicitly enabled (no restrictions once enabled)
+- =eval_elisp=: evaluate arbitrary Emacs Lisp with possible side effects in a chosen buffer context when explicitly enabled (no restrictions once enabled)
 
 The old =ai-code-mcp-editor-tools.el= module has been removed. Its live-editor read tools are now built in, while =eval_elisp= remains an explicit opt-in.
 
@@ -235,7 +235,7 @@ To register =eval_elisp=:
 (setq ai-code-mcp-debug-tools-enable-eval-elisp t)
 #+end_src
 
-Once enabled, =eval_elisp= can evaluate any Emacs Lisp form without restrictions. It takes =code= (a single top-level form), optional =buffer_name= or =file_path= for evaluation context, and optional =timeout_ms=. This is useful for letting the AI apply fixes by evaluating modified function definitions directly.
+Once enabled, =eval_elisp= can evaluate any Emacs Lisp form without restrictions. It takes =code= (a single top-level form), optional =buffer_name= or =file_path= for evaluation context, optional =capture_messages= to collect new =*Messages*= output, optional =include_backtrace= to include a backtrace on failure, and optional =timeout_ms=. This is useful for letting the AI apply fixes by evaluating modified function definitions directly.
 
 screenshot inside Codex cli:
 

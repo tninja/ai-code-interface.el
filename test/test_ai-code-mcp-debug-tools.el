@@ -121,6 +121,21 @@
                                (alist-get 'tools tools-result))))
       (should (member "eval_elisp" tool-names)))))
 
+(ert-deftest ai-code-test-mcp-tools-list-warns-eval-elisp-is-unrestricted ()
+  "Eval tool metadata should warn about unrestricted side effects."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t))
+    (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
+           (eval-tool (seq-find
+                       (lambda (tool)
+                         (equal "eval_elisp" (alist-get 'name tool)))
+                       (alist-get 'tools tools-result)))
+           (description (alist-get 'description eval-tool)))
+      (should eval-tool)
+      (should (string-match-p "arbitrary Emacs Lisp" description))
+      (should (string-match-p "side effects" description)))))
+
 (ert-deftest ai-code-test-mcp-eval-elisp-uses-target-buffer ()
   "Eval should run against the requested buffer context."
   (let ((ai-code-mcp-server-tools nil)
@@ -196,6 +211,26 @@
           (should (equal "\"boom\"" (alist-get 'value_repr payload))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-mcp-eval-elisp-survives-killed-target-buffer ()
+  "Eval should still return JSON when the target buffer is killed."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t)
+        (buffer (generate-new-buffer " *ai-code-mcp-eval-kill*")))
+    (let ((payload
+           (unwind-protect
+               (ai-code-test-mcp-debug-tools--read-json-payload
+                (ai-code-mcp-dispatch
+                 "tools/call"
+                 `((name . "eval_elisp")
+                   (arguments . ((code . "(kill-buffer (current-buffer))")
+                                 (buffer_name . ,(buffer-name buffer)))))))
+             (when (buffer-live-p buffer)
+               (kill-buffer buffer)))))
+      (should (equal t (alist-get 'ok payload)))
+      (should (equal "t" (alist-get 'value_repr payload)))
+      (should-not (alist-get 'context_after payload)))))
 
 (ert-deftest ai-code-test-mcp-get-variable-value-returns-bound-variable ()
   "Variable value tool should stringify the requested Emacs variable."
@@ -515,6 +550,14 @@
           (should (= 42 (funcall (intern func-name)))))
       (when (fboundp (intern-soft func-name))
         (fmakunbound (intern func-name))))))
+
+(ert-deftest ai-code-test-readme-documents-eval-elisp-debug-options ()
+  "README should mention the eval_elisp debugging options."
+  (with-temp-buffer
+    (insert-file-contents "README.org")
+    (dolist (option '("=capture_messages=" "=include_backtrace="))
+      (goto-char (point-min))
+      (should (search-forward option nil t)))))
 
 (provide 'test_ai-code-mcp-debug-tools)
 
