@@ -124,18 +124,35 @@ returns that function's name.  Otherwise returns the result of `which-function`.
   "Detect TODO comment information at cursor or in selected region.
 REGION-ACTIVE indicates whether a region is selected.
 Returns (TEXT START-POS END-POS) if TODO found, nil otherwise."
+  ;; DONE: this function should include org-mode TODO headline detection as well, as it used inside ai-code-implement-todo.
   (let ((text (if region-active
                   (buffer-substring-no-properties (region-beginning) (region-end))
                 (thing-at-point 'line t))))
-    (when (and text comment-start)
-      (let* ((first-line (car (split-string text "\n")))
-             (comment-prefix-re (concat "^[ \t]*" (regexp-quote (string-trim-right comment-start)) "+[ \t]*")))
-        (when (string-match comment-prefix-re first-line)
-          (let ((rest (string-trim-left (substring first-line (match-end 0)))))
-            (when (string-prefix-p "TODO" rest)
-              (list text
-                    (if region-active (region-beginning) (line-beginning-position))
-                    (if region-active (region-end) (line-end-position))))))))))
+    (or
+     (when (and text comment-start)
+       (let* ((first-line (car (split-string text "\n")))
+              (comment-prefix-re (concat "^[ \t]*" (regexp-quote (string-trim-right comment-start)) "+[ \t]*")))
+         (when (string-match comment-prefix-re first-line)
+           (let ((rest (string-trim-left (substring first-line (match-end 0)))))
+             (when (string-prefix-p "TODO" rest)
+               (list text
+                     (if region-active (region-beginning) (line-beginning-position))
+                     (if region-active (region-end) (line-end-position))))))))
+     (when (and (not region-active)
+                (derived-mode-p 'org-mode)
+                text)
+       (save-excursion
+         (when (and (org-at-heading-p)
+                    (ignore-errors (org-back-to-heading t)))
+           (let ((heading-line (buffer-substring-no-properties
+                                (line-beginning-position)
+                                (line-end-position))))
+             (when (and (or (org-get-todo-state)
+                            (ai-code--implement-todo--org-todo-headline-p heading-line))
+                        (not (org-entry-is-done-p)))
+               (list heading-line
+                     (line-beginning-position)
+                     (line-end-position))))))))))
 
 (defun ai-code--generate-prompt-label (clipboard-context region-active function-name)
   "Generate appropriate prompt label based on context.

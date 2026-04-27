@@ -581,6 +581,62 @@ is between the function definition and its body."
         (should (string-match-p "\\*\\* TODO: what is the most important verse in Bible"
                                 captured-prompt))))))
 
+(ert-deftest ai-code-test-detect-todo-info-org-todo-headline ()
+  "Test `ai-code--detect-todo-info' detects Org TODO headlines."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "plan.org")
+    (insert "* TODO Build search feature\n")
+    (insert "Design the API first.\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil)))
+      (let ((result (ai-code--detect-todo-info nil)))
+        (should result)
+        (should (stringp (nth 0 result)))
+        (should (string-match-p "TODO Build search feature" (nth 0 result)))
+        (should (integerp (nth 1 result)))
+        (should (integerp (nth 2 result)))))))
+
+(ert-deftest ai-code-test-detect-todo-info-org-done-headline-returns-nil ()
+  "Test `ai-code--detect-todo-info' returns nil for Org DONE headlines."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "plan.org")
+    (insert "* DONE Completed task\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil)))
+      (should-not (ai-code--detect-todo-info nil)))))
+
+(ert-deftest ai-code-test-detect-todo-info-org-non-todo-headline-returns-nil ()
+  "Test `ai-code--detect-todo-info' returns nil for non-TODO Org headlines."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "notes.org")
+    (insert "* Regular heading\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil)))
+      (should-not (ai-code--detect-todo-info nil)))))
+
+(ert-deftest ai-code-test-detect-todo-info-org-todo-colon-prefix ()
+  "Test `ai-code--detect-todo-info' detects `TODO:' prefixed Org headlines."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "plan.org")
+    (insert "** TODO: Implement auth module\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil)))
+      (let ((result (ai-code--detect-todo-info nil)))
+        (should result)
+        (should (string-match-p "TODO:" (nth 0 result)))))))
+
 (provide 'test_ai-code-change)
 
 ;;; test_ai-code-change.el ends here
