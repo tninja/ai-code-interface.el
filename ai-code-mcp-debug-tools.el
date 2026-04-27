@@ -8,7 +8,6 @@
 
 ;;; Code:
 
-(require 'cl-lib)
 (require 'json)
 (require 'ai-code-mcp-common)
 (require 'nadvice)
@@ -28,11 +27,6 @@
 
 (defcustom ai-code-mcp-debug-tools-enable-eval-elisp nil
   "When non-nil, register the `eval_elisp' MCP tool."
-  :type 'boolean
-  :group 'ai-code-mcp-debug-tools)
-
-(defcustom ai-code-mcp-debug-tools-allow-effect-eval nil
-  "When non-nil, allow `eval_elisp' to run in effect mode."
   :type 'boolean
   :group 'ai-code-mcp-debug-tools)
 
@@ -91,10 +85,6 @@
     :args ((:name "code"
             :type string
             :description "Single Emacs Lisp form to evaluate.")
-           (:name "mode"
-            :type string
-            :description "Evaluation mode."
-            :optional t)
            (:name "buffer_name"
             :type string
             :description "Optional buffer context."
@@ -116,21 +106,6 @@
             :description "Maximum time budget for the evaluation."
             :optional t)))
   "Optional MCP eval tool specification.")
-
-(defconst ai-code-mcp-debug-tools--always-denied-symbols
-  '(append-to-file async-shell-command call-interactively call-process
-    command-execute compile copy-file delete-file delete-frame
-    delete-window eval funcall kill-buffer load load-file
-    make-directory make-network-process make-process rename-file
-    recompile require save-buffer save-buffers-kill-emacs shell-command
-    start-process url-retrieve write-file write-region)
-  "Symbols that `eval_elisp' rejects in every mode.")
-
-(defconst ai-code-mcp-debug-tools--query-denied-symbols
-  '(add-hook delete-region erase-buffer indent-region insert kill-region
-    newline put remove-hook replace-buffer-contents set setf setq
-    setq-local switch-to-buffer yank)
-  "Additional symbols that `eval_elisp' rejects in query mode.")
 
 (defun ai-code-mcp-debug-tools-setup ()
   "Register optional MCP debugging tools when enabled."
@@ -224,31 +199,6 @@
       (line . ,(alist-get 'line position))
       (column . ,(alist-get 'column position)))))
 
-(defun ai-code-mcp-debug-tools--symbol-denied-p (form denied-symbols)
-  "Return the first symbol in FORM that appears in DENIED-SYMBOLS."
-  (cond
-   ((symbolp form)
-    (and (memq form denied-symbols) form))
-   ((consp form)
-    (let ((head (car form)))
-      (cond
-       ((and (symbolp head)
-              (memq head denied-symbols))
-        head)
-       (t
-        (or (ai-code-mcp-debug-tools--symbol-denied-p head denied-symbols)
-            (cl-some
-             (lambda (item)
-               (ai-code-mcp-debug-tools--symbol-denied-p
-                item denied-symbols))
-             (cdr form)))))))
-   ((vectorp form)
-    (cl-some
-     (lambda (item)
-       (ai-code-mcp-debug-tools--symbol-denied-p item denied-symbols))
-     (append form nil)))
-   (t nil)))
-
 (defun ai-code-mcp-debug-tools--parse-single-form (code)
   "Parse CODE and return exactly one top-level Emacs Lisp form."
   (let* ((read-result (read-from-string code))
@@ -278,16 +228,15 @@
     (buffer-string)))
 
 (defun ai-code-mcp-debug-tools--encode-eval-result
-    (mode target-buffer before-messages capture-messages timed-out
+    (target-buffer before-messages capture-messages timed-out
           value changed-buffers &optional error-object backtrace)
-  "Return a JSON response for MODE in TARGET-BUFFER.
+  "Return a JSON eval response for TARGET-BUFFER.
 BEFORE-MESSAGES and CAPTURE-MESSAGES control message collection.
 TIMED-OUT records timeout state, VALUE carries the result,
 CHANGED-BUFFERS lists modified buffers, and ERROR-OBJECT or BACKTRACE
 describe failures."
   (json-encode
    `((ok . ,(ai-code-mcp--json-bool (null error-object)))
-     (mode . ,mode)
      (value_repr . ,(and (null error-object) (prin1-to-string value)))
      (value_type . ,(and (null error-object)
                          (symbol-name (type-of value))))
@@ -302,10 +251,10 @@ describe failures."
                         target-buffer))
      (timed_out . ,(ai-code-mcp--json-bool timed-out)))))
 
-(defun ai-code-mcp-debug-tools--run-eval (form mode target-buffer timeout-ms
+(defun ai-code-mcp-debug-tools--run-eval (form target-buffer timeout-ms
                                                capture-messages
                                                include-backtrace)
-  "Evaluate FORM in MODE within TARGET-BUFFER using TIMEOUT-MS.
+  "Evaluate FORM within TARGET-BUFFER using TIMEOUT-MS.
 CAPTURE-MESSAGES controls message collection, and INCLUDE-BACKTRACE
 keeps the backtrace on failures."
   (let ((before-messages (ai-code-mcp--message-lines))
@@ -320,16 +269,9 @@ keeps the backtrace on failures."
                          (setq timed-out t)
                          (throw 'ai-code-mcp-debug-tools-timeout nil))
             (setq value
-                  (if (string= mode "query")
-                      (save-current-buffer
-                        (with-current-buffer target-buffer
-                          (save-excursion
-                            (save-match-data
-                              (save-restriction
-                                (eval form t))))))
-                    (save-current-buffer
-                      (with-current-buffer target-buffer
-                        (eval form t)))))))
+                  (save-current-buffer
+                    (with-current-buffer target-buffer
+                      (eval form t))))))
       (error
        (setq error-object
              (ai-code-mcp-debug-tools--error-alist
@@ -343,7 +285,6 @@ keeps the backtrace on failures."
              "timeout"
              "Evaluation exceeded the configured timeout")))
     (ai-code-mcp-debug-tools--encode-eval-result
-     mode
      target-buffer
      before-messages
      capture-messages
@@ -606,14 +547,14 @@ existing bound variable."
        (limit . ,limit)
        (messages . ,(vconcat messages))))))
 
-(defun ai-code-mcp-eval-elisp (code &optional mode buffer-name file-path
+(defun ai-code-mcp-eval-elisp (code &optional buffer-name file-path
                                     capture-messages include-backtrace
                                     timeout-ms)
-  "Evaluate CODE as a single form using MODE and BUFFER-NAME.
-Return a JSON payload for BUFFER-NAME, FILE-PATH,
-CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS."
-  (let* ((mode (or mode "query"))
-         (capture-messages (ai-code-mcp-debug-tools--bool-arg
+  "Evaluate CODE as a single Emacs Lisp form.
+Return a JSON payload.  BUFFER-NAME or FILE-PATH select the evaluation
+context.  CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS control
+diagnostics."
+  (let* ((capture-messages (ai-code-mcp-debug-tools--bool-arg
                             capture-messages
                             t))
          (include-backtrace (ai-code-mcp-debug-tools--bool-arg
@@ -624,93 +565,32 @@ CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS."
                          buffer-name
                          file-path))
          (parse-error nil)
-         form
-         always-denied
-         query-denied)
-    (unless (member mode '("query" "effect"))
-      (error "Argument mode must be either query or effect"))
+         form)
     (unless (and (integerp timeout-ms) (> timeout-ms 0))
       (error "Argument timeout_ms must be a positive integer"))
     (condition-case err
         (setq form (ai-code-mcp-debug-tools--parse-single-form code))
       (error
        (setq parse-error err)))
-    (cond
-     (parse-error
-      (ai-code-mcp-debug-tools--encode-eval-result
-       mode
+    (if parse-error
+        (ai-code-mcp-debug-tools--encode-eval-result
+         target-buffer
+         (ai-code-mcp--message-lines)
+         capture-messages
+         nil
+         nil
+         '()
+         (ai-code-mcp-debug-tools--error-alist
+          (symbol-name (car parse-error))
+          (error-message-string parse-error))
+         (and include-backtrace
+              (ai-code-mcp-debug-tools--backtrace-string)))
+      (ai-code-mcp-debug-tools--run-eval
+       form
        target-buffer
-       (ai-code-mcp--message-lines)
+       timeout-ms
        capture-messages
-       nil
-       nil
-       '()
-       (ai-code-mcp-debug-tools--error-alist
-        (symbol-name (car parse-error))
-        (error-message-string parse-error))
-       (and include-backtrace
-            (ai-code-mcp-debug-tools--backtrace-string))))
-     (t
-      (setq always-denied
-            (ai-code-mcp-debug-tools--symbol-denied-p
-             form
-             ai-code-mcp-debug-tools--always-denied-symbols))
-      (setq query-denied
-            (and (string= mode "query")
-                 (ai-code-mcp-debug-tools--symbol-denied-p
-                  form
-                  ai-code-mcp-debug-tools--query-denied-symbols)))
-      (cond
-       (always-denied
-        (ai-code-mcp-debug-tools--encode-eval-result
-         mode
-         target-buffer
-         (ai-code-mcp--message-lines)
-         capture-messages
-         nil
-         nil
-         '()
-         (ai-code-mcp-debug-tools--error-alist
-          "symbol_denied"
-          (format "Symbol `%s' is not allowed in eval_elisp"
-                  always-denied))
-         nil))
-       (query-denied
-        (ai-code-mcp-debug-tools--encode-eval-result
-         mode
-         target-buffer
-         (ai-code-mcp--message-lines)
-         capture-messages
-         nil
-         nil
-         '()
-         (ai-code-mcp-debug-tools--error-alist
-          "query_symbol_denied"
-          (format "Symbol `%s' is not allowed in query mode"
-                  query-denied))
-         nil))
-       ((and (string= mode "effect")
-             (not ai-code-mcp-debug-tools-allow-effect-eval))
-        (ai-code-mcp-debug-tools--encode-eval-result
-         mode
-         target-buffer
-        (ai-code-mcp--message-lines)
-        capture-messages
-        nil
-        nil
-        '()
-        (ai-code-mcp-debug-tools--error-alist
-         "effect_mode_disabled"
-         "Effect mode is disabled by configuration")
-        nil))
-       (t
-        (ai-code-mcp-debug-tools--run-eval
-         form
-         mode
-         target-buffer
-         timeout-ms
-         capture-messages
-         include-backtrace)))))))
+       include-backtrace))))
 
 (add-to-list 'ai-code-mcp-server-tool-setup-functions
              #'ai-code-mcp-debug-tools-setup)

@@ -121,8 +121,8 @@
                                (alist-get 'tools tools-result))))
       (should (member "eval_elisp" tool-names)))))
 
-(ert-deftest ai-code-test-mcp-eval-elisp-query-uses-target-buffer ()
-  "Query evaluation should run against the requested buffer context."
+(ert-deftest ai-code-test-mcp-eval-elisp-uses-target-buffer ()
+  "Eval should run against the requested buffer context."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
         (ai-code-mcp-debug-tools-enable-eval-elisp t)
@@ -178,21 +178,24 @@
       (when (buffer-live-p target-buffer)
         (kill-buffer target-buffer)))))
 
-(ert-deftest ai-code-test-mcp-eval-elisp-query-rejects-denied-symbols ()
-  "Query evaluation should reject denied symbols before running them."
+(ert-deftest ai-code-test-mcp-eval-elisp-allows-mutation ()
+  "Eval should allow mutation symbols when eval is enabled."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
-        (ai-code-mcp-debug-tools-enable-eval-elisp t))
-    (let* ((payload
-            (ai-code-test-mcp-debug-tools--read-json-payload
-             (ai-code-mcp-dispatch
-              "tools/call"
-              '((name . "eval_elisp")
-                (arguments . ((code . "(insert \"boom\")")))))))
-           (error-object (alist-get 'error payload)))
-      (should (equal :json-false (alist-get 'ok payload)))
-      (should (equal "query_symbol_denied"
-                     (alist-get 'type error-object))))))
+        (ai-code-mcp-debug-tools-enable-eval-elisp t)
+        (buffer (generate-new-buffer " *ai-code-mcp-eval-insert*")))
+    (unwind-protect
+        (let ((payload
+               (ai-code-test-mcp-debug-tools--read-json-payload
+                (ai-code-mcp-dispatch
+                 "tools/call"
+                 `((name . "eval_elisp")
+                   (arguments . ((code . "(progn (insert \"boom\") (buffer-string))")
+                                 (buffer_name . ,(buffer-name buffer)))))))))
+          (should (equal t (alist-get 'ok payload)))
+          (should (equal "\"boom\"" (alist-get 'value_repr payload))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest ai-code-test-mcp-get-variable-value-returns-bound-variable ()
   "Variable value tool should stringify the requested Emacs variable."
@@ -478,6 +481,40 @@
       (should (= 2 (alist-get 'frame_count payload)))
       (should (string-match-p "ai-code-test-mcp-frame-a"
                               (car frames))))))
+
+(ert-deftest ai-code-test-mcp-eval-elisp-allows-previously-denied-symbols ()
+  "Eval should allow all symbols when enabled, including funcall."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t))
+    (let ((payload
+           (ai-code-test-mcp-debug-tools--read-json-payload
+            (ai-code-mcp-dispatch
+             "tools/call"
+             '((name . "eval_elisp")
+               (arguments . ((code . "(funcall #'+ 1 2)"))))))))
+      (should (equal t (alist-get 'ok payload)))
+      (should (equal "3" (alist-get 'value_repr payload))))))
+
+(ert-deftest ai-code-test-mcp-eval-elisp-defines-function ()
+  "Eval should define a function and make it callable."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t)
+        (func-name "ai-code-test-mcp-eval-defined-func"))
+    (unwind-protect
+        (let ((payload
+               (ai-code-test-mcp-debug-tools--read-json-payload
+                (ai-code-mcp-dispatch
+                 "tools/call"
+                 `((name . "eval_elisp")
+                   (arguments . ((code . "(defun ai-code-test-mcp-eval-defined-func () 42)"))))))))
+          (should (equal t (alist-get 'ok payload)))
+          (should-not (alist-get 'mode payload))
+          (should (fboundp (intern func-name)))
+          (should (= 42 (funcall (intern func-name)))))
+      (when (fboundp (intern-soft func-name))
+        (fmakunbound (intern func-name))))))
 
 (provide 'test_ai-code-mcp-debug-tools)
 
