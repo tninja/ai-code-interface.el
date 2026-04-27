@@ -2,6 +2,10 @@
 * Release history
 
 ** Main branch change
+
+** 1.77
+- Chore: Remove eval_elisp mode and symbol restrictions
+- Chore: Treat documentation changes as non-code changes
 - Breaking: Remove =ai-code-mcp-editor-tools.el= and merge its remaining MCP tools into the core server and debug modules
   - =editor_state= and =visible_buffers= are now built-in MCP tools in =ai-code-mcp-server.el=
   - =eval_elisp= now lives in =ai-code-mcp-debug-tools.el= and is gated by =ai-code-mcp-debug-tools-enable-eval-elisp=
@@ -9,6 +13,8 @@
   - Remove the old =ai-code-mcp-editor-tools-enabled= and =ai-code-mcp-editor-tools-allow-effect-eval= settings
   - Move the dedicated editor-tools tests into the server/debug MCP test files
   - Update MCP docs and release notes to match the new tool layout
+- Feat: Add Kilo backend support (Opencode fork)
+- Feat: Support Org TODO headlines in implement-todo
 
 ** 1.74
 - Fix: Guard eat/ghostel process filters against deleted buffers on exit and add regression tests
