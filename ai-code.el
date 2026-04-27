@@ -182,9 +182,9 @@ See the later `defcustom' for user-facing documentation and default.")
 
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
+    ("Do not write or run tests" . no-test)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
-    ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
-    ("Do not write or run tests" . no-test))
+    ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring))
   "Resolve auto test suffix choices for `ask-me` mode.")
 
 (defconst ai-code--auto-test-type-persistent-choices
