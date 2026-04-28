@@ -10,6 +10,7 @@
 
 (require 'ert)
 (require 'ai-code-prompt-mode)
+(require 'ai-code-git)
 (require 'magit)
 (require 'cl-lib)
 
@@ -36,7 +37,12 @@ and ensures everything is cleaned up afterward."
            (with-temp-file outside-file (insert "content"))
            ;; Execute test body with mocks
            (cl-letf (((symbol-function 'magit-toplevel) (lambda (&optional dir) git-root))
-                     ((symbol-function 'ai-code--git-root) (lambda (&optional dir) git-root)))
+                     ((symbol-function 'ai-code--git-root) (lambda (&optional dir) git-root))
+                     ((symbol-function 'magit-git-lines)
+                      (lambda (&rest _args)
+                        (let ((default-directory git-root))
+                          (mapcar (lambda (f) (file-relative-name f git-root))
+                                  (directory-files-recursively git-root ""))))))
              ,@body))
        ;; Teardown: Clean up dummy files and directories
        (when (file-exists-p mock-file-in-repo) (delete-file mock-file-in-repo))

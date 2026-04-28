@@ -25,6 +25,8 @@
               ((symbol-function 'ai-code-backends-infra--resolve-start-command)
                (lambda (&rest _args)
                  (list :command "claude")))
+              ((symbol-function 'ai-code-mcp-agent-prepare-launch)
+               (lambda (&rest _args) nil))
               ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
                (lambda (&rest args)
                  (cl-destructuring-bind

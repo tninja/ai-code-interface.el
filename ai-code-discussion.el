@@ -13,6 +13,7 @@
 
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
+(require 'ai-code-change)
 
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
@@ -21,8 +22,6 @@
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
-(declare-function ai-code--detect-todo-info "ai-code-change" (region-active))
-(declare-function ai-code-implement-todo "ai-code-change" (arg &optional default-action))
 
 (defvar ai-code--repo-context-info)
 
@@ -110,7 +109,8 @@ Argument ARG is the prefix argument."
     (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
       (ai-code--ask-question-dired clipboard-context)))
    (t
-    (let ((todo-info (ai-code--detect-todo-info (region-active-p))))
+    (let ((todo-info (when buffer-file-name
+                       (ai-code--detect-todo-info (region-active-p)))))
       (if todo-info
           (ai-code-implement-todo arg "Ask question")
         (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
