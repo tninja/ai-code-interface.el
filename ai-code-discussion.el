@@ -22,7 +22,7 @@
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
 (declare-function ai-code--detect-todo-info "ai-code-change" (region-active))
-(declare-function ai-code-implement-todo "ai-code-change" (arg))
+(declare-function ai-code-implement-todo "ai-code-change" (arg &optional default-action))
 
 (defvar ai-code--repo-context-info)
 
@@ -112,7 +112,7 @@ Argument ARG is the prefix argument."
    (t
     (let ((todo-info (ai-code--detect-todo-info (region-active-p))))
       (if todo-info
-          (ai-code-implement-todo arg)
+          (ai-code-implement-todo arg "Ask question")
         (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
           (ai-code--ask-question-file clipboard-context)))))))
 

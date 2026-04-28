@@ -266,11 +266,12 @@ Argument ARG is the prefix argument."
     (let* ((region-active (region-active-p))
            (todo-info (ai-code--detect-todo-info region-active)))
       (if todo-info
-          (ai-code-implement-todo arg)
+          ;; DONE: in this code path, is it possible to default to Code Change in ai-code-implement-todo, no need to ask user to choose Code Change or Ask Question?
+          (ai-code-implement-todo arg "Code change")
         (ai-code--handle-regular-code-change arg region-active))))))
 
 ;;;###autoload
-(defun ai-code-implement-todo (arg)
+(defun ai-code-implement-todo (arg &optional default-action)
   "Generate prompt to implement TODO comments in current context.
 Implements code after TODO comments instead of replacing them in-place.
 With a prefix argument \\[universal-argument], append the clipboard
@@ -281,7 +282,8 @@ The input string will be prefixed with TODO: and insert to the current
 line, with proper indentation.  If cursor is inside a function, implement
 comments for that function.
 Otherwise implement comments for the entire current file.
-Argument ARG is the prefix argument."
+Argument ARG is the prefix argument.
+Optional DEFAULT-ACTION skips the action prompt when non-nil."
   ;; DONE: I want to implement the idea inside https://github.com/tninja/ai-code-interface.el/issues/316, it could to either code change or ask question, given user's input with completing-read selection. The difference of this org-mode section TODO, with the existing comment todo is, it won't replace the TODO section with implementation. It just use the section headline and content inside this section as part of prompt, and send to AI.
   (interactive "P")
   (if (not buffer-file-name)
@@ -291,7 +293,7 @@ Argument ARG is the prefix argument."
         (cl-return-from finalize nil))
       (when (ai-code--implement-todo--handle-blank-line)
         (cl-return-from finalize nil))
-      (ai-code--implement-todo--build-and-send-prompt arg))))
+      (ai-code--implement-todo--build-and-send-prompt arg default-action))))
 
 (defun ai-code--implement-todo--handle-done-line ()
   "Handle actions when current line is a DONE comment.
@@ -395,9 +397,10 @@ The plist contains `:heading-line', `:content', and `:line-number'."
   (string-match-p "^[[:space:]]*\\*+[[:space:]]+TODO:?\\(?:[[:space:]]\\|$\\)"
                   heading-line))
 
-(defun ai-code--implement-todo--build-and-send-prompt (arg)
+(defun ai-code--implement-todo--build-and-send-prompt (arg &optional default-action)
   "Build the TODO implementation prompt and insert it.
-ARG is the prefix argument for clipboard context."
+ARG is the prefix argument for clipboard context.
+Optional DEFAULT-ACTION skips the completing-read prompt when non-nil."
   ;; DONE: ask user with completing-read before build up prompt, candidate should be 1. Code change; 2. Ask question. Given selection, add suffix to them respectively to indicate AI to make code change, or do not make any code change
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
          (current-line (string-trim (thing-at-point 'line t)))
@@ -440,9 +443,10 @@ ARG is the prefix argument for clipboard context."
               (user-error "Current line is not a TODO comment or Org TODO headline and cannot proceed with `ai-code-implement-todo'.  Please select a TODO comment (not DONE), an Org TODO headline, a region of comments, or activate on a blank line")))
          (_ (unless region-comment-block-p
               (user-error "Selected region must be a comment block")))
-         (action-intent (completing-read "Select action: "
-                                         '("Code change" "Ask question")
-                                         nil t))
+         (action-intent (or default-action
+                           (completing-read "Select action: "
+                                            '("Code change" "Ask question")
+                                            nil t)))
          (ask-question-p (string= action-intent "Ask question"))
          (prompt-label
           (cond

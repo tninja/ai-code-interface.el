@@ -47,7 +47,7 @@
     (let (implement-todo-called)
       (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
                 ((symbol-function 'ai-code-implement-todo)
-                 (lambda (_arg) (setq implement-todo-called t)))
+                 (lambda (_arg &optional _default-action) (setq implement-todo-called t)))
                 ((symbol-function 'ai-code--ask-question-file)
                  (lambda (_ctx) (error "Should not reach ask-question-file")))
                 ((symbol-function 'region-active-p) (lambda () nil)))
@@ -89,7 +89,7 @@
     (let (implement-todo-called)
       (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
                 ((symbol-function 'ai-code-implement-todo)
-                 (lambda (_arg) (setq implement-todo-called t)))
+                 (lambda (_arg &optional _default-action) (setq implement-todo-called t)))
                 ((symbol-function 'ai-code--ask-question-file)
                  (lambda (_ctx) (error "Should not reach ask-question-file")))
                 ((symbol-function 'region-active-p) (lambda () nil)))
@@ -97,6 +97,26 @@
         (ai-code-ask-question nil)
 
         (should implement-todo-called)))))
+
+(ert-deftest ai-code-test-ask-question-passes-ask-question-action ()
+  "Test that `ai-code-ask-question' passes \"Ask question\" as default-action."
+  (with-temp-buffer
+    (setq buffer-file-name "test.el")
+    (setq-local comment-start ";")
+    (setq-local comment-end "")
+    (insert ";; TODO: implement feature\n")
+    (goto-char (point-min))
+
+    (let (captured-default-action)
+      (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code-implement-todo)
+                 (lambda (_arg &optional default-action)
+                   (setq captured-default-action default-action)))
+                ((symbol-function 'region-active-p) (lambda () nil)))
+
+        (ai-code-ask-question nil)
+
+        (should (equal captured-default-action "Ask question"))))))
 
 (provide 'test_ai-code-discussion)
 
