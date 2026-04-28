@@ -388,7 +388,7 @@ The plist contains `:heading-line', `:content', and `:line-number'."
   (when org-todo-section-info
     (let ((heading-line (plist-get org-todo-section-info :heading-line))
           (content (plist-get org-todo-section-info :content)))
-      (concat heading-line
+      (concat (replace-regexp-in-string "\\`\\*+ " "" heading-line)
               (unless (string-blank-p content)
                 (concat "\n" content))))))
 
