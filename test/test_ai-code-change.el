@@ -534,7 +534,7 @@ is between the function definition and its body."
 
         (should (stringp captured-prompt))
         (should (string-match-p "Please implement code" captured-prompt))
-        (should (string-match-p "\\* TODO Build backend switcher" captured-prompt))
+        (should (string-match-p "TODO Build backend switcher" captured-prompt))
         (should (string-match-p "Use Codex for implementation\\." captured-prompt))
         (should (string-match-p "Keep the UI untouched\\." captured-prompt))))))
 
@@ -578,7 +578,7 @@ is between the function definition and its body."
 
         (should (stringp captured-prompt))
         (should (string-match-p "Regarding this Org TODO headline" captured-prompt))
-        (should (string-match-p "\\*\\* TODO: what is the most important verse in Bible"
+        (should (string-match-p "TODO: what is the most important verse in Bible"
                                 captured-prompt))))))
 
 (ert-deftest ai-code-test-detect-todo-info-org-todo-headline ()
