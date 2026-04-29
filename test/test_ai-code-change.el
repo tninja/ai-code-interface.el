@@ -577,7 +577,7 @@ is between the function definition and its body."
         (ai-code-implement-todo nil)
 
         (should (stringp captured-prompt))
-        (should (string-match-p "Regarding this Org TODO headline" captured-prompt))
+        (should (string-match-p "Regarding this Org headline" captured-prompt))
         (should (string-match-p "TODO: what is the most important verse in Bible"
                                 captured-prompt))))))
 
@@ -611,17 +611,23 @@ is between the function definition and its body."
     (cl-letf (((symbol-function 'region-active-p) (lambda () nil)))
       (should-not (ai-code--detect-todo-info nil)))))
 
-(ert-deftest ai-code-test-detect-todo-info-org-non-todo-headline-returns-nil ()
-  "Test `ai-code--detect-todo-info' returns nil for non-TODO Org headlines."
+(ert-deftest ai-code-test-detect-todo-info-org-plain-headline-detected ()
+  "Test `ai-code--detect-todo-info' detects plain Org headlines without TODO keyword."
   (with-temp-buffer
     (require 'org)
     (setq buffer-file-name "notes.org")
     (insert "* Regular heading\n")
+    (insert "Some content.\n")
     (org-mode)
     (goto-char (point-min))
 
     (cl-letf (((symbol-function 'region-active-p) (lambda () nil)))
-      (should-not (ai-code--detect-todo-info nil)))))
+      (let ((result (ai-code--detect-todo-info nil)))
+        (should result)
+        (should (stringp (nth 0 result)))
+        (should (string-match-p "Regular heading" (nth 0 result)))
+        (should (integerp (nth 1 result)))
+        (should (integerp (nth 2 result)))))))
 
 (ert-deftest ai-code-test-detect-todo-info-org-todo-colon-prefix ()
   "Test `ai-code--detect-todo-info' detects `TODO:' prefixed Org headlines."
@@ -708,6 +714,71 @@ is between the function definition and its body."
     (setq-local comment-start ";")
     (setq-local comment-end "")
     (insert ";; TODO: implement feature\n")
+    (goto-char (point-min))
+
+    (let (captured-default-action)
+      (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code-implement-todo)
+                 (lambda (_arg &optional default-action)
+                   (setq captured-default-action default-action)))
+                ((symbol-function 'region-active-p) (lambda () nil)))
+
+        (ai-code-code-change nil)
+
+        (should (equal captured-default-action "Code change"))))))
+
+(ert-deftest ai-code-test-get-org-section-info-plain-headline ()
+  "Test `ai-code--implement-todo--get-org-todo-section-info' returns info for plain Org headline."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "notes.org")
+    (insert "* Regular heading\n")
+    (insert "Some content.\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (let ((result (ai-code--implement-todo--get-org-todo-section-info)))
+      (should result)
+      (should (string-match-p "Regular heading"
+                              (plist-get result :heading-line)))
+      (should (string= "Some content." (plist-get result :content))))))
+
+(ert-deftest ai-code-test-implement-todo-org-plain-headline-works ()
+  "Test `ai-code-implement-todo' works on a plain Org headline."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "notes.org")
+    (insert "* Implement search feature\n")
+    (insert "Use fuzzy matching.\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Code change"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_label input) input))
+                ((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+                ((symbol-function 'ai-code--format-repo-context-info) (lambda () ""))
+                ((symbol-function 'which-function) (lambda () nil))
+                ((symbol-function 'region-active-p) (lambda () nil))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+
+        (ai-code-implement-todo nil)
+
+        (should (stringp captured-prompt))
+        (should (string-match-p "Implement search feature" captured-prompt))
+        (should (string-match-p "Use fuzzy matching" captured-prompt))))))
+
+(ert-deftest ai-code-test-code-change-routes-to-implement-todo-on-plain-org-headline ()
+  "Test `ai-code-code-change' routes to `ai-code-implement-todo' on plain Org headline."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "notes.org")
+    (insert "* Regular heading\n")
+    (org-mode)
     (goto-char (point-min))
 
     (let (captured-default-action)

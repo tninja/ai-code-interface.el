@@ -118,6 +118,28 @@
 
         (should (equal captured-default-action "Ask question"))))))
 
+(ert-deftest ai-code-test-ask-question-routes-to-implement-todo-on-plain-org-headline ()
+  "Test `ai-code-ask-question' routes to `ai-code-implement-todo' on plain Org headline."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "notes.org")
+    (insert "* Regular heading\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (let (implement-todo-called)
+      (cl-letf (((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code-implement-todo)
+                 (lambda (_arg &optional _default-action)
+                   (setq implement-todo-called t)))
+                ((symbol-function 'ai-code--ask-question-file)
+                 (lambda (_ctx) (error "Should not reach ask-question-file")))
+                ((symbol-function 'region-active-p) (lambda () nil)))
+
+        (ai-code-ask-question nil)
+
+        (should implement-todo-called)))))
+
 (provide 'test_ai-code-discussion)
 
 ;;; test_ai-code-discussion.el ends here
