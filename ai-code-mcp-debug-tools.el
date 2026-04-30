@@ -30,6 +30,12 @@
   :type 'boolean
   :group 'ai-code-mcp-debug-tools)
 
+(defvar ai-code-mcp-debug-tools--session-overrides (make-hash-table :test 'equal)
+  "Hash table of session-local debug tool overrides keyed by MCP session id.")
+
+(defvar ai-code-mcp--current-session-id nil
+  "Dynamically bound MCP session id for the current tool invocation.")
+
 (defvar ai-code-mcp--last-error-record nil
   "Most recent Emacs error snapshot recorded for MCP diagnostics tools.")
 
@@ -107,14 +113,68 @@
             :optional t)))
   "Optional MCP eval tool specification.")
 
+(defun ai-code-mcp-debug-tools--register-base-tools ()
+  "Register the standard MCP debugging tools."
+  (dolist (tool ai-code-mcp-debug-tools--specs)
+    (apply #'ai-code-mcp-make-tool tool)))
+
+(defun ai-code-mcp-debug-tools--register-eval-tool ()
+  "Register the optional `eval_elisp' MCP tool."
+  (apply #'ai-code-mcp-make-tool ai-code-mcp-debug-tools--eval-spec))
+
+(defun ai-code-mcp-debug-tools--session-override (&optional session-id)
+  "Return session-local override for SESSION-ID or the active MCP session."
+  (gethash (or session-id ai-code-mcp--current-session-id)
+           ai-code-mcp-debug-tools--session-overrides))
+
+(defun ai-code-mcp-debug-tools--enabled-p ()
+  "Return non-nil when debug tools are enabled for the active session."
+  (or ai-code-mcp-debug-tools-enabled
+      (alist-get 'enabled
+                 (ai-code-mcp-debug-tools--session-override))))
+
+(defun ai-code-mcp-debug-tools--eval-enabled-p ()
+  "Return non-nil when `eval_elisp' is enabled for the active session."
+  (or ai-code-mcp-debug-tools-enable-eval-elisp
+      (alist-get 'enable_eval_elisp
+                 (ai-code-mcp-debug-tools--session-override))))
+
+(defun ai-code-mcp-debug-tools--require-enabled ()
+  "Signal an error unless debug inspection tools are enabled."
+  (unless (ai-code-mcp-debug-tools--enabled-p)
+    (error "Emacs debug MCP tools are disabled for this session")))
+
+(defun ai-code-mcp-debug-tools--require-eval-enabled ()
+  "Signal an error unless `eval_elisp' is enabled."
+  (unless (ai-code-mcp-debug-tools--eval-enabled-p)
+    (error "The eval_elisp tool is disabled for this session")))
+
 (defun ai-code-mcp-debug-tools-setup ()
   "Register optional MCP debugging tools when enabled."
   (when ai-code-mcp-debug-tools-enabled
     (ai-code-mcp--ensure-error-capture)
-    (dolist (tool ai-code-mcp-debug-tools--specs)
-      (apply #'ai-code-mcp-make-tool tool))
+    (ai-code-mcp-debug-tools--register-base-tools)
     (when ai-code-mcp-debug-tools-enable-eval-elisp
-      (apply #'ai-code-mcp-make-tool ai-code-mcp-debug-tools--eval-spec))))
+      (ai-code-mcp-debug-tools--register-eval-tool))))
+
+;;;###autoload
+(defun ai-code-mcp-debug-tools-enable-for-session
+    (session-id &optional enable-eval-elisp)
+  "Enable MCP debug tools for SESSION-ID.
+When ENABLE-EVAL-ELISP is non-nil, also expose `eval_elisp' for that
+session."
+  (unless (and (stringp session-id)
+               (not (string-empty-p session-id)))
+    (user-error "SESSION-ID is required to enable Emacs debug MCP tools"))
+  (puthash session-id
+           `((enabled . t)
+             (enable_eval_elisp . ,(and enable-eval-elisp t)))
+           ai-code-mcp-debug-tools--session-overrides)
+  (ai-code-mcp--ensure-error-capture)
+  (ai-code-mcp-debug-tools--register-base-tools)
+  (when enable-eval-elisp
+    (ai-code-mcp-debug-tools--register-eval-tool))
+  session-id)
 
 (defun ai-code-mcp--documentation-summary (documentation)
   "Return a trimmed summary line for DOCUMENTATION."
@@ -343,6 +403,7 @@ keeps the backtrace on failures."
 
 (defun ai-code-mcp-get-variable-binding-info (variable-name &optional buffer-name)
   "Return JSON binding details for VARIABLE-NAME in BUFFER-NAME."
+  (ai-code-mcp-debug-tools--require-enabled)
   (let ((symbol (ai-code-mcp--find-existing-variable-symbol variable-name)))
     (if (not symbol)
         (json-encode
@@ -380,6 +441,7 @@ keeps the backtrace on failures."
   "Return the printed representation of VARIABLE-NAME.
 Return a friendly error string when VARIABLE-NAME does not name an
 existing bound variable."
+  (ai-code-mcp-debug-tools--require-enabled)
   (let ((symbol (ai-code-mcp--find-existing-variable-symbol variable-name)))
     (cond
      ((not symbol)
@@ -429,6 +491,7 @@ existing bound variable."
 
 (defun ai-code-mcp-get-function-info (function-name)
   "Return JSON metadata describing FUNCTION-NAME."
+  (ai-code-mcp-debug-tools--require-enabled)
   (let ((symbol (ai-code-mcp--find-existing-function-symbol function-name)))
     (if (not (and symbol (fboundp symbol)))
         (json-encode
@@ -480,6 +543,7 @@ existing bound variable."
 
 (defun ai-code-mcp-get-last-error-backtrace ()
   "Return a JSON snapshot of the most recently recorded Emacs error."
+  (ai-code-mcp-debug-tools--require-enabled)
   (json-encode
    (if ai-code-mcp--last-error-record
        (ai-code-mcp--last-error-json-payload ai-code-mcp--last-error-record)
@@ -520,6 +584,7 @@ existing bound variable."
 
 (defun ai-code-mcp-get-feature-load-state (feature-name)
   "Return JSON load-state details for FEATURE-NAME."
+  (ai-code-mcp-debug-tools--require-enabled)
   (if (not (ai-code-mcp--valid-feature-name-p feature-name))
       (json-encode
        (ai-code-mcp--invalid-feature-load-state-payload feature-name))
@@ -539,6 +604,7 @@ existing bound variable."
 
 (defun ai-code-mcp-get-recent-messages (&optional limit)
   "Return a JSON payload for recent messages using LIMIT."
+  (ai-code-mcp-debug-tools--require-enabled)
   (let* ((limit (or limit 50))
          (messages (ai-code-mcp--message-lines)))
     (unless (and (integerp limit) (> limit 0))
@@ -556,6 +622,8 @@ existing bound variable."
 Return a JSON payload.  BUFFER-NAME or FILE-PATH select the evaluation
 context.  CAPTURE-MESSAGES, INCLUDE-BACKTRACE, and TIMEOUT-MS control
 diagnostics."
+  (ai-code-mcp-debug-tools--require-enabled)
+  (ai-code-mcp-debug-tools--require-eval-enabled)
   (let* ((capture-messages (ai-code-mcp-debug-tools--bool-arg
                             capture-messages
                             t))
