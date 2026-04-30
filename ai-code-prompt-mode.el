@@ -418,7 +418,7 @@ If PROMPT-TEXT is a command (starts with /), execute it directly instead."
   (let* ((processed-prompt (if ai-code-prompt-preprocess-filepaths
                                (ai-code--preprocess-prompt-text prompt-text)
                              prompt-text))
-         (append-summary-p (and (derived-mode-p 'org-mode)
+         (append-summary-p (and (derived-mode-p 'ai-code-prompt-mode)
                                 (org-at-heading-p)
                                 (y-or-n-p "Append result summary to current section? ")))
          (final-prompt (if append-summary-p
