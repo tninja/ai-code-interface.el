@@ -62,6 +62,15 @@ or nil (prompt the user)."
 (defvar ai-code-pr-title-history nil
   "Minibuffer history for optional PR titles.")
 
+;; DONE: when press C-c a v, if there is a selected region, and if there is a url inside, it should be used as a default value when asking user for PR or issue URL.
+
+(defun ai-code--extract-url-from-region ()
+  "Return the first URL found in the active region, or nil."
+  (when (use-region-p)
+    (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
+      (when (string-match "https?://[^ \t\n]+" text)
+        (match-string 0 text)))))
+
 (defun ai-code--git-ignored-repo-file-p (file root)
   "Return non-nil when FILE should be ignored for repo candidates under ROOT."
   (when (and file root)
@@ -242,7 +251,8 @@ Otherwise, ask for the relevant pull request or issue URL."
                       (ai-code--build-send-current-branch-pr-init-prompt
                        review-source current-branch target-branch pr-title)))
                 (let* ((url-prompt (ai-code--pull-or-review-url-prompt review-mode))
-                       (target-url (ai-code-read-string url-prompt)))
+                       (region-url (ai-code--extract-url-from-region))
+                       (target-url (ai-code-read-string url-prompt region-url)))
                   (ai-code--build-pr-init-prompt review-source target-url review-mode))))
              (prompt-label (if (eq review-mode 'send-current-branch-pr)
                                "Enter PR creation prompt: "
