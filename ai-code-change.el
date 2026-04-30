@@ -284,6 +284,8 @@ Otherwise implement comments for the entire current file.
 Argument ARG is the prefix argument.
 Optional DEFAULT-ACTION skips the action prompt when non-nil."
   ;; DONE: I want to implement the idea inside https://github.com/tninja/ai-code-interface.el/issues/316, it could to either code change or ask question, given user's input with completing-read selection. The difference of this org-mode section TODO, with the existing comment todo is, it won't replace the TODO section with implementation. It just use the section headline and content inside this section as part of prompt, and send to AI.
+  ;; DONE: for this command triggered from org-mode file buffer. We want to let user choose if they want to add the condense result summary as a section (org headline), at the end of current section under cursor. If user choose yes. The prompt should let AI know this and where to add (maybe let it know current file, headline / cursor position maybe), so that it can add result summary.
+  ;; DONE: This result summary looks good. Is it possible to move this feature to the function just before sending prompt to AI, so that it can be applied to other code change or question asking command as well? The key point is to let user choose if they want to have this summary added to the file, and where to add, so that the prompt can include this requirement and context.
   (interactive "P")
   (if (not buffer-file-name)
       (user-error "Error: buffer-file-name must be available")

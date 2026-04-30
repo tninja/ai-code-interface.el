@@ -415,13 +415,21 @@ that root, otherwise return the absolute path."
 (defun ai-code--insert-prompt (prompt-text)
   "Preprocess and insert PROMPT-TEXT into the AI prompt file.
 If PROMPT-TEXT is a command (starts with /), execute it directly instead."
-  (let ((processed-prompt (if ai-code-prompt-preprocess-filepaths
-                              (ai-code--preprocess-prompt-text prompt-text)
-                            prompt-text)))
-    (if (and (string-prefix-p "/" processed-prompt)
-             (not (string-match-p " " processed-prompt)))
-        (ai-code--execute-command processed-prompt)
-      (ai-code--write-prompt-to-file-and-send processed-prompt))))
+  (let* ((processed-prompt (if ai-code-prompt-preprocess-filepaths
+                               (ai-code--preprocess-prompt-text prompt-text)
+                             prompt-text))
+         (append-summary-p (and (derived-mode-p 'org-mode)
+                                (org-at-heading-p)
+                                (y-or-n-p "Append result summary to current section? ")))
+         (final-prompt (if append-summary-p
+                           (concat processed-prompt
+                                   (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
+                                           buffer-file-name (line-number-at-pos)))
+                         processed-prompt)))
+    (if (and (string-prefix-p "/" final-prompt)
+             (not (string-match-p " " final-prompt)))
+        (ai-code--execute-command final-prompt)
+      (ai-code--write-prompt-to-file-and-send final-prompt))))
 
 ;; Define the AI Prompt Mode (derived from org-mode)
 ;;;###autoload
