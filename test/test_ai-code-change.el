@@ -909,13 +909,12 @@ is between the function definition and its body."
         (should-not (string-match-p "summary" captured-prompt))))))
 
 (ert-deftest ai-code-test-insert-prompt-org-heading-append-summary-yes ()
-  "Test that `ai-code--insert-prompt' appends summary instruction on org heading when user confirms."
+  "Test that `ai-code--insert-prompt' appends summary instruction on prompt-mode heading when user confirms."
   (with-temp-buffer
-    (require 'org)
-    (setq buffer-file-name "/tmp/project/plan.org")
+    (setq buffer-file-name "/tmp/project/.ai.code.files/.ai.code.prompt.org")
     (insert "* TODO Build search feature\n")
     (insert "Design the API first.\n")
-    (org-mode)
+    (ai-code-prompt-mode)
     (goto-char (point-min))
 
     (let (captured-prompt
@@ -929,16 +928,15 @@ is between the function definition and its body."
         (should (stringp captured-prompt))
         (should (string-match-p "Test prompt text" captured-prompt))
         (should (string-match-p "summary" captured-prompt))
-        (should (string-match-p "plan\\.org" captured-prompt))))))
+        (should (string-match-p "\\.ai\\.code\\.prompt\\.org" captured-prompt))))))
 
 (ert-deftest ai-code-test-insert-prompt-org-heading-append-summary-no ()
   "Test that `ai-code--insert-prompt' does NOT append summary when user declines."
   (with-temp-buffer
-    (require 'org)
-    (setq buffer-file-name "/tmp/project/plan.org")
+    (setq buffer-file-name "/tmp/project/.ai.code.files/.ai.code.prompt.org")
     (insert "* TODO Build search feature\n")
     (insert "Design the API first.\n")
-    (org-mode)
+    (ai-code-prompt-mode)
     (goto-char (point-min))
 
     (let (captured-prompt
@@ -953,8 +951,8 @@ is between the function definition and its body."
         (should (string-match-p "Test prompt text" captured-prompt))
         (should-not (string-match-p "summary" captured-prompt))))))
 
-(ert-deftest ai-code-test-insert-prompt-non-org-no-summary-asked ()
-  "Test that `ai-code--insert-prompt' does NOT ask about summary in non-org buffer."
+(ert-deftest ai-code-test-insert-prompt-non-prompt-mode-no-summary-asked ()
+  "Test that `ai-code--insert-prompt' does NOT ask about summary in non-prompt-mode buffer."
   (with-temp-buffer
     (setq buffer-file-name "/tmp/project/test.el")
     (setq-local comment-start ";")
@@ -975,6 +973,30 @@ is between the function definition and its body."
         (should-not y-or-n-called)
         (should (string-match-p "Test prompt text" captured-prompt))
         (should-not (string-match-p "summary" captured-prompt))))))
+
+(ert-deftest ai-code-test-insert-prompt-slash-command-on-heading-executes ()
+  "Test that slash commands execute directly even when on a prompt-mode heading."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/.ai.code.files/.ai.code.prompt.org")
+    (insert "* TODO Build search feature\n")
+    (ai-code-prompt-mode)
+    (goto-char (point-min))
+
+    (let (y-or-n-called command-executed
+          (ai-code-prompt-preprocess-filepaths nil))
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (_)
+                   (setq y-or-n-called t)
+                   t))
+                ((symbol-function 'ai-code--execute-command)
+                 (lambda (_cmd) (setq command-executed t)))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (_) (error "Should not reach write-prompt"))))
+
+        (ai-code--insert-prompt "/status")
+
+        (should command-executed)
+        (should-not y-or-n-called)))))
 
 (provide 'test_ai-code-change)
 
