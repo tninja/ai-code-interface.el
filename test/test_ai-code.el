@@ -622,6 +622,37 @@
     (should (string-match-p "Describe the Emacs runtime issue"
                             description-prompt))))
 
+(ert-deftest ai-code-test-debug-emacs-runtime-distinguishes-config-from-run-consent ()
+  "Debug Emacs runtime should separate global eval availability from per-run consent."
+  (let (confirm-read-args)
+    (let ((ai-code-mcp-debug-tools-enabled t)
+          (ai-code-mcp-debug-tools-enable-eval-elisp t))
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (_prompt) nil))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (prompt &optional initial-input _candidate-list)
+                   (if (string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
+                       (progn
+                         (setq confirm-read-args (list prompt initial-input))
+                         initial-input)
+                     "C-c x runs the wrong interactive command")))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (&rest _args) nil)))
+        (ai-code-debug-emacs-runtime)))
+    (should (string-match-p
+             "eval_elisp is enabled in your Emacs MCP config"
+             (cadr confirm-read-args)))
+    (should (string-match-p
+             "not requested for this debugging run"
+             (cadr confirm-read-args)))))
+
+(ert-deftest ai-code-test-debug-emacs-runtime-removes-stale-done-comment ()
+  "The source should not keep the stale DONE note for the runtime debug menu item."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "ai-code.el" default-directory))
+    (should-not
+     (search-forward ";; DONE: add a menu item: Debug your emacs runtime." nil t))))
+
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-select-terminal-entry ()
   "Test that the AI CLI session menu exposes terminal backend selection."
   (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "l")))

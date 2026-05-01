@@ -127,12 +127,14 @@
 (defun ai-code-mcp-debug-tools--require-enabled ()
   "Signal an error unless debug inspection tools are enabled."
   (unless (ai-code-mcp-debug-tools--enabled-p)
-    (error "Emacs debug MCP tools are disabled for this session")))
+    (error
+     "Enable ai-code-mcp-debug-tools-enabled to use the global Emacs debug MCP tools")))
 
 (defun ai-code-mcp-debug-tools--require-eval-enabled ()
   "Signal an error unless `eval_elisp' is enabled."
   (unless (ai-code-mcp-debug-tools--eval-enabled-p)
-    (error "The eval_elisp tool is disabled for this session")))
+    (error
+     "Enable ai-code-mcp-debug-tools-enable-eval-elisp to use the global eval_elisp MCP tool")))
 
 (defun ai-code-mcp-debug-tools-setup ()
   "Register optional MCP debugging tools when enabled."
