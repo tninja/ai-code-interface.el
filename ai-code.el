@@ -138,17 +138,11 @@
 (defvar ai-code-mcp-agent-enabled-backends)
 (declare-function ai-code-install-backend-skills "ai-code-backends")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
-(declare-function ai-code-mcp-debug-tools-enable-for-session
-                  "ai-code-mcp-debug-tools"
-                  (session-id &optional enable-eval-elisp))
 
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
 
 ;; Default aliases are set when a backend is applied via `ai-code-select-backend`.
-
-(defvar ai-code-mcp-agent--session-id nil
-  "Buffer-local MCP session id attached by `ai-code-mcp-agent`.")
 
 ;;;###autoload
 (defcustom ai-code-use-gptel-headline nil
@@ -486,17 +480,6 @@ ARG is the prefix argument."
                                clipboard-context)))))
         (ai-code--insert-prompt final-prompt)))))
 
-(defun ai-code--active-mcp-session-id ()
-  "Return the active AI session MCP id, or nil when unavailable."
-  (or (and (boundp 'ai-code-mcp-agent--session-id)
-           ai-code-mcp-agent--session-id)
-      (when-let ((session-buffer
-                  (save-window-excursion
-                    (ignore-errors (ai-code-cli-switch-to-buffer)))))
-        (when (buffer-live-p session-buffer)
-          (buffer-local-value 'ai-code-mcp-agent--session-id
-                              session-buffer)))))
-
 (defun ai-code--emacs-runtime-debug-prompt (description enable-eval-elisp)
   "Return an Emacs runtime debugging prompt from DESCRIPTION.
 ENABLE-EVAL-ELISP describes whether `eval_elisp' is available."
@@ -511,33 +494,34 @@ ENABLE-EVAL-ELISP describes whether `eval_elisp' is available."
     "Runtime issue description:\n"
     "%s")
    (if enable-eval-elisp
-       "eval_elisp is enabled for this debugging session."
-     "eval_elisp is disabled for this debugging session; rely on non-eval inspection tools unless you explain why more access is needed.")
+       "eval_elisp is enabled in your Emacs MCP config."
+     "eval_elisp is disabled in your Emacs MCP config, so rely on non-eval inspection tools unless you first enable ai-code-mcp-debug-tools-enable-eval-elisp.")
    description))
 
 ;;;###autoload
 (defun ai-code-debug-emacs-runtime ()
   "Assemble and send an Emacs runtime debugging prompt for the current AI session."
   (interactive)
+  (unless (bound-and-true-p ai-code-mcp-debug-tools-enabled)
+    (user-error
+     "Enable ai-code-mcp-debug-tools-enabled before using Emacs runtime debugging"))
   (let* ((description
           (ai-code-read-string
-           "Describe the Emacs runtime issue (eg: key binding / interactive function): "))
+           "Describe the Emacs runtime issue (it can be an interactive function or a key binding): "))
          (enable-eval-elisp
           (y-or-n-p
-           "Allow AI to eval Emacs Lisp while debugging this Emacs runtime issue? "))
-         (session-id (ai-code--active-mcp-session-id)))
+           "Allow AI to eval Emacs Lisp while debugging this Emacs runtime issue? ")))
     (when description
+      (when (and enable-eval-elisp
+                 (not (bound-and-true-p ai-code-mcp-debug-tools-enable-eval-elisp)))
+        (user-error
+         "Enable ai-code-mcp-debug-tools-enable-eval-elisp before requesting eval_elisp debugging"))
       (when-let* ((prompt
                    (ai-code-read-string
                     "Confirm and edit Emacs runtime debug prompt: "
                     (ai-code--emacs-runtime-debug-prompt
                      description
                      enable-eval-elisp))))
-        (when (and session-id
-                   (fboundp 'ai-code-mcp-debug-tools-enable-for-session))
-          (ai-code-mcp-debug-tools-enable-for-session
-           session-id
-           enable-eval-elisp))
         (ai-code--insert-prompt prompt)))))
 
 ;;;###autoload

@@ -121,33 +121,15 @@
                                (alist-get 'tools tools-result))))
       (should (member "eval_elisp" tool-names)))))
 
-(ert-deftest ai-code-test-mcp-debug-tools-session-enable-overrides-global-disable ()
-  "A session override should allow debug tools without changing the global default."
+(ert-deftest ai-code-test-mcp-debug-tools-disabled-globally-blocks-access ()
+  "Global disable should block direct use of the optional debug tools."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled nil)
-        (ai-code-mcp-debug-tools-enable-eval-elisp nil)
-        (ai-code-mcp-debug-tools--session-overrides (make-hash-table :test 'equal)))
-    (ai-code-mcp-debug-tools-enable-for-session "session-1" t)
-    (let* ((ai-code-mcp--current-session-id "session-1")
-           (payload
-            (ai-code-test-mcp-debug-tools--read-json-payload
-             (ai-code-mcp-dispatch
-              "tools/call"
-              '((name . "eval_elisp")
-                (arguments . ((code . "(+ 1 2)"))))))))
-      (should (equal t (alist-get 'ok payload)))
-      (should (equal "3" (alist-get 'value_repr payload))))
-    (let ((ai-code-mcp--current-session-id "session-2"))
-      (should-error
-       (ai-code-mcp-dispatch
-        "tools/call"
-        '((name . "get_recent_messages")
-          (arguments . ()))))
-      (should-error
-       (ai-code-mcp-dispatch
-        "tools/call"
-        '((name . "eval_elisp")
-          (arguments . ((code . "(+ 1 2)")))))))))
+        (ai-code-mcp-debug-tools-enable-eval-elisp nil))
+    (should-error
+     (ai-code-mcp-get-recent-messages))
+    (should-error
+     (ai-code-mcp-eval-elisp "(+ 1 2)"))))
 
 (ert-deftest ai-code-test-mcp-tools-list-warns-eval-elisp-is-unrestricted ()
   "Eval tool metadata should warn about unrestricted side effects."

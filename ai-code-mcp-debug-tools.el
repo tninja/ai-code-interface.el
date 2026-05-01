@@ -30,12 +30,6 @@
   :type 'boolean
   :group 'ai-code-mcp-debug-tools)
 
-(defvar ai-code-mcp-debug-tools--session-overrides (make-hash-table :test 'equal)
-  "Hash table of session-local debug tool overrides keyed by MCP session id.")
-
-(defvar ai-code-mcp--current-session-id nil
-  "Dynamically bound MCP session id for the current tool invocation.")
-
 (defvar ai-code-mcp--last-error-record nil
   "Most recent Emacs error snapshot recorded for MCP diagnostics tools.")
 
@@ -122,22 +116,13 @@
   "Register the optional `eval_elisp' MCP tool."
   (apply #'ai-code-mcp-make-tool ai-code-mcp-debug-tools--eval-spec))
 
-(defun ai-code-mcp-debug-tools--session-override (&optional session-id)
-  "Return session-local override for SESSION-ID or the active MCP session."
-  (gethash (or session-id ai-code-mcp--current-session-id)
-           ai-code-mcp-debug-tools--session-overrides))
-
 (defun ai-code-mcp-debug-tools--enabled-p ()
-  "Return non-nil when debug tools are enabled for the active session."
-  (or ai-code-mcp-debug-tools-enabled
-      (alist-get 'enabled
-                 (ai-code-mcp-debug-tools--session-override))))
+  "Return non-nil when debug tools are enabled globally."
+  ai-code-mcp-debug-tools-enabled)
 
 (defun ai-code-mcp-debug-tools--eval-enabled-p ()
-  "Return non-nil when `eval_elisp' is enabled for the active session."
-  (or ai-code-mcp-debug-tools-enable-eval-elisp
-      (alist-get 'enable_eval_elisp
-                 (ai-code-mcp-debug-tools--session-override))))
+  "Return non-nil when `eval_elisp' is enabled globally."
+  ai-code-mcp-debug-tools-enable-eval-elisp)
 
 (defun ai-code-mcp-debug-tools--require-enabled ()
   "Signal an error unless debug inspection tools are enabled."
@@ -156,25 +141,6 @@
     (ai-code-mcp-debug-tools--register-base-tools)
     (when ai-code-mcp-debug-tools-enable-eval-elisp
       (ai-code-mcp-debug-tools--register-eval-tool))))
-
-;;;###autoload
-(defun ai-code-mcp-debug-tools-enable-for-session
-    (session-id &optional enable-eval-elisp)
-  "Enable MCP debug tools for SESSION-ID.
-When ENABLE-EVAL-ELISP is non-nil, also expose `eval_elisp' for that
-session."
-  (unless (and (stringp session-id)
-               (not (string-empty-p session-id)))
-    (user-error "SESSION-ID is required to enable Emacs debug MCP tools"))
-  (puthash session-id
-           `((enabled . t)
-             (enable_eval_elisp . ,(and enable-eval-elisp t)))
-           ai-code-mcp-debug-tools--session-overrides)
-  (ai-code-mcp--ensure-error-capture)
-  (ai-code-mcp-debug-tools--register-base-tools)
-  (when enable-eval-elisp
-    (ai-code-mcp-debug-tools--register-eval-tool))
-  session-id)
 
 (defun ai-code-mcp--documentation-summary (documentation)
   "Return a trimmed summary line for DOCUMENTATION."
