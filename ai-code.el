@@ -669,7 +669,7 @@ Shows the current backend label to the right."
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
   ("K" "Create/Open task file (C-u: Search)" ai-code-create-or-open-task-file)
-  ("n" "Take notes from AI session region" ai-code-take-notes)
+  ("n" "Create (org-roam) notes on scope" ai-code-create-notes)
   (":" "Speech to text input" ai-code-speech-to-text-input))
 
 (transient-define-group ai-code--menu-other-tools
