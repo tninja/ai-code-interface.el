@@ -59,8 +59,8 @@
 ;;   ;; (ai-code-prompt-filepath-completion-mode -1)
 ;;   ;; Optional: Configure AI test prompting mode (e.g., ask about running tests/TDD) for a tighter build-test loop
 ;;   (setq ai-code-auto-test-type 'ask-me)
-;;   ;; Optional: Offer numbered next steps for discussion prompts at send time
-;;   ;; (setq ai-code-discussion-auto-follow-up-enabled t)
+;;   ;; Optional: Disable numbered next steps for discussion prompts at send time
+;;   ;; (setq ai-code-discussion-auto-follow-up-enabled nil)
 ;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
 ;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
 ;;   (global-auto-revert-mode 1)
@@ -176,7 +176,7 @@ See the later `defcustom' for user-facing documentation and default.")
 (defvar ai-code-discussion-auto-follow-up-suffix nil
   "Send-time prompt suffix that requests numbered next-step suggestions.")
 
-(defvar ai-code-discussion-auto-follow-up-enabled nil
+(defvar ai-code-discussion-auto-follow-up-enabled t
   "Forward declaration for `ai-code-discussion-auto-follow-up-enabled'.
 See the later `defcustom' for user-facing documentation and default.")
 
@@ -409,11 +409,12 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
   :set #'ai-code--test-after-code-change--set
   :group 'ai-code)
 
-(defcustom ai-code-discussion-auto-follow-up-enabled nil
+(defcustom ai-code-discussion-auto-follow-up-enabled t
   "When non-nil, prompts may request numbered next-step suggestions.
-Customize this to non-nil to turn on the send-time choice globally.
-Pair it with `ai-code-use-gptel-classify-prompt` when you want
-code-change prompts to skip these discussion follow-up suggestions."
+This is enabled by default; customize it to nil to turn the send-time
+choice off globally. Pair it with `ai-code-use-gptel-classify-prompt`
+when you want code-change prompts to skip these discussion follow-up
+suggestions."
   :type 'boolean
   :set (lambda (symbol value)
          (set-default symbol value)

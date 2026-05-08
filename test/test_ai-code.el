@@ -495,6 +495,10 @@
     'boolean
     (get 'ai-code-discussion-auto-follow-up-enabled 'custom-type))))
 
+(ert-deftest ai-code-test-discussion-auto-follow-up-enabled-default-is-on ()
+  "Test that discussion auto follow-up defaults to enabled."
+  (should (eq t (default-value 'ai-code-discussion-auto-follow-up-enabled))))
+
 (ert-deftest ai-code-test-resolve-auto-test-suffix-for-send-ask-me-tdd-with-refactoring ()
   "Test that ask-me resolves to the repo-local TDD harness reference."
   (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
@@ -528,6 +532,7 @@
   "Test that ask-me no-test choice appends explicit no-test instruction."
   (let ((sent-command nil)
         (ai-code-auto-test-type 'ask-me)
+        (ai-code-discussion-auto-follow-up-enabled nil)
         (ai-code-use-prompt-suffix t)
         (ai-code-prompt-suffix "BASE SUFFIX")
         (ai-code-auto-test-suffix "SHOULD NOT APPEAR"))
