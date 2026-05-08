@@ -209,7 +209,7 @@ See the later `defcustom' for user-facing documentation and default.")
 
 (defun ai-code--read-auto-follow-up-choice ()
   "Read whether to request numbered next-step suggestions for this send action."
-  (y-or-n-p "Discussion follow-up suggestions (y/n)? "))
+  (y-or-n-p "Discussion follow-up suggestions? "))
 
 ;;;###autoload
 (defcustom ai-code-use-gptel-classify-prompt nil
