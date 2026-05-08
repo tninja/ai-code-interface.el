@@ -203,6 +203,19 @@
                (lambda (&rest _args) "TDD Red + Green + Blue (refactor after Green)")))
       (should (eq 'tdd-with-refactoring (ai-code--read-auto-test-type-choice))))))
 
+(ert-deftest ai-code-test-read-auto-follow-up-choice-uses-y-or-n-p ()
+  "Test that follow-up choice reads a y/n decision."
+  (let ((asked-prompt nil))
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (prompt)
+                 (setq asked-prompt prompt)
+                 t))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 (ert-fail "Should not use completing-read for follow-up y/n choice."))))
+      (should (eq t (ai-code--read-auto-follow-up-choice)))
+      (should (equal asked-prompt "Discussion follow-up suggestions (y/n)? ")))))
+
 (ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-off ()
   "Test that off mode never resolves a discussion follow-up suffix."
   (let ((ai-code-discussion-auto-follow-up-enabled nil)
@@ -217,15 +230,26 @@
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda () t)))
+               (lambda (&rest _args) t)))
       (should (string-match-p
                "3-4 numbered candidate next[[:space:]\n]+steps"
                (ai-code--resolve-auto-follow-up-suffix-for-send
                 "Explain this function")))
       (should (string-match-p
                "At least 2 candidates must[[:space:]\n]+be AI-actionable items"
-               (ai-code--resolve-auto-follow-up-suffix-for-send
-                "Explain this function"))))))
+                (ai-code--resolve-auto-follow-up-suffix-for-send
+                 "Explain this function"))))))
+
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-calls-choice-reader-without-args ()
+  "Test that follow-up choice reader is called without extra arguments."
+  (let ((ai-code-discussion-auto-follow-up-enabled t)
+        (ai-code-next-step-suggestion-suffix "FOLLOW-UP")
+        (ai-code-use-gptel-classify-prompt nil))
+    (cl-letf (((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () t)))
+      (should (equal "FOLLOW-UP"
+                     (ai-code--resolve-auto-follow-up-suffix-for-send
+                      "Explain this function"))))))
 
 (ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-ask-me-code-change-skips ()
   "Test that ask-me mode does not offer next-step suggestions for code-change prompts."
@@ -236,7 +260,7 @@
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda ()
+               (lambda (&rest _args)
                  (setq asked t)
                  t)))
       (should-not
@@ -253,7 +277,7 @@
                (lambda (_prompt-text)
                  (ert-fail "Should not call GPTel for code-change prompt markers.")))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda ()
+               (lambda (&rest _args)
                  (setq asked t)
                  t)))
       (should-not
@@ -268,7 +292,7 @@
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda () t)))
+               (lambda (&rest _args) t)))
       (let ((this-command 'ai-code-ask-question))
         (should (string-match-p
                  "The user may also[[:space:]\n]+ignore these options"
@@ -291,7 +315,7 @@
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda () t))
+               (lambda (&rest _args) t))
               ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                (lambda () nil))
               ((symbol-function 'ai-code-cli-send-command)
@@ -322,7 +346,7 @@
         (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                    (lambda (_prompt-text) 'non-code-change))
                   ((symbol-function 'ai-code--read-auto-follow-up-choice)
-                   (lambda () t))
+                   (lambda (&rest _args) t))
                   ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                    (lambda () prompt-file))
                   ((symbol-function 'ai-code-cli-send-command)
@@ -352,7 +376,7 @@
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda () t))
+               (lambda (&rest _args) t))
               ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                (lambda () nil))
               ((symbol-function 'ai-code-cli-send-command)

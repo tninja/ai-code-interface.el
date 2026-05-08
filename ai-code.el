@@ -192,11 +192,6 @@ See the later `defcustom' for user-facing documentation and default.")
     ("Off" . nil))
   "Persistent choices for `ai-code-auto-test-type`.")
 
-(defconst ai-code--auto-follow-up-type-ask-choices
-  '(("Suggest next steps" . t)
-    ("No next-step suggestions" . nil))
-  "Resolve next-step suggestion choices for `ask-me` mode.")
-
 (defconst ai-code--auto-test-type-legacy-persistent-modes
   '(test-after-change tdd tdd-with-refactoring)
   "Legacy persistent values still honored for backward compatibility.")
@@ -214,13 +209,7 @@ See the later `defcustom' for user-facing documentation and default.")
 
 (defun ai-code--read-auto-follow-up-choice ()
   "Read whether to request numbered next-step suggestions for this send action."
-  (let* ((choice (completing-read "Discussion follow-up suggestions: "
-                                  (mapcar #'car ai-code--auto-follow-up-type-ask-choices)
-                                  nil t nil nil
-                                  (caar ai-code--auto-follow-up-type-ask-choices)))
-         (choice-cell (assoc choice ai-code--auto-follow-up-type-ask-choices)))
-    (and choice-cell
-         (cdr choice-cell))))
+  (y-or-n-p "Discussion follow-up suggestions (y/n)? "))
 
 ;;;###autoload
 (defcustom ai-code-use-gptel-classify-prompt nil
