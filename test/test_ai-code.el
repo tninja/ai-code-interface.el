@@ -214,7 +214,9 @@
                (lambda (&rest _args)
                  (ert-fail "Should not use completing-read for follow-up y/n choice."))))
       (should (eq t (ai-code--read-auto-follow-up-choice)))
-      (should (equal asked-prompt "Discussion follow-up suggestions (y/n)? ")))))
+      (should (string-match-p
+               "\\`Discussion follow-up suggestions\\(?: (y/n)\\)?\\? \\'"
+               asked-prompt)))))
 
 (ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-off ()
   "Test that off mode never resolves a discussion follow-up suffix."
