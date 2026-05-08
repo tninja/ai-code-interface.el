@@ -24,6 +24,7 @@
 (declare-function ai-code--format-repo-context-info "ai-code-file")
 
 (defvar ai-code--repo-context-info)
+(defvar org-roam-directory)
 
 (defconst ai-code-discussion--question-only-note
   "Note: This is a question only - please do not modify the code."
@@ -581,6 +582,98 @@ end of the note file, and put the selected region as content of that section."
             (recenter -1)))
         (message "Notes added to %s under section: %s" note-file section-title)))))
 
+;; DONE: I want to add a new function: ai-code-create-notes. It will ask user the scope of the note firstly (from all buffer of current window, or from current git repo). Then it ask for target of note. It could be a new note file under org-roam-directory (in that case, the note generated in next step should be added / synced with org-roam system), or it will ask user to enter target note file dir. In both case, the note file name is automatically determined by AI. After that, it should ask user to describe the prompt to search for content in the selected scope. Then AI should search the related content from the scope and generate note file in the target directory.
+
+(defun ai-code--slugify-note-file-name (value)
+  "Convert VALUE to a safe file slug."
+  (let* ((trimmed (string-trim (or value "")))
+         (downcased (downcase trimmed))
+         (replaced (replace-regexp-in-string "[^a-z0-9]+" "-" downcased))
+         (collapsed (replace-regexp-in-string "-+" "-" replaced))
+         (cleaned (replace-regexp-in-string "\\`-\\|-\\'" "" collapsed)))
+    (if (string-empty-p cleaned)
+        (format-time-string "note-%Y%m%d-%H%M%S")
+      cleaned)))
+
+(defun ai-code--generate-note-file-name (request)
+  "Generate note file name from REQUEST with AI."
+  (let* ((ai-name
+          (condition-case err
+              (string-trim
+               (ai-code-call-gptel-sync
+                (format "Generate a concise file name (without extension) for an Org note based on this request:\n\n%s\n\nReturn only the file name text."
+                        request)))
+            (error
+             (message "GPTel file name generation failed: %s" (error-message-string err))
+             "")))
+         (slug (ai-code--slugify-note-file-name ai-name)))
+    (concat slug ".org")))
+
+;;;###autoload
+(defun ai-code-create-notes ()
+  "Create a notes-generation prompt using selected scope and target."
+  (interactive)
+  (let* ((scope (completing-read "Select scope: "
+                                 '("all buffers of current window" "current git repo")
+                                 nil t))
+         (target-choice (completing-read "Select target: "
+                                         '("new org-roam note" "existing directory")
+                                         nil t))
+         (target-directory
+          (pcase target-choice
+            ("new org-roam note"
+             (unless (and (boundp 'org-roam-directory)
+                          org-roam-directory
+                          (file-directory-p org-roam-directory))
+               (user-error "The variable org-roam-directory is not set to an existing directory"))
+             org-roam-directory)
+            ("existing directory"
+             (read-directory-name "Target note directory: " default-directory nil t))))
+         (search-request (ai-code-read-string "Describe what to search for in notes: " ""))
+         (_ (when (string-empty-p search-request)
+              (user-error "Search description cannot be empty")))
+         (repo-root (when (string= scope "current git repo")
+                      (or (ai-code--git-root)
+                          (user-error "Not in a git repository"))))
+         (note-file-name (ai-code--generate-note-file-name search-request))
+         (target-file (expand-file-name note-file-name target-directory))
+         (scope-description
+          (pcase scope
+            ("all buffers of current window"
+             "Scope: all visible buffers in current window.")
+            ("current git repo"
+             (format "Scope: current git repository at %s." repo-root))))
+         (scope-context
+          (pcase scope
+            ("all buffers of current window"
+             (or (ai-code--get-context-files-string)
+                 "\nFiles:\n(none)"))
+            ("current git repo"
+             (format "\nRepository root: %s" repo-root))))
+         (final-prompt
+          (concat
+           "Create a comprehensive Org note by searching relevant content from the selected scope.\n"
+           scope-description
+           "\nTarget note file: " target-file
+           "\nSearch request: " search-request
+           scope-context
+           "\n\nRequirements:\n"
+           "1. Search the selected scope for relevant information.\n"
+           "2. Create or update the target Org file with a structured note.\n"
+           "3. Include concise sections, findings, and actionable insights.\n"
+           (when (string= target-choice "new org-roam note")
+             "\n4. Since this note is under org-roam-directory, ensure it is ready for org-roam indexing (e.g. include Org metadata/title).\n"))))
+    (unless (file-directory-p target-directory)
+      (make-directory target-directory t))
+    (unless (file-exists-p target-file)
+      (write-region "" nil target-file nil 'silent))
+    (when (and (string= target-choice "new org-roam note")
+               (fboundp 'org-roam-db-sync))
+      (org-roam-db-sync))
+    (ai-code--insert-prompt final-prompt)
+    (message "Created note target: %s" target-file)))
+
 (provide 'ai-code-discussion)
 
 ;;; ai-code-discussion.el ends here
+ 
