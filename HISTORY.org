@@ -2,6 +2,9 @@
 * Release history
 
 ** Main branch change
+- Chore: tweak auto follow up suggestion feature
+  - Turn it on by default. This is just about to let user to choose use it or not (in 2).
+  - Let user use y/n to use it in each non code change question.
 - Chore: Improve ai-code-implement-todo inside org-mode file
 - Fix: Make org TODO headline section work well with ai-code-implement-todo + helm
 - Chore: ai-code-code-change and ai-code-ask-question can trigger ai-code-implement-todo when the cursor is on a TODO comment or TODO org headline
