@@ -613,12 +613,15 @@ end of the note file, and put the selected region as content of that section."
 (defun ai-code-create-notes ()
   "Create a notes-generation prompt using selected scope and target."
   (interactive)
+  ;; DONE: Add one scope of candidate: current ai session. In that case, just let AI know the content of current session and let it generate note based on that.
+  ;; DONE: Also, current generated note file is not easy to read. It doesn't looks like a proper note. There is no need to have a *Scope* section inside. update the prompt to make the note answer the question we asked during using this command, and make it easy to read
   (let* ((scope (completing-read "Select scope: "
-                                 '("all buffers of current window" "current git repo")
+                                 '("all buffers of current window" "current git repo" "current ai session")
                                  nil t))
          (target-choice (completing-read "Select target: "
                                          '("new org-roam note" "existing directory")
                                          nil t))
+         (org-roam-target-p (string= target-choice "new org-roam note"))
          (target-directory
           (pcase target-choice
             ("new org-roam note"
@@ -637,37 +640,42 @@ end of the note file, and put the selected region as content of that section."
                           (user-error "Not in a git repository"))))
          (note-file-name (ai-code--generate-note-file-name search-request))
          (target-file (expand-file-name note-file-name target-directory))
-         (scope-description
-          (pcase scope
-            ("all buffers of current window"
-             "Scope: all visible buffers in current window.")
-            ("current git repo"
-             (format "Scope: current git repository at %s." repo-root))))
          (scope-context
           (pcase scope
             ("all buffers of current window"
              (or (ai-code--get-context-files-string)
                  "\nFiles:\n(none)"))
             ("current git repo"
-             (format "\nRepository root: %s" repo-root))))
+             (format "\nRepository root: %s" repo-root))
+            ("current ai session"
+             "")))
+         (scope-instruction
+          (pcase scope
+            ("all buffers of current window"
+             "Search relevant content from all visible buffers in the current window.")
+            ("current git repo"
+             (format "Search repository content under %s for relevant information." repo-root))
+            ("current ai session"
+             "Use the content from the current AI session as the primary source.")))
          (final-prompt
           (concat
-           "Create a comprehensive Org note by searching relevant content from the selected scope.\n"
-           scope-description
+           "Create a readable Org note that directly answers the search request.\n"
+           scope-instruction
            "\nTarget note file: " target-file
            "\nSearch request: " search-request
            scope-context
            "\n\nRequirements:\n"
-           "1. Search the selected scope for relevant information.\n"
-           "2. Create or update the target Org file with a structured note.\n"
-           "3. Include concise sections, findings, and actionable insights.\n"
-           (when (string= target-choice "new org-roam note")
-             "\n4. Since this note is under org-roam-directory, ensure it is ready for org-roam indexing (e.g. include Org metadata/title).\n"))))
+           "1. Answer the search request directly using evidence from the selected scope.\n"
+           "2. Create or update the target Org file with a clear, easy-to-read structure.\n"
+           "3. Do not include a \"Scope\" section in the note.\n"
+           "4. Include concise findings and actionable insights.\n"
+            (when org-roam-target-p
+             "5. Since this note is under org-roam-directory, ensure it is ready for org-roam indexing (e.g. include Org metadata/title).\n"))))
     (unless (file-directory-p target-directory)
       (make-directory target-directory t))
     (unless (file-exists-p target-file)
       (write-region "" nil target-file nil 'silent))
-    (when (and (string= target-choice "new org-roam note")
+    (when (and org-roam-target-p
                (fboundp 'org-roam-db-sync))
       (org-roam-db-sync))
     (ai-code--insert-prompt final-prompt)
