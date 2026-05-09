@@ -5,7 +5,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Harness generation and prompt suffix helpers for ai-code.
+;; Harness generation, auto-test suffix helpers, and send-time routing for ai-code.
 
 ;;; Code:
 
@@ -24,6 +24,8 @@
 
 (defvar ai-code-mcp-agent-enabled-backends)
 (defvar ai-code-selected-backend)
+
+;;;; Auto-Test Harness: Content and Cache
 
 (defconst ai-code--diagnostics-first-harness-instruction
   "Record a diagnostics baseline with the get_diagnostics MCP tool before editing. After each edit, re-run get_diagnostics for the touched files and do not finish until they have no new diagnostics compared with the baseline."
@@ -194,6 +196,8 @@ If the harness file cannot be prepared, fall back to the inline suffix."
     ('no-test "Do not write or run any test.")
     (_ nil)))
 
+;;;; Send-Time Routing: State and User Settings
+
 (defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix
   "Default prompt suffix to request running tests after code changes.")
 
@@ -263,6 +267,8 @@ test suffixes."
   "Prompt suffix for numbered next-step suggestions in discussion prompts."
   :type '(choice (const nil) string)
   :group 'ai-code)
+
+;;;; Send-Time Routing: Prompt Classification
 
 (defun ai-code--downcase-strings (strings)
   "Return STRINGS converted to lowercase."
@@ -337,6 +343,8 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
     (message "GPTel prompt classification result: %s" classification)
     classification))
 
+;;;; Send-Time Routing: Suffix Resolution
+
 (defun ai-code--resolve-auto-test-type-for-send (&optional prompt-text classification)
   "Resolve the concrete auto test type for current send action for PROMPT-TEXT.
 CLASSIFICATION is the optional prompt classification result."
@@ -382,6 +390,8 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
              (or ai-code-auto-test-type
                  ai-code-discussion-auto-follow-up-enabled))
     (ai-code--classify-prompt-code-change prompt-text)))
+
+;;;; Send-Time Routing: Advice and Setters
 
 (defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)
   "Resolve and bind send-time suffixes before calling ORIG-FUN with PROMPT-TEXT."
