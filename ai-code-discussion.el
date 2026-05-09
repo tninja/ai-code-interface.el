@@ -613,9 +613,12 @@ end of the note file, and put the selected region as content of that section."
 (defun ai-code-create-notes ()
   "Create a notes-generation prompt using selected scope and target."
   (interactive)
+  ;; DONE: when there is select region, call ai-code-take-notes instead
+  (if (region-active-p)
+      (ai-code-take-notes)
   ;; DONE: Add one scope of candidate: current ai session. In that case, just let AI know the content of current session and let it generate note based on that.
   ;; DONE: Also, current generated note file is not easy to read. It doesn't looks like a proper note. There is no need to have a *Scope* section inside. update the prompt to make the note answer the question we asked during using this command, and make it easy to read
-  (let* ((scope (completing-read "Select scope: "
+      (let* ((scope (completing-read "Select scope: "
                                  '("all buffers of current window" "current git repo" "current ai session")
                                  nil t))
          (target-choice (completing-read "Select target: "
@@ -678,8 +681,8 @@ end of the note file, and put the selected region as content of that section."
     (when (and org-roam-target-p
                (fboundp 'org-roam-db-sync))
       (org-roam-db-sync))
-    (ai-code--insert-prompt final-prompt)
-    (message "Created note target: %s" target-file)))
+        (ai-code--insert-prompt final-prompt)
+        (message "Created note target: %s" target-file))))
 
 (provide 'ai-code-discussion)
 

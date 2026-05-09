@@ -237,6 +237,18 @@
             (should (string-match-p (regexp-quote "summarize implementation decisions") captured-prompt))))
       (delete-directory target-dir t))))
 
+(ert-deftest ai-code-test-create-notes-delegates-to-take-notes-when-region-active ()
+  "Test `ai-code-create-notes' delegates to `ai-code-take-notes' when region is active."
+  (let (take-notes-called)
+    (cl-letf (((symbol-function 'region-active-p)
+               (lambda () t))
+              ((symbol-function 'ai-code-take-notes)
+               (lambda () (setq take-notes-called t)))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _args) (error "Should not reach scope selection"))))
+      (ai-code-create-notes)
+      (should take-notes-called))))
+
 (provide 'test_ai-code-discussion)
 
 ;;; test_ai-code-discussion.el ends here
