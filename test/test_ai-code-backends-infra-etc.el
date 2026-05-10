@@ -21,7 +21,7 @@
              "^(require 'ai-code-backends-infra-etc)" nil t))))
 
 (ert-deftest test-ai-code-backends-infra-etc-configure-session-buffer-binds-resize-keys ()
-  "Session buffer configuration should bind C-. and C-, for panel resizing." 
+  "Session buffer configuration should bind C-. and C-, for panel resizing."
   (let ((buffer (generate-new-buffer "*ai-code-etc-bindings*")))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-session-link--linkify-session-region)
