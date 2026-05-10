@@ -13,7 +13,7 @@
 (require 'ai-code-backends-infra)
 
 (ert-deftest test-ai-code-backends-infra-etc-main-module-requires-etc ()
-  "Main infra module should require ai-code-backends-infra-etc for auto activation." 
+  "Main infra module should require ai-code-backends-infra-etc for auto activation."
   (with-temp-buffer
     (insert-file-contents "ai-code-backends-infra.el")
     (goto-char (point-min))
