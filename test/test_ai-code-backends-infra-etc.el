@@ -36,7 +36,7 @@
         (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-etc-grow-panel-increases-width-for-vertical-side ()
-  "Grow command should increase width by step and sync terminal dimensions." 
+  "Grow command should increase width by step and sync terminal dimensions."
   (let ((ai-code-backends-infra-window-width 90)
         (ai-code-backends-infra-window-height 20)
         (ai-code-backends-infra-etc-resize-step 10)
