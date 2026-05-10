@@ -1200,5 +1200,8 @@ typically in your Emacs configuration with:
     (define-key evil-normal-state-map (kbd "SPC")
                 #'ai-code-backends-infra--evil-spc-command)))
 
+(require 'ai-code-backends-infra-etc)
+(ai-code-backends-infra-etc-activate)
+
 (provide 'ai-code-backends-infra)
 ;;; ai-code-backends-infra.el ends here
