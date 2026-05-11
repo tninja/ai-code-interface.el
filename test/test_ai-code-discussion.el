@@ -398,6 +398,16 @@
               (should (not session-capture-called)))
           (ignore-errors (delete-directory tmp-dir t)))))))
 
+(ert-deftest ai-code-test-take-notes-with-prefix-opens-default-note-file ()
+  "Test that `ai-code-take-notes' with prefix argument opens the default note file."
+  (let ((ai-code-notes-file-name "test-notes.org")
+        (captured-file nil))
+    (cl-letf (((symbol-function 'ai-code--ensure-files-directory) (lambda () "/tmp/project/.ai.code.files"))
+              ((symbol-function 'find-file-other-window)
+               (lambda (file) (setq captured-file file) (get-buffer-create "*test-notes*"))))
+      (ai-code-take-notes t)
+      (should (equal captured-file "/tmp/project/.ai.code.files/test-notes.org")))))
+
 (provide 'test_ai-code-discussion)
 
 ;;; test_ai-code-discussion.el ends here

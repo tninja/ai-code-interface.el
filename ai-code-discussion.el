@@ -854,35 +854,40 @@ NOTE-REQUEST is included in the prompt body."
   "Prompt user for the note request and return a non-empty string."
   (let ((note-request (string-trim
                        (or (ai-code-read-string "What kind of note should be taken? "
-                                                ai-code-discussion--default-note-request)
+                                             region    ai-code-discussion--default-note-request)
                            ""))))
     (when (string-empty-p note-request)
       (user-error "Note request cannot be empty"))
     note-request))
 
 ;;;###autoload
-(defun ai-code-take-notes ()
-  "Take notes by request and insert into Org buffer or create a note file."
-  (interactive)
-  (let* ((files-dir (ai-code--ensure-files-directory))
-         (default-note-dir (file-name-as-directory files-dir))
-         (note-request (ai-code--read-note-request)))
-    (if (derived-mode-p 'org-mode)
-        (let* ((target-file (or buffer-file-name "current-org-buffer"))
-               (line-number (line-number-at-pos))
-               (prompt (ai-code--build-note-insert-prompt
-                        target-file
-                        line-number
-                        note-request)))
-          (ai-code--insert-prompt prompt)
-          (message "Generated AI prompt for note insertion in %s" target-file))
-      (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
-             (default-prompt (ai-code--build-note-create-prompt
-                              target-dir
-                              note-request)))
-        (when-let ((final-prompt (ai-code-read-string "Prompt: " default-prompt)))
-          (ai-code--insert-prompt final-prompt)
-          (message "Generated AI prompt for note creation under %s" target-dir))))))
+(defun ai-code-take-notes (&optional arg)
+  "Take notes by request and insert into Org buffer or create a note file.
+With prefix ARG, open the default note file in other window."
+  (interactive "P")
+  ;; DONE: if C-u pressed, open the default note file in other window
+  (let ((files-dir (ai-code--ensure-files-directory)))
+    (if arg
+        (let ((note-file (expand-file-name ai-code-notes-file-name files-dir)))
+          (find-file-other-window note-file))
+      (let* ((default-note-dir (file-name-as-directory files-dir))
+             (note-request (ai-code--read-note-request)))
+        (if (derived-mode-p 'org-mode)
+            (let* ((target-file (or buffer-file-name "current-org-buffer"))
+                   (line-number (line-number-at-pos))
+                   (prompt (ai-code--build-note-insert-prompt
+                            target-file
+                            line-number
+                            note-request)))
+              (ai-code--insert-prompt prompt)
+              (message "Generated AI prompt for note insertion in %s" target-file))
+          (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
+                 (default-prompt (ai-code--build-note-create-prompt
+                                  target-dir
+                                  note-request)))
+            (when-let ((final-prompt (ai-code-read-string "Prompt: " default-prompt)))
+              (ai-code--insert-prompt final-prompt)
+              (message "Generated AI prompt for note creation under %s" target-dir))))))))
 
 (provide 'ai-code-discussion)
 
