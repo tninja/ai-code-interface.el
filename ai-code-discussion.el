@@ -674,7 +674,7 @@ headline based on the selected content.  Otherwise, prompt with empty default."
   :group 'ai-code)
 
 (defconst ai-code-discussion--default-note-request
-  "Add the most recent AI output"
+  "Content of the most recent AI output"
   "Default request text for `ai-code-take-notes'.")
 
 (defun ai-code--get-note-candidates (default-note-file)
@@ -764,10 +764,10 @@ LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
 NOTE-REQUEST is included in the prompt body."
   (format (concat
            "Create a new Org note file under directory: %s\n"
-           "Automatically determine a concise filename from the note title/content, using lowercase and underscores, with .org extension.\n\n"
+           "Automatically determine a concise filename from the note title/content you identified, and clearly separated from other files under the same directory, filename using lowercase and underscores, with .org extension.\n\n"
            "Note request:\n%s\n\n"
            "%s"
-           "Do not modify unrelated files. Go ahead and start do the work")
+           "Do not modify unrelated files. Go ahead and start do the work.")
           target-dir
           note-request
           (if (ai-code--target-directory-under-org-roam-p target-dir)

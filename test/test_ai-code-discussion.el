@@ -277,13 +277,13 @@
         (unwind-protect
             (progn
               (ai-code-take-notes)
-              (should (equal default-request "Add the most recent AI output"))
+              (should (equal default-request "Content of the most recent AI output"))
               (should captured-prompt)
               (should (string-match-p (regexp-quote "Insert the note into the current Org file")
                                       captured-prompt))
               (should (string-match-p (regexp-quote "/tmp/current-notes.org")
                                       captured-prompt))
-              (should (string-match-p (regexp-quote "Add the most recent AI output")
+              (should (string-match-p (regexp-quote "Content of the most recent AI output")
                                       captured-prompt))
               (should (not session-capture-called)))
           (ignore-errors (delete-directory tmp-dir t)))))))
@@ -300,7 +300,7 @@
                      (lambda (prompt initial-input &optional _candidate-list)
                        (cond
                         ((string-match-p "what kind of note" (downcase prompt))
-                         (or initial-input "Add the most recent AI output"))
+                         (or initial-input "Content of the most recent AI output"))
                         (t initial-input))))
                     ((symbol-function 'ai-code--ensure-files-directory)
                      (lambda ()
@@ -338,7 +338,7 @@
                      (lambda (prompt initial-input &optional _candidate-list)
                        (cond
                         ((string-match-p "What kind of note" prompt)
-                         (or initial-input "Add the most recent AI output"))
+                         (or initial-input "Content of the most recent AI output"))
                         ((string-match-p "Prompt:" prompt)
                          (setq captured-default-prompt initial-input)
                          "Edited create prompt")
