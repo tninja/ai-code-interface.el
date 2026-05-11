@@ -11,6 +11,7 @@
 
 (require 'ert)
 (require 'ai-code-github)
+(require 'ai-code-git)
 (require 'ai-code-prompt-mode)
 
 (declare-function difftastic-magit-diff "difftastic" ())

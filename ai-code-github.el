@@ -292,19 +292,22 @@ PR Creation Steps:
     (_
      (ai-code--build-pr-review-init-prompt review-source target-url))))
 
+;;;###autoload
 (defun ai-code--pull-or-review-pr-with-source (review-source)
   "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI."
+  (require 'ai-code-git nil t)
   (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
     (cond
      ((eq review-mode 'generate-diff-file)
       (ai-code--magit-generate-feature-branch-diff-file))
      ((eq review-mode 'review-current-branch-with-difftastic)
       (ai-code--review-current-branch-with-difftastic))
-     ((eq review-mode 'explain-code-change)
-      (require 'ai-code-discussion nil t)
-      (unless (fboundp 'ai-code--explain-code-change)
-        (user-error "Code change explanation support is not available"))
-      (ai-code--explain-code-change review-source))
+      ((eq review-mode 'explain-code-change)
+       (unless (fboundp 'ai-code--explain-code-change)
+         (require 'ai-code-discussion nil t))
+       (unless (fboundp 'ai-code--explain-code-change)
+         (user-error "Code change explanation support is not available"))
+       (ai-code--explain-code-change review-source))
      (t
       (let* ((init-prompt
               (if (eq review-mode 'send-current-branch-pr)
