@@ -133,7 +133,6 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - `whisper`: For speech-to-text input via `ai-code-speech-to-text-input`. Record audio, press `RET` to stop, then choose whether to insert the transcription into the current buffer, send it to the active AI coding session with editable initial input, or copy it to the clipboard.
 - `gptel`: For intelligent, AI-generated content headlines in the prompt file.
   - ai-code-task-use-gptel-filename: When non-nil, file name created by `ai-code-create-or-open-task-file` or `ai-code-create-file-or-dir` will have auto-generated filenames created by GPTel
-  - ai-code-notes-use-gptel-headline: When non-nil, notes created by `ai-code-take-notes` will have auto-generated headlines created by GPTel
   - ai-code-use-gptel-headline: When non-nil, prompts sent to the AI will have auto-generated headlines created by GPTel, providing better organization and readability in the prompt file
   - ai-code-use-gptel-classify-prompt: When non-nil, and `ai-code-auto-test-type` or `ai-code-discussion-auto-follow-up-enabled` is non-nil, classify whether the current prompt is about code changes so test prompts or discussion follow-up suggestions are only added when relevant
 - `flycheck`: To enable the `ai-code-flycheck-fix-errors-in-scope` command.
