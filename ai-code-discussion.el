@@ -22,8 +22,8 @@
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
-(declare-function ai-code--pull-or-review-action-choice "ai-code-git")
-(declare-function ai-code--pull-or-review-source-instruction "ai-code-git"
+(declare-function ai-code--pull-or-review-action-choice "ai-code-github")
+(declare-function ai-code--pull-or-review-source-instruction "ai-code-github"
                   (review-source &optional review-mode))
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 (declare-function dired-get-marked-files "dired"
