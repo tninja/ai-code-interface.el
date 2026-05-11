@@ -22,7 +22,6 @@
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
-(declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code--pull-or-review-action-choice "ai-code-github")
 (declare-function ai-code--pull-or-review-source-instruction "ai-code-github"
                   (review-source &optional review-mode))
@@ -35,7 +34,6 @@
 
 (defvar ai-code--repo-context-info)
 (defvar org-roam-directory)
-(defvar ai-code-backends-infra--last-accessed-buffer)
 
 (defconst ai-code-discussion--question-only-note
   "Note: This is a question only - please do not modify the code."
@@ -739,6 +737,8 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
 
 ;; DONE: For the note insert or creation, I prefer to generate prompt to let AI know where to insert / create, with the specified format, send to AI and let AI do the work.
 
+;; DONE: I found that you capture the ai coding session content, add some suffix there and use it as prompt to send to AI. NO NO NO. You should build up a prompt given the input user entered previously, and ask AI to do note taking work, since target already specified in the prompt. NEVER capture any information inside ai coding session
+
 (defun ai-code--build-note-insert-prompt (file-path line-number note-request note-title note-content)
   "Build an AI prompt to insert NOTE-TITLE and NOTE-CONTENT into FILE-PATH.
 LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
@@ -792,58 +792,8 @@ NOTE-REQUEST, NOTE-TITLE, and NOTE-CONTENT are included in the prompt body."
               ""))))
 
 (defun ai-code--generate-note-content (note-request)
-  "Generate note content from NOTE-REQUEST using recent AI session output."
-  (let ((session-output (ai-code--get-most-recent-ai-session-output)))
-    (if (or (null session-output) (string-empty-p session-output))
-        note-request
-      (if (string= note-request ai-code-discussion--default-note-request)
-          session-output
-        (format "Note request: %s\n\nAI session output:\n%s"
-                note-request
-                session-output)))))
-
-(defun ai-code--strip-ansi-escape-sequences (text)
-  "Return TEXT without ANSI escape sequences."
-  (replace-regexp-in-string "\x1b\\[[0-9;?]*[[:alpha:]]" "" (or text "")))
-
-(defun ai-code--buffer-tail-text (buffer max-chars)
-  "Return the last MAX-CHARS characters from BUFFER."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (let ((end (point-max)))
-        (buffer-substring-no-properties (max (point-min) (- end max-chars)) end)))))
-
-(defun ai-code--session-buffer-p (buffer)
-  "Return non-nil when BUFFER is an AI session buffer."
-  (when (buffer-live-p buffer)
-    (if (fboundp 'ai-code-backends-infra--session-buffer-p)
-        (ai-code-backends-infra--session-buffer-p buffer)
-      (string-match-p "\\`\\*.*\\[.*\\].*\\*\\'" (buffer-name buffer)))))
-
-(defun ai-code--most-recent-ai-session-buffer ()
-  "Return the best candidate AI session buffer."
-  (cond
-   ((ai-code--session-buffer-p (current-buffer))
-    (current-buffer))
-   ((and (boundp 'ai-code-backends-infra--last-accessed-buffer)
-         (ai-code--session-buffer-p ai-code-backends-infra--last-accessed-buffer))
-    ai-code-backends-infra--last-accessed-buffer)
-   (t
-    (let (found)
-      (dolist (buf (buffer-list))
-        (when (and (null found) (ai-code--session-buffer-p buf))
-          (setq found buf)))
-      found))))
-
-(defun ai-code--get-most-recent-ai-session-output ()
-  "Return recent output text from the active AI session buffer, or nil."
-  (when-let ((session-buffer (ai-code--most-recent-ai-session-buffer)))
-    (let* ((raw (ai-code--buffer-tail-text session-buffer 12000))
-           (clean (and raw
-                       (string-trim
-                        (ai-code--strip-ansi-escape-sequences raw)))))
-      (unless (or (null clean) (string-empty-p clean))
-        clean))))
+  "Generate note content from NOTE-REQUEST only."
+  note-request)
 
 (defun ai-code--first-note-title-candidate (text)
   "Return the first meaningful title candidate from TEXT."
@@ -968,13 +918,14 @@ NOTE-REQUEST, NOTE-TITLE, and NOTE-CONTENT are included in the prompt body."
             (ai-code--insert-prompt prompt)
             (message "Generated AI prompt for note insertion in %s" target-file))
         (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
-               (prompt (ai-code--build-note-create-prompt
-                        target-dir
-                        note-request
-                        note-title
-                        note-content)))
-          (ai-code--insert-prompt prompt)
-          (message "Generated AI prompt for note creation under %s" target-dir))))))
+               (default-prompt (ai-code--build-note-create-prompt
+                                target-dir
+                                note-request
+                                note-title
+                                note-content)))
+          (when-let ((final-prompt (ai-code-read-string "Prompt: " default-prompt)))
+            (ai-code--insert-prompt final-prompt)
+            (message "Generated AI prompt for note creation under %s" target-dir)))))))
 
 (provide 'ai-code-discussion)
 
