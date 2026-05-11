@@ -747,7 +747,7 @@ LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
            "Target file: %s\n"
            "Insert location: around line %d (current cursor position)\n\n"
            "Note request:\n%s\n\n"
-           "Only update the requested insertion location. Do not change unrelated sections.")
+           "Only update the requested insertion location. Do not change unrelated sections. Go ahead and start do the work.")
           file-path
           line-number
           note-request))
@@ -763,12 +763,11 @@ LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
   "Build an AI prompt to create a note under TARGET-DIR.
 NOTE-REQUEST is included in the prompt body."
   (format (concat
-           "Create a new Org note file.\n"
            "Create a new Org note file under directory: %s\n"
            "Automatically determine a concise filename from the note title/content, using lowercase and underscores, with .org extension.\n\n"
            "Note request:\n%s\n\n"
            "%s"
-           "Do not modify unrelated files.")
+           "Do not modify unrelated files. Go ahead and start do the work")
           target-dir
           note-request
           (if (ai-code--target-directory-under-org-roam-p target-dir)
