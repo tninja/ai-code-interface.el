@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Refactor: Move GitHub review and PR code to ai-code-github.el
 - Chore: Add code-change explanation flows to ai-code-explain and ai-code-pull-or-review-diff-file
 - Chore: Add AI session side-panel resize shortcuts, inside AI coding session buffer
   - C-. to increase AI coding session panel size, C-, to decrease
