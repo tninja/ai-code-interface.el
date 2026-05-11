@@ -737,6 +737,60 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
 ;; 2. When the current buffer is not a org-mode buffer, after ask user question on what kind of note to take, It should ask for target of note. It could be 1. a new note file under org-roam-directory (in that case, the note generated in next step should be added / synced with org-roam system), or 2. it will ask user to enter target note file dir.  In both case, the note file name is automatically determined by AI. When org-roam package is available and org-roam-directory is configured, it should as user y/n to confirm that. Otherwise, it should ask user to select a directory to save the note file, the by default directory is .ai.code.files/ under current project root.
 ;; You can check /home/tninja/.emacs.d/elpa/org-roam-2.3.0 for org-roam code. If the note got created under org-roam-directory, it should be automatically added to org-roam system and synced, future org-roam command like find node should be able to see this new added note
 
+;; DONE: For the note insert or creation, I prefer to generate prompt to let AI know where to insert / create, with the specified format, send to AI and let AI do the work.
+
+(defun ai-code--build-note-insert-prompt (file-path line-number note-request note-title note-content)
+  "Build an AI prompt to insert NOTE-TITLE and NOTE-CONTENT into FILE-PATH.
+LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
+  (let ((note-format-block (ai-code--note-format-block note-title note-content)))
+    (format (concat
+             "Insert the note into the current Org file.\n"
+             "Target file: %s\n"
+             "Insert location: around line %d (current cursor position)\n\n"
+             "Note request:\n%s\n\n"
+             "%s"
+             "Only update the requested insertion location. Do not change unrelated sections.")
+            file-path
+            line-number
+            note-request
+            note-format-block)))
+
+(defun ai-code--note-format-block (note-title note-content)
+  "Return a normalized note section format block from NOTE-TITLE and NOTE-CONTENT."
+  (format (concat
+           "Use this specified format:\n"
+           "* %s\n"
+           "<active timestamp>\n\n"
+           "%s\n\n")
+          note-title
+          note-content))
+
+(defun ai-code--target-directory-under-org-roam-p (target-dir)
+  "Return non-nil when TARGET-DIR is under `org-roam-directory'."
+  (and (ai-code--org-roam-ready-p)
+       (let ((target (file-name-as-directory (expand-file-name target-dir)))
+             (roam-dir (file-name-as-directory (expand-file-name org-roam-directory))))
+         (string-prefix-p roam-dir target))))
+
+(defun ai-code--build-note-create-prompt (target-dir note-request note-title note-content)
+  "Build an AI prompt to create a note under TARGET-DIR.
+NOTE-REQUEST, NOTE-TITLE, and NOTE-CONTENT are included in the prompt body."
+  (let ((note-format-block (ai-code--note-format-block note-title note-content)))
+    (format (concat
+             "Create a new Org note file.\n"
+             "Create a new Org note file under directory: %s\n"
+             "Automatically determine a concise filename from the note title/content, using lowercase and underscores, with .org extension.\n\n"
+             "Note request:\n%s\n\n"
+             "%s"
+             "%s"
+             "Do not modify unrelated files.")
+            target-dir
+            note-request
+            note-format-block
+            (if (ai-code--target-directory-under-org-roam-p target-dir)
+                "After creating the note file, run org-roam-db-sync so it is discoverable by org-roam commands.\n\n"
+              ""))))
+
 (defun ai-code--generate-note-content (note-request)
   "Generate note content from NOTE-REQUEST using recent AI session output."
   (let ((session-output (ai-code--get-most-recent-ai-session-output)))
@@ -903,18 +957,24 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
     (let* ((note-content (ai-code--generate-note-content note-request))
            (note-title (ai-code--note-title-from-content note-request note-content)))
       (if (derived-mode-p 'org-mode)
-          (progn
-            (ai-code--insert-org-note-at-point note-title note-content)
-            (when buffer-file-name
-              (save-buffer))
-            (message "Note inserted in current Org buffer under section: %s" note-title))
+          (let* ((target-file (or buffer-file-name "current-org-buffer"))
+                 (line-number (line-number-at-pos))
+                 (prompt (ai-code--build-note-insert-prompt
+                          target-file
+                          line-number
+                          note-request
+                          note-title
+                          note-content)))
+            (ai-code--insert-prompt prompt)
+            (message "Generated AI prompt for note insertion in %s" target-file))
         (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
-               (note-stem (ai-code--generate-note-file-stem note-request note-content))
-               (note-file (expand-file-name (concat note-stem ".org") target-dir)))
-          (ai-code--append-org-note note-file note-title note-content)
-          (ai-code--sync-org-roam-note-if-needed note-file)
-          (ai-code--open-note-file-at-end note-file)
-          (message "Notes added to %s under section: %s" note-file note-title))))))
+               (prompt (ai-code--build-note-create-prompt
+                        target-dir
+                        note-request
+                        note-title
+                        note-content)))
+          (ai-code--insert-prompt prompt)
+          (message "Generated AI prompt for note creation under %s" target-dir))))))
 
 (provide 'ai-code-discussion)
 

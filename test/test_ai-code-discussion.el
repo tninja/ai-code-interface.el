@@ -248,15 +248,16 @@
 
         (should implement-todo-called)))))
 
-(ert-deftest ai-code-test-take-notes-org-buffer-inserts-at-point-with-default-request ()
-  "Test `ai-code-take-notes' inserts a note at point in current Org buffer."
+(ert-deftest ai-code-test-take-notes-org-buffer-sends-insert-prompt ()
+  "Test `ai-code-take-notes' sends an AI prompt for Org insertion."
   (with-temp-buffer
     (require 'org)
     (org-mode)
+    (setq buffer-file-name "/tmp/current-notes.org")
     (insert "* Existing\n")
-    (goto-char (point-max))
+    (goto-char (point-min))
     (let ((default-request nil)
-          (before-point (point))
+          (captured-prompt nil)
           (tmp-dir (make-temp-file "ai-code-notes-org" t)))
       (cl-letf (((symbol-function 'ai-code-read-string)
                  (lambda (_prompt initial-input &optional _candidate-list)
@@ -265,6 +266,9 @@
                 ((symbol-function 'ai-code--get-most-recent-ai-session-output)
                  (lambda ()
                    "Captured decision summary"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt)
+                   (setq captured-prompt prompt)))
                 ((symbol-function 'ai-code--ensure-files-directory)
                  (lambda ()
                    tmp-dir)))
@@ -272,18 +276,21 @@
             (progn
               (ai-code-take-notes)
               (should (equal default-request "Add the most recent AI output"))
-              (goto-char before-point)
-              (should (looking-at-p "\\* Captured decision summary"))
-              (should (string-match-p (regexp-quote "Captured decision summary") (buffer-string))))
+              (should captured-prompt)
+              (should (string-match-p (regexp-quote "Insert the note into the current Org file")
+                                      captured-prompt))
+              (should (string-match-p (regexp-quote "/tmp/current-notes.org")
+                                      captured-prompt))
+              (should (string-match-p (regexp-quote "Captured decision summary")
+                                      captured-prompt)))
           (ignore-errors (delete-directory tmp-dir t)))))))
 
-(ert-deftest ai-code-test-take-notes-non-org-can-create-note-under-org-roam-and-sync ()
-  "Test `ai-code-take-notes' can create a new note under org-roam and sync DB."
+(ert-deftest ai-code-test-take-notes-non-org-sends-create-prompt-under-org-roam ()
+  "Test `ai-code-take-notes' sends an AI prompt for org-roam note creation."
   (let* ((tmp-root (make-temp-file "ai-code-note-roam" t))
          (org-roam-directory (expand-file-name "roam" tmp-root))
          (default-directory tmp-root)
-         (created-file nil)
-         (db-synced nil))
+         (captured-prompt nil))
     (unwind-protect
         (with-temp-buffer
           (cl-letf (((symbol-function 'ai-code-read-string)
@@ -302,24 +309,25 @@
                        "Captured in roam"))
                     ((symbol-function 'y-or-n-p)
                      (lambda (_prompt) t))
-                    ((symbol-function 'org-roam-db-sync)
-                     (lambda (&optional _force)
-                       (setq db-synced t)))
-                    ((symbol-function 'ai-code--open-note-file-at-end)
-                     (lambda (file)
-                       (setq created-file file)
-                       (find-file-noselect file))))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (prompt)
+                       (setq captured-prompt prompt))))
             (ai-code-take-notes)
-            (should created-file)
-            (should (string-prefix-p (file-name-as-directory org-roam-directory) created-file))
-            (should db-synced)))
+            (should captured-prompt)
+            (should (string-match-p (regexp-quote "Create a new Org note file")
+                                    captured-prompt))
+            (should (string-match-p (regexp-quote (file-name-as-directory org-roam-directory))
+                                    captured-prompt))
+            (should (string-match-p (regexp-quote "run org-roam-db-sync")
+                                    captured-prompt))))
       (ignore-errors (delete-directory tmp-root t)))))
 
-(ert-deftest ai-code-test-take-notes-non-org-fallbacks-to-directory-prompt-when-org-roam-unavailable ()
-  "Test `ai-code-take-notes' prompts for directory when org-roam is unavailable."
+(ert-deftest ai-code-test-take-notes-non-org-sends-create-prompt-with-selected-directory ()
+  "Test `ai-code-take-notes' uses selected directory in creation prompt."
   (let* ((tmp-root (make-temp-file "ai-code-note-dir" t))
          (default-directory tmp-root)
-         (asked-directory-default nil))
+         (asked-directory-default nil)
+         (captured-prompt nil))
     (unwind-protect
         (with-temp-buffer
           (cl-letf (((symbol-function 'ai-code-read-string)
@@ -335,17 +343,20 @@
                      (lambda (_prompt _dir default-dir &optional _mustmatch _initial)
                        (setq asked-directory-default default-dir)
                        default-dir))
-                    ((symbol-function 'ai-code--open-note-file-at-end)
-                     (lambda (file)
-                       (find-file-noselect file))))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (prompt)
+                       (setq captured-prompt prompt))))
             (ai-code-take-notes)
             (should asked-directory-default)
+            (should captured-prompt)
             (should (string-match-p (regexp-quote ".ai.code.files/")
-                                    (file-name-as-directory asked-directory-default)))))
+                                    (file-name-as-directory asked-directory-default)))
+            (should (string-match-p (regexp-quote (file-name-as-directory asked-directory-default))
+                                    captured-prompt))))
       (ignore-errors (delete-directory tmp-root t)))))
 
 (ert-deftest ai-code-test-take-notes-does-not-use-gptel ()
-  "Test `ai-code-take-notes' does not call GPTel for note generation."
+  "Test `ai-code-take-notes' does not call GPTel for note operation."
   (with-temp-buffer
     (require 'org)
     (org-mode)
@@ -361,6 +372,8 @@
                  (lambda (&rest _args)
                    (setq gptel-called t)
                    (error "Should not call GPTel")))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (_prompt)))
                 ((symbol-function 'ai-code--ensure-files-directory)
                  (lambda ()
                    tmp-dir)))
