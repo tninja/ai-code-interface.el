@@ -22,14 +22,20 @@
 (declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
 (declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--format-repo-context-info "ai-code-file")
+(declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code--pull-or-review-action-choice "ai-code-github")
 (declare-function ai-code--pull-or-review-source-instruction "ai-code-github"
                   (review-source &optional review-mode))
+(declare-function org-current-level "org")
+(declare-function org-roam-db-update-file "org-roam-db" (&optional file-path no-require))
+(declare-function org-roam-db-sync "org-roam-db" (&optional force))
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 (declare-function dired-get-marked-files "dired"
                   (&optional localp arg filter distinguish-one-marked error-if-none-p))
 
 (defvar ai-code--repo-context-info)
+(defvar org-roam-directory)
+(defvar ai-code-backends-infra--last-accessed-buffer)
 
 (defconst ai-code-discussion--question-only-note
   "Note: This is a question only - please do not modify the code."
@@ -669,6 +675,10 @@ headline based on the selected content.  Otherwise, prompt with empty default."
   :type 'boolean
   :group 'ai-code)
 
+(defconst ai-code-discussion--default-note-request
+  "Add the most recent AI output"
+  "Default request text for `ai-code-take-notes'.")
+
 (defun ai-code--get-note-candidates (default-note-file)
   "Get a list of candidate note files.
 DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized."
@@ -722,32 +732,189 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
       (insert "\n"))
     (save-buffer)))
 
+;; DONE: I want to totally redesign ai-code-take-notes.
+;; 1. When the current buffer is a org-mode buffer, It ask user question on what kind of note to take and insert to the current location in current org file with a proper section headline, the default candidate prompt should be add the most recent AI output but user can modify the prompt.
+;; 2. When the current buffer is not a org-mode buffer, after ask user question on what kind of note to take, It should ask for target of note. It could be 1. a new note file under org-roam-directory (in that case, the note generated in next step should be added / synced with org-roam system), or 2. it will ask user to enter target note file dir.  In both case, the note file name is automatically determined by AI. When org-roam package is available and org-roam-directory is configured, it should as user y/n to confirm that. Otherwise, it should ask user to select a directory to save the note file, the by default directory is .ai.code.files/ under current project root.
+;; You can check /home/tninja/.emacs.d/elpa/org-roam-2.3.0 for org-roam code. If the note got created under org-roam-directory, it should be automatically added to org-roam system and synced, future org-roam command like find node should be able to see this new added note
+
+(defun ai-code--generate-note-content (note-request)
+  "Generate note content from NOTE-REQUEST using recent AI session output."
+  (let ((session-output (ai-code--get-most-recent-ai-session-output)))
+    (if (or (null session-output) (string-empty-p session-output))
+        note-request
+      (if (string= note-request ai-code-discussion--default-note-request)
+          session-output
+        (format "Note request: %s\n\nAI session output:\n%s"
+                note-request
+                session-output)))))
+
+(defun ai-code--strip-ansi-escape-sequences (text)
+  "Return TEXT without ANSI escape sequences."
+  (replace-regexp-in-string "\x1b\\[[0-9;?]*[[:alpha:]]" "" (or text "")))
+
+(defun ai-code--buffer-tail-text (buffer max-chars)
+  "Return the last MAX-CHARS characters from BUFFER."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let ((end (point-max)))
+        (buffer-substring-no-properties (max (point-min) (- end max-chars)) end)))))
+
+(defun ai-code--session-buffer-p (buffer)
+  "Return non-nil when BUFFER is an AI session buffer."
+  (when (buffer-live-p buffer)
+    (if (fboundp 'ai-code-backends-infra--session-buffer-p)
+        (ai-code-backends-infra--session-buffer-p buffer)
+      (string-match-p "\\`\\*.*\\[.*\\].*\\*\\'" (buffer-name buffer)))))
+
+(defun ai-code--most-recent-ai-session-buffer ()
+  "Return the best candidate AI session buffer."
+  (cond
+   ((ai-code--session-buffer-p (current-buffer))
+    (current-buffer))
+   ((and (boundp 'ai-code-backends-infra--last-accessed-buffer)
+         (ai-code--session-buffer-p ai-code-backends-infra--last-accessed-buffer))
+    ai-code-backends-infra--last-accessed-buffer)
+   (t
+    (let (found)
+      (dolist (buf (buffer-list))
+        (when (and (null found) (ai-code--session-buffer-p buf))
+          (setq found buf)))
+      found))))
+
+(defun ai-code--get-most-recent-ai-session-output ()
+  "Return recent output text from the active AI session buffer, or nil."
+  (when-let ((session-buffer (ai-code--most-recent-ai-session-buffer)))
+    (let* ((raw (ai-code--buffer-tail-text session-buffer 12000))
+           (clean (and raw
+                       (string-trim
+                        (ai-code--strip-ansi-escape-sequences raw)))))
+      (unless (or (null clean) (string-empty-p clean))
+        clean))))
+
+(defun ai-code--first-note-title-candidate (text)
+  "Return the first meaningful title candidate from TEXT."
+  (let ((lines (split-string (or text "") "\n")))
+    (catch 'found
+      (dolist (line lines)
+        (let ((trimmed (string-trim line)))
+          (when (and (not (string-empty-p trimmed))
+                     (not (string-prefix-p "Note request:" trimmed))
+                     (not (string-prefix-p "AI session output:" trimmed)))
+            (throw 'found trimmed))))
+      nil)))
+
+(defun ai-code--note-title-from-content (note-request note-content)
+  "Build a note title from NOTE-REQUEST and NOTE-CONTENT."
+  (let* ((candidate (ai-code--first-note-title-candidate note-content))
+         (fallback (if (string-empty-p note-request)
+                       "Note"
+                     (string-trim note-request)))
+         (title (or candidate fallback)))
+    (if (> (length title) 80)
+        (substring title 0 80)
+      title)))
+
+(defun ai-code--sanitize-note-file-stem (text)
+  "Convert TEXT into a safe lowercase note filename stem."
+  (let ((stem (replace-regexp-in-string "[^a-z0-9_]" "_"
+                                        (downcase (or text "")))))
+    (setq stem (replace-regexp-in-string "_+" "_" stem))
+    (setq stem (replace-regexp-in-string "^_\\|_$" "" stem))
+    (when (> (length stem) 60)
+      (setq stem (substring stem 0 60)))
+    (if (string-empty-p stem)
+        (format-time-string "note_%Y%m%d_%H%M%S")
+      stem)))
+
+(defun ai-code--generate-note-file-stem (note-request note-content)
+  "Generate a note filename stem from NOTE-REQUEST and NOTE-CONTENT."
+  (ai-code--sanitize-note-file-stem
+   (ai-code--note-title-from-content note-request note-content)))
+
+(defun ai-code--org-roam-ready-p ()
+  "Return non-nil when org-roam is available and configured."
+  (and (or (featurep 'org-roam) (require 'org-roam nil t))
+       (boundp 'org-roam-directory)
+       (stringp org-roam-directory)
+       (not (string-empty-p org-roam-directory))))
+
+(defun ai-code--select-note-target-directory (default-note-directory)
+  "Select note target directory using DEFAULT-NOTE-DIRECTORY as fallback."
+  (let ((fallback-dir (file-name-as-directory default-note-directory)))
+    (if (and (ai-code--org-roam-ready-p)
+             (y-or-n-p (format "Create note under org-roam-directory (%s)? "
+                               org-roam-directory)))
+        (file-name-as-directory (expand-file-name org-roam-directory))
+      (file-name-as-directory
+       (read-directory-name "Directory for new note: "
+                            fallback-dir
+                            fallback-dir
+                            t)))))
+
+(defun ai-code--insert-org-note-at-point (title content)
+  "Insert a note with TITLE and CONTENT at point in current Org buffer."
+  (let ((level (or (org-current-level) 1)))
+    (unless (bolp)
+      (insert "\n"))
+    (insert (make-string level ?*) " " title "\n")
+    (org-insert-time-stamp (current-time) t nil)
+    (insert "\n\n" content "\n")))
+
+(defun ai-code--sync-org-roam-note-if-needed (note-file)
+  "Sync NOTE-FILE into org-roam DB when NOTE-FILE is under `org-roam-directory'."
+  (when (and (ai-code--org-roam-ready-p)
+             (file-in-directory-p (file-truename note-file)
+                                 (file-truename (expand-file-name org-roam-directory))))
+    (condition-case err
+        (progn
+          (when (fboundp 'org-roam-db-update-file)
+            (org-roam-db-update-file note-file t))
+          (when (fboundp 'org-roam-db-sync)
+            (org-roam-db-sync)))
+      (error
+       (message "Failed to sync org-roam note: %s" (error-message-string err))))))
+
+(defun ai-code--open-note-file-at-end (note-file)
+  "Open NOTE-FILE in other window and place point at file end."
+  (let* ((note-buffer (find-file-other-window note-file))
+         (note-window (get-buffer-window note-buffer)))
+    (when (window-live-p note-window)
+      (with-selected-window note-window
+        (goto-char (point-max))
+        (recenter -1)))))
+
+(defun ai-code--read-note-request ()
+  "Prompt user for the note request and return a non-empty string."
+  (let ((note-request (string-trim
+                       (or (ai-code-read-string "What kind of note should be taken? "
+                                                ai-code-discussion--default-note-request)
+                           ""))))
+    (when (string-empty-p note-request)
+      (user-error "Note request cannot be empty"))
+    note-request))
+
 ;;;###autoload
 (defun ai-code-take-notes ()
-  "Take notes from selected region and save to a note file.
-When there is a selected region, prompt to select from currently open
-org buffers or the default note file path (.ai.code.notes.org in the
-.ai.code.files/ directory).  Add the section title as a headline at the
-end of the note file, and put the selected region as content of that section."
+  "Take notes by request and insert into Org buffer or create a note file."
   (interactive)
   (let* ((files-dir (ai-code--ensure-files-directory))
-         (default-note-file (expand-file-name ai-code-notes-file-name files-dir)))
-    (if (not (region-active-p))
-        (find-file-other-window default-note-file)
-      (let* ((region-text (filter-buffer-substring (region-beginning) (region-end) nil))
-             (candidates (ai-code--get-note-candidates default-note-file))
-             (note-file (completing-read "Note file: " candidates))
-             (default-title (ai-code--generate-note-headline region-text))
-             (section-title (ai-code-read-string "Section title: " (or default-title ""))))
-        (when (string-empty-p section-title)
-          (user-error "Section title cannot be empty"))
-        (ai-code--append-org-note note-file section-title region-text)
-        ;; Open note file in other window and scroll to bottom
-        (let ((note-buffer (find-file-other-window note-file)))
-          (with-selected-window (get-buffer-window note-buffer)
-            (goto-char (point-max))
-            (recenter -1)))
-        (message "Notes added to %s under section: %s" note-file section-title)))))
+         (default-note-dir (file-name-as-directory files-dir))
+         (note-request (ai-code--read-note-request)))
+    (let* ((note-content (ai-code--generate-note-content note-request))
+           (note-title (ai-code--note-title-from-content note-request note-content)))
+      (if (derived-mode-p 'org-mode)
+          (progn
+            (ai-code--insert-org-note-at-point note-title note-content)
+            (when buffer-file-name
+              (save-buffer))
+            (message "Note inserted in current Org buffer under section: %s" note-title))
+        (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
+               (note-stem (ai-code--generate-note-file-stem note-request note-content))
+               (note-file (expand-file-name (concat note-stem ".org") target-dir)))
+          (ai-code--append-org-note note-file note-title note-content)
+          (ai-code--sync-org-roam-note-if-needed note-file)
+          (ai-code--open-note-file-at-end note-file)
+          (message "Notes added to %s under section: %s" note-file note-title))))))
 
 (provide 'ai-code-discussion)
 

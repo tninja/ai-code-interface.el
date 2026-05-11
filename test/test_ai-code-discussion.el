@@ -13,6 +13,8 @@
 (require 'ai-code-change)
 (require 'ai-code-discussion)
 
+(defvar org-roam-directory)
+
 (ert-deftest ai-code-test-explain-dired-uses-marked-files-as-git-relative-context ()
   "Test that marked Dired files are explained using git relative paths."
   (let (captured-initial-prompt captured-final-prompt)
@@ -245,6 +247,128 @@
         (ai-code-ask-question nil)
 
         (should implement-todo-called)))))
+
+(ert-deftest ai-code-test-take-notes-org-buffer-inserts-at-point-with-default-request ()
+  "Test `ai-code-take-notes' inserts a note at point in current Org buffer."
+  (with-temp-buffer
+    (require 'org)
+    (org-mode)
+    (insert "* Existing\n")
+    (goto-char (point-max))
+    (let ((default-request nil)
+          (before-point (point))
+          (tmp-dir (make-temp-file "ai-code-notes-org" t)))
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt initial-input &optional _candidate-list)
+                   (setq default-request initial-input)
+                   initial-input))
+                ((symbol-function 'ai-code--get-most-recent-ai-session-output)
+                 (lambda ()
+                   "Captured decision summary"))
+                ((symbol-function 'ai-code--ensure-files-directory)
+                 (lambda ()
+                   tmp-dir)))
+        (unwind-protect
+            (progn
+              (ai-code-take-notes)
+              (should (equal default-request "Add the most recent AI output"))
+              (goto-char before-point)
+              (should (looking-at-p "\\* Captured decision summary"))
+              (should (string-match-p (regexp-quote "Captured decision summary") (buffer-string))))
+          (ignore-errors (delete-directory tmp-dir t)))))))
+
+(ert-deftest ai-code-test-take-notes-non-org-can-create-note-under-org-roam-and-sync ()
+  "Test `ai-code-take-notes' can create a new note under org-roam and sync DB."
+  (let* ((tmp-root (make-temp-file "ai-code-note-roam" t))
+         (org-roam-directory (expand-file-name "roam" tmp-root))
+         (default-directory tmp-root)
+         (created-file nil)
+         (db-synced nil))
+    (unwind-protect
+        (with-temp-buffer
+          (cl-letf (((symbol-function 'ai-code-read-string)
+                     (lambda (prompt initial-input &optional _candidate-list)
+                       (cond
+                        ((string-match-p "what kind of note" (downcase prompt))
+                         (or initial-input "Add the most recent AI output"))
+                        (t initial-input))))
+                    ((symbol-function 'ai-code--ensure-files-directory)
+                     (lambda ()
+                       (expand-file-name ".ai.code.files" tmp-root)))
+                    ((symbol-function 'ai-code--org-roam-ready-p)
+                     (lambda () t))
+                    ((symbol-function 'ai-code--get-most-recent-ai-session-output)
+                     (lambda ()
+                       "Captured in roam"))
+                    ((symbol-function 'y-or-n-p)
+                     (lambda (_prompt) t))
+                    ((symbol-function 'org-roam-db-sync)
+                     (lambda (&optional _force)
+                       (setq db-synced t)))
+                    ((symbol-function 'ai-code--open-note-file-at-end)
+                     (lambda (file)
+                       (setq created-file file)
+                       (find-file-noselect file))))
+            (ai-code-take-notes)
+            (should created-file)
+            (should (string-prefix-p (file-name-as-directory org-roam-directory) created-file))
+            (should db-synced)))
+      (ignore-errors (delete-directory tmp-root t)))))
+
+(ert-deftest ai-code-test-take-notes-non-org-fallbacks-to-directory-prompt-when-org-roam-unavailable ()
+  "Test `ai-code-take-notes' prompts for directory when org-roam is unavailable."
+  (let* ((tmp-root (make-temp-file "ai-code-note-dir" t))
+         (default-directory tmp-root)
+         (asked-directory-default nil))
+    (unwind-protect
+        (with-temp-buffer
+          (cl-letf (((symbol-function 'ai-code-read-string)
+                     (lambda (_prompt initial-input &optional _candidate-list)
+                       (or initial-input "Add the most recent AI output")))
+                    ((symbol-function 'ai-code--ensure-files-directory)
+                     (lambda ()
+                       (expand-file-name ".ai.code.files" tmp-root)))
+                    ((symbol-function 'ai-code--get-most-recent-ai-session-output)
+                     (lambda ()
+                       "General note content"))
+                    ((symbol-function 'read-directory-name)
+                     (lambda (_prompt _dir default-dir &optional _mustmatch _initial)
+                       (setq asked-directory-default default-dir)
+                       default-dir))
+                    ((symbol-function 'ai-code--open-note-file-at-end)
+                     (lambda (file)
+                       (find-file-noselect file))))
+            (ai-code-take-notes)
+            (should asked-directory-default)
+            (should (string-match-p (regexp-quote ".ai.code.files/")
+                                    (file-name-as-directory asked-directory-default)))))
+      (ignore-errors (delete-directory tmp-root t)))))
+
+(ert-deftest ai-code-test-take-notes-does-not-use-gptel ()
+  "Test `ai-code-take-notes' does not call GPTel for note generation."
+  (with-temp-buffer
+    (require 'org)
+    (org-mode)
+    (let ((tmp-dir (make-temp-file "ai-code-notes-no-gptel" t))
+          (gptel-called nil))
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt initial-input &optional _candidate-list)
+                   initial-input))
+                ((symbol-function 'ai-code--get-most-recent-ai-session-output)
+                 (lambda ()
+                   "Generated by session"))
+                ((symbol-function 'ai-code-call-gptel-sync)
+                 (lambda (&rest _args)
+                   (setq gptel-called t)
+                   (error "Should not call GPTel")))
+                ((symbol-function 'ai-code--ensure-files-directory)
+                 (lambda ()
+                   tmp-dir)))
+        (unwind-protect
+            (progn
+              (ai-code-take-notes)
+              (should (not gptel-called)))
+          (ignore-errors (delete-directory tmp-dir t)))))))
 
 (provide 'test_ai-code-discussion)
 
