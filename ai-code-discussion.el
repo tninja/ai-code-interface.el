@@ -675,14 +675,6 @@ This value is used by `ai-code-take-notes' when suggesting where to store notes.
   :type 'string
   :group 'ai-code)
 
-;;;###autoload
-(defcustom ai-code-notes-use-gptel-headline nil
-  "Whether to use GPTel to generate headline for notes.
-If non-nil, call `ai-code-call-gptel-sync` to generate a smart default
-headline based on the selected content.  Otherwise, prompt with empty default."
-  :type 'boolean
-  :group 'ai-code)
-
 (defconst ai-code-discussion--default-note-request
   "Content of the most recent AI output"
   "Default request text for `ai-code-take-notes'.")
@@ -709,20 +701,6 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
                      (list default-note-file-truename)
                      org-buffer-files)))))
 
-(defun ai-code--generate-note-headline (content)
-  "Generate a headline for CONTENT using AI if configured."
-  (when ai-code-notes-use-gptel-headline
-    (condition-case err
-        (string-trim
-         (ai-code-call-gptel-sync
-          (format "Generate a concise headline (max 10 words) for this note content. Only return the headline text without quotes or extra formatting:\n\n%s"
-                  (if (> (length content) 500)
-                      (substring content 0 500)
-                    content))))
-      (error
-       (message "GPTel headline generation failed: %s" (error-message-string err))
-       ""))))
-
 (defun ai-code--append-org-note (file title content)
   "Append a note with TITLE and CONTENT to FILE."
   (let ((note-dir (file-name-directory file)))
@@ -739,15 +717,6 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
       (insert content)
       (insert "\n"))
     (save-buffer)))
-
-;; DONE: I want to totally redesign ai-code-take-notes.
-;; 1. When the current buffer is a org-mode buffer, It ask user question on what kind of note to take and insert to the current location in current org file with a proper section headline, the default candidate prompt should be add the most recent AI output but user can modify the prompt.
-;; 2. When the current buffer is not a org-mode buffer, after ask user question on what kind of note to take, It should ask for target of note. It could be 1. a new note file under org-roam-directory (in that case, the note generated in next step should be added / synced with org-roam system), or 2. it will ask user to enter target note file dir.  In both case, the note file name is automatically determined by AI. When org-roam package is available and org-roam-directory is configured, it should as user y/n to confirm that. Otherwise, it should ask user to select a directory to save the note file, the by default directory is .ai.code.files/ under current project root.
-;; You can check /home/tninja/.emacs.d/elpa/org-roam-2.3.0 for org-roam code. If the note got created under org-roam-directory, it should be automatically added to org-roam system and synced, future org-roam command like find node should be able to see this new added note
-
-;; DONE: For the note insert or creation, I prefer to generate prompt to let AI know where to insert / create, with the specified format, send to AI and let AI do the work.
-
-;; DONE: I found that you capture the ai coding session content, add some suffix there and use it as prompt to send to AI. NO NO NO. You should build up a prompt given the input user entered previously, and ask AI to do note taking work, since target already specified in the prompt. NEVER capture any information inside ai coding session
 
 (defun ai-code--build-note-insert-prompt (file-path line-number note-request)
   "Build an AI prompt to insert a note into FILE-PATH.
