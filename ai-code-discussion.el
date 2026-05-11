@@ -10,12 +10,12 @@
 ;;; Code:
 
 (require 'which-func)
+(require 'savehist)
 
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
 (require 'ai-code-change)
 
-(declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
 (declare-function ai-code--get-clipboard-text "ai-code")
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
@@ -34,6 +34,16 @@
 
 (defvar ai-code--repo-context-info)
 (defvar org-roam-directory)
+(defvar ai-code-note-request-history nil
+  "Minibuffer history for note requests.")
+
+(defun ai-code--ensure-note-request-history ()
+  "Register persistent minibuffer history for note requests."
+  (add-to-list 'savehist-additional-variables 'ai-code-note-request-history)
+  (unless (bound-and-true-p savehist-mode)
+    (savehist-mode 1)))
+
+(ai-code--ensure-note-request-history)
 
 (defconst ai-code-discussion--question-only-note
   "Note: This is a question only - please do not modify the code."
@@ -853,8 +863,9 @@ NOTE-REQUEST is included in the prompt body."
 (defun ai-code--read-note-request ()
   "Prompt user for the note request and return a non-empty string."
   (let ((note-request (string-trim
-                       (or (ai-code-read-string "What kind of note should be taken? "
-                                                ai-code-discussion--default-note-request)
+                       (or (read-string "Specification for the note? "
+                                        ai-code-discussion--default-note-request
+                                        'ai-code-note-request-history)
                            ""))))
     (when (string-empty-p note-request)
       (user-error "Note request cannot be empty"))
