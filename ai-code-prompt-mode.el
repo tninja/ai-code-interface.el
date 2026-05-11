@@ -421,7 +421,7 @@ If PROMPT-TEXT is a command (starts with /), execute it directly instead."
     (if (and (string-prefix-p "/" processed-prompt)
              (not (string-match-p " " processed-prompt)))
         (ai-code--execute-command processed-prompt)
-      (let* ((append-summary-p (and (derived-mode-p 'ai-code-prompt-mode)
+      (let* ((append-summary-p (and (derived-mode-p 'org-mode)
                                     (ignore-errors (save-excursion (org-back-to-heading t) t))
                                     (y-or-n-p "Append result summary to current section? ")))
              (final-prompt (if append-summary-p
