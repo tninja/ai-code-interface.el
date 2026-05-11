@@ -739,31 +739,18 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
 
 ;; DONE: I found that you capture the ai coding session content, add some suffix there and use it as prompt to send to AI. NO NO NO. You should build up a prompt given the input user entered previously, and ask AI to do note taking work, since target already specified in the prompt. NEVER capture any information inside ai coding session
 
-(defun ai-code--build-note-insert-prompt (file-path line-number note-request note-title note-content)
-  "Build an AI prompt to insert NOTE-TITLE and NOTE-CONTENT into FILE-PATH.
+(defun ai-code--build-note-insert-prompt (file-path line-number note-request)
+  "Build an AI prompt to insert a note into FILE-PATH.
 LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
-  (let ((note-format-block (ai-code--note-format-block note-title note-content)))
-    (format (concat
-             "Insert the note into the current Org file.\n"
-             "Target file: %s\n"
-             "Insert location: around line %d (current cursor position)\n\n"
-             "Note request:\n%s\n\n"
-             "%s"
-             "Only update the requested insertion location. Do not change unrelated sections.")
-            file-path
-            line-number
-            note-request
-            note-format-block)))
-
-(defun ai-code--note-format-block (note-title note-content)
-  "Return a normalized note section format block from NOTE-TITLE and NOTE-CONTENT."
   (format (concat
-           "Use this specified format:\n"
-           "* %s\n"
-           "<active timestamp>\n\n"
-           "%s\n\n")
-          note-title
-          note-content))
+           "Insert the note into the current Org file.\n"
+           "Target file: %s\n"
+           "Insert location: around line %d (current cursor position)\n\n"
+           "Note request:\n%s\n\n"
+           "Only update the requested insertion location. Do not change unrelated sections.")
+          file-path
+          line-number
+          note-request))
 
 (defun ai-code--target-directory-under-org-roam-p (target-dir)
   "Return non-nil when TARGET-DIR is under `org-roam-directory'."
@@ -772,28 +759,21 @@ LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
              (roam-dir (file-name-as-directory (expand-file-name org-roam-directory))))
          (string-prefix-p roam-dir target))))
 
-(defun ai-code--build-note-create-prompt (target-dir note-request note-title note-content)
+(defun ai-code--build-note-create-prompt (target-dir note-request)
   "Build an AI prompt to create a note under TARGET-DIR.
-NOTE-REQUEST, NOTE-TITLE, and NOTE-CONTENT are included in the prompt body."
-  (let ((note-format-block (ai-code--note-format-block note-title note-content)))
-    (format (concat
-             "Create a new Org note file.\n"
-             "Create a new Org note file under directory: %s\n"
-             "Automatically determine a concise filename from the note title/content, using lowercase and underscores, with .org extension.\n\n"
-             "Note request:\n%s\n\n"
-             "%s"
-             "%s"
-             "Do not modify unrelated files.")
-            target-dir
-            note-request
-            note-format-block
-            (if (ai-code--target-directory-under-org-roam-p target-dir)
-                "After creating the note file, run org-roam-db-sync so it is discoverable by org-roam commands.\n\n"
-              ""))))
-
-(defun ai-code--generate-note-content (note-request)
-  "Generate note content from NOTE-REQUEST only."
-  note-request)
+NOTE-REQUEST is included in the prompt body."
+  (format (concat
+           "Create a new Org note file.\n"
+           "Create a new Org note file under directory: %s\n"
+           "Automatically determine a concise filename from the note title/content, using lowercase and underscores, with .org extension.\n\n"
+           "Note request:\n%s\n\n"
+           "%s"
+           "Do not modify unrelated files.")
+          target-dir
+          note-request
+          (if (ai-code--target-directory-under-org-roam-p target-dir)
+              "After creating the note file, run org-roam-db-sync so it is discoverable by org-roam commands.\n\n"
+            "")))
 
 (defun ai-code--first-note-title-candidate (text)
   "Return the first meaningful title candidate from TEXT."
@@ -807,17 +787,6 @@ NOTE-REQUEST, NOTE-TITLE, and NOTE-CONTENT are included in the prompt body."
             (throw 'found trimmed))))
       nil)))
 
-(defun ai-code--note-title-from-content (note-request note-content)
-  "Build a note title from NOTE-REQUEST and NOTE-CONTENT."
-  (let* ((candidate (ai-code--first-note-title-candidate note-content))
-         (fallback (if (string-empty-p note-request)
-                       "Note"
-                     (string-trim note-request)))
-         (title (or candidate fallback)))
-    (if (> (length title) 80)
-        (substring title 0 80)
-      title)))
-
 (defun ai-code--sanitize-note-file-stem (text)
   "Convert TEXT into a safe lowercase note filename stem."
   (let ((stem (replace-regexp-in-string "[^a-z0-9_]" "_"
@@ -829,11 +798,6 @@ NOTE-REQUEST, NOTE-TITLE, and NOTE-CONTENT are included in the prompt body."
     (if (string-empty-p stem)
         (format-time-string "note_%Y%m%d_%H%M%S")
       stem)))
-
-(defun ai-code--generate-note-file-stem (note-request note-content)
-  "Generate a note filename stem from NOTE-REQUEST and NOTE-CONTENT."
-  (ai-code--sanitize-note-file-stem
-   (ai-code--note-title-from-content note-request note-content)))
 
 (defun ai-code--org-roam-ready-p ()
   "Return non-nil when org-roam is available and configured."
@@ -904,28 +868,22 @@ NOTE-REQUEST, NOTE-TITLE, and NOTE-CONTENT are included in the prompt body."
   (let* ((files-dir (ai-code--ensure-files-directory))
          (default-note-dir (file-name-as-directory files-dir))
          (note-request (ai-code--read-note-request)))
-    (let* ((note-content (ai-code--generate-note-content note-request))
-           (note-title (ai-code--note-title-from-content note-request note-content)))
-      (if (derived-mode-p 'org-mode)
-          (let* ((target-file (or buffer-file-name "current-org-buffer"))
-                 (line-number (line-number-at-pos))
-                 (prompt (ai-code--build-note-insert-prompt
-                          target-file
-                          line-number
-                          note-request
-                          note-title
-                          note-content)))
-            (ai-code--insert-prompt prompt)
-            (message "Generated AI prompt for note insertion in %s" target-file))
-        (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
-               (default-prompt (ai-code--build-note-create-prompt
-                                target-dir
-                                note-request
-                                note-title
-                                note-content)))
-          (when-let ((final-prompt (ai-code-read-string "Prompt: " default-prompt)))
-            (ai-code--insert-prompt final-prompt)
-            (message "Generated AI prompt for note creation under %s" target-dir)))))))
+    (if (derived-mode-p 'org-mode)
+        (let* ((target-file (or buffer-file-name "current-org-buffer"))
+               (line-number (line-number-at-pos))
+               (prompt (ai-code--build-note-insert-prompt
+                        target-file
+                        line-number
+                        note-request)))
+          (ai-code--insert-prompt prompt)
+          (message "Generated AI prompt for note insertion in %s" target-file))
+      (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
+             (default-prompt (ai-code--build-note-create-prompt
+                              target-dir
+                              note-request)))
+        (when-let ((final-prompt (ai-code-read-string "Prompt: " default-prompt)))
+          (ai-code--insert-prompt final-prompt)
+          (message "Generated AI prompt for note creation under %s" target-dir))))))
 
 (provide 'ai-code-discussion)
 
