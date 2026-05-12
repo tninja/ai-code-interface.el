@@ -156,8 +156,7 @@
                      ai-code-discussion--default-note-request))
       (should (equal captured-prompt "Specification for the note? "))
       (should (eq captured-history 'ai-code-note-request-history))
-      (should (memq 'ai-code-note-request-history savehist-additional-variables))
-      (should (bound-and-true-p savehist-mode)))))
+      (should (memq 'ai-code-note-request-history savehist-additional-variables)))))
 
 (ert-deftest ai-code-test-ask-question-routes-to-implement-todo-on-todo-comment ()
   "Test `ai-code-ask-question' calls `ai-code-implement-todo' when on a TODO comment."
@@ -303,8 +302,7 @@
                                       captured-prompt))
               (should (string-match-p (regexp-quote "Content of the most recent AI output")
                                       captured-prompt))
-              (should (memq 'ai-code-note-request-history savehist-additional-variables))
-              (should (bound-and-true-p savehist-mode)))
+              (should (memq 'ai-code-note-request-history savehist-additional-variables)))
           (ignore-errors (delete-directory tmp-dir t)))))))
 
 (ert-deftest ai-code-test-take-notes-non-org-sends-create-prompt-under-org-roam ()
@@ -312,7 +310,8 @@
   (let* ((tmp-root (make-temp-file "ai-code-note-roam" t))
          (org-roam-directory (expand-file-name "roam" tmp-root))
          (default-directory tmp-root)
-         (captured-prompt nil))
+         (captured-prompt nil)
+         (captured-default-prompt nil))
     (unwind-protect
         (with-temp-buffer
           (cl-letf (((symbol-function 'read-string)
@@ -339,9 +338,12 @@
                        "Captured in roam"))
                     ((symbol-function 'y-or-n-p)
                      (lambda (_prompt) t))
+                    ((symbol-function 'require)
+                     (lambda (_feature &optional _noerror &rest _args)
+                       nil))
                     ((symbol-function 'ai-code--insert-prompt)
                      (lambda (prompt)
-                        (setq captured-prompt prompt))))
+                       (setq captured-prompt prompt))))
             (ai-code-take-notes)
             (should captured-prompt)
             (should (string-match-p (regexp-quote "Create a new Org note file")
@@ -404,6 +406,7 @@
   (with-temp-buffer
     (require 'org)
     (org-mode)
+    (setq buffer-file-name "/tmp/current-notes.org")
     (let ((tmp-dir (make-temp-file "ai-code-notes-no-gptel" t))
           (gptel-called nil)
           (session-capture-called nil))
