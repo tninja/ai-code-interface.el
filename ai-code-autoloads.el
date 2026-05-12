@@ -440,11 +440,6 @@ into the AI prompt file and optionally sends to AI." t)
 Default note file name relative to the project root.
 This value is used by `ai-code-take-notes' when suggesting where to store notes.")
 (custom-autoload 'ai-code-notes-file-name "ai-code-discussion" t)
-(defvar ai-code-notes-use-gptel-headline nil "\
-Whether to use GPTel to generate headline for notes.
-If non-nil, call `ai-code-call-gptel-sync` to generate a smart default
-headline based on the selected content.  Otherwise, prompt with empty default.")
-(custom-autoload 'ai-code-notes-use-gptel-headline "ai-code-discussion" t)
 (autoload 'ai-code-take-notes "ai-code-discussion" "\
 Take notes from selected region and save to a note file.
 When there is a selected region, prompt to select from currently open
