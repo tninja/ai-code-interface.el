@@ -1524,14 +1524,14 @@ and ensures everything is cleaned up afterward."
     (should-not (ai-code--prompt-choose-target-session))))
 
 (ert-deftest ai-code-test-prompt-choose-target-session-returns-visible-when-only-option ()
-  "Return visible session buffer when no other project sessions differ."
+  "Return nil when visible session belongs to the same project (default dispatch)."
   (let ((session-buf (get-buffer-create "*claude[test]*")))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code--find-visible-session-buffer)
                    (lambda () session-buf))
                   ((symbol-function 'ai-code--find-project-session-buffers)
                    (lambda () (list session-buf))))
-          (should (eq (ai-code--prompt-choose-target-session) session-buf)))
+          (should-not (ai-code--prompt-choose-target-session)))
       (kill-buffer session-buf))))
 
 (ert-deftest ai-code-test-prompt-choose-target-session-returns-visible-when-no-project-session ()

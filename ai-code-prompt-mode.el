@@ -205,9 +205,11 @@ that should be recorded in the prompt history file."
 Return session buffer when a non-default target is chosen, nil for default."
   (when-let ((visible-session (ai-code--find-visible-session-buffer)))
     (let* ((project-sessions (ai-code--find-project-session-buffers))
+           (visible-is-project-session (memq visible-session project-sessions))
            (competing-sessions
             (cl-remove visible-session project-sessions)))
       (cond
+       (visible-is-project-session nil)
        ((null competing-sessions)
         visible-session)
        (t
@@ -243,6 +245,7 @@ backend dispatch."
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
   "Write PROMPT-TEXT to the AI prompt file."
   ;; DONE: right now it can only sent prompt to buffer associated ai coding session, which belong to the same git repo. If there is already a AI coding session buffer opened in side panel in same window, it should allow the prompt send to it. If there is already a ai coding session opened for the triggered buffer, but current side panel shows a different session, it should ask user to choose which session it want to send to.
+  ;; DONE: if the current side panel ai coding session is in the same git repo of the triggered buffer file, it should go through the same code path as before, no need to ask user to select session
   (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type
                                          ai-code-auto-test-suffix)
