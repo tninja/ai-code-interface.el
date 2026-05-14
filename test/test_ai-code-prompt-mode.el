@@ -1474,5 +1474,142 @@ and ensures everything is cleaned up afterward."
         (should (string-match-p (regexp-quote ":AGENT: gemini") content))
         (should (string-match-p (regexp-quote ":END:") content))))))
 
+;;; Tests for visible session routing in ai-code--send-prompt
+
+(ert-deftest ai-code-test-find-visible-session-buffer-returns-session ()
+  "Find a session buffer in visible windows."
+  (let ((session-buf (get-buffer-create "*claude[test-project]*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-list)
+                   (lambda (&optional _frame _no-minibuf)
+                     '(win1 win2)))
+                  ((symbol-function 'window-buffer)
+                   (lambda (win)
+                     (if (eq win 'win1) (get-buffer "*scratch*") session-buf))))
+          (should (eq (ai-code--find-visible-session-buffer) session-buf)))
+      (kill-buffer session-buf))))
+
+(ert-deftest ai-code-test-find-visible-session-buffer-nil-when-no-sessions ()
+  "Return nil when no session buffers are visible."
+  (cl-letf (((symbol-function 'window-list)
+             (lambda (&optional _frame _no-minibuf) '(win1)))
+            ((symbol-function 'window-buffer)
+             (lambda (_win) (get-buffer "*scratch*"))))
+    (should-not (ai-code--find-visible-session-buffer))))
+
+(ert-deftest ai-code-test-find-project-session-buffers-finds-matching ()
+  "Find session buffers matching the current project directory."
+  (ai-code-with-test-repo
+   (let ((session-buf (get-buffer-create "*claude[test-repo]*")))
+     (unwind-protect
+         (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
+                    (lambda (buf dir) (eq buf session-buf))))
+           (should (memq session-buf (ai-code--find-project-session-buffers))))
+       (kill-buffer session-buf)))))
+
+(ert-deftest ai-code-test-find-project-session-buffers-excludes-other-projects ()
+  "Exclude session buffers for other projects."
+  (ai-code-with-test-repo
+   (let ((other-buf (get-buffer-create "*claude[other-project]*")))
+     (unwind-protect
+         (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
+                    (lambda (_buf _dir) nil)))
+           (should-not (memq other-buf (ai-code--find-project-session-buffers))))
+       (kill-buffer other-buf)))))
+
+(ert-deftest ai-code-test-prompt-choose-target-session-nil-when-no-visible ()
+  "Return nil when no visible session buffers."
+  (cl-letf (((symbol-function 'ai-code--find-visible-session-buffer)
+             (lambda () nil)))
+    (should-not (ai-code--prompt-choose-target-session))))
+
+(ert-deftest ai-code-test-prompt-choose-target-session-returns-visible-when-only-option ()
+  "Return visible session buffer when no other project sessions differ."
+  (let ((session-buf (get-buffer-create "*claude[test]*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--find-visible-session-buffer)
+                   (lambda () session-buf))
+                  ((symbol-function 'ai-code--find-project-session-buffers)
+                   (lambda () (list session-buf))))
+          (should (eq (ai-code--prompt-choose-target-session) session-buf)))
+      (kill-buffer session-buf))))
+
+(ert-deftest ai-code-test-prompt-choose-target-session-returns-visible-when-no-project-session ()
+  "Return visible session buffer when current project has no sessions."
+  (let ((visible-buf (get-buffer-create "*gemini[other-project]*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--find-visible-session-buffer)
+                   (lambda () visible-buf))
+                  ((symbol-function 'ai-code--find-project-session-buffers)
+                   (lambda () nil)))
+          (should (eq (ai-code--prompt-choose-target-session) visible-buf)))
+      (kill-buffer visible-buf))))
+
+(ert-deftest ai-code-test-prompt-choose-target-session-asks-when-sessions-differ ()
+  "Ask user to choose when visible and project sessions differ."
+  (let ((visible-buf (get-buffer-create "*gemini[other-project]*"))
+        (project-buf (get-buffer-create "*claude[my-project]*"))
+        (offered-choices nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--find-visible-session-buffer)
+                   (lambda () visible-buf))
+                  ((symbol-function 'ai-code--find-project-session-buffers)
+                   (lambda () (list project-buf)))
+                  ((symbol-function 'completing-read)
+                   (lambda (_prompt collection &rest _args)
+                     (setq offered-choices collection)
+                     (buffer-name project-buf))))
+          (let ((result (ai-code--prompt-choose-target-session)))
+            (should (eq result project-buf))
+            (should (member (buffer-name visible-buf) offered-choices))
+            (should (member (buffer-name project-buf) offered-choices))))
+      (kill-buffer visible-buf)
+      (kill-buffer project-buf))))
+
+(ert-deftest ai-code-test-send-prompt-uses-visible-session-directly ()
+  "Send prompt directly to visible session when target is resolved."
+  (let ((session-buf (get-buffer-create "*claude[test]*"))
+        (sent-string nil)
+        (return-sent nil)
+        (displayed-buffer nil)
+        (cli-send-called nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--prompt-choose-target-session)
+                   (lambda () session-buf))
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                   (lambda (str) (setq sent-string str)))
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                   (lambda () (setq return-sent t)))
+                  ((symbol-function 'get-buffer-window)
+                   (lambda (_buf &rest _) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (buf) (setq displayed-buffer buf)))
+                  ((symbol-function 'ai-code-cli-send-command)
+                   (lambda (_cmd) (setq cli-send-called t)))
+                  ((symbol-function 'ai-code-cli-switch-to-buffer)
+                   (lambda () nil))
+                  ((symbol-function 'sit-for)
+                   (lambda (_secs) nil)))
+          (ai-code--send-prompt "test prompt")
+          (should (string= sent-string "test prompt"))
+          (should return-sent)
+          (should (eq displayed-buffer session-buf))
+          (should-not cli-send-called))
+      (kill-buffer session-buf))))
+
+(ert-deftest ai-code-test-send-prompt-falls-through-when-no-visible-session ()
+  "Use default path when no visible session is chosen."
+  (let ((cli-send-called nil)
+        (switch-called nil))
+    (cl-letf (((symbol-function 'ai-code--prompt-choose-target-session)
+               (lambda () nil))
+              ((symbol-function 'ai-code-cli-send-command)
+               (lambda (cmd) (setq cli-send-called cmd)))
+              ((symbol-function 'ai-code-cli-switch-to-buffer)
+               (lambda () (setq switch-called t))))
+      (ai-code--send-prompt "test prompt")
+      (should (string= cli-send-called "test prompt"))
+      (should switch-called))))
+
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here
