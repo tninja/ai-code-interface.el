@@ -34,6 +34,7 @@
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
 (declare-function ai-code--choose-symbol-from-file "ai-code-input" (file))
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
+(declare-function ai-code--get-clipboard-text "ai-code")
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 
 (defcustom ai-code-prompt-preprocess-filepaths t
@@ -781,13 +782,30 @@ exist, prompt once to optionally include them as well."
     (ai-code--insert-prompt confirmed-prompt)))
 
 ;;;###autoload
-(defun ai-code-search-notes-with-ai ()
-  "Ask AI to search task files and configured note paths."
-  (interactive)
-  (let* ((ai-code-files-dir (ai-code--ensure-files-directory))
+(defun ai-code-search-notes-with-ai (&optional arg)
+  "Ask AI to search task files and configured note paths.
+With \\[universal-argument], append clipboard contents as context.
+If a region is active, include the selected text as context.
+
+ARG is the prefix argument."
+  (interactive "P")
+  ;; DONE: this function should support context:
+  ;; If there is selected region, content of it should automatically included
+  ;; C-u should include clipboard as context, just like ai-code-ask-question
+  (let* ((region-text (when (use-region-p)
+                        (buffer-substring-no-properties (region-beginning)
+                                                       (region-end))))
+         (clipboard-context (when arg (ai-code--get-clipboard-text)))
+         (ai-code-files-dir (ai-code--ensure-files-directory))
          (scopes (ai-code--read-note-search-scopes ai-code-files-dir))
          (search-description (ai-code-read-string "Search notes for: "))
-         (default-prompt (ai-code--build-note-search-prompt scopes search-description))
+         (default-prompt (concat
+                          (ai-code--build-note-search-prompt scopes search-description)
+                          (when region-text
+                            (concat "\nContext:\n" region-text))
+                          (when (and clipboard-context
+                                     (string-match-p "\\S-" clipboard-context))
+                            (concat "\n\nClipboard context:\n" clipboard-context))))
          (confirmed-prompt (ai-code-read-string "Confirm search prompt: " default-prompt)))
     (ai-code--insert-prompt confirmed-prompt)))
 
