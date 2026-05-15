@@ -456,8 +456,7 @@ and ensures everything is cleaned up afterward."
 (ert-deftest ai-code-test-search-notes-with-ai-includes-region-context ()
   "Test that note search includes selected region text as context."
   (ai-code-with-test-repo
-   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
-          (sent-command nil))
+   (let ((sent-command nil))
      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_prompt) nil))
                ((symbol-function 'ai-code-read-string)
                 (lambda (prompt &optional initial-input _candidate-list)
