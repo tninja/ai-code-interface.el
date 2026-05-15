@@ -607,24 +607,24 @@ from the window where it was initially created."
         (let ((backend (ai-code-backends-infra--current-terminal-backend))
               (windows (or (get-buffer-window-list buffer nil t)
                            (list window))))
-          (pcase backend
-            ('vterm
-             (let ((result
-                    (funcall (ai-code-backends-infra--terminal-resize-handler
-                              'vterm)
-                             proc windows)))
-               (when result
-                 (ai-code-backends-infra-vterm-flush-render-queue buffer))
-               result))
-            ('ghostel
-             (when-let ((size (funcall (ai-code-backends-infra-ghostel-resize-handler)
-                                       proc
-                                       windows)))
-               (set-process-window-size proc (cdr size) (car size))))
-            (_
-             (set-process-window-size proc
-                                      (window-body-height window)
-                                      (window-body-width window)))))))))
+          (if (eq backend 'ghostel)
+              (when-let ((size (funcall (ai-code-backends-infra-ghostel-resize-handler)
+                                        proc
+                                        windows)))
+                (set-process-window-size proc (cdr size) (car size)))
+            (pcase backend
+              ('vterm
+               (let ((result
+                      (funcall (ai-code-backends-infra--terminal-resize-handler
+                                'vterm)
+                               proc windows)))
+                 (when result
+                   (ai-code-backends-infra-vterm-flush-render-queue buffer))
+                 result))
+              (_
+               (set-process-window-size proc
+                                        (window-body-height window)
+                                        (window-body-width window))))))))))
 
 ;;; Session Helpers
 
