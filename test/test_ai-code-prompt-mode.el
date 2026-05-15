@@ -1518,8 +1518,7 @@ and ensures everything is cleaned up afterward."
           (with-current-buffer session-buf
             (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
             (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                      (lambda (candidate-buf &rest _)
-                        (eq candidate-buf session-buf))))
+                      (lambda (buf _dir) (eq buf session-buf))))
               (should (memq session-buf (ai-code--find-project-session-buffers)))))
         (kill-buffer session-buf)))))
 
@@ -1531,7 +1530,7 @@ and ensures everything is cleaned up afterward."
           (with-current-buffer other-buf
             (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
             (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                      (lambda (&rest _) nil)))
+                      (lambda (_buf _dir) nil)))
               (should-not (memq other-buf (ai-code--find-project-session-buffers)))))
         (kill-buffer other-buf)))))
 
@@ -1541,7 +1540,7 @@ and ensures everything is cleaned up afterward."
    (let ((session-buf (get-buffer-create "*claude[test-repo]*")))
      (unwind-protect
          (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                    (lambda (&rest _) t)))
+                    (lambda (_buf _dir) t)))
            (should-not (memq session-buf (ai-code--find-project-session-buffers))))
        (kill-buffer session-buf)))))
 
