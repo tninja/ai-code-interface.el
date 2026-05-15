@@ -33,6 +33,7 @@
 
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar ghostel--copy-mode-active nil)
+(defvar ghostel-kill-buffer-on-exit nil)
 (defvar ghostel-set-title-function nil)
 
 (defun ai-code-backends-infra-ghostel-ensure-backend ()
@@ -73,6 +74,7 @@
 (defun ai-code-backends-infra--configure-ghostel-buffer ()
   "Configure the current Ghostel buffer for AI Code sessions."
   (setq-local ghostel-set-title-function nil)
+  (setq-local ghostel-kill-buffer-on-exit nil)
   (ai-code-backends-infra--configure-session-input-shortcuts)
   (ai-code-backends-infra--install-navigation-cursor-sync))
 
@@ -86,7 +88,10 @@
       (cond
        ((not program) nil)
        ((fboundp 'ghostel-exec)
-        (ghostel-exec buffer program args))
+        (let ((proc (ghostel-exec buffer program args)))
+          ;; `ghostel-exec' enters `ghostel-mode', which resets local state.
+          (ai-code-backends-infra--configure-ghostel-buffer)
+          proc))
        (t
         (user-error
          "Ghostel backend requires a Ghostel version that provides `ghostel-exec`"))))))
@@ -107,6 +112,11 @@ variables for the terminal process."
         (when (processp proc)
           (ignore-errors
             (set-process-query-on-exit-flag proc nil))
+          (when-let ((sentinel (ignore-errors (process-sentinel proc))))
+            (ignore-errors
+              (process-put proc
+                           'ai-code-backends-infra--ghostel-sentinel
+                           sentinel)))
           (let ((orig-filter (process-filter proc)))
             (set-process-filter
              proc

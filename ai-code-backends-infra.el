@@ -152,7 +152,7 @@ being sent for the response completion.")
 This validates the textual shape, but not UUID version or variant bits.")
 
 (defun ai-code-backends-infra--selected-session-id ()
-  "Return the active region text when it contains a UUID session id."
+  "Return active region text if it has a UUID session id."
   (when (use-region-p)
     (let ((candidate
            (string-trim
@@ -197,11 +197,12 @@ Set to t to debug scrollback-preservation transformations.")
 
 (defvar-local ai-code-backends-infra--last-scrollback-inject-time 0
   "Timestamp of the last scrollback-preservation injection.
-Used to throttle injections per `ai-code-backends-infra-scrollback-inject-interval'.")
+Used to throttle injections per
+`ai-code-backends-infra-scrollback-inject-interval'.")
 
 (defvar-local ai-code-backends-infra--sync-redraw-scrollback nil
-  "When non-nil, inject scrollback-preserving newlines before
-synchronized-update frame redraws (\\e[?2026h\\e[1;1H).
+  "Non-nil means inject scrollback-preserving newlines before redraws.
+This applies to synchronized-update frame redraws (\\e[?2026h\\e[1;1H).
 Backends that hardcode alternate screen buffer should set this
 to t via their post-start-fn.")
 
@@ -304,7 +305,7 @@ the current buffer is an AI session buffer, apply these transformations:
 (declare-function ai-code-notifications-response-ready "ai-code-notifications" (&optional backend-name))
 
 (defun ai-code-backends-infra--output-meaningful-p (output)
-  "Return non-nil when OUTPUT contains meaningful printable content."
+  "Return non-nil if OUTPUT has meaningful printable content."
   (let* ((str (or output ""))
          ;; Strip OSC sequences (ESC ] ... BEL or ESC ] ... ESC \).
          (str (replace-regexp-in-string "\x1b\\][^\x07\x1b]*\\(?:\x07\\|\x1b\\\\\\)" "" str))
@@ -501,6 +502,7 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 
 (defun ai-code-backends-infra--terminal-reflow-filter (original-fn &rest args)
   "Filter terminal reflows to prevent height-only resize triggers.
+ORIGINAL-FN is the terminal resize function and ARGS are its arguments.
 Suppress reflow when terminal width is unchanged or when the session
 buffer is in scroll/copy mode, working around bug #1422."
   (let* ((base-result (apply original-fn args))
@@ -594,9 +596,14 @@ from the window where it was initially created."
   (when (and buffer window (buffer-live-p buffer) (window-live-p window))
     (with-current-buffer buffer
       (when-let ((proc (get-buffer-process buffer)))
-        (let ((height (window-body-height window))
-              (width (window-body-width window)))
-          (set-process-window-size proc height width))))))
+        (if (eq (ai-code-backends-infra--current-terminal-backend) 'ghostel)
+            (when-let ((size (funcall (ai-code-backends-infra-ghostel-resize-handler)
+                                      proc
+                                      (list window))))
+              (set-process-window-size proc (cdr size) (car size)))
+          (let ((height (window-body-height window))
+                (width (window-body-width window)))
+            (set-process-window-size proc height width)))))))
 
 ;;; Session Helpers
 
@@ -639,6 +646,7 @@ from the window where it was initially created."
 
 (defun ai-code-backends-infra--attached-file-session (prefix source-buffer working-dir)
   "Return attached session state for PREFIX and SOURCE-BUFFER.
+WORKING-DIR is the directory used to validate compatible sessions.
 Return a cons of (BUFFER . MISSING-P)."
   (let ((key (ai-code-backends-infra--file-session-map-key prefix source-buffer)))
     (if (null key)
@@ -809,6 +817,7 @@ Return a cons of (base-name . instance-name) or nil."
 
 (defun ai-code-backends-infra--select-session-buffer (prefix directory &optional force-prompt)
   "Select a session buffer for PREFIX in DIRECTORY.
+FORCE-PROMPT means always prompt even if a session was remembered.
 Returns the selected buffer or nil if none exist."
   (let* ((remembered (gethash (ai-code-backends-infra--session-map-key prefix directory)
                               ai-code-backends-infra--directory-buffer-map))
@@ -880,8 +889,9 @@ DEFAULT-INSTANCE-NAME seeds the minibuffer when prompting."
     "default"))
 
 (defun ai-code-backends-infra--resolve-start-command (program switches arg &optional prompt-label)
-  "Build command string for PROGRAM and SWITCHES.
-When ARG is non-nil, prompt for CLI args using SWITCHES as default input.
+  "Build command string for PROGRAM.
+SWITCHES is the default command-line argument list.
+Use it as default input when ARG is non-nil and CLI args are prompted.
 PROMPT-LABEL is used in the minibuffer prompt.
 When resuming and the active region contains a UUID, prompt as though ARG
 were non-nil and append that UUID to the default CLI args."
@@ -913,6 +923,7 @@ were non-nil and append that UUID to the default CLI args."
 (defun ai-code-backends-infra--cleanup-session (directory buffer-name process-table
                                                           &optional instance-name prefix event)
   "Clean up a session for DIRECTORY using BUFFER-NAME and PROCESS-TABLE.
+INSTANCE-NAME and PREFIX identify the session map entry to remove.
 EVENT is the process sentinel event string.  When EVENT is non-nil and does
 not start with \"finished\", the buffer is preserved so the user can inspect
 any error output left behind by the CLI."
@@ -998,6 +1009,7 @@ Return a plist with target information plus the current buffer and process."
 (defun ai-code-backends-infra--reuse-session-window (buffer working-dir
                                                             prefix multiline-input-sequence)
   "Toggle visibility for an existing session BUFFER.
+WORKING-DIR, PREFIX, and MULTILINE-INPUT-SEQUENCE refresh session state.
 When BUFFER is already visible, close its window.
 Otherwise refresh session-local state and display it."
   (if (get-buffer-window buffer)
@@ -1014,19 +1026,28 @@ Otherwise refresh session-local state and display it."
                                                                 prefix escape-fn cleanup-fn
                                                                 multiline-input-sequence
                                                                 post-start-fn)
-  "Finalize a successfully started session BUFFER and PROCESS."
-  (set-process-sentinel
-   process
-   (lambda (_proc event)
-     (ai-code-backends-infra--cleanup-session
-      working-dir
-      buffer-name
-      process-table
-      resolved-instance
-      prefix
-      event)
-     (when cleanup-fn
-       (funcall cleanup-fn))))
+  "Finalize a successfully started session BUFFER and PROCESS.
+WORKING-DIR, BUFFER-NAME, PROCESS-TABLE, RESOLVED-INSTANCE, and PREFIX
+identify the session for cleanup and reuse.  ESCAPE-FN, CLEANUP-FN,
+MULTILINE-INPUT-SEQUENCE, and POST-START-FN install session behavior."
+  (let ((previous-sentinel
+         (ignore-errors
+           (process-get process 'ai-code-backends-infra--ghostel-sentinel))))
+    (set-process-sentinel
+     process
+     (lambda (proc event)
+       (when previous-sentinel
+         (ignore-errors
+           (funcall previous-sentinel proc event)))
+       (ai-code-backends-infra--cleanup-session
+        working-dir
+        buffer-name
+        process-table
+        resolved-instance
+        prefix
+        event)
+       (when cleanup-fn
+         (funcall cleanup-fn)))))
   (ai-code-backends-infra--configure-session-buffer
    buffer escape-fn multiline-input-sequence)
   (when post-start-fn
@@ -1043,7 +1064,7 @@ Otherwise refresh session-local state and display it."
   (ai-code-backends-infra--display-buffer-in-side-window buffer))
 
 (defun ai-code-backends-infra--handle-session-start-failure (buffer session-key process-table)
-  "Handle startup failure for BUFFER and SESSION-KEY."
+  "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE."
   (remhash session-key process-table)
   (if (buffer-live-p buffer)
       (progn
@@ -1129,6 +1150,7 @@ session starts successfully."
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
                                                                     &optional prefix working-dir force-prompt)
   "Switch to BUFFER-NAME or signal MISSING-MESSAGE.
+FORCE-PROMPT means always prompt when PREFIX and WORKING-DIR are provided.
 When PREFIX and WORKING-DIR are provided, select from multiple sessions."
   (let* ((source-buffer (current-buffer))
          (buffer (ai-code-backends-infra--resolve-session-buffer
