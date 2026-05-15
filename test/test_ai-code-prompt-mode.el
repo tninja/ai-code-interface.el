@@ -1540,7 +1540,7 @@ and ensures everything is cleaned up afterward."
    (let ((session-buf (get-buffer-create "*claude[test-repo]*")))
      (unwind-protect
          (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                    (lambda (buf _dir) (eq buf session-buf))))
+                    (lambda (_buf _dir) t)))
            (should-not (memq session-buf (ai-code--find-project-session-buffers))))
        (kill-buffer session-buf)))))
 

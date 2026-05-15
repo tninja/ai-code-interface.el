@@ -22,7 +22,8 @@
 (defvar ai-code-discussion-auto-follow-up-enabled)
 (defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
-(defvar ai-code-backends-infra--session-terminal-backend)
+(defvar ai-code-backends-infra--session-terminal-backend
+  "Terminal backend recorded on terminal-managed AI session buffers.")
 
 (declare-function yas-load-directory "yasnippet" (dir))
 (declare-function yas-minor-mode "yasnippet")
