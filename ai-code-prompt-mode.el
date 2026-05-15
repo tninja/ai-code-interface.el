@@ -23,7 +23,10 @@
 (defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
 (defvar ai-code-backends-infra--session-terminal-backend nil
-  "Terminal backend symbol from `ai-code-backends-infra.el', or nil.")
+  "Buffer-local terminal backend symbol for an AI session buffer, or nil.
+This is set by `ai-code-backends-infra.el' for terminal-managed sessions
+such as `vterm' and `eat'.  A nil value means the buffer is not managed by
+the terminal backend infrastructure.")
 
 (declare-function yas-load-directory "yasnippet" (dir))
 (declare-function yas-minor-mode "yasnippet")

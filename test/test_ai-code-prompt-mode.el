@@ -1518,7 +1518,7 @@ and ensures everything is cleaned up afterward."
           (with-current-buffer session-buf
             (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
             (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                      (lambda (buf _dir) (eq buf session-buf))))
+                      (lambda (_buf _dir) (eq _buf session-buf))))
               (should (memq session-buf (ai-code--find-project-session-buffers)))))
         (kill-buffer session-buf)))))
 
