@@ -20,6 +20,7 @@
 (defvar ghostel-set-title-function)
 (defvar ghostel-kill-buffer-on-exit)
 (defvar ghostel--copy-mode-active)
+(defvar ghostel--input-mode)
 (defvar ghostel--process)
 
 (defconst test-ai-code-backends-infra-valid-uuid
@@ -423,6 +424,9 @@
     (setq-local ghostel--copy-mode-active t)
     (should (ai-code-backends-infra--terminal-navigation-mode-p))
     (setq-local ghostel--copy-mode-active nil)
+    (setq-local ghostel--input-mode 'copy)
+    (should (ai-code-backends-infra--terminal-navigation-mode-p))
+    (setq-local ghostel--input-mode 'semi-char)
     (should-not (ai-code-backends-infra--terminal-navigation-mode-p))))
 
 (ert-deftest test-ai-code-backends-infra-configure-vterm-buffer-installs-cursor-sync-hook ()

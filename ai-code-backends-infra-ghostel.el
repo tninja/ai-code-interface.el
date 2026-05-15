@@ -33,6 +33,7 @@
 
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar ghostel--copy-mode-active nil)
+(defvar ghostel--input-mode nil)
 (defvar ghostel-kill-buffer-on-exit nil)
 (defvar ghostel-set-title-function nil)
 
@@ -44,7 +45,8 @@
 
 (defun ai-code-backends-infra-ghostel-navigation-mode-p ()
   "Return non-nil when the current Ghostel buffer is in copy mode."
-  (bound-and-true-p ghostel--copy-mode-active))
+  (or (bound-and-true-p ghostel--copy-mode-active)
+      (eq ghostel--input-mode 'copy)))
 
 (defun ai-code-backends-infra-ghostel-install-navigation-cursor-sync ()
   "Install cursor synchronization for Ghostel navigation mode."
