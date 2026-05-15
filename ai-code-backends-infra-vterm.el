@@ -164,6 +164,24 @@ applications write to the normal screen buffer (preserving scrollback)."
              (lambda ()
                (funcall orig-fun process data)))))))))
 
+(defun ai-code-backends-infra-vterm-flush-render-queue (&optional buffer)
+  "Immediately render delayed vterm output queued for BUFFER.
+When BUFFER is nil, flush the queue for the current buffer."
+  (when (or (null buffer) (buffer-live-p buffer))
+    (with-current-buffer (or buffer (current-buffer))
+      (when ai-code-backends-infra--vterm-render-timer
+        (cancel-timer ai-code-backends-infra--vterm-render-timer))
+      (setq ai-code-backends-infra--vterm-render-timer nil)
+      (when ai-code-backends-infra--vterm-render-queue
+        (let ((data ai-code-backends-infra--vterm-render-queue))
+          (setq ai-code-backends-infra--vterm-render-queue nil)
+          (when-let* ((process (get-buffer-process (current-buffer)))
+                      ((process-live-p process)))
+            (let ((ai-code-backends-infra-vterm-anti-flicker nil))
+              (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+               (lambda ()
+                 (vterm--filter process data))))))))))
+
 (defun ai-code-backends-infra--vterm-smart-renderer (orig-fun process input)
   "Update vterm display via smart rendering around ORIG-FUN.
 Activity tracking for notifications is handled separately by

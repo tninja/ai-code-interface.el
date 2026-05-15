@@ -255,8 +255,9 @@
         (should scheduled)))))
 
 (ert-deftest test-ai-code-backends-infra-sync-reflow-filter-advice-vterm ()
-  "Enable and disable reflow advice for vterm according to toggle."
-  (let ((handler 'ai-code-backends-infra--test-resize-vterm))
+  "Do not install height-only reflow advice for vterm."
+  (let ((handler 'ai-code-backends-infra--test-resize-vterm)
+        (ai-code-backends-infra--reflow-advised-handlers nil))
     (fset handler (lambda (&rest args) args))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-resize-handler)
@@ -264,10 +265,12 @@
           (let ((ai-code-backends-infra-terminal-backend 'vterm)
                 (ai-code-backends-infra-prevent-reflow-glitch t))
             (ai-code-backends-infra--sync-reflow-filter-advice)
-            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                                     handler)))
+            (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                         handler)))
+          (advice-add handler :around #'ai-code-backends-infra--terminal-reflow-filter)
+          (setq ai-code-backends-infra--reflow-advised-handlers nil)
           (let ((ai-code-backends-infra-terminal-backend 'vterm)
-                (ai-code-backends-infra-prevent-reflow-glitch nil))
+                (ai-code-backends-infra-prevent-reflow-glitch t))
             (ai-code-backends-infra--sync-reflow-filter-advice)
             (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
                                          handler))))
@@ -317,17 +320,16 @@
                        ('vterm vterm-handler)
                        ('eat eat-handler)
                        (_ (error "Unexpected backend"))))))
-          (let ((ai-code-backends-infra-terminal-backend 'vterm)
-                (ai-code-backends-infra-prevent-reflow-glitch t))
-            (ai-code-backends-infra--sync-reflow-filter-advice)
-            (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                                     vterm-handler)))
+          (advice-add vterm-handler :around #'ai-code-backends-infra--terminal-reflow-filter)
+          (setq ai-code-backends-infra--reflow-advised-handlers (list vterm-handler))
           (let ((ai-code-backends-infra-terminal-backend 'eat)
                 (ai-code-backends-infra-prevent-reflow-glitch t)
                 (ai-code-backends-infra-eat-preserve-position nil))
             (ai-code-backends-infra--sync-reflow-filter-advice))
           (should-not (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
-                                       vterm-handler)))
+                                       vterm-handler))
+          (should (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                                   eat-handler)))
       (dolist (handler (list vterm-handler eat-handler))
         (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter handler)
           (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
@@ -356,6 +358,126 @@
         (should (functionp (cdr (assq 'window-width captured-entry))))
         (funcall (cdr (assq 'window-width captured-entry)) 'fake-window)
         (should (equal resize-call '(fake-window 4 t)))))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-reflow-filter-ignores-non-ai-vterm-buffer ()
+  "The reflow filter should pass through non-session vterm buffers."
+  (with-temp-buffer
+    (rename-buffer "*vterm*" t)
+    (let ((ai-code-backends-infra-terminal-backend 'vterm)
+          (ai-code-backends-infra-prevent-reflow-glitch t)
+          (original-called nil))
+      (cl-letf (((symbol-function 'window-list)
+                 (lambda (&rest _args) (list 'fake-window)))
+                ((symbol-function 'window-buffer)
+                 (lambda (_window) (current-buffer))))
+        (should (eq (ai-code-backends-infra--terminal-reflow-filter
+                     (lambda (&rest _args)
+                       (setq original-called t)
+                       'native-result)
+                     'fake-arg)
+                    'native-result))
+        (should original-called)))))
+
+(ert-deftest test-ai-code-backends-infra-sync-terminal-dimensions-vterm-height-change ()
+  "Vterm height changes should go through the native resize handler."
+  (let* ((buffer (get-buffer-create "*codex[vterm-height-resize]*"))
+         (process (start-process "ai-code-vterm-resize-test"
+                                 buffer
+                                 "sleep"
+                                 "5"))
+         (window 'fake-window)
+         (height 24)
+         (width 80)
+         resize-calls
+         rendered
+         cancelled-timer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p)
+                   (lambda (candidate) (eq candidate window)))
+                  ((symbol-function 'get-buffer-window-list)
+                   (lambda (_buffer &rest _args) (list window)))
+                  ((symbol-function 'window-body-height)
+                   (lambda (_window) height))
+                  ((symbol-function 'window-body-width)
+                   (lambda (_window) width))
+                  ((symbol-function 'set-process-window-size)
+                   (lambda (&rest _args)
+                     (ert-fail "vterm sync should use the native resize handler")))
+                  ((symbol-function 'ai-code-backends-infra--terminal-resize-handler)
+                   (lambda (&optional backend)
+                     (should (eq backend 'vterm))
+                     (lambda (proc windows)
+                       (push (list proc windows height width) resize-calls)
+                       (cons width height))))
+                  ((symbol-function 'cancel-timer)
+                   (lambda (timer) (setq cancelled-timer timer)))
+                  ((symbol-function 'vterm--filter)
+                   (lambda (proc data)
+                     (push (list proc data ai-code-backends-infra-vterm-anti-flicker)
+                           rendered))))
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+            (setq-local ai-code-backends-infra--vterm-render-timer 'mock-timer)
+            (setq-local ai-code-backends-infra--vterm-render-queue "old-redraw-1")
+            (ai-code-backends-infra--sync-terminal-dimensions buffer window)
+            (setq height 18)
+            (setq-local ai-code-backends-infra--vterm-render-queue "old-redraw-2")
+            (ai-code-backends-infra--sync-terminal-dimensions buffer window)
+            (should (null ai-code-backends-infra--vterm-render-timer))
+            (should-not ai-code-backends-infra--vterm-render-queue))
+          (should (eq cancelled-timer 'mock-timer))
+          (should (equal (nreverse resize-calls)
+                         `((,process (,window) 24 80)
+                           (,process (,window) 18 80)))))
+          (should (equal (nreverse rendered)
+                         `((,process "old-redraw-1" nil)
+                           (,process "old-redraw-2" nil))))
+      (when (process-live-p process)
+        (delete-process process))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-sync-terminal-dimensions-vterm-width-change ()
+  "Vterm width changes should go through the native resize handler."
+  (let* ((buffer (get-buffer-create "*codex[vterm-width-resize]*"))
+         (process (start-process "ai-code-vterm-width-resize-test"
+                                 buffer
+                                 "sleep"
+                                 "5"))
+         (window 'fake-window)
+         (height 24)
+         (width 80)
+         calls)
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p)
+                   (lambda (candidate) (eq candidate window)))
+                  ((symbol-function 'get-buffer-window-list)
+                   (lambda (_buffer &rest _args) (list window)))
+                  ((symbol-function 'window-body-height)
+                   (lambda (_window) height))
+                  ((symbol-function 'window-body-width)
+                   (lambda (_window) width))
+                  ((symbol-function 'set-process-window-size)
+                   (lambda (&rest _args)
+                     (ert-fail "vterm sync should not call generic process sizing")))
+                  ((symbol-function 'ai-code-backends-infra--terminal-resize-handler)
+                   (lambda (&optional backend)
+                     (should (eq backend 'vterm))
+                     (lambda (proc windows)
+                       (push (list proc windows height width) calls)
+                       (cons width height)))))
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+            (ai-code-backends-infra--sync-terminal-dimensions buffer window)
+            (setq width 100)
+            (ai-code-backends-infra--sync-terminal-dimensions buffer window))
+          (should (equal (nreverse calls)
+                         `((,process (,window) 24 80)
+                           (,process (,window) 24 100)))))
+      (when (process-live-p process)
+        (delete-process process))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-sync-terminal-cursor-vterm-copy-mode ()
   "Show an Emacs cursor in vterm copy mode and restore terminal cursor on exit."

@@ -486,9 +486,10 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 
 ;;; Reflow and Window Management
 
-(defun ai-code-backends-infra--terminal-resize-handler ()
-  "Retrieve the terminal's resize handling function based on backend."
-  (pcase ai-code-backends-infra-terminal-backend
+(defun ai-code-backends-infra--terminal-resize-handler (&optional backend)
+  "Retrieve the resize handling function for BACKEND.
+When BACKEND is nil, use `ai-code-backends-infra-terminal-backend'."
+  (pcase (or backend ai-code-backends-infra-terminal-backend)
     ('vterm (ai-code-backends-infra-vterm-resize-handler))
     ('eat (ai-code-backends-infra-eat-resize-handler))
     ('ghostel (ai-code-backends-infra-ghostel-resize-handler))
@@ -502,7 +503,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
 (defun ai-code-backends-infra--terminal-reflow-filter (original-fn &rest args)
   "Filter terminal reflows to prevent height-only resize triggers.
 Suppress reflow when terminal width is unchanged or when the session
-buffer is in scroll/copy mode, working around bug #1422."
+buffer is in scroll/copy mode, working around bug #1422.
+ORIGINAL-FN and ARGS are the resize handler and arguments."
   (let* ((base-result (apply original-fn args))
          (dimensions-stable t))
     (dolist (win (window-list))
@@ -533,7 +535,7 @@ buffer is in scroll/copy mode, working around bug #1422."
   "Add or remove terminal reflow advice according to current settings."
   (let* ((resize-handler (ai-code-backends-infra--terminal-resize-handler))
          (enabled (and ai-code-backends-infra-prevent-reflow-glitch
-                       (memq ai-code-backends-infra-terminal-backend '(vterm eat)))))
+                       (eq ai-code-backends-infra-terminal-backend 'eat))))
     (dolist (handler (cl-copy-list ai-code-backends-infra--reflow-advised-handlers))
       (unless (and enabled (eq handler resize-handler))
         (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
@@ -542,6 +544,13 @@ buffer is in scroll/copy mode, working around bug #1422."
                          #'ai-code-backends-infra--terminal-reflow-filter))
         (setq ai-code-backends-infra--reflow-advised-handlers
               (delq handler ai-code-backends-infra--reflow-advised-handlers))))
+    (unless enabled
+      (when (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
+                             resize-handler)
+        (advice-remove resize-handler
+                       #'ai-code-backends-infra--terminal-reflow-filter))
+      (setq ai-code-backends-infra--reflow-advised-handlers
+            (delq resize-handler ai-code-backends-infra--reflow-advised-handlers)))
     (when (and enabled resize-handler)
       (unless (advice-member-p #'ai-code-backends-infra--terminal-reflow-filter
                                resize-handler)
@@ -594,9 +603,22 @@ from the window where it was initially created."
   (when (and buffer window (buffer-live-p buffer) (window-live-p window))
     (with-current-buffer buffer
       (when-let ((proc (get-buffer-process buffer)))
-        (let ((height (window-body-height window))
-              (width (window-body-width window)))
-          (set-process-window-size proc height width))))))
+        (let ((backend (ai-code-backends-infra--current-terminal-backend))
+              (windows (or (get-buffer-window-list buffer nil t)
+                           (list window))))
+          (pcase backend
+            ('vterm
+             (let ((result
+                    (funcall (ai-code-backends-infra--terminal-resize-handler
+                              'vterm)
+                             proc windows)))
+               (when result
+                 (ai-code-backends-infra-vterm-flush-render-queue buffer))
+               result))
+            (_
+             (set-process-window-size proc
+                                      (window-body-height window)
+                                      (window-body-width window)))))))))
 
 ;;; Session Helpers
 
