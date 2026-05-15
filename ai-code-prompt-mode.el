@@ -186,12 +186,12 @@ that should be recorded in the prompt history file."
   "Return a visible terminal-managed AI session buffer in the current frame."
   (cl-some
    (lambda (win)
-      (let ((buf (window-buffer win)))
-        (when (and (buffer-live-p buf)
-                   (ai-code-backends-infra--session-buffer-p buf)
-                   (buffer-local-value
-                    'ai-code-backends-infra--session-terminal-backend buf))
-          buf)))
+     (let ((buf (window-buffer win)))
+       (when (and (buffer-live-p buf)
+                  (ai-code-backends-infra--session-buffer-p buf)
+                  (buffer-local-value
+                   'ai-code-backends-infra--session-terminal-backend buf))
+         buf)))
    (window-list nil 'no-minibuffer)))
 
 (defun ai-code--find-project-session-buffers ()
@@ -199,10 +199,10 @@ that should be recorded in the prompt history file."
   (when-let ((git-root (ai-code--git-root)))
     (cl-remove-if-not
      (lambda (buf)
-        (and (ai-code-backends-infra--session-buffer-p buf)
-             (buffer-local-value
-              'ai-code-backends-infra--session-terminal-backend buf)
-             (ai-code-backends-infra--session-buffer-matches-directory-p buf git-root)))
+       (and (ai-code-backends-infra--session-buffer-p buf)
+            (buffer-local-value
+             'ai-code-backends-infra--session-terminal-backend buf)
+            (ai-code-backends-infra--session-buffer-matches-directory-p buf git-root)))
      (buffer-list))))
 
 (defun ai-code--prompt-choose-target-session ()
