@@ -23,7 +23,7 @@
 (defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
 (defvar ai-code-backends-infra--session-terminal-backend nil
-  "Terminal backend recorded on terminal-managed AI session buffers.")
+  "Terminal backend symbol for terminal-managed AI session buffers, or nil.")
 
 (declare-function yas-load-directory "yasnippet" (dir))
 (declare-function yas-minor-mode "yasnippet")
