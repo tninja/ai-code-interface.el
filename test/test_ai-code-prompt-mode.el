@@ -1515,11 +1515,11 @@ and ensures everything is cleaned up afterward."
   (ai-code-with-test-repo
    (let ((session-buf (get-buffer-create "*claude[test-repo]*")))
      (unwind-protect
-         (with-current-buffer session-buf
-           (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
-           (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                      (lambda (buf _dir) (eq buf session-buf))))
-             (should (memq session-buf (ai-code--find-project-session-buffers)))))
+          (with-current-buffer session-buf
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+            (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
+                      (lambda (candidate-buf _dir) (eq candidate-buf session-buf))))
+              (should (memq session-buf (ai-code--find-project-session-buffers)))))
         (kill-buffer session-buf)))))
 
 (ert-deftest ai-code-test-find-project-session-buffers-excludes-other-projects ()
@@ -1527,11 +1527,11 @@ and ensures everything is cleaned up afterward."
   (ai-code-with-test-repo
    (let ((other-buf (get-buffer-create "*claude[other-project]*")))
      (unwind-protect
-         (with-current-buffer other-buf
-           (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
-           (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                      (lambda (_buf _dir) nil)))
-             (should-not (memq other-buf (ai-code--find-project-session-buffers)))))
+          (with-current-buffer other-buf
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+            (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
+                      (lambda (_candidate-buf _dir) nil)))
+              (should-not (memq other-buf (ai-code--find-project-session-buffers)))))
         (kill-buffer other-buf)))))
 
 (ert-deftest ai-code-test-find-project-session-buffers-excludes-non-terminal-sessions ()
@@ -1540,7 +1540,7 @@ and ensures everything is cleaned up afterward."
    (let ((session-buf (get-buffer-create "*claude[test-repo]*")))
      (unwind-protect
          (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                    (lambda (_buf _dir) t)))
+                    (lambda (_candidate-buf _dir) t)))
            (should-not (memq session-buf (ai-code--find-project-session-buffers))))
        (kill-buffer session-buf)))))
 
