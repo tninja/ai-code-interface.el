@@ -22,6 +22,7 @@
 (defvar ai-code-discussion-auto-follow-up-enabled)
 (defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
+(defvar ai-code-backends-infra--session-terminal-backend)
 
 (declare-function yas-load-directory "yasnippet" (dir))
 (declare-function yas-minor-mode "yasnippet")
@@ -182,27 +183,31 @@ that should be recorded in the prompt history file."
   (ai-code--format-and-insert-prompt stored-prompt-text))
 
 (defun ai-code--find-visible-session-buffer ()
-  "Return an AI session buffer visible in the current frame, or nil."
+  "Return a visible terminal-managed AI session buffer in the current frame."
   (cl-some
    (lambda (win)
-     (let ((buf (window-buffer win)))
-       (when (and (buffer-live-p buf)
-                  (ai-code-backends-infra--session-buffer-p buf))
-         buf)))
+      (let ((buf (window-buffer win)))
+        (when (and (buffer-live-p buf)
+                   (ai-code-backends-infra--session-buffer-p buf)
+                   (buffer-local-value
+                    'ai-code-backends-infra--session-terminal-backend buf))
+          buf)))
    (window-list nil 'no-minibuffer)))
 
 (defun ai-code--find-project-session-buffers ()
-  "Return AI session buffers associated with the current project."
+  "Return terminal-managed AI session buffers associated with the current project."
   (when-let ((git-root (ai-code--git-root)))
     (cl-remove-if-not
      (lambda (buf)
-       (and (ai-code-backends-infra--session-buffer-p buf)
-            (ai-code-backends-infra--session-buffer-matches-directory-p buf git-root)))
+        (and (ai-code-backends-infra--session-buffer-p buf)
+             (buffer-local-value
+              'ai-code-backends-infra--session-terminal-backend buf)
+             (ai-code-backends-infra--session-buffer-matches-directory-p buf git-root)))
      (buffer-list))))
 
 (defun ai-code--prompt-choose-target-session ()
   "Choose AI session buffer to send prompt to.
-Return session buffer when a non-default target is chosen, nil for default."
+Return session buffer for direct routing, or nil to use default backend dispatch."
   (when-let ((visible-session (ai-code--find-visible-session-buffer)))
     (let* ((project-sessions (ai-code--find-project-session-buffers))
            (visible-is-project-session (memq visible-session project-sessions))
@@ -244,8 +249,6 @@ backend dispatch."
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
   "Write PROMPT-TEXT to the AI prompt file."
-  ;; DONE: right now it can only sent prompt to buffer associated ai coding session, which belong to the same git repo. If there is already a AI coding session buffer opened in side panel in same window, it should allow the prompt send to it. If there is already a ai coding session opened for the triggered buffer, but current side panel shows a different session, it should ask user to choose which session it want to send to.
-  ;; DONE: if the current side panel ai coding session is in the same git repo of the triggered buffer file, it should go through the same code path as before, no need to ask user to select session
   (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
                                        (when ai-code-auto-test-type
                                          ai-code-auto-test-suffix)

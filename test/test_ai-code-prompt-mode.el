@@ -1480,13 +1480,15 @@ and ensures everything is cleaned up afterward."
   "Find a session buffer in visible windows."
   (let ((session-buf (get-buffer-create "*claude[test-project]*")))
     (unwind-protect
-        (cl-letf (((symbol-function 'window-list)
-                   (lambda (&optional _frame _no-minibuf)
-                     '(win1 win2)))
-                  ((symbol-function 'window-buffer)
-                   (lambda (win)
-                     (if (eq win 'win1) (get-buffer "*scratch*") session-buf))))
-          (should (eq (ai-code--find-visible-session-buffer) session-buf)))
+        (with-current-buffer session-buf
+          (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+          (cl-letf (((symbol-function 'window-list)
+                     (lambda (&optional _frame _no-minibuf)
+                       '(win1 win2)))
+                    ((symbol-function 'window-buffer)
+                     (lambda (win)
+                       (if (eq win 'win1) (get-buffer "*scratch*") session-buf))))
+            (should (eq (ai-code--find-visible-session-buffer) session-buf))))
       (kill-buffer session-buf))))
 
 (ert-deftest ai-code-test-find-visible-session-buffer-nil-when-no-sessions ()
@@ -1497,25 +1499,50 @@ and ensures everything is cleaned up afterward."
              (lambda (_win) (get-buffer "*scratch*"))))
     (should-not (ai-code--find-visible-session-buffer))))
 
+(ert-deftest ai-code-test-find-visible-session-buffer-ignores-non-terminal-sessions ()
+  "Ignore visible session-like buffers that are not terminal managed."
+  (let ((session-buf (get-buffer-create "*claude[test-project]*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-list)
+                   (lambda (&optional _frame _no-minibuf) '(win1)))
+                  ((symbol-function 'window-buffer)
+                   (lambda (_win) session-buf)))
+          (should-not (ai-code--find-visible-session-buffer)))
+      (kill-buffer session-buf))))
+
 (ert-deftest ai-code-test-find-project-session-buffers-finds-matching ()
   "Find session buffers matching the current project directory."
   (ai-code-with-test-repo
    (let ((session-buf (get-buffer-create "*claude[test-repo]*")))
      (unwind-protect
-         (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                    (lambda (buf dir) (eq buf session-buf))))
-           (should (memq session-buf (ai-code--find-project-session-buffers))))
-       (kill-buffer session-buf)))))
+         (with-current-buffer session-buf
+           (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+           (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
+                      (lambda (buf _dir) (eq buf session-buf))))
+             (should (memq session-buf (ai-code--find-project-session-buffers)))))
+        (kill-buffer session-buf)))))
 
 (ert-deftest ai-code-test-find-project-session-buffers-excludes-other-projects ()
   "Exclude session buffers for other projects."
   (ai-code-with-test-repo
    (let ((other-buf (get-buffer-create "*claude[other-project]*")))
      (unwind-protect
+         (with-current-buffer other-buf
+           (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+           (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
+                      (lambda (_buf _dir) nil)))
+             (should-not (memq other-buf (ai-code--find-project-session-buffers)))))
+        (kill-buffer other-buf)))))
+
+(ert-deftest ai-code-test-find-project-session-buffers-excludes-non-terminal-sessions ()
+  "Exclude project sessions that are not terminal managed."
+  (ai-code-with-test-repo
+   (let ((session-buf (get-buffer-create "*claude[test-repo]*")))
+     (unwind-protect
          (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-matches-directory-p)
-                    (lambda (_buf _dir) nil)))
-           (should-not (memq other-buf (ai-code--find-project-session-buffers))))
-       (kill-buffer other-buf)))))
+                    (lambda (buf _dir) (eq buf session-buf))))
+           (should-not (memq session-buf (ai-code--find-project-session-buffers))))
+       (kill-buffer session-buf)))))
 
 (ert-deftest ai-code-test-prompt-choose-target-session-nil-when-no-visible ()
   "Return nil when no visible session buffers."
