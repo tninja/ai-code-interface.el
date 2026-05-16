@@ -27,6 +27,19 @@
   "123e4567-e89b-12d3-a456-426614174000"
   "UUID fixture used by resume command resolution tests.")
 
+(defun test-ai-code-backends-infra--capture-default-binding (symbol)
+  "Return SYMBOL's default binding state.
+The result is a cons of whether SYMBOL is bound and its default value."
+  (if (boundp symbol)
+      (cons t (default-value symbol))
+    (cons nil nil)))
+
+(defun test-ai-code-backends-infra--restore-default-binding (symbol state)
+  "Restore SYMBOL's default binding STATE from `...--capture-default-binding'."
+  (if (car state)
+      (set-default symbol (cdr state))
+    (makunbound symbol)))
+
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
   (should-not (ai-code-backends-infra--output-meaningful-p nil))
@@ -68,6 +81,27 @@
     (goto-char (point-min))
     (should (re-search-forward
              "^(defcustom ai-code-backends-infra-eat-preserve-position\\_>" nil t))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-forward-declarations-do-not-set-defaults ()
+  "Ghostel forward declarations should not override Ghostel defaults."
+  (with-temp-buffer
+    (insert-file-contents "ai-code-backends-infra-ghostel.el")
+    (let (forms)
+      (condition-case nil
+          (while t
+            (push (read (current-buffer)) forms))
+        (end-of-file nil))
+      (setq forms (nreverse forms))
+      (dolist (symbol '(ghostel-kill-buffer-on-exit
+                        ghostel-set-title-function))
+        (let ((form (seq-find
+                     (lambda (sexp)
+                       (and (listp sexp)
+                            (eq (car sexp) 'defvar)
+                            (eq (cadr sexp) symbol)))
+                     forms)))
+          (should form)
+          (should (= (length form) 2)))))))
 
 (ert-deftest test-ai-code-backends-infra--resume-double-dash-prefills-uuid ()
   "A selected UUID should make `--resume' prompt with that id appended."
@@ -882,7 +916,9 @@
          (buffer (get-buffer-create buffer-name))
          (process 'ghostel-proc)
          (title-tracking-before-start :unset)
-         (saved-default (default-value 'ghostel-set-title-function))
+         (saved-default
+          (test-ai-code-backends-infra--capture-default-binding
+           'ghostel-set-title-function))
          (ai-code-backends-infra-terminal-backend 'ghostel))
     (unwind-protect
         (progn
@@ -905,7 +941,9 @@
              "echo hi"
              nil)
             (should (eq title-tracking-before-start nil))))
-      (setq-default ghostel-set-title-function saved-default)
+      (test-ai-code-backends-infra--restore-default-binding
+       'ghostel-set-title-function
+       saved-default)
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
@@ -914,7 +952,9 @@
   (let* ((buffer-name "*test-ai-code-ghostel-title-tracking-after-exec*")
          (buffer (get-buffer-create buffer-name))
          (process 'ghostel-proc)
-         (saved-default (default-value 'ghostel-set-title-function))
+         (saved-default
+          (test-ai-code-backends-infra--capture-default-binding
+           'ghostel-set-title-function))
          (ai-code-backends-infra-terminal-backend 'ghostel))
     (unwind-protect
         (progn
@@ -940,7 +980,9 @@
              nil)
             (with-current-buffer buffer
               (should-not ghostel-set-title-function))))
-      (setq-default ghostel-set-title-function saved-default)
+      (test-ai-code-backends-infra--restore-default-binding
+       'ghostel-set-title-function
+       saved-default)
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
@@ -988,7 +1030,9 @@
                              :command '("sleep" "10")
                              :noquery t))
          (native-sentinel (lambda (&rest _args) nil))
-         (saved-kill-default (default-value 'ghostel-kill-buffer-on-exit))
+         (saved-kill-default
+          (test-ai-code-backends-infra--capture-default-binding
+           'ghostel-kill-buffer-on-exit))
          (ai-code-backends-infra-terminal-backend 'ghostel))
     (unwind-protect
         (progn
@@ -1010,7 +1054,9 @@
                         native-sentinel))
             (with-current-buffer buffer
               (should-not ghostel-kill-buffer-on-exit))))
-      (setq-default ghostel-kill-buffer-on-exit saved-kill-default)
+      (test-ai-code-backends-infra--restore-default-binding
+       'ghostel-kill-buffer-on-exit
+       saved-kill-default)
       (when (process-live-p proc)
         (delete-process proc))
       (when (buffer-live-p buffer)
@@ -1036,7 +1082,9 @@
 
 (ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-disables-title-tracking ()
   "Ghostel AI session buffers should keep their original buffer names."
-  (let ((saved-default (default-value 'ghostel-set-title-function)))
+  (let ((saved-default
+         (test-ai-code-backends-infra--capture-default-binding
+          'ghostel-set-title-function)))
     (unwind-protect
         (progn
           (setq-default ghostel-set-title-function #'ignore)
@@ -1050,7 +1098,9 @@
               (ai-code-backends-infra--configure-ghostel-buffer)
               (should-not ghostel-set-title-function)
               (should (eq (default-value 'ghostel-set-title-function) #'ignore)))))
-      (setq-default ghostel-set-title-function saved-default))))
+      (test-ai-code-backends-infra--restore-default-binding
+       'ghostel-set-title-function
+       saved-default))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-wraps-output-filter ()
   "Ghostel session creation should track meaningful output and linkify output."

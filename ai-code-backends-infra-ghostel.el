@@ -33,9 +33,9 @@
 
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar ghostel--copy-mode-active nil)
-(defvar ghostel--input-mode nil)
-(defvar ghostel-kill-buffer-on-exit nil)
-(defvar ghostel-set-title-function nil)
+(defvar ghostel--input-mode)
+(defvar ghostel-kill-buffer-on-exit)
+(defvar ghostel-set-title-function)
 
 (defun ai-code-backends-infra-ghostel-ensure-backend ()
   "Ensure the Ghostel backend is available."
