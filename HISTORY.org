@@ -3,6 +3,13 @@
 
 ** Main branch change
 
+** 1.81
+- Add architecture guardrails derivation command for existing repos
+- Include selected region in Emacs runtime debug prompts
+- Add repo-level DDD context derivation command and menu entry
+- Add MVP AI session dashboard with shared session registry
+- Add AI session checkpoint command to Other Tools menu
+
 ** 1.80
 - Improve Ghostel terminal integration
 - Fix vterm resize rendering for AI sessions, by cjf-666
