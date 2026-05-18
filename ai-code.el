@@ -457,6 +457,7 @@ Shows the current backend label to the right."
   ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
   ("@" "Context (add/show/clear)" ai-code-context-action)
   ("C" "Create file or dir with AI" ai-code-create-file-or-dir)
+  (":" "Speech to text input" ai-code-speech-to-text-input)
   ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action))
 
 (transient-define-group ai-code--menu-agile-development
@@ -470,8 +471,7 @@ Shows the current backend label to the right."
   ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
   ("K" "Create/Open task file" ai-code-create-or-open-task-file)
   ("/" "Search notes with AI" ai-code-search-notes-with-ai)
-  ("n" "Take notes from AI session" ai-code-take-notes)
-  (":" "Speech to text input" ai-code-speech-to-text-input))
+  ("n" "Take notes from AI session" ai-code-take-notes))
 
 (transient-define-group ai-code--menu-other-tools
   (ai-code--infix-toggle-auto-follow-up)
@@ -482,7 +482,7 @@ Shows the current backend label to the right."
   ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
-  ("m" "Debug python MCP server" ai-code-debug-mcp)
+  ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
   ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
