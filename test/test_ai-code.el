@@ -221,14 +221,10 @@
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-select-terminal))))
 
-(ert-deftest ai-code-test-menu-actions-with-context-includes-derive-ddd-context-entry ()
-  "Test that the actions menu exposes the DDD context derivation command."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-actions-with-context "o")))
-    (should suffix)
-    (should (eq (plist-get (cdr suffix) :command)
-                'ai-code-derive-ddd-context))
-    (should (equal (plist-get (cdr suffix) :description)
-                   "Derive DDD Context for Repo"))))
+(ert-deftest ai-code-test-menu-actions-with-context-removes-derive-ddd-context-entry ()
+  "Test that the actions menu no longer exposes a dedicated DDD derivation item."
+  (should-error (transient-get-suffix 'ai-code--menu-actions-with-context "o")
+                :type 'error))
 
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-session-dashboard-entry ()
   "Test that the AI CLI session menu exposes the session dashboard."
@@ -247,6 +243,11 @@
                 'ai-code-debug-emacs-runtime))
     (should (equal (plist-get (cdr suffix) :description)
                    "Debug Emacs runtime"))))
+
+(ert-deftest ai-code-test-menu-other-tools-removes-architecture-guardrails-entry ()
+  "Test that the Other Tools menu no longer exposes a dedicated guardrails item."
+  (should-error (transient-get-suffix 'ai-code--menu-other-tools "A")
+                :type 'error))
 
 (ert-deftest ai-code-test-session-checkpoint-sends-fixed-checkpoint-prompt ()
   "Test that session checkpoint sends the expected fixed prompt."
@@ -371,6 +372,45 @@
                 'ai-code-speech-to-text-input))
     (should (equal (plist-get (cdr suffix) :description)
                    "Speech to text input"))))
+
+(ert-deftest ai-code-test-menu-agile-development-includes-derive-architecture-document-entry ()
+  "Test that Agile Development menu exposes architecture document derivation."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "D")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-derive-architecture-document))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Derive architecture document"))))
+
+(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-guardrails ()
+  "Test that architecture document derivation dispatches to guardrails."
+  (let (called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 "Derive Architecture Guardrails"))
+              ((symbol-function 'ai-code-derive-architecture-guardrails)
+               (lambda ()
+                 (setq called 'guardrails)))
+              ((symbol-function 'ai-code-derive-ddd-context)
+               (lambda ()
+                 (setq called 'ddd-context))))
+      (ai-code-derive-architecture-document))
+    (should (eq called 'guardrails))))
+
+(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-ddd-context ()
+  "Test that architecture document derivation dispatches to DDD context."
+  (let (called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 "Derive DDD Context for Repo"))
+              ((symbol-function 'ai-code-derive-architecture-guardrails)
+               (lambda ()
+                 (setq called 'guardrails)))
+              ((symbol-function 'ai-code-derive-ddd-context)
+               (lambda ()
+                 (setq called 'ddd-context))))
+      (ai-code-derive-architecture-document))
+    (should (eq called 'ddd-context))))
 
 (ert-deftest ai-code-test-menu-agile-development-binds-k-to-task-file ()
   "Test that Agile Development menu exposes task files on K."

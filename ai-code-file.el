@@ -59,6 +59,35 @@ a Git repository or when `magit-toplevel' signals an error."
   ".ai.code.files/architecture/domain-context.org"
   "Repository-relative path for the derived DDD context document.")
 
+(defconst ai-code-file--architecture-guardrails-file-name
+  "guardrails.org"
+  "File name for derived architecture guardrails.")
+
+(defconst ai-code-file--architecture-guardrails-directory-name
+  "architecture"
+  "Directory name for derived architecture guardrails.")
+
+(defconst ai-code-file--architecture-guardrails-template
+  (mapconcat #'identity
+             '("#+TITLE: Architecture Guardrails"
+               ""
+               "* Purpose"
+               ""
+               "* Important Modules / Areas"
+               ""
+               "* Dependency Rules"
+               ""
+               "* State and Ownership Rules"
+               ""
+               "* AI Change Rules"
+               ""
+               "* Required Validation"
+               ""
+               "* Notes and Uncertainties"
+               "")
+             "\n")
+  "Initial Org template for architecture guardrails.")
+
 (defun ai-code--resolve-auto-test-suffix-for-current-send ()
   "Return auto test suffix for this send action in file operations."
   (if (fboundp 'ai-code--resolve-auto-test-suffix-for-send)
@@ -647,9 +676,81 @@ Includes stored context entries for the current Git repository if available."
    "** Main Domain Concepts\n"
    "** Bounded Context Candidates\n"
    "** Core Flows\n"
-   "** Domain Invariants / Business Rules\n"
-   "** Testing Ideas\n"
-   "** Notes and Uncertainties"))
+    "** Domain Invariants / Business Rules\n"
+    "** Testing Ideas\n"
+    "** Notes and Uncertainties"))
+
+(defun ai-code--architecture-guardrails-relative-path ()
+  "Return the repo-relative path for the architecture guardrails file."
+  (concat ai-code-files-dir-name "/"
+          ai-code-file--architecture-guardrails-directory-name "/"
+          ai-code-file--architecture-guardrails-file-name))
+
+(defun ai-code--architecture-guardrails-file-path ()
+  "Return the absolute path for the architecture guardrails file."
+  (expand-file-name ai-code-file--architecture-guardrails-file-name
+                    (expand-file-name
+                     ai-code-file--architecture-guardrails-directory-name
+                     (ai-code--ensure-files-directory))))
+
+(defun ai-code--ensure-architecture-guardrails-file ()
+  "Create the architecture guardrails file with a starter template if missing."
+  (let ((target-file (ai-code--architecture-guardrails-file-path)))
+    (unless (file-directory-p (file-name-directory target-file))
+      (make-directory (file-name-directory target-file) t))
+    (unless (file-exists-p target-file)
+      (with-temp-file target-file
+        (insert ai-code-file--architecture-guardrails-template)))
+    target-file))
+
+(defun ai-code--build-architecture-guardrails-prompt (git-root)
+  "Build the default prompt to derive architecture guardrails for GIT-ROOT."
+  (let ((relative-path (ai-code--architecture-guardrails-relative-path)))
+    (mapconcat
+     #'identity
+     (list "Derive a lightweight architecture guardrails document for this existing repository."
+           (format "Repository path: %s" git-root)
+           (format "Write or update @%s in Org-mode format." relative-path)
+           ""
+           "Infer practical module boundaries, dependency rules, state ownership rules, and validation expectations from the current code, tests, docs, and filenames."
+           "Do not invent an ideal architecture."
+           "Do not force DDD, Hexagonal Architecture, or Clean Architecture onto the repository."
+           "Prefer simple, practical rules over abstract architecture theory."
+           "Mark uncertain conclusions clearly."
+           "Focus on what helps future AI coding sessions avoid breaking boundaries or introducing messy dependencies."
+           "Do not suggest large refactors unless clearly separated as optional future ideas."
+           "Keep it concise, practical, and small enough to reuse in future AI prompts."
+           ""
+           "Use this Org structure:"
+           "#+TITLE: Architecture Guardrails"
+           ""
+           "* Purpose"
+           "* Important Modules / Areas"
+           "* Dependency Rules"
+           "* State and Ownership Rules"
+           "* AI Change Rules"
+           "* Required Validation"
+           "* Notes and Uncertainties"
+           ""
+           "If the file already exists, refine it instead of rewriting unrelated guidance.")
+     "\n")))
+
+;;;###autoload
+(defun ai-code-derive-architecture-guardrails ()
+  "Ask the current AI backend to derive repository architecture guardrails."
+  (interactive)
+  (let ((git-root (ai-code--git-root)))
+    (unless git-root
+      (user-error "Not in a git repository"))
+    (ai-code--ensure-architecture-guardrails-file)
+    (if-let ((final-prompt
+              (ai-code-read-string
+               "Prompt: "
+               (ai-code--build-architecture-guardrails-prompt git-root))))
+        (progn
+          (ai-code--insert-prompt final-prompt)
+          (message "Requested architecture guardrails for %s" git-root))
+      (message "Architecture guardrails request cancelled"))))
 
 ;;;###autoload
 (defun ai-code-derive-ddd-context ()

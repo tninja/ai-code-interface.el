@@ -418,6 +418,22 @@ Shows the current backend label to the right."
   (format "Select Terminal (%s)"
           (symbol-name ai-code-backends-infra-terminal-backend)))
 
+(defconst ai-code--architecture-document-choices
+  '(("Derive Architecture Guardrails" . ai-code-derive-architecture-guardrails)
+    ("Derive DDD Context for Repo" . ai-code-derive-ddd-context))
+  "Choices for `ai-code-derive-architecture-document`.")
+
+(defun ai-code-derive-architecture-document ()
+  "Derive an architecture document by selecting one of the available options."
+  (interactive)
+  (let* ((default-choice (caar ai-code--architecture-document-choices))
+         (choice (completing-read "Derive architecture document: "
+                                  (mapcar #'car ai-code--architecture-document-choices)
+                                  nil t nil nil default-choice))
+         (command (alist-get choice ai-code--architecture-document-choices
+                             nil nil #'string=)))
+    (funcall command)))
+
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
   ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
@@ -436,7 +452,6 @@ Shows the current backend label to the right."
   (ai-code--infix-toggle-suffix)
   ("c" "Code change (C-u: clipboard)" ai-code-code-change)
   ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
-  ("o" "Derive DDD Context for Repo" ai-code-derive-ddd-context)
   ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
   ("x" "Explain code in scope" ai-code-explain)
   ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
@@ -449,6 +464,8 @@ Shows the current backend label to the right."
   ("r" "Refactor Code" ai-code-refactor-book-method)
   ("t" "Test Driven Development" ai-code-tdd-cycle)
   ("v" "GitHub PR AI Action" ai-code-pull-or-review-diff-file)
+  ;; DONE: Move ai-code-derive-architecture-guardrails ai-code-file.el. Add a new menu item: "Derive architecture document", bind to D. It let user choose from complet-reading: Derive Architecture Guardrails, and Derive DDD Context for Repo. No need to keep other two separate menu items
+  ("D" "Derive architecture document" ai-code-derive-architecture-document)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
   ("K" "Create/Open task file" ai-code-create-or-open-task-file)
@@ -462,7 +479,6 @@ Shows the current backend label to the right."
   ("P" "AI session checkpoint" ai-code-session-checkpoint)
   ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
   ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
-  ("A" "Derive Architecture Guardrails" ai-code-derive-architecture-guardrails)
   ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
