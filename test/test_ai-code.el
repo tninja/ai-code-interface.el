@@ -364,9 +364,9 @@
     (should (fboundp cmd))
     (should (commandp cmd))))
 
-(ert-deftest ai-code-test-menu-agile-development-includes-speech-to-text-input ()
-  "Test that Agile Development menu exposes speech-to-text input."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development ":")))
+(ert-deftest ai-code-test-menu-actions-with-context-includes-speech-to-text-input ()
+  "Test that Actions With Context menu exposes speech-to-text input."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-actions-with-context ":")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-speech-to-text-input))
@@ -375,7 +375,7 @@
 
 (ert-deftest ai-code-test-menu-agile-development-includes-derive-architecture-document-entry ()
   "Test that Agile Development menu exposes architecture document derivation."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "D")))
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "A")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-derive-architecture-document))
