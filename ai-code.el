@@ -261,8 +261,10 @@ ARG is the prefix argument."
 (defun ai-code-session-checkpoint ()
   "Ask the active AI session to summarize its current state and stop editing."
   (interactive)
-  (ai-code-cli-send-command ai-code-session-checkpoint-prompt)
-  (ai-code-cli-switch-to-buffer))
+  ;; DONE: let user to edit and confirm the prompt before sending, with read-string function
+  (when-let* ((prompt (ai-code-read-string "Edit checkpoint prompt: "
+                                           ai-code-session-checkpoint-prompt)))
+    (ai-code--insert-prompt prompt)))
 
 (defun ai-code--emacs-runtime-debug-prompt (description eval-available-p
                                                        &optional region-text region-location-info)
