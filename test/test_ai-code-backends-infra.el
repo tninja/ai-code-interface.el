@@ -2770,6 +2770,19 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/git/repo/")))))
 
+(ert-deftest test-ai-code-backends-infra-session-working-directory-returns-project-root ()
+  "session-working-directory should return project.el root when available."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir)
+                 '(vc Git "/projects/myapp/")))
+              ((symbol-function 'project-root)
+               (lambda (_project) "/projects/myapp/"))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) "/git/other/")))
+      (should (equal (ai-code-backends-infra--session-working-directory)
+                     "/projects/myapp/")))))
+
 ;;; --- terminal-dispatch tests ---
 
 (ert-deftest test-ai-code-backends-infra-terminal-dispatch-routes-to-backend ()
@@ -2809,6 +2822,16 @@ The result is a cons of whether SYMBOL is bound and its default value."
     (should-error
      (ai-code-backends-infra--terminal-dispatch "nonexistent-operation")
      :type 'error)))
+
+(ert-deftest test-ai-code-backends-infra-terminal-dispatch-install-cursor-sync ()
+  "Dispatch should route install-navigation-cursor-sync to the correct backend."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--current-terminal-backend)
+               (lambda () 'eat))
+              ((symbol-function 'ai-code-backends-infra-eat-install-navigation-cursor-sync)
+               (lambda () (setq called t))))
+      (ai-code-backends-infra--terminal-dispatch "install-navigation-cursor-sync")
+      (should called))))
 
 (provide 'test_ai-code-backends-infra)
 

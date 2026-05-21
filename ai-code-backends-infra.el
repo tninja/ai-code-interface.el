@@ -404,7 +404,8 @@ Constructs function name as `ai-code-backends-infra-<backend>-<operation>'."
          (fn (intern (format "ai-code-backends-infra-%s-%s" backend operation))))
     (if (fboundp fn)
         (apply fn args)
-      (error "Terminal backend %s does not support %s" backend operation))))
+      (error "Terminal backend %s does not support %s (looked up: %s)"
+             backend operation fn))))
 
 (defun ai-code-backends-infra--current-terminal-backend ()
   "Return terminal backend for current buffer operations."
