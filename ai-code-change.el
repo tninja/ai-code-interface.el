@@ -20,11 +20,11 @@
 
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
-(declare-function ai-code--get-clipboard-text "ai-code")
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code--get-clipboard-text "ai-code-utils")
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
-(declare-function ai-code--format-repo-context-info "ai-code-file")
+(declare-function ai-code--format-repo-context-info "ai-code-utils")
 (declare-function dired-get-marked-files "dired"
                   (&optional localp arg filter distinguish-one-marked error-if-none-p))
 (declare-function flycheck-error-pos "flycheck")

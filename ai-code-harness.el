@@ -18,8 +18,8 @@
 (require 'ai-code-discussion)
 (require 'ai-code-prompt-mode)
 
-(declare-function ai-code--ensure-files-directory "ai-code-prompt-mode" ())
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code--ensure-files-directory "ai-code-utils" ())
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
 
 (defvar ai-code-mcp-agent-enabled-backends)

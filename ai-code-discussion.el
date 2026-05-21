@@ -17,11 +17,11 @@
 (require 'ai-code-change)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
-(declare-function ai-code--get-clipboard-text "ai-code")
+(declare-function ai-code--get-clipboard-text "ai-code-utils")
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
-(declare-function ai-code--ensure-files-directory "ai-code-prompt-mode")
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
-(declare-function ai-code--format-repo-context-info "ai-code-file")
+(declare-function ai-code--ensure-files-directory "ai-code-utils")
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function ai-code--format-repo-context-info "ai-code-utils")
 (declare-function ai-code--pull-or-review-action-choice "ai-code-github")
 (declare-function ai-code--pull-or-review-source-instruction "ai-code-github"
                   (review-source &optional review-mode))

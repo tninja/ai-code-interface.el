@@ -14,6 +14,7 @@
 (require 'cl-lib)  ; For `cl-subseq`
 (require 'imenu)
 (require 'magit)
+(require 'ai-code-utils)
 (require 'ai-code-session-link)
 (require 'subr-x)
 
@@ -24,7 +25,6 @@
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt))
 (declare-function whisper-run "whisper" ())
 
@@ -192,27 +192,6 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
 (with-eval-after-load 'helm
   (setq ai-code--read-string-fn #'ai-code-helm-read-string))
 
-(defun ai-code--get-window-files ()
-  "Get a list of unique file paths from all visible windows."
-  (let ((files nil))
-    (dolist (window (window-list))
-      (let ((buffer (window-buffer window)))
-        (when (and buffer (buffer-file-name buffer))
-          (cl-pushnew (buffer-file-name buffer) files :test #'string=))))
-    files))
-
-(defun ai-code--get-context-files-string ()
-  "Get a string of files in the current window for context.
-The current buffer's file is always first."
-  (if (not buffer-file-name)
-      ""
-    (let* ((current-buffer-file-name buffer-file-name)
-           (all-buffer-files (ai-code--get-window-files))
-           (other-buffer-files (remove current-buffer-file-name all-buffer-files))
-           (sorted-files (cons current-buffer-file-name other-buffer-files)))
-      (if sorted-files
-          (concat "\nFiles:\n" (mapconcat #'identity sorted-files "\n"))
-        ""))))
 
 (defun ai-code--imenu-subalist-p (payload)
   "Return non-nil when PAYLOAD looks like an imenu sub-alist."
@@ -606,7 +585,6 @@ END-POS defaults to the current '#' position."
       (list :file text))
      (t nil))))
 
-(declare-function ai-code--session-project-root "ai-code-file" ())
 
 (defun ai-code--project-file-candidates (filename)
   "Return possible project file matches for FILENAME."

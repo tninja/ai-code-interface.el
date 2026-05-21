@@ -191,7 +191,7 @@ Pending presets are shown in mode-line but not committed until first prompt.")
   "Hash table of last processed prompts per project root.
 Key: project root, Value: plist (:original ORIG :processed PROC :behaviors BEH).")
 
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 
 (defvar ai-code--active-constraint-bundles)
 (defvar ai-code--behavior-presets)
@@ -1338,7 +1338,7 @@ Return list of (:mode MODE :modifiers MODIFIERS)."
              (ai-code--classify-prompt-intent-gptel clean-prompt))
         (ai-code--classify-prompt-intent-keywords clean-prompt))))
 
-(declare-function ai-code--get-clipboard-text "ai-code" ())
+(declare-function ai-code--get-clipboard-text "ai-code-utils" ())
 
 (defvar ai-code-prompt-suffix nil)
 (defvar ai-code-use-prompt-suffix t)

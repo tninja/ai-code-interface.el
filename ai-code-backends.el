@@ -19,7 +19,7 @@
 (declare-function claude-code--do-send-command "claude-code" (cmd))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 (declare-function ai-code--validate-git-repository "ai-code-git" ())
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code-onboarding-show-backend-switch-hint "ai-code-onboarding" ())
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
 

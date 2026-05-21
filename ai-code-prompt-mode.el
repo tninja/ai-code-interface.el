@@ -9,11 +9,9 @@
 (require 'cl-lib)
 (require 'org)
 (require 'magit)
+(require 'ai-code-utils)
 
-(defvar ai-code-files-dir-name)
 (defvar yas-snippet-dirs)
-
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
 
 (defvar ai-code-use-gptel-headline nil)
 (defvar ai-code-prompt-suffix)
@@ -39,7 +37,6 @@ the terminal backend infrastructure.")
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
 (declare-function ai-code--choose-symbol-from-file "ai-code-input" (file))
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
-(declare-function ai-code--get-clipboard-text "ai-code")
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--session-buffer-matches-directory-p "ai-code-backends-infra" (buffer directory))
@@ -569,9 +566,7 @@ A prompt block is multiple non-empty lines surrounded by empty lines."
              (line-number-at-pos start)
              (line-number-at-pos end))))
 
-;;;###autoload
-(defconst ai-code-files-dir-name ".ai.code.files"
-  "Directory name for storing AI task files.")
+
 
 ;;;###autoload
 (defcustom ai-code-task-use-gptel-filename nil
@@ -595,22 +590,6 @@ for example `org-roam-directory'."
            (string :tag "Path")
            (symbol :tag "Variable")))
   :group 'ai-code)
-
-(defun ai-code--get-files-directory ()
-  "Get the task directory path.
-If in a git repository, return `.ai.code.files/` under git root.
-Otherwise, return the current `default-directory`."
-  (let ((git-root (ai-code--git-root)))
-    (if git-root
-        (expand-file-name ai-code-files-dir-name git-root)
-      default-directory)))
-
-(defun ai-code--ensure-files-directory ()
-  "Ensure the task directory exists and return its path."
-  (let ((ai-code-files-dir (ai-code--get-files-directory)))
-    (unless (file-directory-p ai-code-files-dir)
-      (make-directory ai-code-files-dir t))
-    ai-code-files-dir))
 
 (defun ai-code--extract-radar-id (text)
   "Return radar ID from TEXT, or nil when TEXT has no radar URL."

@@ -12,37 +12,22 @@
 (require 'magit)
 (require 'dired)
 (require 'comint)
-(require 'project)
 (require 'subr-x)
 
+(require 'ai-code-utils)
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
 
 
 (declare-function ai-code-read-string "ai-code-input")
-(declare-function ai-code--get-context-files-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
-(declare-function ai-code--ensure-files-directory "ai-code-prompt-mode" ())
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (prompt))
 (declare-function ai-code--extract-radar-id "ai-code-prompt-mode" (text))
 (declare-function ai-code--normalize-radar-text "ai-code-prompt-mode" (text))
 (declare-function ai-code--resolve-auto-test-suffix-for-send "ai-code")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
-(declare-function projectile-project-root "projectile")
-(declare-function project-current "project" (&optional maybe-prompt dir))
-(declare-function project-root "project" (project))
 (declare-function ai-code-run-test "ai-code-agile")
-
-(defun ai-code--git-root (&optional dir)
-  "Return the normalized Git repository root path, or nil.
-Calls `magit-toplevel' with optional DIR argument and applies
-`file-truename' to resolve symlinks.  Returns nil when not inside
-a Git repository or when `magit-toplevel' signals an error."
-  (condition-case nil
-      (let ((root (magit-toplevel dir)))
-        (when root (file-truename root)))
-    (error nil)))
 
 (defcustom ai-code-sed-command "sed"
   "GNU sed command used to apply prompts to files."
@@ -440,20 +425,6 @@ If user chooses linting, call `ai-code-lint-current-file'."
            (ai-code--lint-current-file-follow-up))))
     (ai-code--confirm-and-send "Send to AI: " initial-input)))
 
-(defun ai-code--project-root ()
-  "Return the current project root using Projectile first, then Git."
-  (or (and (fboundp 'projectile-project-root)
-           (ignore-errors (projectile-project-root)))
-      (ai-code--git-root)))
-
-(defun ai-code--session-project-root ()
-  "Return the best available project root for the current session.
-Tries project.el first, then Git root, then `default-directory'."
-  (or (when-let ((project (ignore-errors (project-current nil default-directory))))
-        (expand-file-name (project-root project)))
-      (ai-code--git-root)
-      (expand-file-name default-directory)))
-
 ;;;###autoload
 (defun ai-code-build-project ()
   "Build the current project.
@@ -502,9 +473,6 @@ Otherwise, ask AI to generate a build command."
                   (when repo-context (concat "\n" repo-context))
                   failure-follow-up)))
     (ai-code--confirm-and-send "Send to AI: " initial-input)))
-
-(defvar ai-code--repo-context-info (make-hash-table :test #'equal)
-  "Hash table storing context info lists per Git repository root.")
 
 (defun ai-code--store-context-entry (repo-root context)
   "Store CONTEXT string for REPO-ROOT in `ai-code--repo-context-info'."
@@ -648,21 +616,6 @@ Clear context.  The prefix argument ARG is ignored."
        (ai-code-list-context))
       ("Clear context"
        (call-interactively #'ai-code-clear-context)))))
-
-(defun ai-code--format-repo-context-info ()
-  "Return formatted repository context string or nil.
-Includes stored context entries for the current Git repository if available."
-  (when (and (boundp 'ai-code--repo-context-info)
-             ai-code--repo-context-info)
-    (let ((repo-root (ai-code--git-root)))
-      (when repo-root
-        (let ((entries (gethash repo-root ai-code--repo-context-info)))
-           (when entries
-             (concat "\nStored repository context:\n"
-                    (mapconcat (lambda (ctx)
-                                 (concat "  - " ctx))
-                               (reverse entries)
-                               "\n"))))))))
 
 (defun ai-code--derive-ddd-context-prompt (git-root)
   "Build and return a formatted DDD context derivation prompt string for GIT-ROOT."

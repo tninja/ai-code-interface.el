@@ -15,8 +15,8 @@
 (require 'which-func)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
-(declare-function ai-code--get-context-files-string "ai-code-input")
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code--get-context-files-string "ai-code-utils")
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 
 (defconst ai-code--refactoring-techniques-catalog
   '((:name "Suggest Refactoring Strategy"

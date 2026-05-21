@@ -13,7 +13,7 @@
 
 (declare-function gptel-agent "gptel-agent" (&optional project-dir agent-preset))
 (declare-function gptel-send "gptel" (&optional arg))
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 
 (defun ai-code-gptel-agent--get-buffer ()
   "Get gptel-agent buffer for current project, or nil."

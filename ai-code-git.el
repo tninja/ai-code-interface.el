@@ -47,8 +47,8 @@ Candidate values:
   :group 'ai-code)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
-(declare-function ai-code--ensure-files-directory "ai-code-prompt-mode" ())
-(declare-function ai-code--git-root "ai-code-file" (&optional dir))
+(declare-function ai-code--ensure-files-directory "ai-code-utils" ())
+(declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 
 (defvar ai-code-files-dir-name)
 
