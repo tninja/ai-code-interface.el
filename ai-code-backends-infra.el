@@ -28,6 +28,9 @@
 
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
 
+;; DONE: In previous PR: https://github.com/tninja/ai-code-interface.el/pull/349, it set default new AI session instance names from prompt buffer filenames
+;; But now we want to set the default new AI session instance names as current branch name. If this name has been used for an existing session, then we can fallback to using the prompt buffer filename as the default new AI session instance name.
+
 ;;; Customization
 
 (defgroup ai-code-backends-infra nil
@@ -649,12 +652,19 @@ from the window where it was initially created."
   "Return normalized absolute path for FILE."
   (expand-file-name file))
 
-(defun ai-code-backends-infra--default-instance-name ()
-  "Return the default instance name for the current buffer, or nil."
+(declare-function magit-get-current-branch "magit-git" ())
+
+(defun ai-code-backends-infra--default-instance-name (&optional existing-instance-names)
+  "Return the default instance name for the current buffer, or nil.
+When the current git branch is available and not in EXISTING-INSTANCE-NAMES,
+use the branch name.  Otherwise fall back to the prompt buffer filename."
   (when (and (eq major-mode 'ai-code-prompt-mode)
              (stringp buffer-file-name)
              (> (length buffer-file-name) 0))
-    (file-name-nondirectory buffer-file-name)))
+    (let ((branch (ignore-errors (magit-get-current-branch))))
+      (if (and branch (not (member branch existing-instance-names)))
+          branch
+        (file-name-nondirectory buffer-file-name)))))
 
 (defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
   "Return file-session map key for PREFIX and SOURCE-BUFFER."
@@ -1026,7 +1036,8 @@ Return a plist with :instance-name, :buffer-name, and :session-key."
                               (ai-code-backends-infra--prompt-for-instance-name
                                existing-instance-names
                                force-prompt
-                               (ai-code-backends-infra--default-instance-name)))
+                               (ai-code-backends-infra--default-instance-name
+                                existing-instance-names)))
                              (t "default")))
          (resolved-buffer-name (or buffer-name
                                     (and prefix

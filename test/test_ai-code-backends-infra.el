@@ -2719,6 +2719,44 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (should-not ai-code-backends-infra--vterm-render-queue)
         (should-not ai-code-backends-infra--vterm-render-timer)))))
 
+(ert-deftest test-ai-code-backends-infra-default-instance-name-prefers-branch ()
+  "Default instance name should prefer current git branch."
+  (with-temp-buffer
+    (setq-local major-mode 'ai-code-prompt-mode)
+    (setq-local buffer-file-name "/tmp/test.ai.code.prompt.org")
+    (cl-letf (((symbol-function 'magit-get-current-branch)
+               (lambda () "feat/login-page")))
+      (should (equal (ai-code-backends-infra--default-instance-name)
+                     "feat/login-page")))))
+
+(ert-deftest test-ai-code-backends-infra-default-instance-name-falls-back-to-filename-when-branch-taken ()
+  "Default instance name should fall back to filename when branch is already in use."
+  (with-temp-buffer
+    (setq-local major-mode 'ai-code-prompt-mode)
+    (setq-local buffer-file-name "/tmp/test.ai.code.prompt.org")
+    (cl-letf (((symbol-function 'magit-get-current-branch)
+               (lambda () "feat/login-page")))
+      (should (equal (ai-code-backends-infra--default-instance-name
+                      '("feat/login-page"))
+                     "test.ai.code.prompt.org")))))
+
+(ert-deftest test-ai-code-backends-infra-default-instance-name-falls-back-to-filename-without-branch ()
+  "Default instance name should fall back to filename when branch is unavailable."
+  (with-temp-buffer
+    (setq-local major-mode 'ai-code-prompt-mode)
+    (setq-local buffer-file-name "/tmp/test.ai.code.prompt.org")
+    (cl-letf (((symbol-function 'magit-get-current-branch)
+               (lambda () nil)))
+      (should (equal (ai-code-backends-infra--default-instance-name)
+                     "test.ai.code.prompt.org")))))
+
+(ert-deftest test-ai-code-backends-infra-default-instance-name-nil-outside-prompt-mode ()
+  "Default instance name should be nil outside prompt mode."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'magit-get-current-branch)
+               (lambda () "main")))
+      (should-not (ai-code-backends-infra--default-instance-name)))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
