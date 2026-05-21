@@ -405,12 +405,10 @@ sends to AI."
                                     (car git-relative-paths)
                                     file-type
                                     (or files-context-string "")))
-                           (t "No file or directory found at cursor point.")))
-         (final-prompt (if git-relative-paths
-                           (ai-code-read-string "Prompt: " initial-prompt)
-                         initial-prompt)))
-    (when final-prompt
-      (ai-code--insert-prompt final-prompt))))
+                           (t "No file or directory found at cursor point."))))
+    (if git-relative-paths
+        (ai-code--confirm-and-send "Prompt: " initial-prompt)
+      (ai-code--insert-prompt initial-prompt))))
 
 (defun ai-code--explain-region ()
   "Explain the selected region with function/file context."
@@ -425,10 +423,8 @@ sends to AI."
                          region-text
                          context-info
                          (if function-name "\n" "")
-                        files-context-string))
-         (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-    (when final-prompt
-      (ai-code--insert-prompt final-prompt))))
+                        files-context-string)))
+    (ai-code--confirm-and-send "Prompt: " initial-prompt)))
 
 (defun ai-code--explain-with-scope-selection ()
   "Prompt user to select explanation scope and explain accordingly."
@@ -467,9 +463,7 @@ sends to AI."
 
 (defun ai-code--explain-code-change-insert-prompt (initial-prompt)
   "Read and insert an explanation prompt starting from INITIAL-PROMPT."
-  (let ((final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-    (when final-prompt
-      (ai-code--insert-prompt final-prompt))))
+  (ai-code--confirm-and-send "Prompt: " initial-prompt))
 
 (defun ai-code--format-code-change-explanation-outline (step-1 step-2 step-3)
   "Return shared code-change explanation outline using STEP-1, STEP-2, and STEP-3."
@@ -596,10 +590,8 @@ In the current repository, inspect `git show %s` and explain:
                                    (if function-name
                                        (format "\nFunction: %s" function-name)
                                      "")
-                                  (or buffer-file-name "current buffer")))
-           (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-      (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+                                  (or buffer-file-name "current buffer"))))
+      (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
 (defun ai-code--explain-line ()
   "Explain the current line."
@@ -613,10 +605,8 @@ In the current repository, inspect `git show %s` and explain:
                                    (if function-name
                                        (format "Function: %s\n" function-name)
                                     "")
-                                  (or buffer-file-name "current buffer")))
-           (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-      (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+                                  (or buffer-file-name "current buffer"))))
+      (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
 (defun ai-code--explain-function ()
   "Explain the current function."
@@ -628,20 +618,16 @@ File: %s
 Explain what this function does, its parameters, return value, algorithm, and its role in the overall codebase."
                                    ai-code-discussion--explain-function-prefix
                                    function-name
-                                   (or buffer-file-name "current buffer")))
-            (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-      (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+                                   (or buffer-file-name "current buffer"))))
+      (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
 (defun ai-code--explain-file ()
   "Explain the current file."
   (let ((file-name (or buffer-file-name "current buffer")))
     (let* ((initial-prompt (format "%s\nFile: %s\nProvide an overview of this file's purpose, its main components, key functions, and how it fits into the larger codebase architecture."
                                   ai-code-discussion--explain-file-prefix
-                                  file-name))
-            (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-      (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+                                  file-name)))
+      (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
 (defun ai-code--explain-files-visible ()
   "Explain all files visible in the current window."
@@ -650,10 +636,8 @@ Explain what this function does, its parameters, return value, algorithm, and it
         (user-error "No visible files with names found")
       (let* ((initial-prompt (format "%s%s\n\nProvide an overview of these files, their relationships, and how they collectively contribute to the project's functionality."
                                     ai-code-discussion--explain-files-prefix
-                                    files-context))
-              (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-        (when final-prompt
-          (ai-code--insert-prompt final-prompt))))))
+                                    files-context)))
+        (ai-code--confirm-and-send "Prompt: " initial-prompt)))))
 
 (defun ai-code--explain-git-repo ()
   "Explain the current git repository."
@@ -663,10 +647,8 @@ Explain what this function does, its parameters, return value, algorithm, and it
       (let* ((repo-name (file-name-nondirectory (directory-file-name git-root)))
              (initial-prompt (format "%s %s\nPath: %s\n\nProvide a comprehensive overview of this repository, its architecture, main technologies used, key modules, and how the different parts of the system interact."
                                     ai-code-discussion--explain-git-repo-prefix
-                                    repo-name git-root))
-             (final-prompt (ai-code-read-string "Prompt: " initial-prompt)))
-        (when final-prompt
-          (ai-code--insert-prompt final-prompt))))))
+                                    repo-name git-root)))
+        (ai-code--confirm-and-send "Prompt: " initial-prompt)))))
 
 ;;;###autoload
 (defcustom ai-code-notes-file-name ".ai.code.notes.org"
@@ -832,15 +814,13 @@ With prefix ARG, open the default note file in other window instead."
                                       target-file
                                       line-number
                                       note-request)))
-                (when-let ((final-prompt (ai-code-read-string "Prompt: " default-prompt)))
-                  (ai-code--insert-prompt final-prompt)
+                (when (ai-code--confirm-and-send "Prompt: " default-prompt)
                   (message "Generated AI prompt for note insertion in %s" target-file))))
           (let* ((target-dir (ai-code--select-note-target-directory default-note-dir))
                  (default-prompt (ai-code--build-note-create-prompt
                                   target-dir
                                   note-request)))
-            (when-let ((final-prompt (ai-code-read-string "Prompt: " default-prompt)))
-              (ai-code--insert-prompt final-prompt)
+            (when (ai-code--confirm-and-send "Prompt: " default-prompt)
               (when (ai-code--target-directory-under-org-roam-p target-dir)
                 (when (require 'org-roam nil t)
                   (org-roam-db-sync)))

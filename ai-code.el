@@ -242,8 +242,7 @@ ARG is the prefix argument."
   (unless ai-code-quick-prompts
     (user-error "No quick prompts configured; customize `ai-code-quick-prompts' first"))
   (let ((selected (completing-read "Quick prompt: " ai-code-quick-prompts nil t)))
-    (when-let* ((prompt (ai-code-read-string "Edit quick prompt: " selected)))
-      (ai-code--insert-prompt prompt))))
+    (ai-code--confirm-and-send "Edit quick prompt: " selected)))
 
 (defconst ai-code-session-checkpoint-prompt
   (concat
@@ -318,15 +317,13 @@ Optional REGION-TEXT and REGION-LOCATION-INFO add selected-region context."
       (message
        "eval_elisp is disabled in your Emacs MCP config. It is better to turn it on to improve debugging capability."))
     (when description
-      (when-let* ((prompt
-                   (ai-code-read-string
-                    "Confirm and edit Emacs runtime debug prompt: "
-                    (ai-code--emacs-runtime-debug-prompt
-                     description
-                     eval-available-p
-                     region-text
-                     region-location-info))))
-        (ai-code--insert-prompt prompt)))))
+      (ai-code--confirm-and-send
+       "Confirm and edit Emacs runtime debug prompt: "
+       (ai-code--emacs-runtime-debug-prompt
+        description
+        eval-available-p
+        region-text
+        region-location-info)))))
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer-or-hide ()

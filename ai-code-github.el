@@ -333,9 +333,8 @@ PR Creation Steps:
                   (ai-code--build-pr-init-prompt review-source target-url review-mode))))
              (prompt-label (if (eq review-mode 'send-current-branch-pr)
                                "Enter PR creation prompt: "
-                             "Enter review prompt: "))
-             (prompt (ai-code-read-string prompt-label init-prompt)))
-        (ai-code--insert-prompt prompt))))))
+                             "Enter review prompt: ")))
+        (ai-code--confirm-and-send prompt-label init-prompt))))))
 
 (defun ai-code--get-git-web-repo-url ()
   "Get Git repository web URL from git remote.
@@ -393,9 +392,8 @@ Otherwise, prompt for a review source and analysis mode."
 
 Provide overall assessment.
 
-**Requirement**: " file-name))
-             (prompt (ai-code-read-string "Enter review prompt (type requirement at end): " init-prompt)))
-        (ai-code--insert-prompt prompt))
+**Requirement**: " file-name)))
+        (ai-code--confirm-and-send "Enter review prompt (type requirement at end): " init-prompt))
     ;; For non-diff files, let user choose PR review via MCP/gh CLI.
     (unless ai-code-default-review-source
       (ai-code--message-review-source-config-hint))

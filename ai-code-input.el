@@ -60,6 +60,12 @@ Uses `read-string' directly to avoid `helm-mode' intercepting `completing-read'.
 CANDIDATE-LIST provides additional completion options if provided."
   (funcall ai-code--read-string-fn prompt initial-input candidate-list))
 
+(defun ai-code--confirm-and-send (prompt-label initial-prompt)
+  "Let user edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI.
+Returns non-nil on successful send."
+  (when-let* ((prompt (ai-code-read-string prompt-label initial-prompt)))
+    (ai-code--insert-prompt prompt)))
+
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
   "Read a string with Helm completion using specified history file.
 PROMPT is the prompt string.

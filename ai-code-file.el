@@ -434,9 +434,8 @@ If user chooses linting, call `ai-code-lint-current-file'."
            "Use the get_diagnostics Emacs MCP tool to lint the current file and report the results."
            (format "\nCurrent file: %s" buffer-file-name)
            (when repo-context (concat "\n" repo-context))
-           (ai-code--lint-current-file-follow-up)))
-         (prompt (ai-code-read-string "Send to AI: " initial-input)))
-    (ai-code--insert-prompt prompt)))
+           (ai-code--lint-current-file-follow-up))))
+    (ai-code--confirm-and-send "Send to AI: " initial-input)))
 
 (defun ai-code--project-root ()
   "Return the current project root using Projectile first, then Git."
@@ -471,9 +470,8 @@ Otherwise, ask AI to generate a build command."
             (concat "Build the current project. Provide the build command and execute it if possible. "
                     (when proj-root (format "\nProject root: %s" proj-root))
                     (when repo-context (concat "\n" repo-context))
-                    error-handling-instruction)))
-         (prompt (ai-code-read-string "Send to AI: " initial-input)))
-    (ai-code--insert-prompt prompt)))
+                    error-handling-instruction))))
+    (ai-code--confirm-and-send "Send to AI: " initial-input)))
 
 ;;;###autoload
 (defun ai-code-test-project ()
@@ -491,9 +489,8 @@ Otherwise, ask AI to generate a build command."
           (concat "Run test on the whole project and report the results."
                   (when proj-root (format "\nProject root: %s" proj-root))
                   (when repo-context (concat "\n" repo-context))
-                  failure-follow-up))
-         (prompt (ai-code-read-string "Send to AI: " initial-input)))
-    (ai-code--insert-prompt prompt)))
+                  failure-follow-up)))
+    (ai-code--confirm-and-send "Send to AI: " initial-input)))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
   "Hash table storing context info lists per Git repository root.")
