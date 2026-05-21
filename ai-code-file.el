@@ -12,6 +12,7 @@
 (require 'magit)
 (require 'dired)
 (require 'comint)
+(require 'project)
 (require 'subr-x)
 
 (require 'ai-code-input)
@@ -29,6 +30,8 @@
 (declare-function ai-code--resolve-auto-test-suffix-for-send "ai-code")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function projectile-project-root "projectile")
+(declare-function project-current "project" (&optional maybe-prompt dir))
+(declare-function project-root "project" (project))
 (declare-function ai-code-run-test "ai-code-agile")
 
 (defun ai-code--git-root (&optional dir)
@@ -442,6 +445,14 @@ If user chooses linting, call `ai-code-lint-current-file'."
   (or (and (fboundp 'projectile-project-root)
            (ignore-errors (projectile-project-root)))
       (ai-code--git-root)))
+
+(defun ai-code--session-project-root ()
+  "Return the best available project root for the current session.
+Tries project.el first, then Git root, then `default-directory'."
+  (or (when-let ((project (ignore-errors (project-current nil default-directory))))
+        (expand-file-name (project-root project)))
+      (ai-code--git-root)
+      (expand-file-name default-directory)))
 
 ;;;###autoload
 (defun ai-code-build-project ()

@@ -10,6 +10,7 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'ai-code-file)
 (require 'ai-code-backends-infra)
 (require 'ai-code-notifications)
 
@@ -2756,6 +2757,18 @@ The result is a cons of whether SYMBOL is bound and its default value."
     (cl-letf (((symbol-function 'magit-get-current-branch)
                (lambda () "main")))
       (should-not (ai-code-backends-infra--default-instance-name)))))
+
+;;; --- session-working-directory delegation tests ---
+
+(ert-deftest test-ai-code-backends-infra-session-working-directory-falls-back-to-git-root ()
+  "session-working-directory should fall back to git root when project.el fails."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir) nil))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) "/git/repo/")))
+      (should (equal (ai-code-backends-infra--session-working-directory)
+                     "/git/repo/")))))
 
 (provide 'test_ai-code-backends-infra)
 

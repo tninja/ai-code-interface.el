@@ -969,6 +969,51 @@ everything is cleaned up afterward."
                          "Architecture guardrails request cancelled")))
       (ignore-errors (delete-directory tmp-root t)))))
 
+;;; --- ai-code--session-project-root tests ---
+
+(ert-deftest test-ai-code-session-project-root-prefers-project-el ()
+  "Should return project.el root when available."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir)
+                 '(vc Git "/projects/foo/")))
+              ((symbol-function 'project-root)
+               (lambda (_project) "/projects/foo/"))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) "/git/bar/")))
+      (should (equal (ai-code--session-project-root)
+                     "/projects/foo/")))))
+
+(ert-deftest test-ai-code-session-project-root-falls-back-to-git-root ()
+  "Should fall back to git root when project.el returns nil."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir) nil))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) "/git/repo/")))
+      (should (equal (ai-code--session-project-root)
+                     "/git/repo/")))))
+
+(ert-deftest test-ai-code-session-project-root-falls-back-to-default-directory ()
+  "Should fall back to default-directory when both project.el and git fail."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir) nil))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) nil)))
+      (should (equal (ai-code--session-project-root)
+                     "/tmp/fallback/")))))
+
+(ert-deftest test-ai-code-session-project-root-never-returns-nil ()
+  "Should always return a non-nil string."
+  (let ((default-directory "/some/dir/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir) nil))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) nil)))
+      (should (stringp (ai-code--session-project-root)))
+      (should (not (string-empty-p (ai-code--session-project-root)))))))
+
 (provide 'test_ai-code-file)
 
 ;;; test_ai-code-file.el ends here

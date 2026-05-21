@@ -16,7 +16,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'project)
 (require 'subr-x)
 (require 'ai-code-session)
 (require 'ai-code-session-link)
@@ -27,6 +26,7 @@
 (require 'ai-code-backends-infra-ghostel)
 
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
+(declare-function ai-code--session-project-root "ai-code-file" ())
 
 ;; DONE: In previous PR: https://github.com/tninja/ai-code-interface.el/pull/349, it set default new AI session instance names from prompt buffer filenames
 ;; But now we want to set the default new AI session instance names as current branch name. If this name has been used for an existing session, then we can fallback to using the prompt buffer filename as the default new AI session instance name.
@@ -640,9 +640,7 @@ from the window where it was initially created."
 
 (defun ai-code-backends-infra--session-working-directory ()
   "Return the working directory, preferring the current project root."
-  (if-let ((project (project-current)))
-      (expand-file-name (project-root project))
-    (expand-file-name default-directory)))
+  (ai-code--session-project-root))
 
 (defun ai-code-backends-infra--normalize-session-directory (directory)
   "Return DIRECTORY normalized for robust session matching."

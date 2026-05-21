@@ -14,15 +14,11 @@
 (require 'cl-lib)  ; For `cl-subseq`
 (require 'imenu)
 (require 'magit)
-(require 'project)
 (require 'ai-code-session-link)
 (require 'subr-x)
 
 (declare-function browse-url "browse-url" (url &optional new-window))
 (declare-function helm-comp-read "helm-mode" (prompt collection &rest args))
-(declare-function project-current "project" (&optional maybe-prompt dir))
-(declare-function project-files "project" (project &optional dirs))
-(declare-function project-root "project" (project))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--linkify-session-region "ai-code-backends-infra" (start end))
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
@@ -610,12 +606,7 @@ END-POS defaults to the current '#' position."
       (list :file text))
      (t nil))))
 
-(defun ai-code--session-project-root ()
-  "Return the best available project root for the current session."
-  (or (when-let ((project (ignore-errors (project-current nil default-directory))))
-        (expand-file-name (project-root project)))
-      (ai-code--git-root)
-      (expand-file-name default-directory)))
+(declare-function ai-code--session-project-root "ai-code-file" ())
 
 (defun ai-code--project-file-candidates (filename)
   "Return possible project file matches for FILENAME."
