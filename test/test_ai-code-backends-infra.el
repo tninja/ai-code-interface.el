@@ -2770,6 +2770,46 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/git/repo/")))))
 
+;;; --- terminal-dispatch tests ---
+
+(ert-deftest test-ai-code-backends-infra-terminal-dispatch-routes-to-backend ()
+  "Dispatch should construct and call the correct backend function."
+  (let ((called-with nil))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--current-terminal-backend)
+               (lambda () 'vterm))
+              ((symbol-function 'ai-code-backends-infra-vterm-send-string)
+               (lambda (s) (setq called-with s) t)))
+      (ai-code-backends-infra--terminal-dispatch "send-string" "hello")
+      (should (equal called-with "hello")))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-dispatch-routes-eat ()
+  "Dispatch should route to eat backend."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--current-terminal-backend)
+               (lambda () 'eat))
+              ((symbol-function 'ai-code-backends-infra-eat-send-escape)
+               (lambda () (setq called t))))
+      (ai-code-backends-infra--terminal-dispatch "send-escape")
+      (should called))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-dispatch-routes-ghostel ()
+  "Dispatch should route to ghostel backend."
+  (let ((called nil))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--current-terminal-backend)
+               (lambda () 'ghostel))
+              ((symbol-function 'ai-code-backends-infra-ghostel-send-return)
+               (lambda () (setq called t))))
+      (ai-code-backends-infra--terminal-dispatch "send-return")
+      (should called))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-dispatch-errors-on-missing-op ()
+  "Dispatch should error when backend does not support the operation."
+  (cl-letf (((symbol-function 'ai-code-backends-infra--current-terminal-backend)
+             (lambda () 'vterm)))
+    (should-error
+     (ai-code-backends-infra--terminal-dispatch "nonexistent-operation")
+     :type 'error)))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here

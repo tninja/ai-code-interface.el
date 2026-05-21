@@ -397,6 +397,15 @@ The timer is reset only after meaningful output is observed."
   ;; Keep reflow advice synchronized with current backend/settings.
   (ai-code-backends-infra--sync-reflow-filter-advice))
 
+(defun ai-code-backends-infra--terminal-dispatch (operation &rest args)
+  "Dispatch OPERATION to the current terminal backend, passing ARGS.
+Constructs function name as `ai-code-backends-infra-<backend>-<operation>'."
+  (let* ((backend (ai-code-backends-infra--current-terminal-backend))
+         (fn (intern (format "ai-code-backends-infra-%s-%s" backend operation))))
+    (if (fboundp fn)
+        (apply fn args)
+      (error "Terminal backend %s does not support %s" backend operation))))
+
 (defun ai-code-backends-infra--current-terminal-backend ()
   "Return terminal backend for current buffer operations."
   (or ai-code-backends-infra--session-terminal-backend
@@ -423,46 +432,23 @@ The timer is reset only after meaningful output is observed."
 
 (defun ai-code-backends-infra--install-navigation-cursor-sync ()
   "Install buffer-local hooks for cursor handoff in terminal navigation modes."
-  (pcase (ai-code-backends-infra--current-terminal-backend)
-    ('vterm (ai-code-backends-infra-vterm-install-navigation-cursor-sync))
-    ('ghostel (ai-code-backends-infra-ghostel-install-navigation-cursor-sync))
-    ('eat (ai-code-backends-infra-eat-install-navigation-cursor-sync))))
+  (ai-code-backends-infra--terminal-dispatch "install-navigation-cursor-sync"))
 
 (defun ai-code-backends-infra--terminal-send-string (string)
   "Send STRING to the terminal in the current buffer."
-  (pcase (ai-code-backends-infra--current-terminal-backend)
-    ('vterm (ai-code-backends-infra-vterm-send-string string))
-    ('eat (ai-code-backends-infra-eat-send-string string))
-    ('ghostel (ai-code-backends-infra-ghostel-send-string string))
-    (_ (error "Unknown terminal backend: %s"
-              (ai-code-backends-infra--current-terminal-backend)))))
+  (ai-code-backends-infra--terminal-dispatch "send-string" string))
 
 (defun ai-code-backends-infra--terminal-send-escape ()
   "Send escape key to the terminal in the current buffer."
-  (pcase (ai-code-backends-infra--current-terminal-backend)
-    ('vterm (ai-code-backends-infra-vterm-send-escape))
-    ('eat (ai-code-backends-infra-eat-send-escape))
-    ('ghostel (ai-code-backends-infra-ghostel-send-escape))
-    (_ (error "Unknown terminal backend: %s"
-              (ai-code-backends-infra--current-terminal-backend)))))
+  (ai-code-backends-infra--terminal-dispatch "send-escape"))
 
 (defun ai-code-backends-infra--terminal-send-return ()
   "Send return key to the terminal in the current buffer."
-  (pcase (ai-code-backends-infra--current-terminal-backend)
-    ('vterm (ai-code-backends-infra-vterm-send-return))
-    ('eat (ai-code-backends-infra-eat-send-return))
-    ('ghostel (ai-code-backends-infra-ghostel-send-return))
-    (_ (error "Unknown terminal backend: %s"
-              (ai-code-backends-infra--current-terminal-backend)))))
+  (ai-code-backends-infra--terminal-dispatch "send-return"))
 
 (defun ai-code-backends-infra--terminal-send-backspace ()
   "Send backspace key to the terminal in the current buffer."
-  (pcase (ai-code-backends-infra--current-terminal-backend)
-    ('vterm (ai-code-backends-infra-vterm-send-backspace))
-    ('eat (ai-code-backends-infra-eat-send-backspace))
-    ('ghostel (ai-code-backends-infra-ghostel-send-backspace))
-    (_ (error "Unknown terminal backend: %s"
-              (ai-code-backends-infra--current-terminal-backend)))))
+  (ai-code-backends-infra--terminal-dispatch "send-backspace"))
 
 (defun ai-code-backends-infra--terminal-send-multiline-input ()
   "Send the configured multiline-input sequence for the current session buffer."
