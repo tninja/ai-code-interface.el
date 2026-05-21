@@ -168,6 +168,14 @@ with a newline separator."
   :group 'ai-code)
 
 ;;;###autoload
+(defcustom ai-code-quick-prompts nil
+  "List of pre-defined prompt strings for quick sending to AI.
+Each entry is a string that can be selected via `ai-code-send-quick-prompt`
+and sent to the current AI session."
+  :type '(repeat string)
+  :group 'ai-code)
+
+;;;###autoload
 (defcustom ai-code-cli "claude"
   "The command-line AI tool to use for `ai-code-apply-prompt-on-current-file`."
   :type 'string
@@ -225,6 +233,17 @@ ARG is the prefix argument."
                        (concat "\n\nClipboard context:\n"
                                clipboard-context)))))
          (ai-code--insert-prompt final-prompt)))))
+
+;;;###autoload
+(defun ai-code-send-quick-prompt ()
+  "Select and send a pre-defined prompt from `ai-code-quick-prompts`."
+  ;; DONE: use ai-code-read-string to allow user to modify the prompt before sending
+  (interactive)
+  (unless ai-code-quick-prompts
+    (user-error "No quick prompts configured; customize `ai-code-quick-prompts' first"))
+  (let ((selected (completing-read "Quick prompt: " ai-code-quick-prompts nil t)))
+    (when-let* ((prompt (ai-code-read-string "Edit quick prompt: " selected)))
+      (ai-code--insert-prompt prompt))))
 
 (defconst ai-code-session-checkpoint-prompt
   (concat
@@ -487,6 +506,8 @@ Shows the current backend label to the right."
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
   ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
+  ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
+  ("Q" "Send quick prompt" ai-code-send-quick-prompt)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))
 
