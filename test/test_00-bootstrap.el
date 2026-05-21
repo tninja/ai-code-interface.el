@@ -20,7 +20,9 @@
 (defun ai-code-test--prefer-packaged-library (prefix)
   "Put the newest installed package matching PREFIX at the front of `load-path'."
   (let* ((pattern (expand-file-name (format "%s-*" prefix) package-user-dir))
-         (candidates (sort (file-expand-wildcards pattern) #'version<))
+         (candidates (sort (cl-remove-if-not #'file-directory-p
+                                             (file-expand-wildcards pattern))
+                           #'version<))
          (latest (car (last candidates))))
     (when latest
       (add-to-list 'load-path latest))))

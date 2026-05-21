@@ -14,7 +14,9 @@
 (defun ai-code-test-onboarding--maybe-prefer-packaged-transient ()
   "Prefer the newest packaged Transient when one is installed."
   (let* ((pattern (expand-file-name "transient-*" package-user-dir))
-         (candidates (sort (file-expand-wildcards pattern) #'version<))
+         (candidates (sort (cl-remove-if-not #'file-directory-p
+                                             (file-expand-wildcards pattern))
+                           #'version<))
          (latest (car (last candidates))))
     (when latest
       (add-to-list 'load-path latest))))

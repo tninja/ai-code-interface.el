@@ -15,7 +15,9 @@
 (defun ai-code-test--maybe-prefer-packaged-transient ()
   "Prefer the newest packaged Transient when one is installed."
   (let* ((pattern (expand-file-name "transient-*" package-user-dir))
-         (candidates (sort (file-expand-wildcards pattern) #'version<))
+         (candidates (sort (cl-remove-if-not #'file-directory-p
+                                             (file-expand-wildcards pattern))
+                           #'version<))
          (latest (car (last candidates))))
     (when latest
       (add-to-list 'load-path latest))))
@@ -251,18 +253,17 @@
 
 (ert-deftest ai-code-test-session-checkpoint-sends-fixed-checkpoint-prompt ()
   "Test that session checkpoint sends the expected fixed prompt."
-  (let (sent-command switched)
-    (cl-letf (((symbol-function 'ai-code-cli-send-command)
-               (lambda (&rest args)
-                 (setq sent-command (car args))))
-              ((symbol-function 'ai-code-cli-switch-to-buffer)
-               (lambda (&rest _args)
-                 (setq switched t))))
+  (let (inserted-prompt)
+    (cl-letf (((symbol-function 'ai-code-read-string)
+               (lambda (_prompt initial)
+                 initial))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt)
+                 (setq inserted-prompt prompt))))
       (ai-code-session-checkpoint))
     (should
-     (equal sent-command
-            "Please stop and output a CHECKPOINT:\n- Goal\n- Files changed\n- Current hypothesis\n- Tests/build result\n- Blockers\n- Recommended next action\nDo not continue editing after this checkpoint"))
-    (should switched)))
+     (equal inserted-prompt
+            "Please stop and output a CHECKPOINT:\n- Goal\n- Files changed\n- Current hypothesis\n- Tests/build result\n- Blockers\n- Recommended next action\nDo not continue editing after this checkpoint"))))
 
 (ert-deftest ai-code-test-menu-other-tools-includes-session-checkpoint-entry ()
   "Test that the Other Tools menu exposes AI session checkpoint."

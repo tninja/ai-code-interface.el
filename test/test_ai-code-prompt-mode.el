@@ -346,12 +346,11 @@ and ensures everything is cleaned up afterward."
   (ai-code-with-test-repo
    (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
           (roam-dir (expand-file-name "roam" git-root))
-          (external-dir (make-temp-file "ai-code-external-notes" t))
+          (external-dir (file-truename (make-temp-file "ai-code-external-notes" t)))
           (org-roam-directory roam-dir)
           (ai-code-note-search-additional-paths (list 'org-roam-directory external-dir))
           (asked-scopes nil)
-          (sent-command nil)
-          (switch-called nil))
+          (inserted-prompt nil))
      (make-directory roam-dir t)
      (unwind-protect
          (progn
@@ -368,12 +367,9 @@ and ensures everything is cleaned up afterward."
                           initial-input)
                          (t
                           (ert-fail (format "Unexpected prompt: %s" prompt))))))
-                     ((symbol-function 'ai-code-cli-send-command)
-                      (lambda (command)
-                        (setq sent-command command)))
-                     ((symbol-function 'ai-code-cli-switch-to-buffer)
-                      (lambda ()
-                        (setq switch-called t)))
+                     ((symbol-function 'ai-code--insert-prompt)
+                      (lambda (prompt)
+                        (setq inserted-prompt prompt)))
                      ((symbol-function 'message)
                       (lambda (&rest _args) nil)))
              (let ((ai-code-prompt-suffix nil)
@@ -383,7 +379,7 @@ and ensures everything is cleaned up afterward."
                    (ai-code-discussion-auto-follow-up-suffix nil)
                     (ai-code-use-prompt-suffix nil))
                 (ai-code-search-notes-with-ai))
-              (should switch-called)
+              (should inserted-prompt)
               (should (= (length asked-scopes) 1))
               (should (string-match-p
                        (regexp-quote "Include additional note search paths from `ai-code-note-search-additional-paths`")
@@ -397,8 +393,8 @@ and ensures everything is cleaned up afterward."
                                              "- " external-dir "\n"
                                              "Use the available search tools to inspect the selected paths.\n"
                                              "Focus on relevant information inside files, not just file names.\n"
-                                             "Return the most relevant paths, matched excerpts, and a concise answer.\n"))
-                       sent-command))))
+                                             "Return the most relevant paths, matched excerpts, and a concise answer."))
+                       inserted-prompt))))
         (when (file-directory-p external-dir)
           (delete-directory external-dir t))))))
 
@@ -406,7 +402,7 @@ and ensures everything is cleaned up afterward."
   "Test that note search still searches task files when extras are declined."
   (ai-code-with-test-repo
    (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
-          (external-dir (make-temp-file "ai-code-external-notes" t))
+          (external-dir (file-truename (make-temp-file "ai-code-external-notes" t)))
           (ai-code-note-search-additional-paths (list external-dir))
           (asked-scopes nil)
           (sent-command nil))
