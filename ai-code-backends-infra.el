@@ -1135,6 +1135,46 @@ behavior."
         (message "CLI failed to start - see buffer for error details"))
     (message "CLI failed to start - process exited immediately")))
 
+(defun ai-code-backends-infra--start-cli-session (options arg)
+  "Start a generic CLI session described by OPTIONS and prefix ARG.
+OPTIONS is a plist with these keys:
+:program is the CLI executable.
+:switches is the default list of CLI switches.
+:label is the user-facing CLI label.
+:process-table maps session keys to processes.
+:session-prefix is the session buffer prefix.
+:escape-function is an optional function bound to escape in the session buffer.
+:env-vars is an optional list of environment variable strings.
+:multiline-input-sequence is an optional terminal sequence for multiline input.
+:prepare-launch is an optional function called with (WORKING-DIR COMMAND).
+When :prepare-launch is present, it may return :command, :cleanup-fn, and
+:post-start-fn entries to customize session creation."
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (resolved (ai-code-backends-infra--resolve-start-command
+                    (plist-get options :program)
+                    (plist-get options :switches)
+                    arg
+                    (plist-get options :label)))
+         (command (plist-get resolved :command))
+         (launch (when-let ((prepare-launch (plist-get options :prepare-launch)))
+                   (funcall prepare-launch working-dir command)))
+         (launch-command (or (plist-get launch :command) command))
+         (cleanup-fn (plist-get launch :cleanup-fn))
+         (post-start-fn (plist-get launch :post-start-fn)))
+    (ai-code-backends-infra--toggle-or-create-session
+     working-dir
+     nil
+     (plist-get options :process-table)
+     launch-command
+     (plist-get options :escape-function)
+     cleanup-fn
+     nil
+     (plist-get options :session-prefix)
+     nil
+     (plist-get options :env-vars)
+     (plist-get options :multiline-input-sequence)
+     post-start-fn)))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt

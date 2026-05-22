@@ -36,27 +36,18 @@
 
 ;;;###autoload
 (defun ai-code-cursor-cli (&optional arg)
-  "Start Cursor CLI (uses `ai-code-backends-infra' logic).
+  "Start Cursor CLI using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-cursor-cli-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-cursor-cli-program
-                    ai-code-cursor-cli-program-switches
-                    arg
-                    "Cursor"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-cursor-cli--processes
-     command
-     #'ai-code-cursor-cli-send-escape
-     nil
-     nil
-     ai-code-cursor-cli--session-prefix
-     nil)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-cursor-cli-program
+         :switches ai-code-cursor-cli-program-switches
+         :label "Cursor"
+         :process-table ai-code-cursor-cli--processes
+         :session-prefix ai-code-cursor-cli--session-prefix
+         :escape-function #'ai-code-cursor-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-switch-to-buffer (&optional force-prompt)
@@ -91,7 +82,8 @@ When FORCE-PROMPT is non-nil, prompt to select a session."
 
 ;;;###autoload
 (defun ai-code-cursor-cli-resume (&optional arg)
-  "Resume a previous Cursor CLI session."
+  "Resume a previous Cursor CLI session.
+Argument ARG is passed to the start command."
   (interactive "P")
   (let ((ai-code-cursor-cli-program-switches (append ai-code-cursor-cli-program-switches '("resume"))))
     (ai-code-cursor-cli arg)

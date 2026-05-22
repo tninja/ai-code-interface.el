@@ -36,27 +36,18 @@
 
 ;;;###autoload
 (defun ai-code-aider-cli (&optional arg)
-  "Start Aider (uses `ai-code-backends-infra' logic).
+  "Start Aider using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-aider-cli-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-aider-cli-program
-                    ai-code-aider-cli-program-switches
-                    arg
-                    "Aider"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-aider-cli--processes
-     command
-     #'ai-code-aider-cli-send-escape
-     nil
-     nil
-     ai-code-aider-cli--session-prefix
-     nil)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-aider-cli-program
+         :switches ai-code-aider-cli-program-switches
+         :label "Aider"
+         :process-table ai-code-aider-cli--processes
+         :session-prefix ai-code-aider-cli--session-prefix
+         :escape-function #'ai-code-aider-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-aider-cli-switch-to-buffer (&optional force-prompt)

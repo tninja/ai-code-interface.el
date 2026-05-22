@@ -35,27 +35,17 @@
 
 ;;;###autoload
 (defun ai-code-grok-cli (&optional arg)
-  "Start Grok CLI (uses `ai-code-backends-infra' logic).
+  "Start Grok CLI using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-grok-cli-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-grok-cli-program
-                    ai-code-grok-cli-program-switches
-                    arg
-                    "Grok"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-grok-cli--processes
-     command
-     nil
-     nil
-     nil
-     ai-code-grok-cli--session-prefix
-     nil)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-grok-cli-program
+         :switches ai-code-grok-cli-program-switches
+         :label "Grok"
+         :process-table ai-code-grok-cli--processes
+         :session-prefix ai-code-grok-cli--session-prefix)
+   arg))
 
 ;;;###autoload
 (defun ai-code-grok-cli-switch-to-buffer (&optional force-prompt)

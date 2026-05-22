@@ -54,47 +54,39 @@ that `/terminal-setup' installs for Shift+Enter and Ctrl+Enter."
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli (&optional arg)
-  "Start GitHub Copilot CLI (uses `ai-code-backends-infra' logic).
+  "Start GitHub Copilot CLI using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-github-copilot-cli-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-github-copilot-cli-program
-                    ai-code-github-copilot-cli-program-switches
-                    arg
-                    "Copilot"))
-         (command (plist-get resolved :command))
-         (mcp-launch (ai-code-mcp-agent-prepare-launch 'github-copilot-cli
-                                                       working-dir
-                                                       command))
-         (launch-command (or (plist-get mcp-launch :command) command))
-         (cleanup-fn (plist-get mcp-launch :cleanup-fn))
-         (mcp-post-start-fn (plist-get mcp-launch :post-start-fn))
-         ;; Wrap post-start-fn to enable sync-redraw scrollback injection.
-         ;; Copilot CLI hardcodes \e[?1049h and redraws via \e[?2026h\e[1;1H,
-         ;; so T5 in the strip function must be active for this backend.
-         (post-start-fn
-          (lambda (buffer process instance-name)
-            (with-current-buffer buffer
-              (setq ai-code-backends-infra--sync-redraw-scrollback t)
-              (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
-                (setq-local ghostel-full-redraw t)))
-            (when mcp-post-start-fn
-              (funcall mcp-post-start-fn buffer process instance-name)))))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-github-copilot-cli--processes
-     launch-command
-     #'ai-code-github-copilot-cli-send-escape
-     cleanup-fn
-     nil
-     ai-code-github-copilot-cli--session-prefix
-     nil
-     ai-code-github-copilot-cli-extra-env-vars
-     ai-code-github-copilot-cli-multiline-input-sequence
-     post-start-fn)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-github-copilot-cli-program
+         :switches ai-code-github-copilot-cli-program-switches
+         :label "Copilot"
+         :process-table ai-code-github-copilot-cli--processes
+         :session-prefix ai-code-github-copilot-cli--session-prefix
+         :escape-function #'ai-code-github-copilot-cli-send-escape
+         :env-vars ai-code-github-copilot-cli-extra-env-vars
+         :multiline-input-sequence
+         ai-code-github-copilot-cli-multiline-input-sequence
+         :prepare-launch
+         (lambda (working-dir command)
+           (let* ((mcp-launch
+                   (ai-code-mcp-agent-prepare-launch 'github-copilot-cli
+                                                     working-dir
+                                                     command))
+                  (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
+             (list
+              :command (plist-get mcp-launch :command)
+              :cleanup-fn (plist-get mcp-launch :cleanup-fn)
+              :post-start-fn
+              (lambda (buffer process instance-name)
+                (with-current-buffer buffer
+                  (setq ai-code-backends-infra--sync-redraw-scrollback t)
+                  (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
+                    (setq-local ghostel-full-redraw t)))
+                (when mcp-post-start-fn
+                  (funcall mcp-post-start-fn buffer process instance-name)))))))
+   arg))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-switch-to-buffer (&optional force-prompt)
@@ -129,7 +121,8 @@ When FORCE-PROMPT is non-nil, prompt to select a session."
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-resume (&optional arg)
-  "Resume a previous GitHub Copilot CLI session."
+  "Resume a previous GitHub Copilot CLI session.
+Argument ARG is passed to the start command."
   (interactive "P")
   (let ((ai-code-github-copilot-cli-program-switches (append ai-code-github-copilot-cli-program-switches '("--resume"))))
     (ai-code-github-copilot-cli arg)

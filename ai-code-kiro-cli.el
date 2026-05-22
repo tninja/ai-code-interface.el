@@ -33,7 +33,7 @@
   :group 'ai-code-kiro-cli)
 
 (defcustom ai-code-kiro-cli-agent nil
-  "Agent/context profile to use. When nil, uses default agent."
+  "Agent/context profile to use.  When nil, use the default agent."
   :type '(choice (const :tag "Default" nil)
                  (string :tag "Agent name"))
   :group 'ai-code-kiro-cli)
@@ -65,25 +65,16 @@
 (defun ai-code-kiro-cli (&optional arg)
   "Start Kiro CLI chat session.
 With prefix ARG, prompt for CLI args using the current defaults
-(chat, agent, trust flags, and `ai-code-kiro-cli-program-switches')."
+including chat, agent, trust flags, and `ai-code-kiro-cli-program-switches'."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-kiro-cli-program
-                    (ai-code-kiro-cli--build-args)
-                    arg
-                    "Kiro"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-kiro-cli--processes
-     command
-     #'ai-code-kiro-cli-send-escape
-     nil
-     nil
-     ai-code-kiro-cli--session-prefix
-     nil)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-kiro-cli-program
+         :switches (ai-code-kiro-cli--build-args)
+         :label "Kiro"
+         :process-table ai-code-kiro-cli--processes
+         :session-prefix ai-code-kiro-cli--session-prefix
+         :escape-function #'ai-code-kiro-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-switch-to-buffer (&optional force-prompt)
@@ -118,7 +109,8 @@ When FORCE-PROMPT is non-nil, prompt to select a session."
 
 ;;;###autoload
 (defun ai-code-kiro-cli-resume (&optional arg)
-  "Resume a previous Kiro CLI session."
+  "Resume a previous Kiro CLI session.
+Argument ARG is passed to the start command."
   (interactive "P")
   (let ((ai-code-kiro-cli-program-switches (append ai-code-kiro-cli-program-switches '("--resume"))))
     (ai-code-kiro-cli arg)))

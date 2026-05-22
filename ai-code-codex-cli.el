@@ -37,34 +37,21 @@
 
 ;;;###autoload
 (defun ai-code-codex-cli (&optional arg)
-  "Start Codex (uses `ai-code-backends-infra' logic).
+  "Start Codex using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-codex-cli-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-codex-cli-program
-                    ai-code-codex-cli-program-switches
-                    arg
-                    "Codex"))
-         (command (plist-get resolved :command))
-         (mcp-launch (ai-code-mcp-agent-prepare-launch 'codex working-dir command))
-         (launch-command (or (plist-get mcp-launch :command) command))
-         (cleanup-fn (plist-get mcp-launch :cleanup-fn))
-         (post-start-fn (plist-get mcp-launch :post-start-fn)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-codex-cli--processes
-     launch-command
-     #'ai-code-codex-cli-send-escape
-     cleanup-fn
-     nil
-     ai-code-codex-cli--session-prefix
-     nil
-     nil
-     nil
-     post-start-fn)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-codex-cli-program
+         :switches ai-code-codex-cli-program-switches
+         :label "Codex"
+         :process-table ai-code-codex-cli--processes
+         :session-prefix ai-code-codex-cli--session-prefix
+         :escape-function #'ai-code-codex-cli-send-escape
+         :prepare-launch
+         (lambda (working-dir command)
+           (ai-code-mcp-agent-prepare-launch 'codex working-dir command)))
+   arg))
 
 ;;;###autoload
 (defun ai-code-codex-cli-switch-to-buffer (&optional force-prompt)
@@ -99,7 +86,8 @@ When FORCE-PROMPT is non-nil, prompt to select a session."
 
 ;;;###autoload
 (defun ai-code-codex-cli-resume (&optional arg)
-  "Resume a previous Codex CLI session."
+  "Resume a previous Codex CLI session.
+Argument ARG is passed to the start command."
   (interactive "P")
   (let ((ai-code-codex-cli-program-switches (append ai-code-codex-cli-program-switches '("resume"))))
     (ai-code-codex-cli arg)))

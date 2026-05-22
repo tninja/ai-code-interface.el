@@ -175,6 +175,56 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (should (equal (plist-get result :args) '("--resume")))
         (should (equal (plist-get result :command) "claude --resume"))))))
 
+(ert-deftest test-ai-code-backends-infra-start-cli-session-forwards-options ()
+  "Generic CLI startup should resolve and forward backend options."
+  (let ((process-table (make-hash-table :test 'equal))
+        (escape-fn (lambda () nil))
+        (cleanup-fn (lambda () nil))
+        (post-start-fn (lambda (_buffer _process _instance) nil))
+        captured)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda () "/project/"))
+              ((symbol-function 'ai-code-backends-infra--resolve-start-command)
+               (lambda (program switches arg prompt-label)
+                 (should (equal program "codex"))
+                 (should (equal switches '("--quiet")))
+                 (should (eq arg 'prefix-arg))
+                 (should (equal prompt-label "Codex"))
+                 '(:command "codex --quiet")))
+              ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
+               (lambda (&rest args)
+                 (setq captured args))))
+      (ai-code-backends-infra--start-cli-session
+       (list :program "codex"
+             :switches '("--quiet")
+             :label "Codex"
+             :process-table process-table
+             :session-prefix "codex"
+             :env-vars '("TERM_PROGRAM=vscode")
+             :multiline-input-sequence "\r\n"
+             :escape-function escape-fn
+             :prepare-launch
+             (lambda (working-dir command)
+               (should (equal working-dir "/project/"))
+               (should (equal command "codex --quiet"))
+               (list :command "env MCP=1 codex --quiet"
+                     :cleanup-fn cleanup-fn
+                     :post-start-fn post-start-fn)))
+       'prefix-arg))
+    (should (equal captured
+                   (list "/project/"
+                         nil
+                         process-table
+                         "env MCP=1 codex --quiet"
+                         escape-fn
+                         cleanup-fn
+                         nil
+                         "codex"
+                         nil
+                         '("TERM_PROGRAM=vscode")
+                         "\r\n"
+                         post-start-fn)))))
+
 (ert-deftest test-ai-code-backends-infra-buffer-user-visible-p ()
   "Return non-nil only when buffer has a visible window."
   (with-temp-buffer
@@ -2761,7 +2811,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
 ;;; --- session-working-directory delegation tests ---
 
 (ert-deftest test-ai-code-backends-infra-session-working-directory-falls-back-to-git-root ()
-  "session-working-directory should fall back to git root when project.el fails."
+  "Session working directory should fall back to git root when project.el fails."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir) nil))
@@ -2771,7 +2821,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
                      "/git/repo/")))))
 
 (ert-deftest test-ai-code-backends-infra-session-working-directory-returns-project-root ()
-  "session-working-directory should return project.el root when available."
+  "Session working directory should return project.el root when available."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir)

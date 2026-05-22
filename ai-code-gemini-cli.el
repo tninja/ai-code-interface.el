@@ -36,27 +36,18 @@
 
 ;;;###autoload
 (defun ai-code-gemini-cli (&optional arg)
-  "Start Gemini (uses `ai-code-backends-infra' logic).
+  "Start Gemini using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-gemini-cli-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-gemini-cli-program
-                    ai-code-gemini-cli-program-switches
-                    arg
-                    "Gemini"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-gemini-cli--processes
-     command
-     #'ai-code-gemini-cli-send-escape
-     nil
-     nil
-     ai-code-gemini-cli--session-prefix
-     nil)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-gemini-cli-program
+         :switches ai-code-gemini-cli-program-switches
+         :label "Gemini"
+         :process-table ai-code-gemini-cli--processes
+         :session-prefix ai-code-gemini-cli--session-prefix
+         :escape-function #'ai-code-gemini-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-switch-to-buffer (&optional force-prompt)
@@ -91,7 +82,8 @@ When FORCE-PROMPT is non-nil, prompt to select a session."
 
 ;;;###autoload
 (defun ai-code-gemini-cli-resume (&optional arg)
-  "Resume a previous Gemini CLI session."
+  "Resume a previous Gemini CLI session.
+Argument ARG is passed to the start command."
   (interactive "P")
   (let ((ai-code-gemini-cli-program-switches (append ai-code-gemini-cli-program-switches '("--resume"))))
     (ai-code-gemini-cli arg)))

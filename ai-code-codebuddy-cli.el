@@ -36,27 +36,18 @@
 
 ;;;###autoload
 (defun ai-code-codebuddy-cli (&optional arg)
-  "Start CodeBuddy (uses `ai-code-backends-infra' logic).
+  "Start CodeBuddy using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-codebuddy-cli-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-codebuddy-cli-program
-                    ai-code-codebuddy-cli-program-switches
-                    arg
-                    "CodeBuddy"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-codebuddy-cli--processes
-     command
-     #'ai-code-codebuddy-cli-send-escape
-     nil
-     nil
-     ai-code-codebuddy-cli--session-prefix
-     nil)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-codebuddy-cli-program
+         :switches ai-code-codebuddy-cli-program-switches
+         :label "CodeBuddy"
+         :process-table ai-code-codebuddy-cli--processes
+         :session-prefix ai-code-codebuddy-cli--session-prefix
+         :escape-function #'ai-code-codebuddy-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-codebuddy-cli-switch-to-buffer (&optional force-prompt)
