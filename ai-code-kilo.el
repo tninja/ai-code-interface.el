@@ -50,28 +50,18 @@ buffer so that terminal scrollback is partially preserved."
 
 ;;;###autoload
 (defun ai-code-kilo (&optional arg)
-  "Start Kilo (uses `ai-code-backends-infra' logic).
+  "Start Kilo using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-kilo-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-kilo-program
-                    ai-code-kilo-program-switches
-                    arg
-                    "Kilo"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-kilo--processes
-     command
-     nil
-     nil
-     nil
-     ai-code-kilo--session-prefix
-     nil
-     ai-code-kilo-extra-env-vars)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-kilo-program
+         :switches ai-code-kilo-program-switches
+         :label "Kilo"
+         :process-table ai-code-kilo--processes
+         :session-prefix ai-code-kilo--session-prefix
+         :env-vars ai-code-kilo-extra-env-vars)
+   arg))
 
 ;;;###autoload
 (defun ai-code-kilo-switch-to-buffer (&optional force-prompt)

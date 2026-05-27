@@ -57,59 +57,43 @@ This mirrors the newline sequence Claude Code expects from `/terminal-setup'."
 
 ;;;###autoload
 (defun ai-code-claude-code (&optional arg)
-  "Start Claude Code (uses `ai-code-backends-infra' logic).
+  "Start Claude Code using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-claude-code-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-claude-code-program
-                    ai-code-claude-code-program-switches
-                    arg
-                    "Claude Code"))
-         (command (plist-get resolved :command))
-         (mcp-launch (ai-code-mcp-agent-prepare-launch 'claude-code working-dir command))
-         (launch-command (or (plist-get mcp-launch :command) command))
-         (cleanup-fn (plist-get mcp-launch :cleanup-fn))
-         (mcp-post-start-fn (plist-get mcp-launch :post-start-fn))
-         ;; Wrap post-start-fn to configure per-backend rendering.
-         ;;
-         ;; - vterm: Enable strip-alternate-screen (with throttling).
-         ;;   libvterm's alternate screen has no scrollback ring, so
-         ;;   stripping \e[?1049h/l keeps content in the normal buffer.
-         ;; - eat: Disable strip-alternate-screen.  eat natively saves
-         ;;   the buffer on alternate-screen entry and restores on exit.
-         ;; - ghostel: Disable strip-alternate-screen (libghostty handles
-         ;;   VT sequences correctly).  Enable full-redraw mode because
-         ;;   ghostel's incremental renderer cannot track Claude Code's
-         ;;   aggressive partial screen updates, causing duplicate frames.
-         (post-start-fn
-          (lambda (buffer process instance-name)
-            (with-current-buffer buffer
-              (if (eq ai-code-backends-infra-terminal-backend 'vterm)
-                  (setq-local ai-code-backends-infra-strip-alternate-screen t)
-                (setq-local ai-code-backends-infra-strip-alternate-screen nil))
-              (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
-                (setq-local ghostel-full-redraw t)))
-            (when mcp-post-start-fn
-              (funcall mcp-post-start-fn buffer process instance-name))))
-         (env-vars (append (list "TERM_PROGRAM=emacs"
-                                "FORCE_CODE_TERMINAL=true")
-                          (when ai-code-claude-code-no-flicker
-                            (list "CLAUDE_CODE_NO_FLICKER=1")))))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-claude-code--processes
-     launch-command
-     #'ai-code-claude-code-send-escape
-     cleanup-fn
-     nil
-     ai-code-claude-code--session-prefix
-     nil
-     env-vars
-     ai-code-claude-code-multiline-input-sequence
-     post-start-fn)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-claude-code-program
+         :switches ai-code-claude-code-program-switches
+         :label "Claude Code"
+         :process-table ai-code-claude-code--processes
+         :session-prefix ai-code-claude-code--session-prefix
+         :escape-function #'ai-code-claude-code-send-escape
+         :env-vars (append (list "TERM_PROGRAM=emacs"
+                                 "FORCE_CODE_TERMINAL=true")
+                           (when ai-code-claude-code-no-flicker
+                             (list "CLAUDE_CODE_NO_FLICKER=1")))
+         :multiline-input-sequence ai-code-claude-code-multiline-input-sequence
+         :prepare-launch
+         (lambda (working-dir command)
+           (let* ((mcp-launch
+                   (ai-code-mcp-agent-prepare-launch 'claude-code
+                                                     working-dir
+                                                     command))
+                  (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
+             (list
+              :command (plist-get mcp-launch :command)
+              :cleanup-fn (plist-get mcp-launch :cleanup-fn)
+              :post-start-fn
+              (lambda (buffer process instance-name)
+                (with-current-buffer buffer
+                  (if (eq ai-code-backends-infra-terminal-backend 'vterm)
+                      (setq-local ai-code-backends-infra-strip-alternate-screen t)
+                    (setq-local ai-code-backends-infra-strip-alternate-screen nil))
+                  (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
+                    (setq-local ghostel-full-redraw t)))
+                (when mcp-post-start-fn
+                  (funcall mcp-post-start-fn buffer process instance-name)))))))
+   arg))
 
 ;;;###autoload
 (defun ai-code-claude-code-switch-to-buffer (&optional force-prompt)

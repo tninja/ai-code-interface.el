@@ -49,28 +49,18 @@ buffer so that terminal scrollback is partially preserved."
 
 ;;;###autoload
 (defun ai-code-opencode (&optional arg)
-  "Start Opencode (uses `ai-code-backends-infra' logic).
+  "Start Opencode using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
 `ai-code-opencode-program-switches' as the default input."
   (interactive "P")
-  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-         (resolved (ai-code-backends-infra--resolve-start-command
-                    ai-code-opencode-program
-                    ai-code-opencode-program-switches
-                    arg
-                    "Opencode"))
-         (command (plist-get resolved :command)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     ai-code-opencode--processes
-     command
-     nil
-     nil
-     nil
-     ai-code-opencode--session-prefix
-     nil
-     ai-code-opencode-extra-env-vars)))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-opencode-program
+         :switches ai-code-opencode-program-switches
+         :label "Opencode"
+         :process-table ai-code-opencode--processes
+         :session-prefix ai-code-opencode--session-prefix
+         :env-vars ai-code-opencode-extra-env-vars)
+   arg))
 
 ;;;###autoload
 (defun ai-code-opencode-switch-to-buffer (&optional force-prompt)
@@ -103,11 +93,11 @@ When called interactively, prompts for the command."
   "Resume a previous Opencode session.
 
 This command starts Opencode with the --resume flag to resume
-a specific past session. The CLI will present an interactive list of past
+a specific past session.  The CLI will present an interactive list of past
 sessions to choose from.
 
 If current buffer belongs to a project, start in the project's root
-directory. Otherwise start in the directory of the current buffer file,
+directory.  Otherwise start in the directory of the current buffer file,
 or the current value of `default-directory' if no project and no buffer file.
 
 With double prefix ARG (\\[universal-argument] \\[universal-argument]),

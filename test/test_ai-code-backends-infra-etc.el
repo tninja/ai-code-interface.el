@@ -21,7 +21,7 @@
              "^(require 'ai-code-backends-infra-etc)" nil t))))
 
 (ert-deftest test-ai-code-backends-infra-etc-configure-session-buffer-binds-resize-keys ()
-  "Session buffer configuration should bind C-. and C-, for panel resizing."
+  "Session buffer configuration should bind C-.  and C-, for panel resizing."
   (let ((buffer (generate-new-buffer "*ai-code-etc-bindings*")))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-session-link--linkify-session-region)
@@ -66,7 +66,7 @@
         (kill-buffer target-buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-etc-shrink-panel-decreases-height-for-horizontal-side ()
-  "Shrink command should decrease height by step and sync terminal dimensions." 
+  "Shrink command should decrease height by step and sync terminal dimensions."
   (let ((ai-code-backends-infra-window-width 90)
         (ai-code-backends-infra-window-height 20)
         (ai-code-backends-infra-etc-resize-step 10)
@@ -81,7 +81,7 @@
                    (lambda (_window parameter)
                      (when (eq parameter 'window-side) 'bottom)))
                   ((symbol-function 'window-body-height)
-                   (lambda (_window) 20))
+                   (lambda (_window &optional _pixelwise) 20))
                   ((symbol-function 'window-buffer)
                    (lambda (_window) target-buffer))
                   ((symbol-function 'window-resize)
