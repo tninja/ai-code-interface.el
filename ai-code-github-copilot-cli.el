@@ -79,6 +79,8 @@ With prefix ARG, prompt for CLI args using
               :command (plist-get mcp-launch :command)
               :cleanup-fn (plist-get mcp-launch :cleanup-fn)
               :post-start-fn
+              ;; Copilot redraws via alternate-screen sequences, so keep the
+              ;; scrollback injection hook before attaching MCP session metadata.
               (lambda (buffer process instance-name)
                 (with-current-buffer buffer
                   (setq ai-code-backends-infra--sync-redraw-scrollback t)

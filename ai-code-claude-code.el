@@ -84,6 +84,8 @@ With prefix ARG, prompt for CLI args using
               :command (plist-get mcp-launch :command)
               :cleanup-fn (plist-get mcp-launch :cleanup-fn)
               :post-start-fn
+              ;; Preserve backend-specific rendering behavior while letting MCP
+              ;; attach its own session metadata after the terminal is created.
               (lambda (buffer process instance-name)
                 (with-current-buffer buffer
                   (if (eq ai-code-backends-infra-terminal-backend 'vterm)
