@@ -40,14 +40,14 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-gemini-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-gemini-cli-program
-   ai-code-gemini-cli-program-switches
-   "Gemini"
-   ai-code-gemini-cli--processes
-   ai-code-gemini-cli--session-prefix
-   arg
-   #'ai-code-gemini-cli-send-escape))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-gemini-cli-program
+         :switches ai-code-gemini-cli-program-switches
+         :label "Gemini"
+         :process-table ai-code-gemini-cli--processes
+         :session-prefix ai-code-gemini-cli--session-prefix
+         :escape-function #'ai-code-gemini-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-switch-to-buffer (&optional force-prompt)

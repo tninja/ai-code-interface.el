@@ -39,12 +39,12 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-grok-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-grok-cli-program
-   ai-code-grok-cli-program-switches
-   "Grok"
-   ai-code-grok-cli--processes
-   ai-code-grok-cli--session-prefix
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-grok-cli-program
+         :switches ai-code-grok-cli-program-switches
+         :label "Grok"
+         :process-table ai-code-grok-cli--processes
+         :session-prefix ai-code-grok-cli--session-prefix)
    arg))
 
 ;;;###autoload

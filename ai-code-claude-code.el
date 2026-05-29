@@ -61,40 +61,41 @@ This mirrors the newline sequence Claude Code expects from `/terminal-setup'."
 With prefix ARG, prompt for CLI args using
 `ai-code-claude-code-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-claude-code-program
-   ai-code-claude-code-program-switches
-   "Claude Code"
-   ai-code-claude-code--processes
-   ai-code-claude-code--session-prefix
-   arg
-   #'ai-code-claude-code-send-escape
-   (append (list "TERM_PROGRAM=emacs"
-                 "FORCE_CODE_TERMINAL=true")
-           (when ai-code-claude-code-no-flicker
-             (list "CLAUDE_CODE_NO_FLICKER=1")))
-   ai-code-claude-code-multiline-input-sequence
-   (lambda (working-dir command)
-     (let* ((mcp-launch
-             (ai-code-mcp-agent-prepare-launch 'claude-code
-                                               working-dir
-                                               command))
-            (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
-       (list
-        :command (plist-get mcp-launch :command)
-        :cleanup-fn (plist-get mcp-launch :cleanup-fn)
-        :post-start-fn
-        ;; Preserve backend-specific rendering behavior while letting MCP
-        ;; attach its own session metadata after the terminal is created.
-        (lambda (buffer process instance-name)
-          (with-current-buffer buffer
-            (if (eq ai-code-backends-infra-terminal-backend 'vterm)
-                (setq-local ai-code-backends-infra-strip-alternate-screen t)
-              (setq-local ai-code-backends-infra-strip-alternate-screen nil))
-            (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
-              (setq-local ghostel-full-redraw t)))
-          (when mcp-post-start-fn
-            (funcall mcp-post-start-fn buffer process instance-name))))))))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-claude-code-program
+         :switches ai-code-claude-code-program-switches
+         :label "Claude Code"
+         :process-table ai-code-claude-code--processes
+         :session-prefix ai-code-claude-code--session-prefix
+         :escape-function #'ai-code-claude-code-send-escape
+         :env-vars (append (list "TERM_PROGRAM=emacs"
+                                 "FORCE_CODE_TERMINAL=true")
+                           (when ai-code-claude-code-no-flicker
+                             (list "CLAUDE_CODE_NO_FLICKER=1")))
+         :multiline-input-sequence ai-code-claude-code-multiline-input-sequence
+         :prepare-launch
+         (lambda (working-dir command)
+           (let* ((mcp-launch
+                   (ai-code-mcp-agent-prepare-launch 'claude-code
+                                                     working-dir
+                                                     command))
+                  (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
+             (list
+              :command (plist-get mcp-launch :command)
+              :cleanup-fn (plist-get mcp-launch :cleanup-fn)
+              :post-start-fn
+              ;; Preserve backend-specific rendering behavior while letting MCP
+              ;; attach its own session metadata after the terminal is created.
+              (lambda (buffer process instance-name)
+                (with-current-buffer buffer
+                  (if (eq ai-code-backends-infra-terminal-backend 'vterm)
+                      (setq-local ai-code-backends-infra-strip-alternate-screen t)
+                    (setq-local ai-code-backends-infra-strip-alternate-screen nil))
+                  (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
+                    (setq-local ghostel-full-redraw t)))
+                (when mcp-post-start-fn
+                  (funcall mcp-post-start-fn buffer process instance-name)))))))
+   arg))
 
 ;;;###autoload
 (defun ai-code-claude-code-switch-to-buffer (&optional force-prompt)

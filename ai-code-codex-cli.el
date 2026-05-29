@@ -41,18 +41,17 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-codex-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-codex-cli-program
-   ai-code-codex-cli-program-switches
-   "Codex"
-   ai-code-codex-cli--processes
-   ai-code-codex-cli--session-prefix
-   arg
-   #'ai-code-codex-cli-send-escape
-   nil
-   nil
-   (lambda (working-dir command)
-     (ai-code-mcp-agent-prepare-launch 'codex working-dir command))))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-codex-cli-program
+         :switches ai-code-codex-cli-program-switches
+         :label "Codex"
+         :process-table ai-code-codex-cli--processes
+         :session-prefix ai-code-codex-cli--session-prefix
+         :escape-function #'ai-code-codex-cli-send-escape
+         :prepare-launch
+         (lambda (working-dir command)
+           (ai-code-mcp-agent-prepare-launch 'codex working-dir command)))
+   arg))
 
 ;;;###autoload
 (defun ai-code-codex-cli-switch-to-buffer (&optional force-prompt)

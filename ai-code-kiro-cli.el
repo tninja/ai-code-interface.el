@@ -67,14 +67,14 @@
 With prefix ARG, prompt for CLI args using the current defaults
 including chat, agent, trust flags, and `ai-code-kiro-cli-program-switches'."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-kiro-cli-program
-   (ai-code-kiro-cli--build-args)
-   "Kiro"
-   ai-code-kiro-cli--processes
-   ai-code-kiro-cli--session-prefix
-   arg
-   #'ai-code-kiro-cli-send-escape))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-kiro-cli-program
+         :switches (ai-code-kiro-cli--build-args)
+         :label "Kiro"
+         :process-table ai-code-kiro-cli--processes
+         :session-prefix ai-code-kiro-cli--session-prefix
+         :escape-function #'ai-code-kiro-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-switch-to-buffer (&optional force-prompt)

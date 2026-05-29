@@ -58,35 +58,37 @@ that `/terminal-setup' installs for Shift+Enter and Ctrl+Enter."
 With prefix ARG, prompt for CLI args using
 `ai-code-github-copilot-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-github-copilot-cli-program
-   ai-code-github-copilot-cli-program-switches
-   "Copilot"
-   ai-code-github-copilot-cli--processes
-   ai-code-github-copilot-cli--session-prefix
-   arg
-   #'ai-code-github-copilot-cli-send-escape
-   ai-code-github-copilot-cli-extra-env-vars
-   ai-code-github-copilot-cli-multiline-input-sequence
-   (lambda (working-dir command)
-     (let* ((mcp-launch
-             (ai-code-mcp-agent-prepare-launch 'github-copilot-cli
-                                               working-dir
-                                               command))
-            (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
-       (list
-        :command (plist-get mcp-launch :command)
-        :cleanup-fn (plist-get mcp-launch :cleanup-fn)
-        :post-start-fn
-        ;; Copilot redraws via alternate-screen sequences, so keep the
-        ;; scrollback injection hook before attaching MCP session metadata.
-        (lambda (buffer process instance-name)
-          (with-current-buffer buffer
-            (setq ai-code-backends-infra--sync-redraw-scrollback t)
-            (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
-              (setq-local ghostel-full-redraw t)))
-          (when mcp-post-start-fn
-            (funcall mcp-post-start-fn buffer process instance-name))))))))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-github-copilot-cli-program
+         :switches ai-code-github-copilot-cli-program-switches
+         :label "Copilot"
+         :process-table ai-code-github-copilot-cli--processes
+         :session-prefix ai-code-github-copilot-cli--session-prefix
+         :escape-function #'ai-code-github-copilot-cli-send-escape
+         :env-vars ai-code-github-copilot-cli-extra-env-vars
+         :multiline-input-sequence
+         ai-code-github-copilot-cli-multiline-input-sequence
+         :prepare-launch
+         (lambda (working-dir command)
+           (let* ((mcp-launch
+                   (ai-code-mcp-agent-prepare-launch 'github-copilot-cli
+                                                     working-dir
+                                                     command))
+                  (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
+             (list
+              :command (plist-get mcp-launch :command)
+              :cleanup-fn (plist-get mcp-launch :cleanup-fn)
+              :post-start-fn
+              ;; Copilot redraws via alternate-screen sequences, so keep the
+              ;; scrollback injection hook before attaching MCP session metadata.
+              (lambda (buffer process instance-name)
+                (with-current-buffer buffer
+                  (setq ai-code-backends-infra--sync-redraw-scrollback t)
+                  (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
+                    (setq-local ghostel-full-redraw t)))
+                (when mcp-post-start-fn
+                  (funcall mcp-post-start-fn buffer process instance-name)))))))
+   arg))
 
 ;;;###autoload
 (defun ai-code-github-copilot-cli-switch-to-buffer (&optional force-prompt)

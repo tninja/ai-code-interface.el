@@ -40,14 +40,14 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-antigravity-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-antigravity-cli-program
-   ai-code-antigravity-cli-program-switches
-   "Antigravity"
-   ai-code-antigravity-cli--processes
-   ai-code-antigravity-cli--session-prefix
-   arg
-   #'ai-code-antigravity-cli-send-escape))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-antigravity-cli-program
+         :switches ai-code-antigravity-cli-program-switches
+         :label "Antigravity"
+         :process-table ai-code-antigravity-cli--processes
+         :session-prefix ai-code-antigravity-cli--session-prefix
+         :escape-function #'ai-code-antigravity-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-antigravity-cli-switch-to-buffer (&optional force-prompt)

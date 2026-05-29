@@ -40,14 +40,14 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-codebuddy-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-codebuddy-cli-program
-   ai-code-codebuddy-cli-program-switches
-   "CodeBuddy"
-   ai-code-codebuddy-cli--processes
-   ai-code-codebuddy-cli--session-prefix
-   arg
-   #'ai-code-codebuddy-cli-send-escape))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-codebuddy-cli-program
+         :switches ai-code-codebuddy-cli-program-switches
+         :label "CodeBuddy"
+         :process-table ai-code-codebuddy-cli--processes
+         :session-prefix ai-code-codebuddy-cli--session-prefix
+         :escape-function #'ai-code-codebuddy-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-codebuddy-cli-switch-to-buffer (&optional force-prompt)

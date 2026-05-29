@@ -40,14 +40,14 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-aider-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-aider-cli-program
-   ai-code-aider-cli-program-switches
-   "Aider"
-   ai-code-aider-cli--processes
-   ai-code-aider-cli--session-prefix
-   arg
-   #'ai-code-aider-cli-send-escape))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-aider-cli-program
+         :switches ai-code-aider-cli-program-switches
+         :label "Aider"
+         :process-table ai-code-aider-cli--processes
+         :session-prefix ai-code-aider-cli--session-prefix
+         :escape-function #'ai-code-aider-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-aider-cli-switch-to-buffer (&optional force-prompt)

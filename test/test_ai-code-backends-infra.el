@@ -225,33 +225,6 @@ The result is a cons of whether SYMBOL is bound and its default value."
                          "\r\n"
                          post-start-fn)))))
 
-(ert-deftest test-ai-code-backends-infra-cli-start-builds-options ()
-  "CLI wrapper startup should build and forward generic session options."
-  (let ((process-table (make-hash-table :test 'equal))
-        (escape-fn (lambda () nil))
-        (prepare-launch (lambda (_working-dir _command) nil))
-        captured-options
-        captured-arg)
-    (cl-letf (((symbol-function 'ai-code-backends-infra--start-cli-session)
-               (lambda (options arg)
-                 (setq captured-options options
-                       captured-arg arg))))
-      (ai-code-backends-infra--cli-start
-       "codex" '("--quiet") "Codex" process-table "codex"
-       'prefix-arg escape-fn '("TERM_PROGRAM=vscode") "\r\n" prepare-launch))
-    (should (eq captured-arg 'prefix-arg))
-    (should (equal (plist-get captured-options :program) "codex"))
-    (should (equal (plist-get captured-options :switches) '("--quiet")))
-    (should (equal (plist-get captured-options :label) "Codex"))
-    (should (eq (plist-get captured-options :process-table) process-table))
-    (should (equal (plist-get captured-options :session-prefix) "codex"))
-    (should (eq (plist-get captured-options :escape-function) escape-fn))
-    (should (equal (plist-get captured-options :env-vars)
-                   '("TERM_PROGRAM=vscode")))
-    (should (equal (plist-get captured-options :multiline-input-sequence)
-                   "\r\n"))
-    (should (eq (plist-get captured-options :prepare-launch) prepare-launch))))
-
 (ert-deftest test-ai-code-backends-infra-cli-switch-and-send-use-project-session ()
   "CLI wrapper switch and send helpers should resolve project sessions."
   (let (switch-args

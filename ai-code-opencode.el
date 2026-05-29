@@ -53,15 +53,14 @@ buffer so that terminal scrollback is partially preserved."
 With prefix ARG, prompt for CLI args using
 `ai-code-opencode-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-opencode-program
-   ai-code-opencode-program-switches
-   "Opencode"
-   ai-code-opencode--processes
-   ai-code-opencode--session-prefix
-   arg
-   nil
-   ai-code-opencode-extra-env-vars))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-opencode-program
+         :switches ai-code-opencode-program-switches
+         :label "Opencode"
+         :process-table ai-code-opencode--processes
+         :session-prefix ai-code-opencode--session-prefix
+         :env-vars ai-code-opencode-extra-env-vars)
+   arg))
 
 ;;;###autoload
 (defun ai-code-opencode-switch-to-buffer (&optional force-prompt)

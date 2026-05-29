@@ -40,14 +40,14 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-cursor-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-cursor-cli-program
-   ai-code-cursor-cli-program-switches
-   "Cursor"
-   ai-code-cursor-cli--processes
-   ai-code-cursor-cli--session-prefix
-   arg
-   #'ai-code-cursor-cli-send-escape))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-cursor-cli-program
+         :switches ai-code-cursor-cli-program-switches
+         :label "Cursor"
+         :process-table ai-code-cursor-cli--processes
+         :session-prefix ai-code-cursor-cli--session-prefix
+         :escape-function #'ai-code-cursor-cli-send-escape)
+   arg))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-switch-to-buffer (&optional force-prompt)

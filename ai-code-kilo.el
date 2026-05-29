@@ -54,15 +54,14 @@ buffer so that terminal scrollback is partially preserved."
 With prefix ARG, prompt for CLI args using
 `ai-code-kilo-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--cli-start
-   ai-code-kilo-program
-   ai-code-kilo-program-switches
-   "Kilo"
-   ai-code-kilo--processes
-   ai-code-kilo--session-prefix
-   arg
-   nil
-   ai-code-kilo-extra-env-vars))
+  (ai-code-backends-infra--start-cli-session
+   (list :program ai-code-kilo-program
+         :switches ai-code-kilo-program-switches
+         :label "Kilo"
+         :process-table ai-code-kilo--processes
+         :session-prefix ai-code-kilo--session-prefix
+         :env-vars ai-code-kilo-extra-env-vars)
+   arg))
 
 ;;;###autoload
 (defun ai-code-kilo-switch-to-buffer (&optional force-prompt)
