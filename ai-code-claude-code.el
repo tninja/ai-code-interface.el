@@ -61,66 +61,55 @@ This mirrors the newline sequence Claude Code expects from `/terminal-setup'."
 With prefix ARG, prompt for CLI args using
 `ai-code-claude-code-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-claude-code-program
-         :switches ai-code-claude-code-program-switches
-         :label "Claude Code"
-         :process-table ai-code-claude-code--processes
-         :session-prefix ai-code-claude-code--session-prefix
-         :escape-function #'ai-code-claude-code-send-escape
-         :env-vars (append (list "TERM_PROGRAM=emacs"
-                                 "FORCE_CODE_TERMINAL=true")
-                           (when ai-code-claude-code-no-flicker
-                             (list "CLAUDE_CODE_NO_FLICKER=1")))
-         :multiline-input-sequence ai-code-claude-code-multiline-input-sequence
-         :prepare-launch
-         (lambda (working-dir command)
-           (let* ((mcp-launch
-                   (ai-code-mcp-agent-prepare-launch 'claude-code
-                                                     working-dir
-                                                     command))
-                  (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
-             (list
-              :command (plist-get mcp-launch :command)
-              :cleanup-fn (plist-get mcp-launch :cleanup-fn)
-              :post-start-fn
-              ;; Preserve backend-specific rendering behavior while letting MCP
-              ;; attach its own session metadata after the terminal is created.
-              (lambda (buffer process instance-name)
-                (with-current-buffer buffer
-                  (if (eq ai-code-backends-infra-terminal-backend 'vterm)
-                      (setq-local ai-code-backends-infra-strip-alternate-screen t)
-                    (setq-local ai-code-backends-infra-strip-alternate-screen nil))
-                  (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
-                    (setq-local ghostel-full-redraw t)))
-                (when mcp-post-start-fn
-                  (funcall mcp-post-start-fn buffer process instance-name)))))))
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-claude-code-program
+   ai-code-claude-code-program-switches
+   "Claude Code"
+   ai-code-claude-code--processes
+   ai-code-claude-code--session-prefix
+   arg
+   #'ai-code-claude-code-send-escape
+   (append (list "TERM_PROGRAM=emacs"
+                 "FORCE_CODE_TERMINAL=true")
+           (when ai-code-claude-code-no-flicker
+             (list "CLAUDE_CODE_NO_FLICKER=1")))
+   ai-code-claude-code-multiline-input-sequence
+   (lambda (working-dir command)
+     (let* ((mcp-launch
+             (ai-code-mcp-agent-prepare-launch 'claude-code
+                                               working-dir
+                                               command))
+            (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
+       (list
+        :command (plist-get mcp-launch :command)
+        :cleanup-fn (plist-get mcp-launch :cleanup-fn)
+        :post-start-fn
+        ;; Preserve backend-specific rendering behavior while letting MCP
+        ;; attach its own session metadata after the terminal is created.
+        (lambda (buffer process instance-name)
+          (with-current-buffer buffer
+            (if (eq ai-code-backends-infra-terminal-backend 'vterm)
+                (setq-local ai-code-backends-infra-strip-alternate-screen t)
+              (setq-local ai-code-backends-infra-strip-alternate-screen nil))
+            (when (eq ai-code-backends-infra-terminal-backend 'ghostel)
+              (setq-local ghostel-full-redraw t)))
+          (when mcp-post-start-fn
+            (funcall mcp-post-start-fn buffer process instance-name))))))))
 
 ;;;###autoload
 (defun ai-code-claude-code-switch-to-buffer (&optional force-prompt)
   "Switch to the Claude Code CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Claude Code session for this project"
-     ai-code-claude-code--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Claude Code" ai-code-claude-code--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-claude-code-send-command (line)
   "Send LINE to Claude Code CLI."
   (interactive "sClaude Code> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Claude Code session for this project"
-     line
-     ai-code-claude-code--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Claude Code" ai-code-claude-code--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-claude-code-send-escape ()

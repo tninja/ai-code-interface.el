@@ -1211,6 +1211,65 @@ When :prepare-launch is present, it may return :command, :cleanup-fn, and
      (plist-get options :multiline-input-sequence)
      post-start-fn)))
 
+(defun ai-code-backends-infra--cli-start (program switches label process-table
+                                                  session-prefix arg
+                                                  &optional escape-function
+                                                  env-vars
+                                                  multiline-input-sequence
+                                                  prepare-launch)
+  "Start a CLI backend with common wrapper arguments.
+PROGRAM, SWITCHES, LABEL, PROCESS-TABLE, SESSION-PREFIX, and ARG describe
+the backend and are forwarded to `ai-code-backends-infra--start-cli-session'.
+ESCAPE-FUNCTION, ENV-VARS, MULTILINE-INPUT-SEQUENCE, and PREPARE-LAUNCH
+are optional backend-specific session options."
+  (ai-code-backends-infra--start-cli-session
+   (list :program program
+         :switches switches
+         :label label
+         :process-table process-table
+         :session-prefix session-prefix
+         :escape-function escape-function
+         :env-vars env-vars
+         :multiline-input-sequence multiline-input-sequence
+         :prepare-launch prepare-launch)
+   arg))
+
+(defun ai-code-backends-infra--cli-switch-to-buffer (label session-prefix force-prompt)
+  "Switch to a CLI backend session.
+LABEL is used in the missing-session message.  SESSION-PREFIX identifies
+the backend session group.  FORCE-PROMPT prompts for a session when non-nil."
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
+    (ai-code-backends-infra--switch-to-session-buffer
+     nil
+     (format "No %s session for this project" label)
+     session-prefix
+     working-dir
+     force-prompt)))
+
+(defun ai-code-backends-infra--cli-send-command (label session-prefix line)
+  "Send LINE to a CLI backend session.
+LABEL is used in the missing-session message.  SESSION-PREFIX identifies
+the backend session group."
+  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
+    (ai-code-backends-infra--send-line-to-session
+     nil
+     (format "No %s session for this project" label)
+     line
+     session-prefix
+     working-dir)))
+
+(defun ai-code-backends-infra--cli-show-resume-picker (session-prefix)
+  "Poke the resumed SESSION-PREFIX buffer so the CLI picker is shown."
+  (let* ((working-dir (ai-code-backends-infra--session-working-directory))
+         (buffer (ai-code-backends-infra--select-session-buffer
+                  session-prefix
+                  working-dir)))
+    (when buffer
+      (with-current-buffer buffer
+        (sit-for 0.5)
+        (ai-code-backends-infra--terminal-send-string "")
+        (goto-char (point-min))))))
+
 (defun ai-code-backends-infra--prepare-session-request (working-dir buffer-name
                                                                     process-table
                                                                     prefix instance-name

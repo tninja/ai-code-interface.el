@@ -40,39 +40,29 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-cursor-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-cursor-cli-program
-         :switches ai-code-cursor-cli-program-switches
-         :label "Cursor"
-         :process-table ai-code-cursor-cli--processes
-         :session-prefix ai-code-cursor-cli--session-prefix
-         :escape-function #'ai-code-cursor-cli-send-escape)
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-cursor-cli-program
+   ai-code-cursor-cli-program-switches
+   "Cursor"
+   ai-code-cursor-cli--processes
+   ai-code-cursor-cli--session-prefix
+   arg
+   #'ai-code-cursor-cli-send-escape))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-switch-to-buffer (&optional force-prompt)
   "Switch to the Cursor CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Cursor session for this project"
-     ai-code-cursor-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Cursor" ai-code-cursor-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-send-command (line)
   "Send LINE to Cursor CLI."
   (interactive "sCursor> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Cursor session for this project"
-     line
-     ai-code-cursor-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Cursor" ai-code-cursor-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-cursor-cli-send-escape ()
@@ -87,16 +77,8 @@ Argument ARG is passed to the start command."
   (interactive "P")
   (let ((ai-code-cursor-cli-program-switches (append ai-code-cursor-cli-program-switches '("resume"))))
     (ai-code-cursor-cli arg)
-    ;; Send empty string to trigger terminal processing and ensure CLI session picker appears
-    (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer (ai-code-backends-infra--select-session-buffer
-                    ai-code-cursor-cli--session-prefix
-                    working-dir)))
-      (when buffer
-        (with-current-buffer buffer
-          (sit-for 0.5)
-          (ai-code-backends-infra--terminal-send-string "")
-          (goto-char (point-min)))))))
+    (ai-code-backends-infra--cli-show-resume-picker
+     ai-code-cursor-cli--session-prefix)))
 
 (provide 'ai-code-cursor-cli)
 

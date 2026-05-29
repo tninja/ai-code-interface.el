@@ -40,39 +40,29 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-aider-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-aider-cli-program
-         :switches ai-code-aider-cli-program-switches
-         :label "Aider"
-         :process-table ai-code-aider-cli--processes
-         :session-prefix ai-code-aider-cli--session-prefix
-         :escape-function #'ai-code-aider-cli-send-escape)
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-aider-cli-program
+   ai-code-aider-cli-program-switches
+   "Aider"
+   ai-code-aider-cli--processes
+   ai-code-aider-cli--session-prefix
+   arg
+   #'ai-code-aider-cli-send-escape))
 
 ;;;###autoload
 (defun ai-code-aider-cli-switch-to-buffer (&optional force-prompt)
   "Switch to the Aider CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Aider session for this project"
-     ai-code-aider-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Aider" ai-code-aider-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-aider-cli-send-command (line)
   "Send LINE to Aider CLI."
   (interactive "sAider> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Aider session for this project"
-     line
-     ai-code-aider-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Aider" ai-code-aider-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-aider-cli-send-escape ()

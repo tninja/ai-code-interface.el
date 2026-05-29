@@ -54,40 +54,31 @@ buffer so that terminal scrollback is partially preserved."
 With prefix ARG, prompt for CLI args using
 `ai-code-kilo-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-kilo-program
-         :switches ai-code-kilo-program-switches
-         :label "Kilo"
-         :process-table ai-code-kilo--processes
-         :session-prefix ai-code-kilo--session-prefix
-         :env-vars ai-code-kilo-extra-env-vars)
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-kilo-program
+   ai-code-kilo-program-switches
+   "Kilo"
+   ai-code-kilo--processes
+   ai-code-kilo--session-prefix
+   arg
+   nil
+   ai-code-kilo-extra-env-vars))
 
 ;;;###autoload
 (defun ai-code-kilo-switch-to-buffer (&optional force-prompt)
   "Switch to the Kilo buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Kilo session for this project"
-     ai-code-kilo--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Kilo" ai-code-kilo--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-kilo-send-command (line)
   "Send LINE to Kilo.
 When called interactively, prompts for the command."
   (interactive "sKilo> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Kilo session for this project"
-     line
-     ai-code-kilo--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Kilo" ai-code-kilo--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-kilo-resume (&optional arg)
@@ -107,15 +98,8 @@ prompt for the project directory."
   (let ((ai-code-kilo-program-switches
          (append ai-code-kilo-program-switches '("--continue"))))
     (ai-code-kilo arg)
-    (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer (ai-code-backends-infra--select-session-buffer
-                    ai-code-kilo--session-prefix
-                    working-dir)))
-      (when buffer
-        (with-current-buffer buffer
-          (sit-for 0.5)
-          (ai-code-backends-infra--terminal-send-string "")
-          (goto-char (point-min)))))))
+    (ai-code-backends-infra--cli-show-resume-picker
+     ai-code-kilo--session-prefix)))
 
 (provide 'ai-code-kilo)
 

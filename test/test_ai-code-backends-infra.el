@@ -225,6 +225,81 @@ The result is a cons of whether SYMBOL is bound and its default value."
                          "\r\n"
                          post-start-fn)))))
 
+(ert-deftest test-ai-code-backends-infra-cli-start-builds-options ()
+  "CLI wrapper startup should build and forward generic session options."
+  (let ((process-table (make-hash-table :test 'equal))
+        (escape-fn (lambda () nil))
+        (prepare-launch (lambda (_working-dir _command) nil))
+        captured-options
+        captured-arg)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--start-cli-session)
+               (lambda (options arg)
+                 (setq captured-options options
+                       captured-arg arg))))
+      (ai-code-backends-infra--cli-start
+       "codex" '("--quiet") "Codex" process-table "codex"
+       'prefix-arg escape-fn '("TERM_PROGRAM=vscode") "\r\n" prepare-launch))
+    (should (eq captured-arg 'prefix-arg))
+    (should (equal (plist-get captured-options :program) "codex"))
+    (should (equal (plist-get captured-options :switches) '("--quiet")))
+    (should (equal (plist-get captured-options :label) "Codex"))
+    (should (eq (plist-get captured-options :process-table) process-table))
+    (should (equal (plist-get captured-options :session-prefix) "codex"))
+    (should (eq (plist-get captured-options :escape-function) escape-fn))
+    (should (equal (plist-get captured-options :env-vars)
+                   '("TERM_PROGRAM=vscode")))
+    (should (equal (plist-get captured-options :multiline-input-sequence)
+                   "\r\n"))
+    (should (eq (plist-get captured-options :prepare-launch) prepare-launch))))
+
+(ert-deftest test-ai-code-backends-infra-cli-switch-and-send-use-project-session ()
+  "CLI wrapper switch and send helpers should resolve project sessions."
+  (let (switch-args
+        send-args)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda () "/project/"))
+              ((symbol-function 'ai-code-backends-infra--switch-to-session-buffer)
+               (lambda (&rest args)
+                 (setq switch-args args)))
+              ((symbol-function 'ai-code-backends-infra--send-line-to-session)
+               (lambda (&rest args)
+                 (setq send-args args))))
+      (ai-code-backends-infra--cli-switch-to-buffer "Codex" "codex" 'force)
+      (ai-code-backends-infra--cli-send-command "Codex" "codex" "hello"))
+    (should (equal switch-args
+                   '(nil "No Codex session for this project"
+                         "codex" "/project/" force)))
+    (should (equal send-args
+                   '(nil "No Codex session for this project"
+                         "hello" "codex" "/project/")))))
+
+(ert-deftest test-ai-code-backends-infra-cli-show-resume-picker-pokes-buffer ()
+  "Resume picker helper should poke the selected session buffer."
+  (let ((buffer (generate-new-buffer "*codex[test]*"))
+        sent)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+                   (lambda () "/project/"))
+                  ((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                   (lambda (prefix working-dir)
+                     (should (equal prefix "codex"))
+                     (should (equal working-dir "/project/"))
+                     buffer))
+                  ((symbol-function 'sit-for)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                   (lambda (string)
+                     (setq sent string))))
+          (with-current-buffer buffer
+            (insert "prompt")
+            (goto-char (point-max)))
+          (ai-code-backends-infra--cli-show-resume-picker "codex")
+          (with-current-buffer buffer
+            (should (equal sent ""))
+            (should (= (point) (point-min)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-buffer-user-visible-p ()
   "Return non-nil only when buffer has a visible window."
   (with-temp-buffer

@@ -67,39 +67,29 @@
 With prefix ARG, prompt for CLI args using the current defaults
 including chat, agent, trust flags, and `ai-code-kiro-cli-program-switches'."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-kiro-cli-program
-         :switches (ai-code-kiro-cli--build-args)
-         :label "Kiro"
-         :process-table ai-code-kiro-cli--processes
-         :session-prefix ai-code-kiro-cli--session-prefix
-         :escape-function #'ai-code-kiro-cli-send-escape)
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-kiro-cli-program
+   (ai-code-kiro-cli--build-args)
+   "Kiro"
+   ai-code-kiro-cli--processes
+   ai-code-kiro-cli--session-prefix
+   arg
+   #'ai-code-kiro-cli-send-escape))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-switch-to-buffer (&optional force-prompt)
   "Switch to the Kiro CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Kiro session for this project"
-     ai-code-kiro-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Kiro" ai-code-kiro-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-send-command (line)
   "Send LINE to Kiro CLI."
   (interactive "sKiro> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Kiro session for this project"
-     line
-     ai-code-kiro-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Kiro" ai-code-kiro-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-send-escape ()

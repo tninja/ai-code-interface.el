@@ -40,39 +40,29 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-gemini-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-gemini-cli-program
-         :switches ai-code-gemini-cli-program-switches
-         :label "Gemini"
-         :process-table ai-code-gemini-cli--processes
-         :session-prefix ai-code-gemini-cli--session-prefix
-         :escape-function #'ai-code-gemini-cli-send-escape)
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-gemini-cli-program
+   ai-code-gemini-cli-program-switches
+   "Gemini"
+   ai-code-gemini-cli--processes
+   ai-code-gemini-cli--session-prefix
+   arg
+   #'ai-code-gemini-cli-send-escape))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-switch-to-buffer (&optional force-prompt)
   "Switch to the Gemini CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Gemini session for this project"
-     ai-code-gemini-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Gemini" ai-code-gemini-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-send-command (line)
   "Send LINE to Gemini CLI."
   (interactive "sGemini> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Gemini session for this project"
-     line
-     ai-code-gemini-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Gemini" ai-code-gemini-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-gemini-cli-send-escape ()

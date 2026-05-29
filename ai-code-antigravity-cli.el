@@ -40,39 +40,29 @@
 With prefix ARG, prompt for CLI args using
 `ai-code-antigravity-cli-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-antigravity-cli-program
-         :switches ai-code-antigravity-cli-program-switches
-         :label "Antigravity"
-         :process-table ai-code-antigravity-cli--processes
-         :session-prefix ai-code-antigravity-cli--session-prefix
-         :escape-function #'ai-code-antigravity-cli-send-escape)
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-antigravity-cli-program
+   ai-code-antigravity-cli-program-switches
+   "Antigravity"
+   ai-code-antigravity-cli--processes
+   ai-code-antigravity-cli--session-prefix
+   arg
+   #'ai-code-antigravity-cli-send-escape))
 
 ;;;###autoload
 (defun ai-code-antigravity-cli-switch-to-buffer (&optional force-prompt)
   "Switch to the Antigravity CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Antigravity session for this project"
-     ai-code-antigravity-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Antigravity" ai-code-antigravity-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-antigravity-cli-send-command (line)
   "Send LINE to Antigravity CLI."
   (interactive "sAntigravity> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Antigravity session for this project"
-     line
-     ai-code-antigravity-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Antigravity" ai-code-antigravity-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-antigravity-cli-send-escape ()

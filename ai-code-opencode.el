@@ -53,40 +53,31 @@ buffer so that terminal scrollback is partially preserved."
 With prefix ARG, prompt for CLI args using
 `ai-code-opencode-program-switches' as the default input."
   (interactive "P")
-  (ai-code-backends-infra--start-cli-session
-   (list :program ai-code-opencode-program
-         :switches ai-code-opencode-program-switches
-         :label "Opencode"
-         :process-table ai-code-opencode--processes
-         :session-prefix ai-code-opencode--session-prefix
-         :env-vars ai-code-opencode-extra-env-vars)
-   arg))
+  (ai-code-backends-infra--cli-start
+   ai-code-opencode-program
+   ai-code-opencode-program-switches
+   "Opencode"
+   ai-code-opencode--processes
+   ai-code-opencode--session-prefix
+   arg
+   nil
+   ai-code-opencode-extra-env-vars))
 
 ;;;###autoload
 (defun ai-code-opencode-switch-to-buffer (&optional force-prompt)
   "Switch to the Opencode buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Opencode session for this project"
-     ai-code-opencode--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Opencode" ai-code-opencode--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-opencode-send-command (line)
   "Send LINE to Opencode.
 When called interactively, prompts for the command."
   (interactive "sOpencode> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Opencode session for this project"
-     line
-     ai-code-opencode--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Opencode" ai-code-opencode--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-opencode-resume (&optional arg)
@@ -106,15 +97,8 @@ prompt for the project directory."
   (let ((ai-code-opencode-program-switches
          (append ai-code-opencode-program-switches '("--continue"))))
     (ai-code-opencode arg)
-    (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer (ai-code-backends-infra--select-session-buffer
-                    ai-code-opencode--session-prefix
-                    working-dir)))
-      (when buffer
-        (with-current-buffer buffer
-          (sit-for 0.5)
-          (ai-code-backends-infra--terminal-send-string "")
-          (goto-char (point-min)))))))
+    (ai-code-backends-infra--cli-show-resume-picker
+     ai-code-opencode--session-prefix)))
 
 (provide 'ai-code-opencode)
 
