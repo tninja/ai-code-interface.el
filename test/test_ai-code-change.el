@@ -727,6 +727,50 @@ is between the function definition and its body."
 
         (should (equal captured-default-action "Code change"))))))
 
+(ert-deftest ai-code-test-compose-code-change-brief-includes-contract-sections ()
+  "Test code-change brief composer emits the reliability contract sections."
+  (let ((brief (ai-code--compose-code-change-brief
+                :goal "Rename the helper"
+                :scope "Current file: test.el\nFunction: old-helper"
+                :context "Stored repository context:\n  - test.el#old-helper"
+                :boundaries "Only update the helper and direct call sites."
+                :clipboard-context "Prefer the existing naming pattern."
+                :code-change-note ai-code-change--generic-note)))
+    (should (string-match-p "Goal:\nRename the helper" brief))
+    (should (string-match-p "Scope:\nCurrent file: test\\.el" brief))
+    (should (string-match-p "Context:\nStored repository context" brief))
+    (should (string-match-p "Boundaries:\nOnly update the helper" brief))
+    (should (string-match-p "Agent responsibilities:" brief))
+    (should (string-match-p "run appropriate project verification" brief))
+    (should (string-match-p "Verification evidence:" brief))
+    (should (string-match-p "Note: Please make the code change" brief))))
+
+(ert-deftest ai-code-test-code-change-uses-structured-brief-for-regular-change ()
+  "Test `ai-code-code-change' sends a structured brief for normal code changes."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/test.el")
+    (insert "(defun old-helper ()\n  nil)\n")
+    (goto-char (point-min))
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+                ((symbol-function 'which-function) (lambda () "old-helper"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_label _input) "Rename old-helper to new-helper"))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nFiles:\n/tmp/project/test.el"))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () "\nStored repository context:\n  - /tmp/project/test.el#old-helper"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+        (ai-code-code-change nil)
+        (should (stringp captured-prompt))
+        (should (string-match-p "Goal:\nRename old-helper to new-helper" captured-prompt))
+        (should (string-match-p "Scope:" captured-prompt))
+        (should (string-match-p "Function: old-helper" captured-prompt))
+        (should (string-match-p "Boundaries:" captured-prompt))
+        (should (string-match-p "Agent responsibilities:" captured-prompt))
+        (should (string-match-p "Verification evidence:" captured-prompt))))))
+
 (ert-deftest ai-code-test-get-org-section-info-plain-headline ()
   "Test `ai-code--implement-todo--get-org-todo-section-info' returns info for plain Org headline."
   (with-temp-buffer

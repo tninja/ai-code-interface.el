@@ -50,6 +50,60 @@
   "Note: Please only answer the question about the code above, do not make any code changes."
   "Prompt note for question-only requests without code changes.")
 
+(defconst ai-code-change--brief-default-boundaries
+  (concat
+   "Make only the requested code change. Avoid unrelated cleanup. "
+   "Preserve existing functionality unless the goal requires changing it.")
+  "Default boundaries section for structured code-change briefs.")
+
+(defconst ai-code-change--brief-agent-responsibilities
+  (concat
+   "Inspect the relevant files before editing. Plan briefly, then edit the code. "
+   "Run appropriate project verification for the change. "
+   "Fix failures caused by the change.")
+  "Default agent responsibilities section for structured code-change briefs.")
+
+(defconst ai-code-change--brief-verification-evidence
+  "Report the exact verification command(s), result, and any remaining risk or blocker."
+  "Default verification evidence section for structured code-change briefs.")
+
+(defun ai-code--code-change-brief--section (title body)
+  "Return a code-change brief section named TITLE with BODY.
+When BODY is nil or blank, return nil."
+  (when (and (stringp body)
+             (not (string-blank-p body)))
+    (format "%s:\n%s" title (string-trim body))))
+
+(defun ai-code--compose-code-change-brief (&rest plist)
+  "Return a structured agent brief for a code-change request.
+PLIST accepts `:goal', `:scope', `:context', `:boundaries',
+`:clipboard-context', and `:code-change-note'.  The brief is prompt text for
+the agent; Emacs only prepares the handoff and does not perform the engineering
+loop."
+  (let* ((goal (plist-get plist :goal))
+         (scope (plist-get plist :scope))
+         (context (plist-get plist :context))
+         (boundaries (or (plist-get plist :boundaries)
+                         ai-code-change--brief-default-boundaries))
+         (clipboard-context (plist-get plist :clipboard-context))
+         (code-change-note (plist-get plist :code-change-note))
+         (sections
+          (delq nil
+                (list
+                 (ai-code--code-change-brief--section "Goal" goal)
+                 (ai-code--code-change-brief--section "Scope" scope)
+                 (ai-code--code-change-brief--section "Context" context)
+                 (ai-code--code-change-brief--section "Clipboard context" clipboard-context)
+                 (ai-code--code-change-brief--section "Boundaries" boundaries)
+                 (ai-code--code-change-brief--section
+                  "Agent responsibilities"
+                  ai-code-change--brief-agent-responsibilities)
+                 (ai-code--code-change-brief--section
+                  "Verification evidence"
+                  ai-code-change--brief-verification-evidence)
+                 (ai-code--code-change-brief--section "Instruction" code-change-note)))))
+    (mapconcat #'identity sections "\n\n")))
+
 (defun ai-code--is-comment-line (line)
   "Check if LINE is a comment line based on current buffer's comment syntax.
 Returns non-nil if LINE starts with one or more comment characters,
@@ -193,25 +247,30 @@ REGION-ACTIVE indicates whether a region is selected."
          (initial-prompt (ai-code-read-string prompt-label ""))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
+         (scope-string
+          (concat
+           (format "Current file: %s" buffer-file-name)
+           (when region-text
+             (concat "\nSelected region:\n"
+                     (cond
+                      (region-location-info
+                       (concat region-location-info "\n"))
+                      (region-start-line
+                       (format "Start line: %d\n" region-start-line)))
+                     region-text))
+           (when function-name (format "\nFunction: %s" function-name))
+           files-context-string))
          (final-prompt
-          (concat initial-prompt
-                  (when region-text
-                    (concat "\nSelected region:\n"
-                            (cond
-                             (region-location-info
-                              (concat region-location-info "\n"))
-                             (region-start-line
-                              (format "Start line: %d\n" region-start-line)))
-                            region-text))
-                  (when function-name (format "\nFunction: %s" function-name))
-                  files-context-string
-                  repo-context-string
-                  (when (and clipboard-context
-                             (string-match-p "\\S-" clipboard-context))
-                    (concat "\n\nClipboard context:\n" clipboard-context))
-                  (if region-text
-                      (concat "\n" ai-code-change--selected-region-note)
-                    (concat "\n" ai-code-change--generic-note)))))
+          (ai-code--compose-code-change-brief
+           :goal initial-prompt
+           :scope scope-string
+           :context repo-context-string
+           :clipboard-context (and clipboard-context
+                                   (string-match-p "\\S-" clipboard-context)
+                                   clipboard-context)
+           :code-change-note (if region-text
+                                 ai-code-change--selected-region-note
+                               ai-code-change--generic-note))))
     (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--handle-dired-code-change (arg)
@@ -230,13 +289,14 @@ ARG is the prefix argument."
          (initial-prompt (ai-code-read-string prompt-label ""))
          (repo-context-string (ai-code--format-repo-context-info))
          (final-prompt
-          (concat initial-prompt
-                  "\nSelected files/directories:\n" files-str
-                  repo-context-string
-                  (when (and clipboard-context
-                             (string-match-p "\\S-" clipboard-context))
-                    (concat "\n\nClipboard context:\n" clipboard-context))
-                  (concat "\n" ai-code-change--selected-files-note))))
+          (ai-code--compose-code-change-brief
+           :goal initial-prompt
+           :scope (concat "Selected files/directories:\n" files-str)
+           :context repo-context-string
+           :clipboard-context (and clipboard-context
+                                   (string-match-p "\\S-" clipboard-context)
+                                   clipboard-context)
+           :code-change-note ai-code-change--selected-files-note)))
     (ai-code--insert-prompt final-prompt)))
 
 ;;;###autoload
@@ -398,7 +458,7 @@ The plist contains `:heading-line', `:content', and `:line-number'."
 (defun ai-code--implement-todo--build-and-send-prompt (arg &optional default-action)
   "Build the TODO implementation prompt and insert it.
 ARG is the prefix argument for clipboard context.
-Optional DEFAULT-ACTION skips the completing-read prompt when non-nil."
+Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
   ;; DONE: ask user with completing-read before build up prompt, candidate should be 1. Code change; 2. Ask question. Given selection, add suffix to them respectively to indicate AI to make code change, or do not make any code change
   ;; DONE: currently ai-code-implement-todo work on the org-mode TODO headline. But I want it be able to work on any org-mode headline, no matter it has TODO keyword or not. Please also update the ai-code-code-change and @ai-code-discussion.el#ai-code-ask-question, for the org headline detection code (currently only detect org TODO headline) to be consistent with this function.
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
