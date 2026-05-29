@@ -395,12 +395,15 @@ The plist contains `:heading-line', `:content', and `:line-number'."
   (string-match-p "^[[:space:]]*\\*+[[:space:]]+TODO:?\\(?:[[:space:]]\\|$\\)"
                   heading-line))
 
-(defun ai-code--implement-todo--build-and-send-prompt (arg &optional default-action)
-  "Build the TODO implementation prompt and insert it.
-ARG is the prefix argument for clipboard context.
-Optional DEFAULT-ACTION skips the completing-read prompt when non-nil."
-  ;; DONE: ask user with completing-read before build up prompt, candidate should be 1. Code change; 2. Ask question. Given selection, add suffix to them respectively to indicate AI to make code change, or do not make any code change
-  ;; DONE: currently ai-code-implement-todo work on the org-mode TODO headline. But I want it be able to work on any org-mode headline, no matter it has TODO keyword or not. Please also update the ai-code-code-change and @ai-code-discussion.el#ai-code-ask-question, for the org headline detection code (currently only detect org TODO headline) to be consistent with this function.
+(defun ai-code--implement-todo--clipboard-context-present-p (context)
+  "Return non-nil when CONTEXT has nonblank clipboard text."
+  (let ((clipboard-context (plist-get context :clipboard-context)))
+    (and clipboard-context
+         (string-match-p "\\S-" clipboard-context))))
+
+(defun ai-code--implement-todo--collect-prompt-context (arg)
+  "Collect prompt context for `ai-code-implement-todo'.
+ARG controls whether clipboard context is included."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
          (current-line (string-trim (thing-at-point 'line t)))
          (current-line-number (line-number-at-pos (point)))
@@ -409,7 +412,6 @@ Optional DEFAULT-ACTION skips the completing-read prompt when non-nil."
                             (ai-code--get-function-name-for-comment)
                           (which-function)))
          (org-todo-section-info (ai-code--implement-todo--get-org-todo-section-info))
-         (org-line-number (plist-get org-todo-section-info :line-number))
          (org-section-block
           (ai-code--implement-todo--format-org-section-block
            org-todo-section-info))
@@ -434,80 +436,133 @@ Optional DEFAULT-ACTION skips the completing-read prompt when non-nil."
                                      (when region-start-line
                                        (format "Selected region starting on line %d"
                                                region-start-line)))))
-         (files-context-string (ai-code--get-context-files-string))
-         (region-comment-block-p (or (not region-text)
-                                     (ai-code--is-comment-block region-text)))
-         ;; Validate scenario before prompting user
-         (_ (unless (or org-todo-section-info region-text is-comment)
-              (user-error "Current line is not a TODO comment or Org headline and cannot proceed with `ai-code-implement-todo'.  Please select a TODO comment (not DONE), an Org headline (not DONE), a region of comments, or activate on a blank line")))
-         (_ (unless region-comment-block-p
-              (user-error "Selected region must be a comment block")))
-         (action-intent (or default-action
-                           (completing-read "Select action: "
-                                            '("Code change" "Ask question")
-                                            nil t)))
-         (ask-question-p (string= action-intent "Ask question"))
-         (prompt-label
-          (cond
-           ((and ask-question-p org-todo-section-info)
-            (if (and clipboard-context (string-match-p "\\S-" clipboard-context))
-                "Question about Org headline (clipboard context): "
-              "Question about Org headline: "))
-           (ask-question-p
-            (if (and clipboard-context (string-match-p "\\S-" clipboard-context))
-                "Question about TODO comment (clipboard context): "
-              "Question about TODO comment: "))
-           ((and org-todo-section-info
-                 clipboard-context
-                 (string-match-p "\\S-" clipboard-context))
-            "Implementation instruction for Org headline (clipboard context): ")
-           ((and clipboard-context
-                 (string-match-p "\\S-" clipboard-context))
-            (cond
-             (region-text "TODO implementation instruction (clipboard context): ")
-             (is-comment "TODO implementation instruction (clipboard context): ")
-             (function-name (format "TODO implementation instruction for function %s (clipboard context): " function-name))
-             (t "TODO implementation instruction (clipboard context): ")))
-           (org-todo-section-info "Implementation instruction for Org headline: ")
-           (region-text "TODO implementation instruction: ")
-           (is-comment "TODO implementation instruction: ")
-           (function-name (format "TODO implementation instruction for function %s: " function-name))
-           (t "TODO implementation instruction: ")))
-         (initial-input
-          (cond
-           ((and ask-question-p org-todo-section-info)
-            (format "Regarding this Org headline on line %d:\n%s%s%s"
-                    org-line-number org-section-block function-context files-context-string))
-           ((and ask-question-p region-text)
-            (format "Regarding this TODO comment block in the selected region:\n%s\n%s%s%s"
-                    region-location-line region-text function-context files-context-string))
-           ((and ask-question-p is-comment)
-            (format "Regarding this TODO comment on line %d: '%s'%s%s"
-                    current-line-number current-line function-context files-context-string))
-           (org-todo-section-info
-            (format "Please implement code for this Org headline first. After implementing, keep the Org headline in place and use the headline and content as prompt context.\nLine %d:\n%s%s%s"
-                    org-line-number org-section-block function-context
-                    files-context-string))
-           (region-text
-            (format
-             "Please implement code for this requirement comment block in the selected region first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.\n%s\n%s%s%s"
-             region-location-line region-text function-context
-                    files-context-string))
-           (is-comment
-            (format "Please implement code for this requirement comment on line %d: '%s' first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.%s%s"
-                    current-line-number current-line function-context files-context-string))
-           (t "")))
-         (repo-context-string (ai-code--format-repo-context-info))
-         (prompt (ai-code-read-string prompt-label initial-input))
-         (final-prompt
-          (concat prompt
-                  (when (and clipboard-context
-                             (string-match-p "\\S-" clipboard-context))
-                    (concat "\n\nClipboard context:\n" clipboard-context))
-                  repo-context-string
-                  (when (string= action-intent "Ask question")
-                    (concat "\n" ai-code-change--ask-question-note)))))
-    (ai-code--insert-prompt final-prompt)))
+         (files-context-string (ai-code--get-context-files-string)))
+    (list :clipboard-context clipboard-context
+          :current-line current-line
+          :current-line-number current-line-number
+          :is-comment is-comment
+          :function-name function-name
+          :org-todo-section-info org-todo-section-info
+          :org-line-number (plist-get org-todo-section-info :line-number)
+          :org-section-block org-section-block
+          :function-context function-context
+          :region-text region-text
+          :region-location-line region-location-line
+          :files-context-string files-context-string)))
+
+(defun ai-code--implement-todo--validate-prompt-context (context)
+  "Signal a user error when CONTEXT cannot drive TODO implementation."
+  (let ((org-todo-section-info (plist-get context :org-todo-section-info))
+        (region-text (plist-get context :region-text))
+        (is-comment (plist-get context :is-comment)))
+    (unless (or org-todo-section-info region-text is-comment)
+      (user-error "Current line is not a TODO comment or Org headline and cannot proceed with `ai-code-implement-todo'.  Please select a TODO comment (not DONE), an Org headline (not DONE), a region of comments, or activate on a blank line"))
+    (unless (or (not region-text)
+                (ai-code--is-comment-block region-text))
+      (user-error "Selected region must be a comment block"))))
+
+(defun ai-code--implement-todo--read-action-intent (default-action)
+  "Return DEFAULT-ACTION or prompt for the TODO action intent."
+  (or default-action
+      (completing-read "Select action: "
+                       '("Code change" "Ask question")
+                       nil t)))
+
+(defun ai-code--implement-todo--prompt-label (context ask-question-p)
+  "Return prompt label for CONTEXT and ASK-QUESTION-P."
+  (let ((org-todo-section-info (plist-get context :org-todo-section-info))
+        (region-text (plist-get context :region-text))
+        (is-comment (plist-get context :is-comment))
+        (function-name (plist-get context :function-name))
+        (has-clipboard-context
+         (ai-code--implement-todo--clipboard-context-present-p context)))
+    (cond
+     ((and ask-question-p org-todo-section-info)
+      (if has-clipboard-context
+          "Question about Org headline (clipboard context): "
+        "Question about Org headline: "))
+     (ask-question-p
+      (if has-clipboard-context
+          "Question about TODO comment (clipboard context): "
+        "Question about TODO comment: "))
+     ((and org-todo-section-info has-clipboard-context)
+      "Implementation instruction for Org headline (clipboard context): ")
+     (has-clipboard-context
+      (cond
+       (region-text "TODO implementation instruction (clipboard context): ")
+       (is-comment "TODO implementation instruction (clipboard context): ")
+       (function-name (format "TODO implementation instruction for function %s (clipboard context): " function-name))
+       (t "TODO implementation instruction (clipboard context): ")))
+     (org-todo-section-info "Implementation instruction for Org headline: ")
+     (region-text "TODO implementation instruction: ")
+     (is-comment "TODO implementation instruction: ")
+     (function-name (format "TODO implementation instruction for function %s: " function-name))
+     (t "TODO implementation instruction: "))))
+
+(defun ai-code--implement-todo--initial-input (context ask-question-p)
+  "Return initial prompt input for CONTEXT and ASK-QUESTION-P."
+  (let ((current-line (plist-get context :current-line))
+        (current-line-number (plist-get context :current-line-number))
+        (is-comment (plist-get context :is-comment))
+        (org-todo-section-info (plist-get context :org-todo-section-info))
+        (org-line-number (plist-get context :org-line-number))
+        (org-section-block (plist-get context :org-section-block))
+        (function-context (plist-get context :function-context))
+        (region-text (plist-get context :region-text))
+        (region-location-line (plist-get context :region-location-line))
+        (files-context-string (plist-get context :files-context-string)))
+    (cond
+     ((and ask-question-p org-todo-section-info)
+      (format "Regarding this Org headline on line %d:\n%s%s%s"
+              org-line-number org-section-block function-context files-context-string))
+     ((and ask-question-p region-text)
+      (format "Regarding this TODO comment block in the selected region:\n%s\n%s%s%s"
+              region-location-line region-text function-context files-context-string))
+     ((and ask-question-p is-comment)
+      (format "Regarding this TODO comment on line %d: '%s'%s%s"
+              current-line-number current-line function-context files-context-string))
+     (org-todo-section-info
+      (format "Please implement code for this Org headline first. After implementing, keep the Org headline in place and use the headline and content as prompt context.\nLine %d:\n%s%s%s"
+              org-line-number org-section-block function-context
+              files-context-string))
+     (region-text
+      (format
+       "Please implement code for this requirement comment block in the selected region first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.\n%s\n%s%s%s"
+       region-location-line region-text function-context
+       files-context-string))
+     (is-comment
+      (format "Please implement code for this requirement comment on line %d: '%s' first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.%s%s"
+              current-line-number current-line function-context files-context-string))
+     (t ""))))
+
+(defun ai-code--implement-todo--final-prompt (prompt context action-intent)
+  "Return final prompt from PROMPT, CONTEXT, and ACTION-INTENT."
+  (concat prompt
+          (when (ai-code--implement-todo--clipboard-context-present-p context)
+            (concat "\n\nClipboard context:\n"
+                    (plist-get context :clipboard-context)))
+          (ai-code--format-repo-context-info)
+          (when (string= action-intent "Ask question")
+            (concat "\n" ai-code-change--ask-question-note))))
+
+(defun ai-code--implement-todo--build-and-send-prompt (arg &optional default-action)
+  "Build the TODO implementation prompt and insert it.
+ARG is the prefix argument for clipboard context.
+Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
+  (let ((context (ai-code--implement-todo--collect-prompt-context arg)))
+    (ai-code--implement-todo--validate-prompt-context context)
+    (let* ((action-intent
+            (ai-code--implement-todo--read-action-intent default-action))
+           (ask-question-p (string= action-intent "Ask question"))
+           (prompt-label
+            (ai-code--implement-todo--prompt-label context ask-question-p))
+           (initial-input
+            (ai-code--implement-todo--initial-input context ask-question-p))
+           (prompt (ai-code-read-string prompt-label initial-input))
+           (final-prompt
+            (ai-code--implement-todo--final-prompt
+             prompt context action-intent)))
+      (ai-code--insert-prompt final-prompt))))
 
 ;;; Flycheck integration
 (defun ai-code-flycheck--get-errors-in-scope (start end)
