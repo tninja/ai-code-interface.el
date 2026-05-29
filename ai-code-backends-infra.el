@@ -1175,6 +1175,91 @@ When :prepare-launch is present, it may return :command, :cleanup-fn, and
      (plist-get options :multiline-input-sequence)
      post-start-fn)))
 
+(defun ai-code-backends-infra--prepare-session-request (working-dir buffer-name
+                                                                    process-table
+                                                                    prefix instance-name
+                                                                    force-prompt)
+  "Prepare runtime context for toggling or creating a session.
+WORKING-DIR, BUFFER-NAME, PROCESS-TABLE, PREFIX, INSTANCE-NAME, and
+FORCE-PROMPT match `ai-code-backends-infra--toggle-or-create-session'.
+Return a plist containing source buffer, task file, and resolved session
+context values."
+  (ai-code-backends-infra--cleanup-dead-processes process-table)
+  (let* ((source-buffer (current-buffer))
+         (task-file (ai-code-backends-infra--source-task-file source-buffer))
+         (session-context (ai-code-backends-infra--resolve-session-context
+                           working-dir
+                           buffer-name
+                           process-table
+                           prefix
+                           instance-name
+                           force-prompt)))
+    (append session-context
+            (list :source-buffer source-buffer
+                  :task-file task-file))))
+
+(defun ai-code-backends-infra--reuse-existing-session (buffer working-dir
+                                                              prefix
+                                                              multiline-input-sequence
+                                                              task-file
+                                                              source-buffer)
+  "Reuse an existing live session BUFFER.
+WORKING-DIR, PREFIX, MULTILINE-INPUT-SEQUENCE, TASK-FILE, and SOURCE-BUFFER
+refresh session state and preserve file-to-session binding."
+  (ai-code-backends-infra--reuse-session-window
+   buffer
+   working-dir
+   prefix
+   multiline-input-sequence
+   task-file)
+  (ai-code-backends-infra--remember-file-session-buffer
+   prefix source-buffer buffer))
+
+(defun ai-code-backends-infra--create-new-session (resolved-buffer-name
+                                                   working-dir command env-vars
+                                                   session-key process-table
+                                                   resolved-instance prefix
+                                                   escape-fn cleanup-fn
+                                                   multiline-input-sequence
+                                                   post-start-fn
+                                                   task-file source-buffer)
+  "Create and finalize a new session buffer.
+RESOLVED-BUFFER-NAME, WORKING-DIR, COMMAND, and ENV-VARS create the terminal.
+SESSION-KEY and PROCESS-TABLE register the process.
+RESOLVED-INSTANCE, PREFIX, ESCAPE-FN, CLEANUP-FN,
+MULTILINE-INPUT-SEQUENCE, and POST-START-FN configure startup behavior.
+TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
+  (let* ((buffer-and-process
+          (ai-code-backends-infra--create-terminal-session
+           resolved-buffer-name working-dir command env-vars))
+         (new-buffer (car buffer-and-process))
+         (process (cdr buffer-and-process)))
+    (puthash session-key process process-table)
+    ;; Wait for initialization before checking process status
+    (sleep-for ai-code-backends-infra-terminal-initialization-delay)
+    ;; Check if process is still alive after initialization delay
+    (if (and process (process-live-p process))
+        (progn
+          (ai-code-backends-infra--finalize-started-session
+           new-buffer
+           process
+           working-dir
+           resolved-buffer-name
+           process-table
+           resolved-instance
+           prefix
+           escape-fn
+           cleanup-fn
+           multiline-input-sequence
+           post-start-fn
+           task-file)
+          (ai-code-backends-infra--remember-file-session-buffer
+           prefix source-buffer new-buffer))
+      (ai-code-backends-infra--handle-session-start-failure
+       new-buffer
+       session-key
+       process-table))))
+
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
                                                                      instance-name prefix force-prompt
@@ -1197,61 +1282,44 @@ that sequence inside the session buffer.
 POST-START-FN is called with (BUFFER PROCESS INSTANCE-NAME) after a new
 session starts successfully."
   (setq process-table (or process-table ai-code-backends-infra--processes))
-  (ai-code-backends-infra--cleanup-dead-processes process-table)
-  (let* ((source-buffer (current-buffer))
-         (task-file (ai-code-backends-infra--source-task-file source-buffer))
-         (session-context (ai-code-backends-infra--resolve-session-context
-                            working-dir
-                            buffer-name
-                            process-table
-                            prefix
-                           instance-name
-                           force-prompt))
+  (let* ((session-context
+          (ai-code-backends-infra--prepare-session-request
+           working-dir
+           buffer-name
+           process-table
+           prefix
+           instance-name
+           force-prompt))
+         (source-buffer (plist-get session-context :source-buffer))
+         (task-file (plist-get session-context :task-file))
          (resolved-instance (plist-get session-context :instance-name))
          (resolved-buffer-name (plist-get session-context :buffer-name))
          (session-key (plist-get session-context :session-key))
          (existing-process (plist-get session-context :existing-process))
          (buffer (plist-get session-context :buffer)))
     (if (and existing-process (process-live-p existing-process) buffer)
-       (progn
-           (ai-code-backends-infra--reuse-session-window
-            buffer
-            working-dir
-            prefix
-            multiline-input-sequence
-            task-file)
-           (ai-code-backends-infra--remember-file-session-buffer
-            prefix source-buffer buffer))
-      (let* ((buffer-and-process
-              (ai-code-backends-infra--create-terminal-session
-               resolved-buffer-name working-dir command env-vars))
-             (new-buffer (car buffer-and-process))
-             (process (cdr buffer-and-process)))
-        (puthash session-key process process-table)
-        ;; Wait for initialization before checking process status
-        (sleep-for ai-code-backends-infra-terminal-initialization-delay)
-         ;; Check if process is still alive after initialization delay
-         (if (and process (process-live-p process))
-             (progn
-               (ai-code-backends-infra--finalize-started-session
-                new-buffer
-                process
-                working-dir
-                resolved-buffer-name
-                process-table
-                resolved-instance
-                prefix
-                escape-fn
-                cleanup-fn
-                multiline-input-sequence
-                post-start-fn
-                task-file)
-                (ai-code-backends-infra--remember-file-session-buffer
-                 prefix source-buffer new-buffer))
-           (ai-code-backends-infra--handle-session-start-failure
-            new-buffer
-            session-key
-           process-table))))))
+        (ai-code-backends-infra--reuse-existing-session
+         buffer
+         working-dir
+         prefix
+         multiline-input-sequence
+         task-file
+         source-buffer)
+      (ai-code-backends-infra--create-new-session
+       resolved-buffer-name
+       working-dir
+       command
+       env-vars
+       session-key
+       process-table
+       resolved-instance
+       prefix
+       escape-fn
+       cleanup-fn
+       multiline-input-sequence
+       post-start-fn
+       task-file
+       source-buffer))))
 
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
                                                                     &optional prefix working-dir force-prompt)
