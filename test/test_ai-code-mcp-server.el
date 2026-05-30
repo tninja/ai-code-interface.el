@@ -29,8 +29,34 @@
 (cl-defstruct ai-code-test-mcp-mock-diagnostic
   beg end type text backend)
 
+(defun ai-code-test-mcp--read-json (payload)
+  "Parse PAYLOAD as JSON using alist objects and vector arrays."
+  (let ((json-object-type 'alist)
+        (json-array-type 'vector)
+        (json-key-type 'symbol))
+    (json-read-from-string payload)))
+
+(defmacro ai-code-test-mcp--with-flymake-diagnostics (diagnostics &rest body)
+  "Evaluate BODY with Flymake diagnostic accessors mocked.
+DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'flymake-diagnostics)
+              (lambda (&rest _) ,diagnostics))
+             ((symbol-function 'flymake-diagnostic-beg)
+              #'ai-code-test-mcp-mock-diagnostic-beg)
+             ((symbol-function 'flymake-diagnostic-end)
+              #'ai-code-test-mcp-mock-diagnostic-end)
+             ((symbol-function 'flymake-diagnostic-type)
+              #'ai-code-test-mcp-mock-diagnostic-type)
+             ((symbol-function 'flymake-diagnostic-backend)
+              #'ai-code-test-mcp-mock-diagnostic-backend)
+             ((symbol-function 'flymake-diagnostic-text)
+              #'ai-code-test-mcp-mock-diagnostic-text))
+     ,@body))
+
 (defconst ai-code-test-mcp--builtin-tool-names
   '("buffer_query"
+    "diagnostics_baseline"
     "editor_state"
     "get_diagnostics"
     "get_project_buffers"
@@ -136,6 +162,7 @@
                                     ai-code-mcp-server-tools)
                             #'string<)))
        (should (equal '("buffer_query"
+                        "diagnostics_baseline"
                         "editor_state"
                         "get_diagnostics"
                         "get_project_buffers"
@@ -340,12 +367,14 @@
                                     "tools/call"
                                     `((name . "get_diagnostics")
                                       (arguments . ((uri . ,file-uri)))))))
-                         (items (json-read-from-string payload))
+                         (envelope (json-read-from-string payload))
+                         (items (alist-get 'files envelope))
                          (entry (aref items 0))
                          (diagnostics (alist-get 'diagnostics entry))
                          (first-diagnostic (aref diagnostics 0))
                          (range (alist-get 'range first-diagnostic))
                          (start (alist-get 'start range)))
+                    (should (equal "issues" (alist-get 'status envelope)))
                     (should (equal file-uri (alist-get 'uri entry)))
                     (should (equal "Warning"
                                    (alist-get 'severity first-diagnostic)))
@@ -408,7 +437,8 @@
                                     "tools/call"
                                     '((name . "get_diagnostics")
                                       (arguments . ())))))
-                         (items (json-read-from-string payload))
+                         (envelope (json-read-from-string payload))
+                         (items (alist-get 'files envelope))
                          (entry (aref items 0)))
                     (should (equal expected-uri
                                    (alist-get 'uri entry)))))))))
@@ -465,8 +495,246 @@
                                     "tools/call"
                                     `((name . "get_diagnostics")
                                       (arguments . ((uri . ,file-uri)))))))
-                         (items (json-read-from-string payload)))
+                         (envelope (json-read-from-string payload))
+                         (items (alist-get 'files envelope)))
                     (should (= 1 (length items)))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-envelope-reports-issues ()
+  "get_diagnostics should wrap results in an observation envelope."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-envelope-issues-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-envelope-issues*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-envelope-issues")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-envelope-issues" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics
+                (list (make-ai-code-test-mcp-mock-diagnostic
+                       :beg (point-min) :end (line-end-position)
+                       :type :warning :text "Unused value" :backend 'mock-backend))
+              (let* ((payload (ai-code-test-mcp--content-text
+                               (ai-code-mcp-dispatch
+                                "tools/call"
+                                `((name . "get_diagnostics")
+                                  (arguments . ((uri . ,file-uri)))))))
+                     (envelope (ai-code-test-mcp--read-json payload))
+                     (files (alist-get 'files envelope))
+                     (actions (alist-get 'next_actions envelope)))
+                (should (equal "issues" (alist-get 'status envelope)))
+                (should (stringp (alist-get 'summary envelope)))
+                (should (= 1 (length files)))
+                (should (equal file-uri (alist-get 'uri (aref files 0))))
+                (should (vectorp actions))
+                (should (> (length actions) 0))
+                (should (string-match-p "Unused value" (aref actions 0)))
+                (should (vectorp (alist-get 'artifacts envelope)))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-envelope-reports-clean ()
+  "get_diagnostics should report a clean status when there are no diagnostics."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-envelope-clean-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-envelope-clean*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-envelope-clean")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-envelope-clean" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics nil
+              (let* ((payload (ai-code-test-mcp--content-text
+                               (ai-code-mcp-dispatch
+                                "tools/call"
+                                `((name . "get_diagnostics")
+                                  (arguments . ((uri . ,file-uri)))))))
+                     (envelope (ai-code-test-mcp--read-json payload)))
+                (should (equal "clean" (alist-get 'status envelope)))
+                (should (= 0 (length (alist-get 'files envelope))))
+                (should (= 0 (length (alist-get 'next_actions envelope))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-diagnostics-baseline-then-no-new-is-clean ()
+  "After recording a baseline, identical diagnostics yield a clean delta."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-clean-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-baseline-clean*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-baseline-clean")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-baseline-clean" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics
+                (list (make-ai-code-test-mcp-mock-diagnostic
+                       :beg (point-min) :end (line-end-position)
+                       :type :warning :text "Existing problem"
+                       :backend 'mock-backend))
+              (let ((baseline (ai-code-test-mcp--read-json
+                               (ai-code-test-mcp--content-text
+                                (ai-code-mcp-dispatch
+                                 "tools/call"
+                                 '((name . "diagnostics_baseline")
+                                   (arguments . ())))))))
+                (should (equal "baseline_recorded"
+                               (alist-get 'status baseline))))
+              (let ((delta (ai-code-test-mcp--read-json
+                            (ai-code-test-mcp--content-text
+                             (ai-code-mcp-dispatch
+                              "tools/call"
+                              '((name . "get_diagnostics")
+                                (arguments . ((since . "baseline")))))))))
+                (should (equal "clean" (alist-get 'status delta)))
+                (should (= 0 (length (alist-get 'files delta))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-since-baseline-reports-regression ()
+  "Diagnostics that appear after the baseline are reported as a regression."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-regression-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-baseline-regression*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-baseline-regression")
+         (existing (make-ai-code-test-mcp-mock-diagnostic
+                    :beg (point-min) :end (point-min)
+                    :type :warning :text "Existing problem"
+                    :backend 'mock-backend))
+         (introduced (make-ai-code-test-mcp-mock-diagnostic
+                      :beg (point-min) :end (point-min)
+                      :type :error :text "New problem"
+                      :backend 'mock-backend))
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-baseline-regression" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics (list existing)
+              (ai-code-mcp-dispatch
+               "tools/call"
+               '((name . "diagnostics_baseline")
+                 (arguments . ()))))
+            (ai-code-test-mcp--with-flymake-diagnostics (list existing introduced)
+              (let* ((delta (ai-code-test-mcp--read-json
+                             (ai-code-test-mcp--content-text
+                              (ai-code-mcp-dispatch
+                               "tools/call"
+                               '((name . "get_diagnostics")
+                                 (arguments . ((since . "baseline"))))))))
+                     (files (alist-get 'files delta))
+                     (actions (alist-get 'next_actions delta)))
+                (should (equal "regression" (alist-get 'status delta)))
+                (should (= 1 (length files)))
+                (should (= 1 (length (alist-get 'diagnostics (aref files 0)))))
+                (should (equal "New problem"
+                               (alist-get 'message
+                                          (aref (alist-get 'diagnostics
+                                                           (aref files 0))
+                                                0))))
+                (should (string-match-p "New problem" (aref actions 0)))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-unregister-session-clears-diagnostics-baseline ()
+  "Unregistering a session should free its recorded diagnostics baseline."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+        (session-id "session-cleanup")
+        (buffer (generate-new-buffer " *ai-code-mcp-cleanup*"))
+        (project-dir (make-temp-file "ai-code-mcp-cleanup-" t)))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-register-session session-id project-dir buffer)
+          (puthash session-id (make-hash-table :test 'equal)
+                   ai-code-mcp--diagnostics-baselines)
+          (should (gethash session-id ai-code-mcp--diagnostics-baselines))
+          (ai-code-mcp-unregister-session session-id)
+          (should-not (gethash session-id ai-code-mcp--diagnostics-baselines)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-since-baseline-without-baseline-reports-no-baseline ()
+  "since=\"baseline\" before recording a baseline must not report regressions."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-no-baseline-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-no-baseline*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-no-baseline")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-no-baseline" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics
+                (list (make-ai-code-test-mcp-mock-diagnostic
+                       :beg (point-min) :end (line-end-position)
+                       :type :warning :text "Existing problem"
+                       :backend 'mock-backend))
+              (let* ((delta (ai-code-test-mcp--read-json
+                             (ai-code-test-mcp--content-text
+                              (ai-code-mcp-dispatch
+                               "tools/call"
+                               '((name . "get_diagnostics")
+                                 (arguments . ((since . "baseline"))))))))
+                     (actions (alist-get 'next_actions delta)))
+                (should (equal "no_baseline" (alist-get 'status delta)))
+                (should (= 0 (length (alist-get 'files delta))))
+                (should (> (length actions) 0))
+                (should (string-match-p "diagnostics_baseline" (aref actions 0)))))))
       (when (buffer-live-p visited-buffer)
         (kill-buffer visited-buffer))
       (when (buffer-live-p session-buffer)

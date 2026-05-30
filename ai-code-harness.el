@@ -28,7 +28,7 @@
 ;;;; Auto-Test Harness: Content and Cache
 
 (defconst ai-code--diagnostics-first-harness-instruction
-  "Record a diagnostics baseline with the get_diagnostics MCP tool before editing. After each edit, re-run get_diagnostics for the touched files and do not finish until they have no new diagnostics compared with the baseline."
+  "Before editing, record a diagnostics baseline by calling the diagnostics_baseline MCP tool. After each edit, call the get_diagnostics MCP tool with since=\"baseline\" for the touched files and do not finish until its status is \"clean\" (no new diagnostics versus the baseline)."
   "Shared diagnostics-first harness guidance for code-change prompts.")
 
 (defun ai-code--diagnostics-first-harness-instruction-inline ()

@@ -80,6 +80,13 @@ Use `auto' to prefer Flycheck and then Flymake when available."
 (defvar ai-code-mcp--current-session-id nil
   "Dynamically bound MCP session id for the current tool invocation.")
 
+(defvar ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal)
+  "Hash table mapping MCP session ids to recorded diagnostics baselines.
+Each value is a hash set whose keys are diagnostic identity strings.  The
+baseline lets `get_diagnostics' report only NEW diagnostics so the agent
+can verify it introduced no regressions, without tracking the baseline in
+the model context itself.")
+
 (defconst ai-code-mcp--protocol-version "2024-11-05"
   "Protocol version reported by the MCP core.")
 
@@ -112,11 +119,19 @@ Use `auto' to prefer Flycheck and then Flymake when available."
              :optional t)))
     (:function ai-code-mcp-get-diagnostics
      :name "get_diagnostics"
-     :description "Get language diagnostics for a file or the active project."
+     :description "Get language diagnostics as an observation envelope (status, summary, files, next_actions, artifacts) for a file or the active project.  Pass since=\"baseline\" to report only diagnostics that are new since diagnostics_baseline was called."
      :args ((:name "uri"
              :type string
              :description "Optional file URI to inspect."
+             :optional t)
+            (:name "since"
+             :type string
+             :description "Optional.  Use \"baseline\" to report only diagnostics new since the last diagnostics_baseline call."
              :optional t)))
+    (:function ai-code-mcp-diagnostics-baseline
+     :name "diagnostics_baseline"
+     :description "Record current project diagnostics as a baseline.  After editing, call get_diagnostics with since=\"baseline\" to verify no new diagnostics were introduced."
+     :args nil)
     (:function ai-code-mcp-get-project-files
      :name "get_project_files"
      :description "List regular files in the current project."
@@ -184,6 +199,7 @@ The default tool list includes:
 - `visible_buffers'
 - `buffer_query'
 - `get_diagnostics'
+- `diagnostics_baseline'
 - `get_project_files'
 - `get_project_buffers'
 - `notify_user'
@@ -232,8 +248,9 @@ Required keys are `:function', `:name', and `:description'."
            ai-code-mcp--sessions))
 
 (defun ai-code-mcp-unregister-session (session-id)
-  "Unregister MCP SESSION-ID."
-  (remhash session-id ai-code-mcp--sessions))
+  "Unregister MCP SESSION-ID and free its recorded diagnostics baseline."
+  (remhash session-id ai-code-mcp--sessions)
+  (remhash session-id ai-code-mcp--diagnostics-baselines))
 
 (defun ai-code-mcp-get-session-context (&optional session-id)
   "Return session context for SESSION-ID or the current session."
@@ -409,15 +426,188 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
               (ai-code-mcp--drop-trailing-newline
                (buffer-substring-no-properties start-pos (point))))))))))
 
-(defun ai-code-mcp-get-diagnostics (&optional uri)
-  "Return JSON diagnostics for URI or the active project."
-  (let ((diagnostics-by-file
-         (if uri
-             (ai-code-mcp--diagnostics-for-uri uri)
-           (ai-code-mcp--diagnostics-for-project))))
-    (if diagnostics-by-file
-        (json-encode (vconcat diagnostics-by-file))
-      "[]")))
+(defun ai-code-mcp-get-diagnostics (&optional uri since)
+  "Return a JSON diagnostics observation envelope for URI or the project.
+The envelope has `status', `summary', `files', `next_actions', and
+`artifacts' keys so the agent's verification loop reads an actionable
+signal instead of a raw list.  When SINCE is the string \"baseline\",
+report only diagnostics that are new relative to the baseline recorded by
+`ai-code-mcp-diagnostics-baseline', so the agent can confirm it introduced
+no new problems before finishing."
+  (let* ((entries (if uri
+                      (ai-code-mcp--diagnostics-for-uri uri)
+                    (ai-code-mcp--diagnostics-for-project)))
+         (delta (and (stringp since) (string-equal since "baseline"))))
+    (json-encode
+     (cond
+      ((and delta (not (ai-code-mcp--diagnostics-baseline-recorded-p)))
+       (ai-code-mcp--diagnostics-no-baseline-envelope))
+      (delta
+       (ai-code-mcp--diagnostics-envelope
+        (ai-code-mcp--diagnostics-new-since-baseline entries) 'delta))
+      (t
+       (ai-code-mcp--diagnostics-envelope entries 'current))))))
+
+(defun ai-code-mcp--diagnostics-summary (entries)
+  "Return a one-line human summary string for diagnostics ENTRIES."
+  (let ((file-count (length entries))
+        (total 0)
+        (errors 0)
+        (warnings 0))
+    (dolist (entry entries)
+      (seq-doseq (diagnostic (alist-get 'diagnostics entry))
+        (setq total (1+ total))
+        (pcase (alist-get 'severity diagnostic)
+          ("Error" (setq errors (1+ errors)))
+          ("Warning" (setq warnings (1+ warnings))))))
+    (if (zerop total)
+        "No diagnostics found."
+      (format "%d diagnostic%s across %d file%s (%d Error, %d Warning)."
+              total (if (= total 1) "" "s")
+              file-count (if (= file-count 1) "" "s")
+              errors warnings))))
+
+(defun ai-code-mcp--diagnostic-action-line (uri diagnostic)
+  "Return a one-line fix suggestion for DIAGNOSTIC located via URI."
+  (let* ((range (alist-get 'range diagnostic))
+         (start (alist-get 'start range))
+         (line (alist-get 'line start))
+         (column (alist-get 'character start))
+         (severity (alist-get 'severity diagnostic))
+         (message (alist-get 'message diagnostic))
+         (path (or (ignore-errors
+                     (ai-code-mcp--display-path
+                      (ai-code-mcp--uri-to-file-path uri)))
+                   uri)))
+    (format "Fix %s at %s:%s:%s - %s"
+            (or severity "issue") path (or line "?") (or column "?")
+            (or message ""))))
+
+(defun ai-code-mcp--diagnostics-next-actions (entries)
+  "Return a vector of fix suggestions for diagnostics ENTRIES."
+  (let (actions)
+    (dolist (entry entries)
+      (let ((uri (alist-get 'uri entry)))
+        (seq-doseq (diagnostic (alist-get 'diagnostics entry))
+          (push (ai-code-mcp--diagnostic-action-line uri diagnostic) actions))))
+    (vconcat (nreverse actions))))
+
+(defun ai-code-mcp--diagnostics-envelope (entries &optional context)
+  "Return a diagnostics observation envelope alist for ENTRIES.
+CONTEXT is `current' (default) or `delta'.  In the `delta' context the
+status and summary describe diagnostics that are new since the baseline
+and express the done-condition the agent must reach (new == 0)."
+  (let* ((has-issues (and entries t))
+         (status (cond ((not has-issues) "clean")
+                       ((eq context 'delta) "regression")
+                       (t "issues")))
+         (summary (cond
+                   ((eq context 'delta)
+                    (if has-issues
+                        (concat (ai-code-mcp--diagnostics-summary entries)
+                                " These are NEW versus the baseline;"
+                                " not done until new == 0.")
+                      (concat "No new diagnostics versus the baseline;"
+                              " done-condition met (new == 0).")))
+                   (t (ai-code-mcp--diagnostics-summary entries)))))
+    `((status . ,status)
+      (summary . ,summary)
+      (files . ,(vconcat entries))
+      (next_actions . ,(ai-code-mcp--diagnostics-next-actions entries))
+      (artifacts . ,(vconcat nil)))))
+
+(defun ai-code-mcp--diagnostics-baseline-key ()
+  "Return the baseline storage key for the active MCP session."
+  (or ai-code-mcp--current-session-id "default"))
+
+(defun ai-code-mcp--diagnostics-baseline-recorded-p ()
+  "Return non-nil when a diagnostics baseline exists for the active session."
+  (and (gethash (ai-code-mcp--diagnostics-baseline-key)
+                ai-code-mcp--diagnostics-baselines)
+       t))
+
+(defun ai-code-mcp--diagnostics-total-count (entries)
+  "Return the total number of diagnostics across ENTRIES."
+  (let ((total 0))
+    (dolist (entry entries total)
+      (setq total (+ total (length (alist-get 'diagnostics entry)))))))
+
+(defun ai-code-mcp--diagnostics-no-baseline-envelope ()
+  "Return an envelope explaining that no diagnostics baseline was recorded.
+This avoids reporting pre-existing diagnostics as regressions when the agent
+requests `since=\"baseline\"' without first calling `diagnostics_baseline'."
+  `((status . "no_baseline")
+    (summary . ,(concat "No diagnostics baseline recorded for this session;"
+                        " current diagnostics are not reported as regressions."))
+    (files . ,(vconcat nil))
+    (next_actions . ,(vector
+                      (concat "Call the diagnostics_baseline MCP tool, then"
+                              " re-run get_diagnostics with since=\"baseline\".")))
+    (artifacts . ,(vconcat nil))))
+
+(defun ai-code-mcp--diagnostic-identity (uri diagnostic)
+  "Return a stable identity string for DIAGNOSTIC located in URI.
+Position is intentionally excluded so edits that shift line numbers do not
+make a pre-existing diagnostic look new.  Trade-off: two diagnostics sharing
+uri/severity/source/message are treated as one, so a newly introduced
+duplicate of an existing message is not reported as new."
+  (format "%s\0%s\0%s\0%s"
+          (or uri "")
+          (or (alist-get 'severity diagnostic) "")
+          (or (alist-get 'source diagnostic) "")
+          (or (alist-get 'message diagnostic) "")))
+
+(defun ai-code-mcp--diagnostics-identity-set (entries)
+  "Return a hash set of identity strings for diagnostics ENTRIES."
+  (let ((set (make-hash-table :test 'equal)))
+    (dolist (entry entries set)
+      (let ((uri (alist-get 'uri entry)))
+        (seq-doseq (diagnostic (alist-get 'diagnostics entry))
+          (puthash (ai-code-mcp--diagnostic-identity uri diagnostic) t set))))))
+
+(defun ai-code-mcp--diagnostics-new-since-baseline (entries)
+  "Return ENTRIES filtered to diagnostics absent from the session baseline.
+When no baseline has been recorded, return ENTRIES unchanged."
+  (let ((baseline (gethash (ai-code-mcp--diagnostics-baseline-key)
+                           ai-code-mcp--diagnostics-baselines)))
+    (if (null baseline)
+        entries
+      (delq nil
+            (mapcar
+             (lambda (entry)
+               (let* ((uri (alist-get 'uri entry))
+                      (new (seq-filter
+                            (lambda (diagnostic)
+                              (not (gethash
+                                    (ai-code-mcp--diagnostic-identity uri diagnostic)
+                                    baseline)))
+                            (append (alist-get 'diagnostics entry) nil))))
+                 (when new
+                   `((uri . ,uri)
+                     (diagnostics . ,(vconcat new))))))
+             entries)))))
+
+(defun ai-code-mcp-diagnostics-baseline ()
+  "Record current project diagnostics as the session baseline.
+Return a JSON observation envelope describing what was recorded.  Later
+`get_diagnostics' calls with `since' set to \"baseline\" report only NEW
+diagnostics relative to this snapshot, which lets the agent verify it did
+not introduce new problems."
+  (let* ((entries (ai-code-mcp--diagnostics-for-project))
+         (set (ai-code-mcp--diagnostics-identity-set entries))
+         (count (ai-code-mcp--diagnostics-total-count entries)))
+    (puthash (ai-code-mcp--diagnostics-baseline-key) set
+             ai-code-mcp--diagnostics-baselines)
+    (json-encode
+     `((status . "baseline_recorded")
+       (summary . ,(format (concat "Recorded %d diagnostic%s as the baseline."
+                                   " Edit, then call get_diagnostics with"
+                                   " since=\"baseline\" and finish only when"
+                                   " status is \"clean\".")
+                           count (if (= count 1) "" "s")))
+       (files . ,(vconcat entries))
+       (next_actions . ,(vconcat nil))
+       (artifacts . ,(vconcat nil))))))
 
 (defun ai-code-mcp--diagnostics-for-uri (uri)
   "Return a list with diagnostics for URI, or nil when none exist."

@@ -66,7 +66,10 @@
       (should (string-match-p "get_diagnostics" suffix))
       (should (string-match-p "get_diagnostics MCP tool" suffix))
       (should (string-match-p "baseline" suffix))
-      (should (string-match-p "no new diagnostics" suffix)))))
+      (should (string-match-p "no new diagnostics" suffix))
+      (should (string-match-p "diagnostics_baseline" suffix))
+      (should (string-match-p "since=\"baseline\"" suffix))
+      (should (string-match-p "clean" suffix)))))
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-omits-diagnostics-for-non-mcp-backend ()
   "Test that TDD suffix omits diagnostics for unsupported backends."
