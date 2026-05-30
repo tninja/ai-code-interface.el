@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Unify structured agent briefs across code change and question flows
+- More Refactor: Reduce function size. Extract and reuse helper functions.
 - Refactor: refactor boilerplate cli session start code, and add tests
 
 ** 1.82
