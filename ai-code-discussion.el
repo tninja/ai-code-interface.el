@@ -168,10 +168,12 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                          (t nil)))
          (git-relative-files (when context-files
                               (ai-code--get-git-relative-paths context-files)))
-         (files-context-string (when git-relative-files
-                                (concat "\nFiles:\n"
-                                       (mapconcat (lambda (f) (concat "@" f))
-                                                 git-relative-files "\n"))))
+         (scope-string
+          (if git-relative-files
+              (concat "Selected files/directories:\n"
+                      (mapconcat (lambda (f) (concat "@" f))
+                                 git-relative-files "\n"))
+            (format "Current directory: %s" default-directory)))
          (prompt-label (cond
                         ((and clipboard-context
                               (string-match-p "\\S-" clipboard-context))
@@ -185,13 +187,15 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                         (t "General question about directory: ")))
          (question (ai-code-read-string prompt-label ""))
          (repo-context-string (ai-code--format-repo-context-info))
-         (final-prompt (concat question
-                                files-context-string
-                                repo-context-string
-                                (when (and clipboard-context
-                                           (string-match-p "\\S-" clipboard-context))
-                                  (concat "\n\nClipboard context:\n" clipboard-context))
-                                (concat "\n" ai-code-discussion--question-only-note))))
+         (final-prompt
+          (ai-code--compose-question-brief
+           :goal question
+           :scope scope-string
+           :context repo-context-string
+           :clipboard-context (and clipboard-context
+                                   (string-match-p "\\S-" clipboard-context)
+                                   clipboard-context)
+           :instruction ai-code-discussion--question-only-note)))
     (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--ask-question-file (clipboard-context)
@@ -234,23 +238,30 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
          (question (ai-code-read-string prompt-label ""))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
+         (scope-string
+          (concat
+           (if buffer-file-name
+               (format "Current file: %s" buffer-file-name)
+             (format "Current buffer: %s" (buffer-name)))
+           (when region-text
+             (concat "\nSelected region:\n"
+                     (when region-location-info
+                       (concat region-location-info "\n"))
+                     region-text))
+           (when function-name
+             (format "\nFunction: %s" function-name))
+           files-context-string))
          (final-prompt
-          (concat question
-                  (when region-text
-                    (concat "\nSelected region:\n"
-                            (when region-location-info
-                              (concat region-location-info "\n"))
-                            region-text))
-                  (when function-name
-                    (format "\nFunction: %s" function-name))
-                   files-context-string
-                   repo-context-string
-                   (when (and clipboard-context
-                              (string-match-p "\\S-" clipboard-context))
-                     (concat "\n\nClipboard context:\n" clipboard-context))
-                   (if region-text
-                       (concat "\n" ai-code-discussion--selected-region-note)
-                     (concat "\n" ai-code-discussion--question-only-note)))))
+          (ai-code--compose-question-brief
+           :goal question
+           :scope scope-string
+           :context repo-context-string
+           :clipboard-context (and clipboard-context
+                                   (string-match-p "\\S-" clipboard-context)
+                                   clipboard-context)
+           :instruction (if region-text
+                            ai-code-discussion--selected-region-note
+                          ai-code-discussion--question-only-note))))
     (ai-code--insert-prompt final-prompt)))
 
 (defun ai-code--get-git-relative-paths (file-paths)

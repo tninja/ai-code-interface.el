@@ -67,6 +67,16 @@
   "Report the exact verification command(s), result, and any remaining risk or blocker."
   "Default verification evidence section for structured code-change briefs.")
 
+(defconst ai-code-change--question-brief-default-boundaries
+  "Answer the question only. Do not make code changes."
+  "Default boundaries section for structured question briefs.")
+
+(defconst ai-code-change--flycheck-brief-boundaries
+  (concat
+   "Fix only the listed Flycheck errors in the target scope. "
+   "Preserve existing behavior and avoid unrelated cleanup or refactors.")
+  "Boundaries section for Flycheck fix briefs.")
+
 (defun ai-code--code-change-brief--section (title body)
   "Return a code-change brief section named TITLE with BODY.
 When BODY is nil or blank, return nil."
@@ -103,6 +113,40 @@ loop."
                   ai-code-change--brief-verification-evidence)
                  (ai-code--code-change-brief--section "Instruction" code-change-note)))))
     (mapconcat #'identity sections "\n\n")))
+
+(defun ai-code--compose-question-brief (&rest plist)
+  "Return a structured brief for question-only requests.
+PLIST accepts `:goal', `:scope', `:context', `:clipboard-context',
+`:boundaries', and `:instruction'."
+  (let* ((goal (plist-get plist :goal))
+         (scope (plist-get plist :scope))
+         (context (plist-get plist :context))
+         (clipboard-context (plist-get plist :clipboard-context))
+         (boundaries (or (plist-get plist :boundaries)
+                         ai-code-change--question-brief-default-boundaries))
+         (instruction (plist-get plist :instruction))
+         (sections
+          (delq nil
+                (list
+                 (ai-code--code-change-brief--section "Goal" goal)
+                 (ai-code--code-change-brief--section "Scope" scope)
+                 (ai-code--code-change-brief--section "Context" context)
+                 (ai-code--code-change-brief--section "Clipboard context" clipboard-context)
+                 (ai-code--code-change-brief--section "Boundaries" boundaries)
+                 (ai-code--code-change-brief--section "Instruction" instruction)))))
+    (mapconcat #'identity sections "\n\n")))
+
+(defun ai-code--flycheck-goal-string (scope-description rel-file error-list-string)
+  "Return Flycheck-fix goal text for SCOPE-DESCRIPTION in REL-FILE.
+ERROR-LIST-STRING is the formatted list of diagnostics."
+  (if (string-equal "the entire file" scope-description)
+      (format "Please fix the following Flycheck errors in file %s:\n\n%s"
+              rel-file
+              error-list-string)
+    (format "Please fix the following Flycheck errors in %s of file %s:\n\n%s"
+            scope-description
+            rel-file
+            error-list-string)))
 
 (defun ai-code--is-comment-line (line)
   "Check if LINE is a comment line based on current buffer's comment syntax.
@@ -562,25 +606,24 @@ Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
          (clipboard-context-text (and clipboard-context
                                       (string-match-p "\\S-" clipboard-context)
                                       clipboard-context))
-         (code-change-scope
-          (unless ask-question-p
-            (concat
-             (cond
-              (org-todo-section-info
-               (format "Org headline on line %d:\n%s"
-                       org-line-number
-                       org-section-block))
-              (region-text
-               (format "%s\n%s"
-                       region-location-line
-                       region-text))
-              (is-comment
-               (format "TODO comment on line %d:\n%s"
-                       current-line-number
-                       current-line))
-              (t "Current context"))
-             function-context
-             files-context-string)))
+         (todo-scope
+          (concat
+           (cond
+            (org-todo-section-info
+             (format "Org headline on line %d:\n%s"
+                     org-line-number
+                     org-section-block))
+            (region-text
+             (format "%s\n%s"
+                     region-location-line
+                     region-text))
+            (is-comment
+             (format "TODO comment on line %d:\n%s"
+                     current-line-number
+                     current-line))
+            (t "Current context"))
+           function-context
+           files-context-string))
          (code-change-boundaries
           (unless ask-question-p
             (cond
@@ -591,14 +634,15 @@ Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
              (t ai-code-change--brief-default-boundaries))))
          (final-prompt
           (if ask-question-p
-              (concat prompt
-                      (when clipboard-context-text
-                        (concat "\n\nClipboard context:\n" clipboard-context-text))
-                      repo-context-string
-                      (concat "\n" ai-code-change--ask-question-note))
+              (ai-code--compose-question-brief
+               :goal prompt
+               :scope todo-scope
+               :context repo-context-string
+               :clipboard-context clipboard-context-text
+               :instruction ai-code-change--ask-question-note)
             (ai-code--compose-code-change-brief
              :goal prompt
-             :scope code-change-scope
+             :scope todo-scope
              :context repo-context-string
              :clipboard-context clipboard-context-text
              :boundaries code-change-boundaries
@@ -727,22 +771,15 @@ or whole file.  Requires the `flycheck` package to be installed and available."
                              scope-description)
                      files-context-string))
                    (goal-string
-                    (if (string-equal "the entire file" scope-description)
-                        (format "Please fix the following Flycheck errors in file %s:\n\n%s"
-                                rel-file
-                                error-list-string)
-                      (format "Please fix the following Flycheck errors in %s of file %s:\n\n%s"
-                              scope-description
-                              rel-file
-                              error-list-string)))
-                   (boundaries-string
-                    "Fix only the listed Flycheck errors in the target scope. Preserve existing behavior and avoid unrelated cleanup or refactors.")
+                    (ai-code--flycheck-goal-string scope-description
+                                                   rel-file
+                                                   error-list-string))
                    (prompt
                     (ai-code--compose-code-change-brief
                      :goal goal-string
                      :scope scope-string
                      :context repo-context-string
-                     :boundaries boundaries-string
+                     :boundaries ai-code-change--flycheck-brief-boundaries
                      :code-change-note ai-code-change--generic-note))
                    (edited-prompt (ai-code-read-string "Edit prompt for AI: "
                                                        prompt)))

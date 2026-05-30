@@ -263,6 +263,58 @@
 
         (should implement-todo-called)))))
 
+(ert-deftest ai-code-test-ask-question-file-uses-structured-brief ()
+  "Test `ai-code--ask-question-file' emits a structured question brief."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/test.el")
+    (insert "(defun old-helper ()\n  nil)\n")
+    (goto-char (point-min))
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+                ((symbol-function 'which-function) (lambda () "old-helper"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_label _input) "Why does old-helper return nil?"))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nFiles:\n/tmp/project/test.el"))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () "\nStored repository context:\n  - /tmp/project/test.el#old-helper"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+        (ai-code--ask-question-file nil)
+        (should (stringp captured-prompt))
+        (should (string-match-p "Goal:\nWhy does old-helper return nil\\?" captured-prompt))
+        (should (string-match-p "Scope:\nCurrent file: /tmp/project/test\\.el" captured-prompt))
+        (should (string-match-p "Function: old-helper" captured-prompt))
+        (should (string-match-p "Context:\nStored repository context" captured-prompt))
+        (should (string-match-p "Boundaries:\nAnswer the question only\\. Do not make code changes\\."
+                                captured-prompt))
+        (should (string-match-p "Instruction:\nNote: This is a question only" captured-prompt))))))
+
+(ert-deftest ai-code-test-ask-question-dired-uses-structured-brief ()
+  "Test `ai-code--ask-question-dired' emits a structured question brief."
+  (let (captured-prompt)
+    (cl-letf (((symbol-function 'dired-get-filename)
+               (lambda (&rest _) "/tmp/project/a.el"))
+              ((symbol-function 'dired-get-marked-files)
+               (lambda (&rest _) '("/tmp/project/a.el" "/tmp/project/b.el")))
+              ((symbol-function 'ai-code--get-git-relative-paths)
+               (lambda (files)
+                 (mapcar #'file-name-nondirectory files)))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (_label _input) "What changed in these files?"))
+              ((symbol-function 'ai-code--format-repo-context-info)
+               (lambda () "\nStored repository context:\n  - /tmp/project/a.el"))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt) (setq captured-prompt prompt))))
+      (ai-code--ask-question-dired "clipboard details")
+      (should (stringp captured-prompt))
+      (should (string-match-p "Goal:\nWhat changed in these files\\?" captured-prompt))
+      (should (string-match-p "Scope:\nSelected files/directories:\n@b\\.el" captured-prompt))
+      (should (string-match-p "Context:\nStored repository context" captured-prompt))
+      (should (string-match-p "Clipboard context:\nclipboard details" captured-prompt))
+      (should (string-match-p "Boundaries:\nAnswer the question only\\. Do not make code changes\\."
+                              captured-prompt)))))
+
 (ert-deftest ai-code-test-take-notes-org-buffer-sends-insert-prompt ()
   "Test `ai-code-take-notes' sends an AI prompt for Org insertion."
   (with-temp-buffer
