@@ -11,6 +11,7 @@
 
 (require 'ert)
 (require 'ai-code-change)
+(defvar flycheck-current-errors)
 
 (ert-deftest ai-code-test-ai-code--get-function-name-for-comment-basic ()
   "Test function name detection when on a comment line before function body.
@@ -466,6 +467,10 @@ is between the function definition and its body."
         (ai-code--implement-todo--build-and-send-prompt nil)
 
         (should (stringp captured-prompt))
+        (should (string-match-p "^Goal:\n" captured-prompt))
+        (should (string-match-p "\n\nScope:\n" captured-prompt))
+        (should (string-match-p "Agent responsibilities:" captured-prompt))
+        (should (string-match-p "Verification evidence:" captured-prompt))
         ;; Should contain implementation-oriented wording
         (should (string-match-p "Please implement code" captured-prompt))
         ;; Should NOT contain no-code-change suffix
@@ -533,6 +538,10 @@ is between the function definition and its body."
         (ai-code-implement-todo nil)
 
         (should (stringp captured-prompt))
+        (should (string-match-p "^Goal:\n" captured-prompt))
+        (should (string-match-p "\n\nScope:\n" captured-prompt))
+        (should (string-match-p "Agent responsibilities:" captured-prompt))
+        (should (string-match-p "Verification evidence:" captured-prompt))
         (should (string-match-p "Please implement code" captured-prompt))
         (should (string-match-p "TODO Build backend switcher" captured-prompt))
         (should (string-match-p "Use Codex for implementation\\." captured-prompt))
@@ -770,6 +779,50 @@ is between the function definition and its body."
         (should (string-match-p "Boundaries:" captured-prompt))
         (should (string-match-p "Agent responsibilities:" captured-prompt))
         (should (string-match-p "Verification evidence:" captured-prompt))))))
+
+(ert-deftest ai-code-test-flycheck-fix-errors-uses-structured-brief ()
+  "Test `ai-code-flycheck-fix-errors-in-scope' uses structured code-change brief."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/test.el")
+    (insert "(defun old-helper ()\n  nil)\n")
+    (goto-char (point-min))
+    (setq-local flycheck-mode t)
+    (let ((flycheck-current-errors '(fake-error))
+          captured-prompt)
+      (let ((original-featurep (symbol-function 'featurep)))
+        (cl-letf (((symbol-function 'featurep)
+                   (lambda (feature)
+                     (if (eq feature 'flycheck)
+                         t
+                       (funcall original-featurep feature))))
+                  ((symbol-function 'ai-code--git-root) (lambda () "/tmp/project"))
+                ((symbol-function 'ai-code--choose-flycheck-scope)
+                 (lambda () (list (point-min) (point-max) "current line (1)")))
+                ((symbol-function 'ai-code-flycheck--get-errors-in-scope)
+                 (lambda (_start _end) '(fake-error)))
+                ((symbol-function 'ai-code-flycheck--format-error-list)
+                 (lambda (_errors _file)
+                   "File: test.el:1:1\nError: fake diagnostic"))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nVisible context files:\n/tmp/project/test.el"))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () "\nStored repository context:\n  - /tmp/project/test.el#old-helper"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_label input) input))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+          (ai-code-flycheck-fix-errors-in-scope)
+          (should (stringp captured-prompt))
+          (should (string-match-p
+                   "Goal:\nPlease fix the following Flycheck errors in current line (1) of file test\\.el:"
+                   captured-prompt))
+          (should (string-match-p "Scope:\nCurrent file: /tmp/project/test\\.el\nTarget scope: current line (1)"
+                                  captured-prompt))
+          (should (string-match-p "Context:\nStored repository context" captured-prompt))
+          (should (string-match-p "Boundaries:\nFix only the listed Flycheck errors in the target scope"
+                                  captured-prompt))
+          (should (string-match-p "Agent responsibilities:" captured-prompt))
+          (should (string-match-p "Verification evidence:" captured-prompt)))))))
 
 (ert-deftest ai-code-test-get-org-section-info-plain-headline ()
   "Test `ai-code--implement-todo--get-org-todo-section-info' returns info for plain Org headline."

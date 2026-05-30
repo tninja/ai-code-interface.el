@@ -559,14 +559,52 @@ Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
            (t "")))
          (repo-context-string (ai-code--format-repo-context-info))
          (prompt (ai-code-read-string prompt-label initial-input))
+         (clipboard-context-text (and clipboard-context
+                                      (string-match-p "\\S-" clipboard-context)
+                                      clipboard-context))
+         (code-change-scope
+          (unless ask-question-p
+            (concat
+             (cond
+              (org-todo-section-info
+               (format "Org headline on line %d:\n%s"
+                       org-line-number
+                       org-section-block))
+              (region-text
+               (format "%s\n%s"
+                       region-location-line
+                       region-text))
+              (is-comment
+               (format "TODO comment on line %d:\n%s"
+                       current-line-number
+                       current-line))
+              (t "Current context"))
+             function-context
+             files-context-string)))
+         (code-change-boundaries
+          (unless ask-question-p
+            (cond
+             (org-todo-section-info
+              "Keep the Org headline in place and keep changes scoped to the requested implementation.")
+             ((or region-text is-comment)
+              "Keep the TODO comment in place and ensure it is marked DONE after implementation; avoid unrelated cleanup.")
+             (t ai-code-change--brief-default-boundaries))))
          (final-prompt
-          (concat prompt
-                  (when (and clipboard-context
-                             (string-match-p "\\S-" clipboard-context))
-                    (concat "\n\nClipboard context:\n" clipboard-context))
-                  repo-context-string
-                  (when (string= action-intent "Ask question")
-                    (concat "\n" ai-code-change--ask-question-note)))))
+          (if ask-question-p
+              (concat prompt
+                      (when clipboard-context-text
+                        (concat "\n\nClipboard context:\n" clipboard-context-text))
+                      repo-context-string
+                      (concat "\n" ai-code-change--ask-question-note))
+            (ai-code--compose-code-change-brief
+             :goal prompt
+             :scope code-change-scope
+             :context repo-context-string
+             :clipboard-context clipboard-context-text
+             :boundaries code-change-boundaries
+             :code-change-note (if region-text
+                                   ai-code-change--selected-region-note
+                                 ai-code-change--generic-note)))))
     (ai-code--insert-prompt final-prompt)))
 
 ;;; Flycheck integration
@@ -678,23 +716,36 @@ or whole file.  Requires the `flycheck` package to be installed and available."
           (if (null errors-in-scope)
               (message "No Flycheck errors found in %s." scope-description)
             (let* ((files-context-string (ai-code--get-context-files-string))
+                   (repo-context-string (ai-code--format-repo-context-info))
                    (error-list-string
                     (ai-code-flycheck--format-error-list errors-in-scope
                                                          rel-file))
-                    (prompt
-                     (if (string-equal "the entire file" scope-description)
-                         (format "Please fix the following Flycheck errors in file %s:\n\n%s\n%s\n%s"
-                                 rel-file error-list-string
-                                 files-context-string
-                                 ai-code-change--generic-note)
-                       (format "Please fix the following Flycheck errors in %s of file %s:\n\n%s\n%s\n%s"
-                               scope-description
-                               rel-file
-                               error-list-string
-                               files-context-string
-                               ai-code-change--generic-note)))
-                    (edited-prompt (ai-code-read-string "Edit prompt for AI: "
-                                                        prompt)))
+                   (scope-string
+                    (concat
+                     (format "Current file: %s\nTarget scope: %s"
+                             buffer-file-name
+                             scope-description)
+                     files-context-string))
+                   (goal-string
+                    (if (string-equal "the entire file" scope-description)
+                        (format "Please fix the following Flycheck errors in file %s:\n\n%s"
+                                rel-file
+                                error-list-string)
+                      (format "Please fix the following Flycheck errors in %s of file %s:\n\n%s"
+                              scope-description
+                              rel-file
+                              error-list-string)))
+                   (boundaries-string
+                    "Fix only the listed Flycheck errors in the target scope. Preserve existing behavior and avoid unrelated cleanup or refactors.")
+                   (prompt
+                    (ai-code--compose-code-change-brief
+                     :goal goal-string
+                     :scope scope-string
+                     :context repo-context-string
+                     :boundaries boundaries-string
+                     :code-change-note ai-code-change--generic-note))
+                   (edited-prompt (ai-code-read-string "Edit prompt for AI: "
+                                                       prompt)))
               (when (and edited-prompt (not (string-blank-p edited-prompt)))
                 (ai-code--insert-prompt edited-prompt)
                 (message "Generated prompt to fix %d Flycheck error(s) in %s."
