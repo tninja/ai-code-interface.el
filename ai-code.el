@@ -483,7 +483,7 @@ Shows the current backend label to the right."
   (ai-code--infix-toggle-auto-follow-up)
   ("." "Init projectile and gtags" ai-code-init-project)
   ("P" "AI session checkpoint" ai-code-session-checkpoint)
-  ("e" "Debug exception (C-u: clipboard)" ai-code-investigate-exception)
+  ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
   ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
   ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)

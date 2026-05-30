@@ -924,7 +924,7 @@ to fix code."
 
 ;;;###autoload
 (defun ai-code-run-test ()
-  "Ask AI to run the relevant tests for the current context."
+  "Prompt AI to run relevant test commands for the current context."
   ;; DONE: remove pytest / jest / ert usage here, simply call ai-code--run-test-ai-assisted
   ;; DONE: Remove related information from README / autoloads / @test as well, since we want to keep the @test running experience consistent across languages and rely on AI to figure out the test pattern and command.
   (interactive)

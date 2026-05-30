@@ -40,8 +40,9 @@
 
 (defun ai-code--ensure-note-request-history ()
   "Register persistent minibuffer history for note requests.
-Only adds the variable to savehist tracking; does not enable savehist-mode.
-Users should enable savehist-mode in their Emacs configuration to persist history."
+Only adds the variable to savehist tracking; does not enable
+`savehist-mode'.  Users should enable it in their Emacs configuration
+to persist history."
   (add-to-list 'savehist-additional-variables 'ai-code-note-request-history))
 
 (ai-code--ensure-note-request-history)
@@ -831,7 +832,8 @@ NOTE-REQUEST is included in the prompt body."
 ;;;###autoload
 (defun ai-code-take-notes (&optional arg)
   "Take notes by AI request and send prompt to the AI session.
-When in an Org buffer with a saved file, generates a prompt to insert note content.
+When in an Org buffer with a saved file, generate a prompt to insert
+note content.
 Otherwise, generates a prompt to create a new note file.
 With prefix ARG, open the default note file in other window instead."
   (interactive "P")

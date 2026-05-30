@@ -246,6 +246,15 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Debug Emacs runtime"))))
 
+(ert-deftest ai-code-test-menu-other-tools-labels-exception-as-investigation ()
+  "Test that the exception entry is labeled as investigation-first."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "e")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-investigate-exception))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Investigate exception (C-u: clipboard)"))))
+
 (ert-deftest ai-code-test-menu-other-tools-removes-architecture-guardrails-entry ()
   "Test that the Other Tools menu no longer exposes a dedicated guardrails item."
   (should-error (transient-get-suffix 'ai-code--menu-other-tools "A")
