@@ -61,6 +61,8 @@ to persist history."
 
 (defconst ai-code-discussion--exception-investigation-note
   (concat
+   ai-code-discussion--question-only-note
+   "\n"
    "Report root cause, relevant evidence, and candidate next steps. "
    "Include at least one candidate next step that explains how to fix the issue.")
   "Instruction for exception investigation prompts.")

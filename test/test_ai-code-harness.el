@@ -581,6 +581,7 @@
   (should (boundp 'ai-code-change--selected-files-note))
   (should (boundp 'ai-code-discussion--question-only-note))
   (should (boundp 'ai-code-discussion--selected-region-note))
+  (should (boundp 'ai-code-discussion--exception-investigation-boundaries))
   (should (boundp 'ai-code-discussion--explain-prompt-prefixes))
   (should (equal ai-code--code-change-prompt-markers
                  (mapcar #'downcase
@@ -591,9 +592,20 @@
                  (append
                   (mapcar #'downcase
                           (list ai-code-discussion--question-only-note
-                                ai-code-discussion--selected-region-note))
+                                ai-code-discussion--selected-region-note
+                                ai-code-discussion--exception-investigation-boundaries))
                   (mapcar #'downcase
                           ai-code-discussion--explain-prompt-prefixes)))))
+
+(ert-deftest ai-code-test-simple-classifier-treats-exception-investigation-as-non-code-change ()
+  "Test that exception investigation prompts skip code-change routing."
+  (let ((prompt (ai-code--compose-question-brief
+                 :goal "Investigate this error."
+                 :scope "Current file: /tmp/project/test.el"
+                 :boundaries ai-code-discussion--exception-investigation-boundaries
+                 :instruction ai-code-discussion--exception-investigation-note)))
+    (should (eq 'non-code-change
+                (ai-code--simple-classify-prompt-code-change prompt)))))
 
 (ert-deftest ai-code-test-prompt-classification-docstrings-are-not-gptel-specific ()
   "Test that prompt classification docstrings are not GPTel-specific."

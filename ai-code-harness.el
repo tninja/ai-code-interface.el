@@ -285,7 +285,8 @@ test suffixes."
   (append
    (ai-code--downcase-strings
     (list ai-code-discussion--question-only-note
-          ai-code-discussion--selected-region-note))
+          ai-code-discussion--selected-region-note
+          ai-code-discussion--exception-investigation-boundaries))
    (ai-code--downcase-strings
     ai-code-discussion--explain-prompt-prefixes))
   "Prompt markers that clearly indicate a non-code-change request.")

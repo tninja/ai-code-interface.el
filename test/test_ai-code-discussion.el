@@ -342,7 +342,8 @@
         (should (string-match-p
                  "Boundaries:\nInvestigate first\\. Do not make code changes\\."
                  captured-prompt))
-        (should (string-match-p "Instruction:\nReport root cause" captured-prompt))
+        (should (string-match-p "Instruction:\nNote: This is a question only" captured-prompt))
+        (should (string-match-p "Report root cause" captured-prompt))
         (should (string-match-p "candidate next steps" captured-prompt))
         (should (string-match-p "how to fix" captured-prompt))))))
 
