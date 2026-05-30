@@ -11,12 +11,18 @@
 
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
+(require 'ai-code-change)
+(require 'subr-x)
 (require 'thingatpt)
 (require 'which-func)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function dired-current-directory "dired" ())
+(declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
+(declare-function dired-get-marked-files "dired"
+                  (&optional localp arg filter distinguish-one-marked error-if-none-p))
 
 (defconst ai-code--refactoring-techniques-catalog
   '((:name "Suggest Refactoring Strategy"
@@ -490,6 +496,51 @@ otherwise falls back to absolute paths."
           (concat "\nFiles:\n" (mapconcat #'identity paths "\n")))
       (ai-code--get-context-files-string))))
 
+(defconst ai-code--refactoring-code-change-boundaries
+  (concat
+   "Preserve existing behavior. Make only the requested refactoring. "
+   "Avoid unrelated cleanup, feature changes, or broad rewrites.")
+  "Boundaries for structured refactoring code-change briefs.")
+
+(defun ai-code--agile-current-scope-string (&optional function-name file-info)
+  "Return scope text for current agile prompt.
+FUNCTION-NAME is the current function when available.
+FILE-INFO is additional visible-file context."
+  (concat
+   (if buffer-file-name
+       (format "Current file: %s" buffer-file-name)
+     (format "Current buffer: %s" (buffer-name)))
+   (when function-name
+     (format "\nFunction: %s" function-name))
+   file-info))
+
+(defun ai-code--refactoring-scope-string (context file-info)
+  "Return structured scope text for refactoring CONTEXT and FILE-INFO."
+  (let ((region-active (plist-get context :region-active))
+        (region-text (plist-get context :region-text))
+        (current-function (plist-get context :current-function))
+        (dired-targets (plist-get context :dired-targets))
+        (context-description (plist-get context :context-description))
+        (file-name (plist-get context :file-name)))
+    (concat
+     (cond
+      (dired-targets
+       (concat "Selected files/directories:\n"
+               (mapconcat #'identity dired-targets "\n")))
+      (buffer-file-name
+       (format "Current file: %s" buffer-file-name))
+      (file-name
+       (format "Current file: %s" file-name))
+      (t
+       (format "Current buffer: %s" (buffer-name))))
+     (when context-description
+       (format "\nRefactoring context: %s" context-description))
+     (when current-function
+       (format "\nFunction: %s" current-function))
+     (when region-active
+       (format "\nSelected code:\n%s" region-text))
+     file-info)))
+
 (defun ai-code--get-refactoring-techniques (region-active)
   "Return appropriate refactoring techniques based on REGION-ACTIVE."
   (let ((scope (if region-active 'region 'global))
@@ -556,9 +607,7 @@ TECHNIQUE-DESCRIPTION is the base prompt text."
   "Handle the case where a specific refactoring technique is chosen.
 Uses SELECTED-TECHNIQUE, ALL-TECHNIQUES, CONTEXT, and TDD-MODE.
 If TDD-MODE is non-nil, adds TDD constraints to the instruction."
-  (let* ((region-active (plist-get context :region-active))
-         (region-text (plist-get context :region-text))
-         (context-description (plist-get context :context-description))
+  (let* ((context-description (plist-get context :context-description))
          (technique-description (cdr (assoc selected-technique all-techniques)))
          (prompt-with-params (ai-code--process-refactoring-parameters
                               selected-technique technique-description context))
@@ -572,12 +621,11 @@ If TDD-MODE is non-nil, adds TDD constraints to the instruction."
          (final-instruction (ai-code-read-string "Edit refactoring instruction: " initial-instruction))
          ;; Add file information to context
          (file-info (ai-code--get-context-files-string))
-         (command (if region-active
-                      (format "%s%s\n\nSelected code:\n%s"
-                              final-instruction
-                              file-info
-                              region-text)
-                    (format "%s%s" final-instruction file-info)))
+         (command (ai-code--compose-code-change-brief
+                   :goal final-instruction
+                   :scope (ai-code--refactoring-scope-string context file-info)
+                   :boundaries ai-code--refactoring-code-change-boundaries
+                   :code-change-note ai-code-change--generic-note))
          (message-suffix (if tdd-mode " during TDD refactor stage" "")))
     (when (ai-code--insert-prompt command)
       (message "%s refactoring request sent to AI Code Interface%s. After code refactored, better to re-run unit-tests."
@@ -685,6 +733,50 @@ If no such buffer is found, report a user-error."
   " Stage 3 - Blue: after Green is passing, refactor only the files changed in Red/Green. Preserve behavior and do not add features. First review the code diff (including tests) and identify the highest-impact cleanup. Then apply focused refactoring that improves readability, keeps classes/functions small and cohesive / easy to test, reduces duplication, and simplifies naming and control flow."
   "Refactoring extension shared by Red+Green+Blue style TDD prompts.")
 
+(defconst ai-code--tdd-red-boundaries
+  (concat
+   "Follow TDD principles - write only the test now, not the implementation. "
+   "The test should fail when run because the functionality doesn't exist yet. "
+   "Only update test file code.")
+  "Boundaries for Red-stage structured code-change briefs.")
+
+(defconst ai-code--tdd-green-boundaries
+  (concat
+   "Follow TDD principles - implement the minimum source code needed to make "
+   "the failing test pass. Do not refactor during Green.")
+  "Boundaries for Green-stage structured code-change briefs.")
+
+(defconst ai-code--tdd-failure-fix-boundaries
+  (concat
+   "Follow TDD principles - fix only the failing behavior described by the "
+   "test output. Keep the change narrowly scoped and avoid unrelated cleanup.")
+  "Boundaries for TDD failure-fix structured code-change briefs.")
+
+(defconst ai-code--tdd-red-green-boundaries
+  (string-trim
+   (concat ai-code--tdd-red-green-base-instruction
+           ai-code--tdd-red-green-tail-instruction))
+  "Boundaries for Red+Green structured code-change briefs.")
+
+(defconst ai-code--tdd-red-green-blue-boundaries
+  (string-trim
+   (concat ai-code--tdd-red-green-base-instruction
+           ai-code--tdd-with-refactoring-extension-instruction
+           ai-code--tdd-red-green-tail-instruction))
+  "Boundaries for Red+Green+Blue structured code-change briefs.")
+
+(defun ai-code--tdd-compose-code-change-brief (goal function-name boundaries instruction)
+  "Return a structured TDD code-change brief.
+GOAL is the requested task, FUNCTION-NAME is the current function,
+BOUNDARIES defines the stage limits, and INSTRUCTION is appended guidance."
+  (ai-code--compose-code-change-brief
+   :goal goal
+   :scope (ai-code--agile-current-scope-string
+           function-name
+           (ai-code--get-context-files-string))
+   :boundaries boundaries
+   :code-change-note instruction))
+
 (defun ai-code--tdd-red-stage (function-name)
   "Handle the Red stage of TDD for FUNCTION-NAME: Write a failing test."
   (let ((test-pattern-instruction ai-code--tdd-test-pattern-instruction))
@@ -694,25 +786,26 @@ If no such buffer is found, report a user-error."
         ;; Use it as initial prompt to fix the source code.
         (let* ((failure-info (buffer-substring-no-properties (region-beginning) (region-end)))
                (prompt (ai-code-read-string "Confirm test failure to fix: " failure-info))
-               (file-info (ai-code--get-context-files-string))
-               (tdd-instructions (format "Fix the code to resolve the following error:\n%s%s%s"
-                                         prompt
-                                         file-info
-                                         test-pattern-instruction)))
+               (tdd-instructions
+                (ai-code--tdd-compose-code-change-brief
+                 (format "Fix the code to resolve the following error:\n%s" prompt)
+                 function-name
+                 ai-code--tdd-failure-fix-boundaries
+                 test-pattern-instruction)))
           (ai-code--insert-prompt tdd-instructions))
       ;; Original path: write a failing test
       (ai-code--ensure-test-buffer-visible)
       (let* ((feature-desc (ai-code-read-string
-                            (if function-name
-                                (format "Describe the feature to test for '%s': " function-name)
-                              "Describe the feature to test: ") "Implement test functions using test cases described in the comments."))
-             (file-info (ai-code--get-context-files-string))
+                             (if function-name
+                                 (format "Describe the feature to test for '%s': " function-name)
+                               "Describe the feature to test: ") "Implement test functions using test cases described in the comments."))
              (tdd-instructions
-              (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. The test should fail when run because the functionality doesn't exist yet. Only update test file code.%s"
-                      feature-desc
-                      file-info
-                      (concat ai-code--tdd-run-test-after-this-stage-instruction
-                              test-pattern-instruction))))
+              (ai-code--tdd-compose-code-change-brief
+               feature-desc
+               function-name
+               ai-code--tdd-red-boundaries
+               (concat ai-code--tdd-run-test-after-this-stage-instruction
+                       test-pattern-instruction))))
         (ai-code--insert-prompt tdd-instructions)))))
 
 (defun ai-code--tdd-source-function-context-p (function-name)
@@ -735,12 +828,12 @@ If no such buffer is found, report a user-error."
                            (format "Write test for '%s' in %s."
                                    function-name
                                    test-file-hint)))
-         (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s\nFollow TDD principles - write only the test now, not the implementation. Only update test file code.%s"
-                  write-test-desc
-                  file-info
-                  ai-code--tdd-test-pattern-instruction)))
+          (ai-code--tdd-compose-code-change-brief
+           write-test-desc
+           function-name
+           "Follow TDD principles - write only the test now, not the implementation. Only update test file code."
+           ai-code--tdd-test-pattern-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--tdd-red-green-stage (function-name)
@@ -751,15 +844,13 @@ If no such buffer is found, report a user-error."
                             (format "Describe the feature to test for '%s': " function-name)
                           "Describe the feature to test: ")
                         "Implement test functions using test cases described in the comments."))
-         (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s\n%s%s%s%s"
-                  feature-desc
-                  file-info
-                  ai-code--tdd-red-green-base-instruction
-                  ai-code--tdd-red-green-tail-instruction
-                  ai-code--tdd-run-test-after-each-stage-instruction
-                  ai-code--tdd-test-pattern-instruction)))
+          (ai-code--tdd-compose-code-change-brief
+           feature-desc
+           function-name
+           ai-code--tdd-red-green-boundaries
+           (concat ai-code--tdd-run-test-after-each-stage-instruction
+                   ai-code--tdd-test-pattern-instruction))))
     (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--tdd-red-green-blue-stage (function-name)
@@ -770,16 +861,13 @@ If no such buffer is found, report a user-error."
                             (format "Describe the feature to test for '%s': " function-name)
                           "Describe the feature to test: ")
                         "Implement test functions using test cases described in the comments."))
-         (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s\n%s%s%s%s%s"
-                  feature-desc
-                  file-info
-                  ai-code--tdd-red-green-base-instruction
-                  ai-code--tdd-with-refactoring-extension-instruction
-                  ai-code--tdd-red-green-tail-instruction
-                  ai-code--tdd-run-test-after-each-stage-instruction
-                  ai-code--tdd-test-pattern-instruction)))
+          (ai-code--tdd-compose-code-change-brief
+           feature-desc
+           function-name
+           ai-code--tdd-red-green-blue-boundaries
+           (concat ai-code--tdd-run-test-after-each-stage-instruction
+                   ai-code--tdd-test-pattern-instruction))))
     (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--tdd-green-stage (function-name)
@@ -797,12 +885,12 @@ to fix code."
                 (format "Implement function '%s' to make tests pass: " function-name)
               "Implement the minimal code needed to make the failing test pass: ")))
          (implementation-desc (ai-code-read-string "Implementation instruction: " initial-input))
-         (file-info (ai-code--get-context-files-string))
          (tdd-instructions
-          (format "%s%s\nFollow TDD principles - implement the code needed to make the test pass.%s"
-                  implementation-desc
-                  file-info
-                  ai-code--tdd-run-test-after-this-stage-instruction)))
+          (ai-code--tdd-compose-code-change-brief
+           implementation-desc
+           function-name
+           ai-code--tdd-green-boundaries
+           ai-code--tdd-run-test-after-this-stage-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--run-test-ai-assisted ()

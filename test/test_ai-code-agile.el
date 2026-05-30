@@ -65,6 +65,26 @@
         (ai-code--write-test "my-function")
         (should (string-match-p "my-function" captured-prompt))))))
 
+(ert-deftest ai-code-test-write-test-prompt-uses-structured-code-change-brief ()
+  "Verify `ai-code--write-test' uses the structured code-change brief."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (setq-local buffer-file-name "/project/src/my-module.el")
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial _candidates) initial))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nFiles:\n/project/src/my-module.el"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text) (setq captured-prompt text))))
+        (ai-code--write-test "my-function")
+        (should (string-match-p "^Goal:\nWrite test for 'my-function'" captured-prompt))
+        (should (string-match-p "\n\nScope:\n" captured-prompt))
+        (should (string-match-p "Function: my-function" captured-prompt))
+        (should (string-match-p "Boundaries:\nFollow TDD principles" captured-prompt))
+        (should (string-match-p "Agent responsibilities:" captured-prompt))
+        (should (string-match-p "Verification evidence:" captured-prompt))))))
+
 (ert-deftest ai-code-test-write-test-prompt-includes-source-file-hint ()
   "Verify prompt includes a hint about the source file when buffer has a file name."
   (with-temp-buffer
@@ -212,6 +232,27 @@
         (should (string-match-p "summary of test result" captured-prompt))
         (should (string-match-p "List the public API / log key / config key change if there is" captured-prompt))))))
 
+(ert-deftest ai-code-test-tdd-green-stage-uses-structured-code-change-brief ()
+  "Verify Green stage uses the structured code-change brief."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (captured-prompt)
+      (setq-local buffer-file-name "/project/src/my-module.el")
+      (cl-letf (((symbol-function 'ai-code--ensure-test-buffer-visible) (lambda () t))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial _candidates) initial))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nFiles:\n/project/src/my-module.el"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text) (setq captured-prompt text))))
+        (ai-code--tdd-green-stage "my-function")
+        (should (string-match-p "^Goal:\nImplement function 'my-function'" captured-prompt))
+        (should (string-match-p "\n\nScope:\n" captured-prompt))
+        (should (string-match-p "Function: my-function" captured-prompt))
+        (should (string-match-p "Boundaries:\nFollow TDD principles" captured-prompt))
+        (should (string-match-p "Agent responsibilities:" captured-prompt))
+        (should (string-match-p "Verification evidence:" captured-prompt))))))
+
 (ert-deftest ai-code-test-tdd-red-green-stage-prompt-includes-stage-test-run-and-change-summary ()
   "Verify Red + Green stage prompt asks to run test after each stage and summarize key changes."
   (with-temp-buffer
@@ -247,6 +288,57 @@
         (should (string-match-p "Run test after each stage" captured-prompt))
         (should (string-match-p "summary of test result" captured-prompt))
         (should (string-match-p "List the public API / log key / config key change if there is" captured-prompt))))))
+
+(ert-deftest ai-code-test-tdd-red-green-blue-stage-uses-structured-code-change-brief ()
+  "Verify Red + Green + Blue stage uses the structured code-change brief."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (captured-prompt)
+      (setq-local buffer-file-name "/project/src/my-module.el")
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial _candidates) initial))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nFiles:\n/project/src/my-module.el"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text) (setq captured-prompt text))))
+        (ai-code--tdd-red-green-blue-stage "my-function")
+        (should (string-match-p "^Goal:\nImplement test functions" captured-prompt))
+        (should (string-match-p "\n\nScope:\n" captured-prompt))
+        (should (string-match-p "Function: my-function" captured-prompt))
+        (should (string-match-p "Boundaries:\nFollow strict TDD stages" captured-prompt))
+        (should (string-match-p "Agent responsibilities:" captured-prompt))
+        (should (string-match-p "Verification evidence:" captured-prompt))))))
+
+(ert-deftest ai-code-test-specific-refactoring-uses-structured-code-change-brief ()
+  "Verify specific refactoring requests use the structured code-change brief."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (setq-local buffer-file-name "/project/src/my-module.el")
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial _candidates) initial))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nFiles:\n/project/src/my-module.el"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text)
+                   (setq captured-prompt text)
+                   t)))
+        (ai-code--handle-specific-refactoring
+         "Extract Method"
+         '(("Extract Method" . "Extract the selected code into a new method named helper."))
+         '(:region-active nil
+           :region-text nil
+           :current-function "my-function"
+           :file-name "my-module.el"
+           :dired-targets nil
+           :context-description "in function 'my-function'")
+         nil)
+        (should (string-match-p "^Goal:\nExtract Method in function 'my-function'" captured-prompt))
+        (should (string-match-p "\n\nScope:\n" captured-prompt))
+        (should (string-match-p "Function: my-function" captured-prompt))
+        (should (string-match-p "Boundaries:\nPreserve existing behavior" captured-prompt))
+        (should (string-match-p "Agent responsibilities:" captured-prompt))
+        (should (string-match-p "Verification evidence:" captured-prompt))))))
 
 (ert-deftest ai-code-test-refactor-book-method-dired-skips-technique-selection ()
   "Verify Dired refactoring jumps straight to suggestion mode."

@@ -315,6 +315,37 @@
       (should (string-match-p "Boundaries:\nAnswer the question only\\. Do not make code changes\\."
                               captured-prompt)))))
 
+(ert-deftest ai-code-test-investigate-exception-uses-structured-question-brief ()
+  "Test `ai-code-investigate-exception' emits an investigation-first question brief."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (setq buffer-file-name "/tmp/project/test.el")
+    (insert "(defun old-helper ()\n  (error \"boom\"))\n")
+    (goto-char (point-min))
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+                ((symbol-function 'which-function) (lambda () "old-helper"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_label input) input))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "\nFiles:\n/tmp/project/test.el"))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () "\nStored repository context:\n  - /tmp/project/test.el#old-helper"))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+        (ai-code-investigate-exception nil)
+        (should (stringp captured-prompt))
+        (should (string-match-p "^Goal:\nInvestigate this error" captured-prompt))
+        (should (string-match-p "\n\nScope:\nCurrent file: /tmp/project/test\\.el" captured-prompt))
+        (should (string-match-p "Function: old-helper" captured-prompt))
+        (should (string-match-p "Context:\nStored repository context" captured-prompt))
+        (should (string-match-p
+                 "Boundaries:\nInvestigate first\\. Do not make code changes\\."
+                 captured-prompt))
+        (should (string-match-p "Instruction:\nReport root cause" captured-prompt))
+        (should (string-match-p "candidate next steps" captured-prompt))
+        (should (string-match-p "how to fix" captured-prompt))))))
+
 (ert-deftest ai-code-test-take-notes-org-buffer-sends-insert-prompt ()
   "Test `ai-code-take-notes' sends an AI prompt for Org insertion."
   (with-temp-buffer

@@ -11,6 +11,7 @@
 
 (require 'which-func)
 (require 'savehist)
+(require 'subr-x)
 
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
@@ -52,6 +53,16 @@ Users should enable savehist-mode in their Emacs configuration to persist histor
 (defconst ai-code-discussion--selected-region-note
   "Note: This is a question about the selected region - please do not modify the code."
   "Prompt note for question-only requests about the selected region.")
+
+(defconst ai-code-discussion--exception-investigation-boundaries
+  "Investigate first. Do not make code changes."
+  "Boundaries for exception investigation prompts.")
+
+(defconst ai-code-discussion--exception-investigation-note
+  (concat
+   "Report root cause, relevant evidence, and candidate next steps. "
+   "Include at least one candidate next step that explains how to fix the issue.")
+  "Instruction for exception investigation prompts.")
 
 (defconst ai-code-discussion--explain-selected-files-prefix
   "Please explain the selected files or directories."
@@ -317,9 +328,9 @@ Argument ARG is the prefix argument."
          (function-name (which-function))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
-         (context-section
+         (diagnostic-context
           (if full-buffer-context
-              (concat "\n\nContext:\n" full-buffer-context)
+              full-buffer-context
             (let ((context-blocks nil))
               (when clipboard-content
                 (push (concat "Clipboard context (error/exception):\n" clipboard-content)
@@ -331,9 +342,11 @@ Argument ARG is the prefix argument."
                 (push (concat "Selected code:\n" region-text)
                       context-blocks))
               (when context-blocks
-                (concat "\n\nContext:\n"
-                        (mapconcat #'identity (nreverse context-blocks) "\n\n"))))))
-         (default-question "How to fix the error in this code? Please analyze the error, explain the root cause, and provide the corrected code to resolve the issue: ")
+                (mapconcat #'identity (nreverse context-blocks) "\n\n")))))
+         (default-question
+          (concat
+           "Investigate this error. Explain the likely root cause and suggest "
+           "candidate next steps, including how to fix it: "))
          (prompt-label
           (cond
            (clipboard-content
@@ -350,16 +363,28 @@ Argument ARG is the prefix argument."
             (format "Investigate exceptions in function %s: " function-name))
            (t "Investigate exceptions in code: ")))
          (initial-prompt (ai-code-read-string prompt-label default-question))
+         (scope-string
+          (concat
+           (if buffer-file
+               (format "Current file: %s" buffer-file)
+             (format "Current buffer: %s" (buffer-name)))
+           (when function-name
+             (format "\nFunction: %s" function-name))
+           files-context-string))
+         (context-string
+          (string-trim
+           (concat
+            (or diagnostic-context "")
+            (when (and diagnostic-context repo-context-string)
+              "\n\n")
+            repo-context-string)))
          (final-prompt
-          (concat initial-prompt
-                  context-section
-                  (when function-name (format "\nFunction: %s" function-name))
-                  files-context-string
-                  repo-context-string
-                  (concat "\n\nNote: Please focus on how to fix the error. Your response should include:\n"
-                          "1. A brief explanation of the root cause of the error.\n"
-                          "2. A code snippet with the fix.\n"
-                          "3. An explanation of how the fix addresses the error."))))
+          (ai-code--compose-question-brief
+           :goal initial-prompt
+           :scope scope-string
+           :context context-string
+           :boundaries ai-code-discussion--exception-investigation-boundaries
+           :instruction ai-code-discussion--exception-investigation-note)))
          (ai-code--insert-prompt final-prompt)))
 
 ;;;###autoload
