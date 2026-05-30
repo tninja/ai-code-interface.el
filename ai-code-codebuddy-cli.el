@@ -54,25 +54,15 @@ With prefix ARG, prompt for CLI args using
   "Switch to the CodeBuddy CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No CodeBuddy session for this project"
-     ai-code-codebuddy-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "CodeBuddy" ai-code-codebuddy-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-codebuddy-cli-send-command (line)
   "Send LINE to the CodeBuddy CLI."
   (interactive "sCodeBuddy> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No CodeBuddy session for this project"
-     line
-     ai-code-codebuddy-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "CodeBuddy" ai-code-codebuddy-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-codebuddy-cli-send-escape ()

@@ -102,25 +102,15 @@ With prefix ARG, prompt for CLI args using
   "Switch to the Claude Code CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Claude Code session for this project"
-     ai-code-claude-code--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Claude Code" ai-code-claude-code--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-claude-code-send-command (line)
   "Send LINE to Claude Code CLI."
   (interactive "sClaude Code> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Claude Code session for this project"
-     line
-     ai-code-claude-code--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Claude Code" ai-code-claude-code--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-claude-code-send-escape ()

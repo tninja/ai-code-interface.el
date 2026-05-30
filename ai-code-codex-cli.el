@@ -58,25 +58,15 @@ With prefix ARG, prompt for CLI args using
   "Switch to the Codex CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Codex session for this project"
-     ai-code-codex-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Codex" ai-code-codex-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-codex-cli-send-command (line)
   "Send LINE to Codex CLI."
   (interactive "sCodex> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Codex session for this project"
-     line
-     ai-code-codex-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Codex" ai-code-codex-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-codex-cli-send-escape ()

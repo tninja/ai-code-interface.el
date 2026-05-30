@@ -81,25 +81,15 @@ including chat, agent, trust flags, and `ai-code-kiro-cli-program-switches'."
   "Switch to the Kiro CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Kiro session for this project"
-     ai-code-kiro-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Kiro" ai-code-kiro-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-send-command (line)
   "Send LINE to Kiro CLI."
   (interactive "sKiro> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Kiro session for this project"
-     line
-     ai-code-kiro-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Kiro" ai-code-kiro-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-kiro-cli-send-escape ()

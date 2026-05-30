@@ -52,13 +52,8 @@ With prefix ARG, prompt for CLI args using
   "Switch to the Grok CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Grok session for this project"
-     ai-code-grok-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Grok" ai-code-grok-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-grok-cli-send-command (line)
@@ -66,13 +61,8 @@ When FORCE-PROMPT is non-nil, prompt to select a session."
 When called interactively, prompts for the command.
 When called from Lisp code, sends LINE directly without prompting."
   (interactive "sGrok> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Grok session for this project"
-     line
-     ai-code-grok-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Grok" ai-code-grok-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-grok-cli-resume (&optional arg)
@@ -82,15 +72,8 @@ ARG is passed to the underlying start function."
   (let ((ai-code-grok-cli-program-switches
          (append ai-code-grok-cli-program-switches '("resume"))))
     (ai-code-grok-cli arg)
-    (let* ((working-dir (ai-code-backends-infra--session-working-directory))
-           (buffer (ai-code-backends-infra--select-session-buffer
-                    ai-code-grok-cli--session-prefix
-                    working-dir)))
-      (when buffer
-        (with-current-buffer buffer
-          (sit-for 0.5)
-          (ai-code-backends-infra--terminal-send-string "")
-          (goto-char (point-min)))))))
+    (ai-code-backends-infra--cli-show-resume-picker
+     ai-code-grok-cli--session-prefix)))
 
 (provide 'ai-code-grok-cli)
 

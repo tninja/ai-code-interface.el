@@ -54,25 +54,15 @@ With prefix ARG, prompt for CLI args using
   "Switch to the Aider CLI buffer.
 When FORCE-PROMPT is non-nil, prompt to select a session."
   (interactive "P")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--switch-to-session-buffer
-     nil
-     "No Aider session for this project"
-     ai-code-aider-cli--session-prefix
-     working-dir
-     force-prompt)))
+  (ai-code-backends-infra--cli-switch-to-buffer
+   "Aider" ai-code-aider-cli--session-prefix force-prompt))
 
 ;;;###autoload
 (defun ai-code-aider-cli-send-command (line)
   "Send LINE to Aider CLI."
   (interactive "sAider> ")
-  (let ((working-dir (ai-code-backends-infra--session-working-directory)))
-    (ai-code-backends-infra--send-line-to-session
-     nil
-     "No Aider session for this project"
-     line
-     ai-code-aider-cli--session-prefix
-     working-dir)))
+  (ai-code-backends-infra--cli-send-command
+   "Aider" ai-code-aider-cli--session-prefix line))
 
 ;;;###autoload
 (defun ai-code-aider-cli-send-escape ()

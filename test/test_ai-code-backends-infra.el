@@ -225,6 +225,54 @@ The result is a cons of whether SYMBOL is bound and its default value."
                          "\r\n"
                          post-start-fn)))))
 
+(ert-deftest test-ai-code-backends-infra-cli-switch-and-send-use-project-session ()
+  "CLI wrapper switch and send helpers should resolve project sessions."
+  (let (switch-args
+        send-args)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda () "/project/"))
+              ((symbol-function 'ai-code-backends-infra--switch-to-session-buffer)
+               (lambda (&rest args)
+                 (setq switch-args args)))
+              ((symbol-function 'ai-code-backends-infra--send-line-to-session)
+               (lambda (&rest args)
+                 (setq send-args args))))
+      (ai-code-backends-infra--cli-switch-to-buffer "Codex" "codex" 'force)
+      (ai-code-backends-infra--cli-send-command "Codex" "codex" "hello"))
+    (should (equal switch-args
+                   '(nil "No Codex session for this project"
+                         "codex" "/project/" force)))
+    (should (equal send-args
+                   '(nil "No Codex session for this project"
+                         "hello" "codex" "/project/")))))
+
+(ert-deftest test-ai-code-backends-infra-cli-show-resume-picker-pokes-buffer ()
+  "Resume picker helper should poke the selected session buffer."
+  (let ((buffer (generate-new-buffer "*codex[test]*"))
+        sent)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+                   (lambda () "/project/"))
+                  ((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                   (lambda (prefix working-dir)
+                     (should (equal prefix "codex"))
+                     (should (equal working-dir "/project/"))
+                     buffer))
+                  ((symbol-function 'sit-for)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                   (lambda (string)
+                     (setq sent string))))
+          (with-current-buffer buffer
+            (insert "prompt")
+            (goto-char (point-max)))
+          (ai-code-backends-infra--cli-show-resume-picker "codex")
+          (with-current-buffer buffer
+            (should (equal sent ""))
+            (should (= (point) (point-min)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-buffer-user-visible-p ()
   "Return non-nil only when buffer has a visible window."
   (with-temp-buffer
