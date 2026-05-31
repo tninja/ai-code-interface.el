@@ -111,7 +111,8 @@
         (ai-code--implement-todo--build-and-send-prompt t)
         (should (equal captured-label
                        "Question about TODO comment (clipboard context): "))
-        (should (string-match-p "Regarding this TODO comment" captured-initial-input))
+        (should (string-match-p "Please answer my question about this TODO comment"
+                                captured-initial-input))
         (should-not (string-match-p "Please implement code" captured-initial-input))
         (should (string-match-p "Context files" captured-final-prompt))
         (should (string-match-p "Clipboard context:\nclipboard details" captured-final-prompt))

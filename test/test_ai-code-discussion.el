@@ -15,6 +15,15 @@
 
 (defvar org-roam-directory)
 
+(defun ai-code-discussion-test--count-string-occurrences (needle haystack)
+  "Return the number of non-overlapping NEEDLE occurrences in HAYSTACK."
+  (let ((start 0)
+        (count 0))
+    (while (string-match (regexp-quote needle) haystack start)
+      (setq start (match-end 0))
+      (setq count (1+ count)))
+    count))
+
 (ert-deftest ai-code-test-explain-dired-uses-marked-files-as-git-relative-context ()
   "Test that marked Dired files are explained using git relative paths."
   (let (captured-initial-prompt captured-final-prompt)
@@ -221,6 +230,39 @@
 
         (should implement-todo-called)))))
 
+(ert-deftest ai-code-test-ask-question-org-headline-does-not-duplicate-context ()
+  "Test Org headline context appears once in the structured question brief."
+  (with-temp-buffer
+    (require 'org)
+    (setq buffer-file-name "plan.org")
+    (insert "* TODO Build search feature\n")
+    (insert "Use fuzzy matching.\n")
+    (org-mode)
+    (goto-char (point-min))
+
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (_label input &optional _candidate-list) input))
+                ((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+                ((symbol-function 'ai-code--format-repo-context-info) (lambda () ""))
+                ((symbol-function 'which-function) (lambda () nil))
+                ((symbol-function 'region-active-p) (lambda () nil))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+
+        (ai-code-ask-question nil)
+
+        (should (stringp captured-prompt))
+        (should (string-match-p "^Goal:\n" captured-prompt))
+        (should (string-match-p "\n\nScope:\n" captured-prompt))
+        (should (= 1 (ai-code-discussion-test--count-string-occurrences
+                      "TODO Build search feature"
+                      captured-prompt)))
+        (should (= 1 (ai-code-discussion-test--count-string-occurrences
+                      "Use fuzzy matching."
+                      captured-prompt)))))))
+
 (ert-deftest ai-code-test-ask-question-passes-ask-question-action ()
   "Test that `ai-code-ask-question' passes \"Ask question\" as default-action."
   (with-temp-buffer
@@ -394,8 +436,7 @@
   (let* ((tmp-root (make-temp-file "ai-code-note-roam" t))
          (org-roam-directory (expand-file-name "roam" tmp-root))
          (default-directory tmp-root)
-         (captured-prompt nil)
-         (captured-default-prompt nil))
+         (captured-prompt nil))
     (unwind-protect
         (with-temp-buffer
           (cl-letf (((symbol-function 'read-string)
@@ -409,7 +450,6 @@
                      (lambda (prompt initial-input &optional _candidate-list)
                        (cond
                         ((string-match-p "Prompt:" prompt)
-                         (setq captured-default-prompt initial-input)
                          initial-input)
                         (t initial-input))))
                     ((symbol-function 'ai-code--ensure-files-directory)

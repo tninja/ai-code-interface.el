@@ -605,38 +605,22 @@ ARG controls whether clipboard context is included."
 
 (defun ai-code--implement-todo--initial-input (context ask-question-p)
   "Return initial prompt input for CONTEXT and ASK-QUESTION-P."
-  (let ((current-line (plist-get context :current-line))
-        (current-line-number (plist-get context :current-line-number))
-        (is-comment (plist-get context :is-comment))
+  (let ((is-comment (plist-get context :is-comment))
         (org-todo-section-info (plist-get context :org-todo-section-info))
-        (org-line-number (plist-get context :org-line-number))
-        (org-section-block (plist-get context :org-section-block))
-        (function-context (plist-get context :function-context))
-        (region-text (plist-get context :region-text))
-        (region-location-line (plist-get context :region-location-line))
-        (files-context-string (plist-get context :files-context-string)))
+        (region-text (plist-get context :region-text)))
     (cond
      ((and ask-question-p org-todo-section-info)
-      (format "Regarding this Org headline on line %d:\n%s%s%s"
-              org-line-number org-section-block function-context files-context-string))
+      "Please answer my question about this Org headline.")
      ((and ask-question-p region-text)
-      (format "Regarding this TODO comment block in the selected region:\n%s\n%s%s%s"
-              region-location-line region-text function-context files-context-string))
+      "Please answer my question about this selected TODO comment block.")
      ((and ask-question-p is-comment)
-      (format "Regarding this TODO comment on line %d: '%s'%s%s"
-              current-line-number current-line function-context files-context-string))
+      "Please answer my question about this TODO comment.")
      (org-todo-section-info
-      (format "Please implement code for this Org headline first. After implementing, keep the Org headline in place and use the headline and content as prompt context.\nLine %d:\n%s%s%s"
-              org-line-number org-section-block function-context
-              files-context-string))
+      "Please implement code for this Org headline first.")
      (region-text
-      (format
-       "Please implement code for this requirement comment block in the selected region first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if no prefix). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.\n%s\n%s%s%s"
-       region-location-line region-text function-context
-       files-context-string))
+      "Please implement code for this selected TODO comment block first.")
      (is-comment
-      (format "Please implement code for this requirement comment on line %d: '%s' first. After implementing, keep the comment in place and ensure it begins with a DONE prefix (change TODO to DONE or prepend DONE if needed). If this is a pure new code block, place it after the comment; otherwise keep the existing structure and make corresponding change for the context.%s%s"
-              current-line-number current-line function-context files-context-string))
+      "Please implement code for this TODO comment first.")
      (t ""))))
 
 (defun ai-code--implement-todo--scope (context)

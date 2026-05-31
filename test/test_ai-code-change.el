@@ -13,6 +13,15 @@
 (require 'ai-code-change)
 (defvar flycheck-current-errors)
 
+(defun ai-code-change-test--count-string-occurrences (needle haystack)
+  "Return the number of non-overlapping NEEDLE occurrences in HAYSTACK."
+  (let ((start 0)
+        (count 0))
+    (while (string-match (regexp-quote needle) haystack start)
+      (setq start (match-end 0))
+      (setq count (1+ count)))
+    count))
+
 (ert-deftest ai-code-test-ai-code--get-function-name-for-comment-basic ()
   "Test function name detection when on a comment line before function body.
 This simulates the Ruby example from the issue where a TODO comment
@@ -586,9 +595,16 @@ is between the function definition and its body."
         (ai-code-implement-todo nil)
 
         (should (stringp captured-prompt))
-        (should (string-match-p "Regarding this Org headline" captured-prompt))
+        (should (string-match-p
+                 "Please answer my question about this Org headline"
+                 captured-prompt))
+        (should (string-match-p "Scope:\nOrg headline on line 1"
+                                captured-prompt))
         (should (string-match-p "TODO: what is the most important verse in Bible"
-                                captured-prompt))))))
+                                captured-prompt))
+        (should (= 1 (ai-code-change-test--count-string-occurrences
+                      "TODO: what is the most important verse in Bible"
+                      captured-prompt)))))))
 
 (ert-deftest ai-code-test-detect-todo-info-org-todo-headline ()
   "Test `ai-code--detect-todo-info' detects Org TODO headlines."
@@ -653,7 +669,7 @@ is between the function definition and its body."
         (should (string-match-p "TODO:" (nth 0 result)))))))
 
 (ert-deftest ai-code-test-implement-todo-default-action-skips-completing-read ()
-  "Test that passing default-action skips the completing-read prompt."
+  "Test that passing default-action skips the `completing-read' prompt."
   (with-temp-buffer
     (setq buffer-file-name "test.el")
     (setq-local comment-start ";")
@@ -684,7 +700,7 @@ is between the function definition and its body."
         (should (string-match-p "Please implement code" captured-prompt))))))
 
 (ert-deftest ai-code-test-implement-todo-nil-default-action-prompts-user ()
-  "Test that nil default-action still prompts user with completing-read."
+  "Test that nil default-action still prompts user with `completing-read'."
   (with-temp-buffer
     (setq buffer-file-name "test.el")
     (setq-local comment-start ";")
