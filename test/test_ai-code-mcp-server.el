@@ -669,6 +669,48 @@ and summary; returning every diagnostic would bloat the model context."
         (kill-buffer session-buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-diagnostics-baseline-response-includes-next-actions ()
+  "The baseline response should carry a structured next action for the harness loop.
+Per the observation contract, the follow-up step (edit, then verify with
+since=\"baseline\") belongs in `next_actions', not only in the summary prose."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-actions-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-baseline-actions*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-baseline-actions")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-baseline-actions" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics
+                (list (make-ai-code-test-mcp-mock-diagnostic
+                       :beg (point-min) :end (line-end-position)
+                       :type :warning :text "Existing problem"
+                       :backend 'mock-backend))
+              (let* ((baseline (ai-code-test-mcp--read-json
+                                (ai-code-test-mcp--content-text
+                                 (ai-code-mcp-dispatch
+                                  "tools/call"
+                                  '((name . "diagnostics_baseline")
+                                    (arguments . ()))))))
+                     (actions (alist-get 'next_actions baseline)))
+                (should (equal "baseline_recorded" (alist-get 'status baseline)))
+                ;; The harness's follow-up step is exposed as a structured action.
+                (should (> (length actions) 0))
+                (should (string-match-p "since=\"baseline\"" (aref actions 0)))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
 (ert-deftest ai-code-test-mcp-diagnostics-envelope-truncates-large-reports ()
   "The diagnostics envelope caps `files' so a large report cannot overflow context."
   (let* ((ai-code-mcp-diagnostics-max-report-diagnostics 2)

@@ -696,7 +696,10 @@ not introduce new problems."
        ;; payload far too large to fit in the model context, which defeats the
        ;; purpose of keeping the baseline out of context in the first place.
        (files . ,(vconcat nil))
-       (next_actions . ,(vconcat nil))
+       (next_actions . ,(vector
+                         (concat "Edit, then call get_diagnostics with"
+                                 " since=\"baseline\" on the touched files and"
+                                 " finish only when status is \"clean\".")))
        (artifacts . ,(vconcat nil))))))
 
 (defun ai-code-mcp--diagnostics-for-uri (uri)
