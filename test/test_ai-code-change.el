@@ -807,10 +807,10 @@ is between the function definition and its body."
           captured-prompt)
       (let ((original-featurep (symbol-function 'featurep)))
         (cl-letf (((symbol-function 'featurep)
-                   (lambda (feature)
+                   (lambda (feature &optional subfeature)
                      (if (eq feature 'flycheck)
                          t
-                       (funcall original-featurep feature))))
+                       (funcall original-featurep feature subfeature))))
                   ((symbol-function 'ai-code--git-root) (lambda () "/tmp/project"))
                 ((symbol-function 'ai-code--choose-flycheck-scope)
                  (lambda () (list (point-min) (point-max) "current line (1)")))

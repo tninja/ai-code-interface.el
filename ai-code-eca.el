@@ -282,6 +282,12 @@ Auto-apply shared context if any."
       (pop-to-buffer (eca-chat--get-last-buffer session))
       session)))
 
+(defun ai-code-eca--session-workspace-folders (session)
+  "Return workspace folders for ECA SESSION."
+  (if (and (listp session) (plist-member session :workspace-folders))
+      (plist-get session :workspace-folders)
+    (eca--session-workspace-folders session)))
+
 (defun ai-code-eca--find-session-by-workspace (workspace-root)
   "Find an existing session that has WORKSPACE-ROOT in its workspace folders.
 Returns the session if found, nil otherwise."
@@ -290,7 +296,8 @@ Returns the session if found, nil otherwise."
       (cl-find-if
        (lambda (session)
          (member target (mapcar #'expand-file-name
-                                (eca--session-workspace-folders session))))
+                                (ai-code-eca--session-workspace-folders
+                                 session))))
        (eca-vals eca--sessions)))))
 
 (defun ai-code-eca-create-session-for-workspace (&optional _arg)

@@ -201,14 +201,17 @@ should be reachable from ai-code layouts where not shadowed."
   "Test finding existing session by workspace root."
   (let ((temp-dir (make-temp-file "eca-test" t)))
     (unwind-protect
-        (let* ((mock-session (list :workspace-folders (list temp-dir)))
-               (eca--sessions (list (cons "test-id" mock-session))))
-          (cl-letf (((symbol-function 'eca--session-workspace-folders)
-                     (lambda (s) (plist-get s :workspace-folders)))
-                    ((symbol-function 'eca-vals)
-                     (lambda (ht) (mapcar #'cdr ht))))
-            (should (ai-code-eca--find-session-by-workspace temp-dir))
-            (should-not (ai-code-eca--find-session-by-workspace "/nonexistent/path"))))
+        (let ((old-sessions eca--sessions)
+              (mock-session (list :id 1
+                                  :status 'running
+                                  :workspace-folders (list temp-dir))))
+          (unwind-protect
+              (progn
+                (setq eca--sessions (list (cons "test-id" mock-session)))
+                (should (ai-code-eca--find-session-by-workspace temp-dir))
+                (should-not
+                 (ai-code-eca--find-session-by-workspace "/nonexistent/path")))
+            (setq eca--sessions old-sessions)))
       (delete-directory temp-dir t))))
 
 (ert-deftest ai-code-test-eca-create-session-reuses-existing ()

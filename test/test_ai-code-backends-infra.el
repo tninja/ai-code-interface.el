@@ -93,16 +93,24 @@ The result is a cons of whether SYMBOL is bound and its default value."
             (push (read (current-buffer)) forms))
         (end-of-file nil))
       (setq forms (nreverse forms))
+      (cl-labels ((find-defvar
+                   (sexp symbol)
+                   (cond
+                    ((and (listp sexp)
+                          (eq (car sexp) 'defvar)
+                          (eq (cadr sexp) symbol))
+                     sexp)
+                    ((listp sexp)
+                     (seq-some (lambda (child)
+                                 (find-defvar child symbol))
+                               sexp)))))
       (dolist (symbol '(ghostel-kill-buffer-on-exit
                         ghostel-set-title-function))
-        (let ((form (seq-find
-                     (lambda (sexp)
-                       (and (listp sexp)
-                            (eq (car sexp) 'defvar)
-                            (eq (cadr sexp) symbol)))
-                     forms)))
+        (let ((form (seq-some (lambda (sexp)
+                                (find-defvar sexp symbol))
+                              forms)))
           (should form)
-          (should (= (length form) 2)))))))
+          (should (= (length form) 2))))))))
 
 (ert-deftest test-ai-code-backends-infra--resume-double-dash-prefills-uuid ()
   "A selected UUID should make `--resume' prompt with that id appended."
@@ -1547,6 +1555,8 @@ The result is a cons of whether SYMBOL is bound and its default value."
           (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
                     (lambda (&rest _args)
                        (list existing-buffer)))
+                    ((symbol-function 'magit-get-current-branch)
+                     (lambda () nil))
                     ((symbol-function 'read-string)
                      (lambda (prompt &optional _initial-input _history default-value &rest _args)
                        (setq seen-prompt prompt

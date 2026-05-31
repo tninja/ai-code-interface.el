@@ -220,8 +220,8 @@
        (when (buffer-live-p dashboard-buffer)
          (kill-buffer dashboard-buffer))))))
 
-(ert-deftest ai-code-test-session-dashboard-open-diff-uses-magit-status ()
-  "D should open `magit-status' for the session repository."
+(ert-deftest ai-code-test-session-dashboard-open-diff-uses-magit-status-setup-buffer ()
+  "D should open Magit status setup for the session repository."
   (ai-code-test-session--with-clean-registry
    (let ((session-buffer (get-buffer-create "*codex[diff]*"))
          (repo-root (make-temp-file "ai-code-dashboard-diff-" t))
@@ -243,11 +243,12 @@
                         (setq dashboard-buffer buffer)
                         (get-buffer-window buffer)))
                      ((symbol-function 'magit-status)
-                      (lambda (directory)
-                        (setq opened-repo directory)))
-                     ((symbol-function 'magit-status-setup-buffer)
                       (lambda (&rest _args)
-                        (ert-fail "dashboard should use public `magit-status'"))))
+                        (ert-fail
+                         "Dashboard should avoid interactive `magit-status'")))
+                     ((symbol-function 'magit-status-setup-buffer)
+                      (lambda (directory &rest _args)
+                        (setq opened-repo directory))))
              (ai-code-session-dashboard)
              (with-current-buffer dashboard-buffer
                 (ai-code-test-session-dashboard-goto-first-entry)

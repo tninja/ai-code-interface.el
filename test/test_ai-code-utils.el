@@ -131,7 +131,7 @@
   (with-temp-buffer
     (setq-local buffer-file-name "/tmp/test.el")
     (cl-letf (((symbol-function 'window-list)
-               (lambda () (list (selected-window))))
+               (lambda (&rest _args) (list (selected-window))))
               ((symbol-function 'window-buffer)
                (lambda (_w) (current-buffer))))
       (let ((result (ai-code--get-window-files)))
