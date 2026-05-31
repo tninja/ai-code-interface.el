@@ -82,10 +82,10 @@ Use `auto' to prefer Flycheck and then Flymake when available."
 
 (defvar ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to recorded diagnostics baselines.
-Each value is a hash set whose keys are diagnostic identity strings.  The
-baseline lets `get_diagnostics' report only NEW diagnostics so the agent
-can verify it introduced no regressions, without tracking the baseline in
-the model context itself.")
+Each value is a hash table mapping diagnostic identity strings to counts.
+The baseline lets `get_diagnostics' report only NEW diagnostics so the
+agent can verify it introduced no regressions, without tracking the
+baseline in the model context itself.")
 
 (defconst ai-code-mcp--protocol-version "2024-11-05"
   "Protocol version reported by the MCP core.")
@@ -548,22 +548,23 @@ requests `since=\"baseline\"' without first calling `diagnostics_baseline'."
 (defun ai-code-mcp--diagnostic-identity (uri diagnostic)
   "Return a stable identity string for DIAGNOSTIC located in URI.
 Position is intentionally excluded so edits that shift line numbers do not
-make a pre-existing diagnostic look new.  Trade-off: two diagnostics sharing
-uri/severity/source/message are treated as one, so a newly introduced
-duplicate of an existing message is not reported as new."
+make a pre-existing diagnostic look new.  Multiplicity is tracked by the
+baseline count table, so duplicate diagnostics beyond the recorded count
+are still reported as new."
   (format "%s\0%s\0%s\0%s"
           (or uri "")
           (or (alist-get 'severity diagnostic) "")
           (or (alist-get 'source diagnostic) "")
           (or (alist-get 'message diagnostic) "")))
 
-(defun ai-code-mcp--diagnostics-identity-set (entries)
-  "Return a hash set of identity strings for diagnostics ENTRIES."
-  (let ((set (make-hash-table :test 'equal)))
-    (dolist (entry entries set)
+(defun ai-code-mcp--diagnostics-identity-counts (entries)
+  "Return a hash table of identity counts for diagnostics ENTRIES."
+  (let ((counts (make-hash-table :test 'equal)))
+    (dolist (entry entries counts)
       (let ((uri (alist-get 'uri entry)))
         (seq-doseq (diagnostic (alist-get 'diagnostics entry))
-          (puthash (ai-code-mcp--diagnostic-identity uri diagnostic) t set))))))
+          (let ((identity (ai-code-mcp--diagnostic-identity uri diagnostic)))
+            (puthash identity (1+ (gethash identity counts 0)) counts)))))))
 
 (defun ai-code-mcp--diagnostics-new-since-baseline (entries)
   "Return ENTRIES filtered to diagnostics absent from the session baseline.
@@ -572,20 +573,31 @@ When no baseline has been recorded, return ENTRIES unchanged."
                            ai-code-mcp--diagnostics-baselines)))
     (if (null baseline)
         entries
-      (delq nil
-            (mapcar
-             (lambda (entry)
-               (let* ((uri (alist-get 'uri entry))
-                      (new (seq-filter
-                            (lambda (diagnostic)
-                              (not (gethash
-                                    (ai-code-mcp--diagnostic-identity uri diagnostic)
-                                    baseline)))
-                            (append (alist-get 'diagnostics entry) nil))))
-                 (when new
-                   `((uri . ,uri)
-                     (diagnostics . ,(vconcat new))))))
-             entries)))))
+      (let ((remaining (copy-hash-table baseline)))
+        (delq nil
+              (mapcar
+               (lambda (entry)
+                 (let* ((uri (alist-get 'uri entry))
+                        (new (delq nil
+                                   (mapcar
+                                    (lambda (diagnostic)
+                                      (let* ((identity
+                                              (ai-code-mcp--diagnostic-identity
+                                               uri diagnostic))
+                                             (count (gethash identity
+                                                             remaining 0)))
+                                        (if (> count 0)
+                                            (progn
+                                              (puthash identity (1- count)
+                                                       remaining)
+                                              nil)
+                                          diagnostic)))
+                                    (append (alist-get 'diagnostics entry)
+                                            nil)))))
+                   (when new
+                     `((uri . ,uri)
+                       (diagnostics . ,(vconcat new))))))
+               entries))))))
 
 (defun ai-code-mcp-diagnostics-baseline ()
   "Record current project diagnostics as the session baseline.
@@ -594,9 +606,9 @@ Return a JSON observation envelope describing what was recorded.  Later
 diagnostics relative to this snapshot, which lets the agent verify it did
 not introduce new problems."
   (let* ((entries (ai-code-mcp--diagnostics-for-project))
-         (set (ai-code-mcp--diagnostics-identity-set entries))
+         (counts (ai-code-mcp--diagnostics-identity-counts entries))
          (count (ai-code-mcp--diagnostics-total-count entries)))
-    (puthash (ai-code-mcp--diagnostics-baseline-key) set
+    (puthash (ai-code-mcp--diagnostics-baseline-key) counts
              ai-code-mcp--diagnostics-baselines)
     (json-encode
      `((status . "baseline_recorded")

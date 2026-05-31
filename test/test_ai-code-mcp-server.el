@@ -505,7 +505,7 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
       (delete-directory project-dir t))))
 
 (ert-deftest ai-code-test-mcp-get-diagnostics-envelope-reports-issues ()
-  "get_diagnostics should wrap results in an observation envelope."
+  "The get_diagnostics tool should wrap results in an observation envelope."
   (let* ((project-dir (make-temp-file "ai-code-mcp-envelope-issues-" t))
          (file-path (expand-file-name "sample.el" project-dir))
          (file-uri (concat "file://" file-path))
@@ -549,7 +549,7 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
       (delete-directory project-dir t))))
 
 (ert-deftest ai-code-test-mcp-get-diagnostics-envelope-reports-clean ()
-  "get_diagnostics should report a clean status when there are no diagnostics."
+  "The get_diagnostics tool should report clean when there are no diagnostics."
   (let* ((project-dir (make-temp-file "ai-code-mcp-envelope-clean-" t))
          (file-path (expand-file-name "sample.el" project-dir))
          (file-uri (concat "file://" file-path))
@@ -682,6 +682,59 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
         (kill-buffer session-buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-get-diagnostics-since-baseline-counts-duplicates ()
+  "A duplicate diagnostic beyond the baseline count should be a regression."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-duplicates-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-baseline-duplicates*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-baseline-duplicates")
+         (existing (make-ai-code-test-mcp-mock-diagnostic
+                    :beg (point-min) :end (point-min)
+                    :type :warning :text "Repeated problem"
+                    :backend 'mock-backend))
+         (duplicate (make-ai-code-test-mcp-mock-diagnostic
+                     :beg (point-min) :end (point-min)
+                     :type :warning :text "Repeated problem"
+                     :backend 'mock-backend))
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-baseline-duplicates" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics (list existing)
+              (ai-code-mcp-dispatch
+               "tools/call"
+               '((name . "diagnostics_baseline")
+                 (arguments . ()))))
+            (ai-code-test-mcp--with-flymake-diagnostics (list existing duplicate)
+              (let* ((delta (ai-code-test-mcp--read-json
+                             (ai-code-test-mcp--content-text
+                              (ai-code-mcp-dispatch
+                               "tools/call"
+                               '((name . "get_diagnostics")
+                                 (arguments . ((since . "baseline"))))))))
+                     (files (alist-get 'files delta)))
+                (should (equal "regression" (alist-get 'status delta)))
+                (should (= 1 (length files)))
+                (should (= 1 (length (alist-get 'diagnostics (aref files 0)))))
+                (should (equal "Repeated problem"
+                               (alist-get 'message
+                                          (aref (alist-get 'diagnostics
+                                                           (aref files 0))
+                                                0))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
 (ert-deftest ai-code-test-mcp-unregister-session-clears-diagnostics-baseline ()
   "Unregistering a session should free its recorded diagnostics baseline."
   (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
@@ -702,7 +755,7 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
       (delete-directory project-dir t))))
 
 (ert-deftest ai-code-test-mcp-get-diagnostics-since-baseline-without-baseline-reports-no-baseline ()
-  "since=\"baseline\" before recording a baseline must not report regressions."
+  "Using since=\"baseline\" before recording a baseline must not report regressions."
   (let* ((project-dir (make-temp-file "ai-code-mcp-no-baseline-" t))
          (file-path (expand-file-name "sample.el" project-dir))
          (session-buffer (generate-new-buffer " *ai-code-mcp-no-baseline*"))
