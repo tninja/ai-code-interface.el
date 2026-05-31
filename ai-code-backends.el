@@ -402,12 +402,9 @@ so the CLI itself handles the installation details."
      :upgrade "npm install -g @anthropic-ai/claude-code@latest"
      :install-skills nil
      :cli     "claude"))
-  "Available AI backends and how to integrate with them.
-Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
-:send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING
-:agent-file STRING-or-nil :install-skills STRING-or-SYMBOL-or-nil).
-The :upgrade property can be either a string shell command or nil.
-The :install-skills property can be a string shell command, a function symbol, or nil."
+  "Available AI backends and their integration metadata.
+Each entry is a plist with backend labels, command functions,
+configuration paths, upgrade commands, and skill-install commands."
   :type '(repeat (list (symbol :tag "Key")
                        (const :label) (string :tag "Label")
                        (const :require) (symbol :tag "Feature to require")

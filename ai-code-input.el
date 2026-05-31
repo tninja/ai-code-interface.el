@@ -189,8 +189,14 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
 (when (featurep 'helm)
   (setq ai-code--read-string-fn #'ai-code-helm-read-string))
 
-(with-eval-after-load 'helm
-  (setq ai-code--read-string-fn #'ai-code-helm-read-string))
+(defun ai-code--enable-helm-read-string (&rest _args)
+  "Enable Helm-backed prompt reading after Helm is loaded."
+  (when (featurep 'helm)
+    (setq ai-code--read-string-fn #'ai-code-helm-read-string)
+    (remove-hook 'after-load-functions #'ai-code--enable-helm-read-string)))
+
+(unless (featurep 'helm)
+  (add-hook 'after-load-functions #'ai-code--enable-helm-read-string))
 
 
 (defun ai-code--imenu-subalist-p (payload)

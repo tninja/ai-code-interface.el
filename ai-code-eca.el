@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026
 ;; Author: davidwuchn
 ;; Version: 0.2
-;; Keywords: ai, code, assistant, eca
+;; Keywords: tools, convenience
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
@@ -171,12 +171,25 @@ Only adds when ECA is the current backend."
       (error
        (message "Failed to remove ECA menu: %s" (error-message-string err))))))
 
-(with-eval-after-load 'ai-code
-  (advice-add 'ai-code-set-backend :after
-              (lambda (backend)
-                (if (eq backend 'eca)
-                    (ai-code-eca--add-menu-group)
-                  (ai-code-eca--remove-menu-group)))))
+(defun ai-code-eca--after-set-backend (backend)
+  "Update the ECA menu entries after selecting BACKEND."
+  (if (eq backend 'eca)
+      (ai-code-eca--add-menu-group)
+    (ai-code-eca--remove-menu-group)))
+
+(defun ai-code-eca--setup-ai-code-integration (&rest _args)
+  "Install ECA integration once `ai-code' is loaded."
+  (when (featurep 'ai-code)
+    (unless (advice-member-p #'ai-code-eca--after-set-backend
+                             'ai-code-set-backend)
+      (advice-add 'ai-code-set-backend :after
+                  #'ai-code-eca--after-set-backend))
+    (remove-hook 'after-load-functions
+                 #'ai-code-eca--setup-ai-code-integration)))
+
+(if (featurep 'ai-code)
+    (ai-code-eca--setup-ai-code-integration)
+  (add-hook 'after-load-functions #'ai-code-eca--setup-ai-code-integration))
 
 
 ;;; ============================================================
@@ -283,7 +296,7 @@ Returns the session if found, nil otherwise."
 (defun ai-code-eca-create-session-for-workspace (&optional _arg)
   "Start ECA session for a selected workspace.
 Prompt for workspace root, then create or reuse session for that workspace.
-If a session already exists with this workspace, reuse it instead of creating new."
+Reuse an existing session for that workspace when possible."
   (interactive "P")
   (let* ((proj (project-current nil default-directory))
          (default-dir (if proj (project-root proj) default-directory))
@@ -297,7 +310,8 @@ If a session already exists with this workspace, reuse it instead of creating ne
              (eca-process-start existing-session
                                 (lambda ()
                                   (eca--initialize existing-session))
-                                (-partial #'eca--handle-message existing-session)))
+                                (apply-partially #'eca--handle-message
+                                                 existing-session)))
             ('started
              (eca-chat-open existing-session))
             ('starting
@@ -311,7 +325,7 @@ If a session already exists with this workspace, reuse it instead of creating ne
              (eca-process-start session
                                 (lambda ()
                                   (eca--initialize session))
-                                (-partial #'eca--handle-message session)))
+                                (apply-partially #'eca--handle-message session)))
             ('started
              (eca-chat-open session))
             ('starting
@@ -677,10 +691,18 @@ If the project is already present in the workspace, do nothing."
                  (when session
                    (eca-chat-open session)))))))))))
 
-(with-eval-after-load 'eca
-  (add-hook 'find-file-hook #'ai-code-eca--auto-add-workspace-hook)
-  (add-hook 'find-file-hook #'ai-code-eca--auto-create-session-hook 90)
-  (add-hook 'window-buffer-change-functions #'ai-code-eca--auto-switch-session-hook))
+(defun ai-code-eca--setup-eca-hooks (&rest _args)
+  "Install hooks that depend on the ECA package."
+  (when (featurep 'eca)
+    (add-hook 'find-file-hook #'ai-code-eca--auto-add-workspace-hook)
+    (add-hook 'find-file-hook #'ai-code-eca--auto-create-session-hook 90)
+    (add-hook 'window-buffer-change-functions
+              #'ai-code-eca--auto-switch-session-hook)
+    (remove-hook 'after-load-functions #'ai-code-eca--setup-eca-hooks)))
+
+(if (featurep 'eca)
+    (ai-code-eca--setup-eca-hooks)
+  (add-hook 'after-load-functions #'ai-code-eca--setup-eca-hooks))
 
 ;;; Shared Context
 
@@ -832,19 +854,21 @@ ECA manages skills as files under ~/.eca/ or project .eca/ directory."
                    (age   (float-time (time-subtract (current-time) mtime))))
               (< age 86400)))))
 
-(with-eval-after-load 'eca-process
+(defun ai-code-eca--setup-eca-process (&rest _args)
+  "Install ECA process download customizations after ECA loads."
+  (when (featurep 'eca-process)
 
-  (setopt eca-server-install-path (expand-file-name (if (eq system-type 'windows-nt) "eca/eca.exe" "eca/eca")
-                                                    user-emacs-directory)
-          eca-server-version-file-path (expand-file-name "eca/eca-version" user-emacs-directory))
+    (setopt eca-server-install-path (expand-file-name (if (eq system-type 'windows-nt) "eca/eca.exe" "eca/eca")
+                                                      user-emacs-directory)
+            eca-server-version-file-path (expand-file-name "eca/eca-version" user-emacs-directory))
 
-  (let* ((vfile (or (bound-and-true-p eca-server-version-file-path)
-                    (expand-file-name "eca/eca-version" user-emacs-directory)))
-         (version (ai-code-eca-upgrade--resolve-version)))
-    (unless (file-exists-p vfile)
-      (make-directory (file-name-directory vfile) t)
-      (write-region version nil vfile nil 'silent))
-    (setq eca-process--latest-server-version version))
+    (let* ((vfile (or (bound-and-true-p eca-server-version-file-path)
+                      (expand-file-name "eca/eca-version" user-emacs-directory)))
+           (version (ai-code-eca-upgrade--resolve-version)))
+      (unless (file-exists-p vfile)
+        (make-directory (file-name-directory vfile) t)
+        (write-region version nil vfile nil 'silent))
+      (setq eca-process--latest-server-version version))
 
   (defun ai-code-eca-upgrade--curl-download-string (url)
     "Rewrite URL to /releases/latest for faster download."
@@ -922,8 +946,13 @@ ECA manages skills as files under ~/.eca/ or project .eca/ directory."
       (make-directory (file-name-directory ai-code-eca-upgrade--last-check-file) t)
       (write-region "" nil ai-code-eca-upgrade--last-check-file nil 'silent)))
 
-  (run-with-idle-timer ai-code-eca-upgrade-auto-idle-seconds t
-                        #'ai-code-eca-upgrade--auto-maybe))
+    (run-with-idle-timer ai-code-eca-upgrade-auto-idle-seconds t
+                         #'ai-code-eca-upgrade--auto-maybe)
+    (remove-hook 'after-load-functions #'ai-code-eca--setup-eca-process)))
+
+(if (featurep 'eca-process)
+    (ai-code-eca--setup-eca-process)
+  (add-hook 'after-load-functions #'ai-code-eca--setup-eca-process))
 
 ;;;###autoload
 (defun ai-code-eca-upgrade-binary (&optional silent)

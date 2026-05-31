@@ -15,7 +15,7 @@
 
 (declare-function magit-get-current-branch "magit-git" ())
 (declare-function magit-git-lines "magit-git" (&rest args))
-(declare-function magit-status "magit-status" (directory))
+(declare-function magit-status-setup-buffer "magit-status" (directory))
 
 (cl-defstruct ai-code-session
   id
@@ -289,7 +289,7 @@ describe the session.  ID is optional and mainly useful when restoring state."
   (interactive)
   (if-let* ((session (ai-code-session-dashboard--session-at-point))
             (repo-root (ai-code-session-repo-root session)))
-      (magit-status repo-root)
+      (magit-status-setup-buffer repo-root)
     (user-error "No repository is associated with this session")))
 
 (defvar ai-code-session-dashboard-mode-map

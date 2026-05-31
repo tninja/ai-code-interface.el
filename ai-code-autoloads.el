@@ -660,11 +660,6 @@ PREFIX is the prefix argument.
 (autoload 'ai-code-update-git-ignore "ai-code-git" "\
 Ensure repository .gitignore has AI Code-related entries.
 If not inside a Git repository, do nothing." t)
-(autoload 'ai-code--git-repo-recent-modified-files "ai-code-git" "\
-Return up to LIMIT most recently modified files under BASE-DIR.
-If BASE-DIR is in a Git repository, use `git ls-files' to enumerate files.
-
-(fn BASE-DIR LIMIT)")
 (autoload 'ai-code-git-repo-recent-modified-files "ai-code-git" "\
 Open or insert a recently modified file in the repo or current dir.
 With no PREFIX argument, prompt for a recently modified file and open it

@@ -125,7 +125,7 @@ terminal output redraw."
   "Regexp matching recent output that may contain session links.")
 
 (defun ai-code-session-link--path-pattern (suffix)
-  "Return a session link regexp for `ai-code-session-link--path-base-regexp' plus SUFFIX."
+  "Return a session link regexp for path base plus SUFFIX."
   (concat "\\(" ai-code-session-link--path-base-regexp "\\)" suffix))
 
 (defconst ai-code-session-link--file-patterns
@@ -390,7 +390,8 @@ terminal output redraw."
            (ai-code-session-link--bare-symbol-candidate-p candidate))))
 
 (defun ai-code-session-link--line-budget-end (start end line-count)
-  "Return the position after moving forward LINE-COUNT line breaks from START up to END."
+  "Return position after moving LINE-COUNT lines from START.
+Do not move beyond END."
   (save-excursion
     (goto-char start)
     (when (and (< (point) end)
@@ -409,8 +410,10 @@ terminal output redraw."
        (ai-code-session-link--line-budget-end
         start hard-end ai-code-session-link--symbol-neighborhood-max-lines)))
 
-(defun ai-code-session-link--within-symbol-scan-budget-p (candidate-count link-count)
-  "Return non-nil when nearby scanning can continue with CANDIDATE-COUNT and LINK-COUNT."
+(defun ai-code-session-link--within-symbol-scan-budget-p
+    (candidate-count link-count)
+  "Return non-nil when nearby symbol scanning can continue.
+CANDIDATE-COUNT and LINK-COUNT are the current scan totals."
   (and (< candidate-count ai-code-session-link--symbol-neighborhood-max-candidates)
        (< link-count ai-code-session-link--symbol-neighborhood-max-links)))
 

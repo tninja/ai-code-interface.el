@@ -292,7 +292,6 @@ PR Creation Steps:
     (_
      (ai-code--build-pr-review-init-prompt review-source target-url))))
 
-;;;###autoload
 (defun ai-code--pull-or-review-pr-with-source (review-source)
   "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI."
   (require 'ai-code-git nil t)

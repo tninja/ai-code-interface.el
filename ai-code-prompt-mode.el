@@ -209,7 +209,7 @@ that should be recorded in the prompt history file."
 
 (defun ai-code--prompt-choose-target-session ()
   "Choose AI session buffer to send prompt to.
-Return session buffer for direct routing, or nil to use default backend dispatch."
+Return a session buffer, or nil for default backend dispatch."
   (when-let ((visible-session (ai-code--find-visible-session-buffer)))
     (let* ((project-sessions (ai-code--find-project-session-buffers))
            (visible-is-project-session (memq visible-session project-sessions))

@@ -3,7 +3,7 @@
 ;; Author: Yoav Orot, Kang Tu, Silex, Steve Molitor, AI Agent
 ;; SPDX-License-Identifier: Apache-2.0
 
-;; Keywords: ai, terminal, vterm, eat
+;; Keywords: tools, convenience
 
 ;;; Commentary:
 ;; This library provides common infrastructure for AI-powered terminal interfaces,

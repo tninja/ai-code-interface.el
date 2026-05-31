@@ -674,7 +674,6 @@ If not inside a Git repository, do nothing."
                        (mapconcat #'identity added ", ")))
           (message "ai-code-update-git-ignore: no updates needed"))))))
 
-;;;###autoload
 (defun ai-code--git-repo-recent-modified-files (base-dir limit)
   "Return up to LIMIT most recently modified files under BASE-DIR.
 If BASE-DIR is in a Git repository, use `git ls-files' to enumerate files."
