@@ -88,6 +88,12 @@
     (insert-file-contents "ai-code-behaviors.el")
     (should-not (re-search-forward "\\_<\\.emacs\\.d\\_>" nil t))))
 
+(ert-deftest ai-code-test-melpazoid-workflow-build-is-not-hard-disabled ()
+  "MELPA packaging workflow should not hard-disable its build job."
+  (with-temp-buffer
+    (insert-file-contents ".github/workflows/melpazoid.yml")
+    (should-not (re-search-forward "^[[:space:]]+if:[[:space:]]+false[[:space:]]*$" nil t))))
+
 (provide 'test_ai-code-package-hygiene)
 
 ;;; test_ai-code-package-hygiene.el ends here

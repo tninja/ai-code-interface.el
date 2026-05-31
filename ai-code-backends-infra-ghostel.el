@@ -32,11 +32,11 @@
                   "ghostel" (process windows))
 
 (defvar ai-code-backends-infra--session-terminal-backend)
+(defvar ghostel-kill-buffer-on-exit)
+(defvar ghostel-set-title-function)
 (eval-when-compile
   (defvar ghostel--copy-mode-active)
-  (defvar ghostel--input-mode)
-  (defvar ghostel-kill-buffer-on-exit)
-  (defvar ghostel-set-title-function))
+  (defvar ghostel--input-mode))
 
 (defun ai-code-backends-infra-ghostel-ensure-backend ()
   "Ensure the Ghostel backend is available."

@@ -1,7 +1,6 @@
 # melpazoid <https://github.com/riscy/melpazoid> build checks.
 #
-# Disabled by default. Run manually with workflow_dispatch when you want
-# MELPA-style packaging and lint feedback.
+# Run MELPA-style packaging and lint feedback on pushes and pull requests.
 
 name: melpazoid
 
@@ -11,7 +10,6 @@ on: [push, pull_request]
 
 jobs:
   build:
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
