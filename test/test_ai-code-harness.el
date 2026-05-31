@@ -162,6 +162,48 @@
               (should (equal bundled-content (buffer-string))))))
       (delete-directory temp-root t))))
 
+(ert-deftest ai-code-test-ensure-auto-test-harness-file-generates-missing-prompt ()
+  "Test that missing package prompt files are generated on demand."
+  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
+         (package-dir (expand-file-name "package/" temp-root))
+         (package-main-file (expand-file-name "ai-code.el" package-dir))
+         (prompt-file (expand-file-name "prompt/test-after-change.v1.md"
+                                        package-dir))
+         (expected-content (concat
+                            (ai-code--auto-test-inline-suffix-for-type
+                             'test-after-change)
+                            "\n"))
+         (ai-code-selected-backend 'gemini))
+    (unwind-protect
+        (progn
+          (make-directory package-dir t)
+          (with-temp-file package-main-file
+            (insert "package marker"))
+          (should-not (file-exists-p prompt-file))
+          (cl-letf (((symbol-function 'locate-library)
+                     (lambda (library &rest _args)
+                       (and (string= library "ai-code") package-main-file))))
+            (should (equal prompt-file
+                           (ai-code--ensure-auto-test-harness-file
+                            'test-after-change)))
+            (should (file-exists-p prompt-file))
+            (with-temp-buffer
+              (insert-file-contents prompt-file)
+              (should (equal expected-content (buffer-string))))))
+      (delete-directory temp-root t))))
+
+(ert-deftest ai-code-test-auto-test-harness-reference-suffix-falls-back-on-file-error ()
+  "Test that harness suffix falls back to inline text when file generation fails."
+  (let ((ai-code-selected-backend 'gemini)
+        (ai-code--tdd-test-pattern-instruction "")
+        (inline-suffix (ai-code--auto-test-inline-suffix-for-type 'test-after-change)))
+    (cl-letf (((symbol-function 'ai-code--ensure-auto-test-harness-file)
+               (lambda (&rest _args)
+                 (signal 'file-error '("Permission denied")))))
+      (should (equal inline-suffix
+                     (ai-code--auto-test-harness-reference-suffix
+                      'test-after-change))))))
+
 (ert-deftest ai-code-test-auto-test-harness-prompt-path-uses-repo-relative-path ()
   "Test that harness prompt path becomes a repo-relative path."
   (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
