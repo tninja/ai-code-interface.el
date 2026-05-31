@@ -711,6 +711,35 @@ since=\"baseline\") belongs in `next_actions', not only in the summary prose."
         (kill-buffer session-buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-diagnostics-truncation-note-is-context-aware ()
+  "The truncation note must not circularly suggest since=\"baseline\" in a delta
+report (the caller already uses it); it points to per-file (uri) narrowing
+instead.  The current report may still offer since=\"baseline\" to focus on
+newly introduced diagnostics."
+  (let* ((ai-code-mcp-diagnostics-max-report-diagnostics 1)
+         (entries (list `((uri . "file:///tmp/a.el")
+                          (diagnostics . ,(vector
+                                           (ai-code-mcp--make-diagnostic 1 0 1 1 'warning "checker" "one")
+                                           (ai-code-mcp--make-diagnostic 2 0 2 1 'warning "checker" "two"))))))
+         (delta-summary (alist-get 'summary
+                                   (ai-code-mcp--diagnostics-envelope entries 'delta)))
+         (current-summary (alist-get 'summary
+                                     (ai-code-mcp--diagnostics-envelope entries 'current))))
+    ;; Both reports are truncated and point to per-file (uri) narrowing.
+    (should (string-match-p "uri" delta-summary))
+    (should (string-match-p "uri" current-summary))
+    ;; The delta note must NOT tell the caller to use since="baseline" again.
+    (should-not (string-match-p "since=\"baseline\"" delta-summary))
+    ;; The current note may still offer since="baseline" (to focus on regressions).
+    (should (string-match-p "since=\"baseline\"" current-summary))))
+
+(ert-deftest ai-code-test-mcp-diagnostics-max-report-type-is-non-negative ()
+  "The diagnostics cap customization should restrict input to non-negative integers.
+A negative maximum is meaningless and would silently hide every diagnostic."
+  (let ((type (get 'ai-code-mcp-diagnostics-max-report-diagnostics 'custom-type)))
+    (should (memq 'natnum (flatten-tree type)))
+    (should-not (memq 'integer (flatten-tree type)))))
+
 (ert-deftest ai-code-test-mcp-diagnostics-envelope-truncates-large-reports ()
   "The diagnostics envelope caps `files' so a large report cannot overflow context."
   (let* ((ai-code-mcp-diagnostics-max-report-diagnostics 2)

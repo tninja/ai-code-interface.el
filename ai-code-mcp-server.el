@@ -79,8 +79,9 @@ Use `auto' to prefer Flycheck and then Flymake when available."
 When a report would exceed this many diagnostics, the observation envelope
 lists only the first this-many and records the truncation in its summary, so a
 large project cannot overflow the model context.  The summary always reports
-the true totals.  Set to nil to disable truncation."
-  :type '(choice (const :tag "No limit" nil) integer)
+the true totals.  Set to nil to disable truncation; otherwise the value must
+be a non-negative integer."
+  :type '(choice (const :tag "No limit" nil) natnum)
   :group 'ai-code-mcp-server)
 
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
@@ -521,6 +522,22 @@ LIMIT.  When LIMIT is nil, ENTRIES are returned unchanged."
               (setq remaining (- remaining take))))))
       (cons (nreverse capped) (- (max limit 0) remaining)))))
 
+(defun ai-code-mcp--diagnostics-truncation-note (shown total context)
+  "Return a truncation note describing SHOWN of TOTAL diagnostics for CONTEXT.
+In the `delta' context the caller is already filtering with since=\"baseline\",
+so the note only points to per-file (uri) narrowing.  In the `current' context
+it also offers since=\"baseline\" as a way to focus on newly introduced
+diagnostics -- not as a way to page through the omitted ones."
+  (let ((plural (if (= total 1) "" "s")))
+    (if (eq context 'delta)
+        (format (concat " Listing %d of %d new diagnostic%s here;"
+                        " request a specific file by uri to see the rest.")
+                shown total plural)
+      (format (concat " Listing %d of %d diagnostic%s here; request a specific"
+                      " file by uri to see the rest, or use since=\"baseline\""
+                      " to focus on diagnostics you introduced.")
+              shown total plural))))
+
 (defun ai-code-mcp--diagnostics-envelope (entries &optional context)
   "Return a diagnostics observation envelope alist for ENTRIES.
 CONTEXT is `current' (default) or `delta'.  In the `delta' context the
@@ -552,11 +569,8 @@ notes any truncation."
                         (t (ai-code-mcp--diagnostics-summary entries))))
          (summary (if truncated
                       (concat base-summary
-                              (format (concat " Listing %d of %d diagnostic%s"
-                                              " here; narrow the scope with a"
-                                              " uri argument or since=\"baseline\""
-                                              " to see the rest.")
-                                      shown total (if (= total 1) "" "s")))
+                              (ai-code-mcp--diagnostics-truncation-note
+                               shown total context))
                     base-summary)))
     `((status . ,status)
       (summary . ,summary)
