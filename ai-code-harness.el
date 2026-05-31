@@ -18,7 +18,6 @@
 (require 'ai-code-discussion)
 (require 'ai-code-prompt-mode)
 
-(declare-function ai-code--ensure-files-directory "ai-code-utils" ())
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
 
@@ -46,31 +45,18 @@
 (defconst ai-code--auto-test-harness-file-version "v1"
   "Version tag appended to generated auto-test harness file names.")
 
-;;;###autoload
-(defcustom ai-code-auto-test-harness-cache-directory
-  nil
-  "Directory used to cache generated auto-test harness files.
-
-When nil, store harness files under `harness/` inside the directory returned
-by `ai-code--ensure-files-directory`.  In a Git repository, that is typically
-`.ai.code.files/harness/` under the current repository so prompts can cite
-them with `@`-prefixed repo-relative paths.  Outside a Git repository, this
-falls back to `harness/` under `default-directory`.
-
-Set this to a directory path to override the default location."
-  :type '(choice
-          (const :tag "Use default harness directory (.ai.code.files/harness in a repo, or harness under default-directory otherwise)"
-                 nil)
-                 directory)
-  :group 'ai-code)
+(defun ai-code--package-directory ()
+  "Return the package installation directory for ai-code."
+  (file-name-directory
+   (file-truename
+    (or (locate-library "ai-code")
+        load-file-name
+        buffer-file-name
+        default-directory))))
 
 (defun ai-code--auto-test-harness-directory ()
-  "Return the directory used for generated auto-test harness files."
-  (let ((cache-directory (and (boundp 'ai-code-auto-test-harness-cache-directory)
-                              ai-code-auto-test-harness-cache-directory)))
-    (if cache-directory
-        (expand-file-name cache-directory)
-      (expand-file-name "harness/" (ai-code--ensure-files-directory)))))
+  "Return the package installation `prompt/' directory for harness files."
+  (expand-file-name "prompt/" (ai-code--package-directory)))
 
 (defun ai-code--auto-test-harness-prompt-path (file-path)
   "Return FILE-PATH formatted for prompt usage.
@@ -147,8 +133,8 @@ When INLINE is non-nil, use the inline-formatted diagnostics instruction."
               "")
             ai-code--auto-test-harness-file-version)))
 
-(defun ai-code--ensure-auto-test-harness-cache-directory ()
-  "Ensure the auto-test harness cache directory exists and return it."
+(defun ai-code--ensure-auto-test-harness-prompt-directory ()
+  "Ensure the package prompt directory exists and return it."
   (let ((directory (ai-code--auto-test-harness-directory)))
     (unless (file-directory-p directory)
       (make-directory directory t))
@@ -161,20 +147,21 @@ When INLINE is non-nil, use the inline-formatted diagnostics instruction."
     (_ (ai-code--auto-test-inline-suffix-for-type type))))
 
 (defun ai-code--ensure-auto-test-harness-file (type)
-  "Write and return the cached harness file path for auto test TYPE."
+  "Write and return the package prompt file path for auto test TYPE."
   (when-let ((content (ai-code--auto-test-harness-text-for-type type)))
-    (let* ((directory (ai-code--ensure-auto-test-harness-cache-directory))
+    (let* ((directory (ai-code--ensure-auto-test-harness-prompt-directory))
            (file-path (expand-file-name
                        (ai-code--auto-test-harness-file-name type)
                        directory)))
-      (with-temp-file file-path
-        (insert content)
-        (unless (bolp)
-          (insert "\n")))
+      (unless (file-exists-p file-path)
+        (with-temp-file file-path
+          (insert content)
+          (unless (bolp)
+            (insert "\n"))))
       file-path)))
 
 (defun ai-code--auto-test-harness-reference-suffix (type)
-  "Return a short suffix that references the cached harness file for TYPE.
+  "Return a short suffix that references the package prompt file for TYPE.
 
 If the harness file cannot be prepared, fall back to the inline suffix."
   (condition-case err
