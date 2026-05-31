@@ -383,7 +383,7 @@ END-POS defaults to the current '#' position."
                    (symbol (ai-code--choose-symbol-from-file file)))
          (when (not (string-empty-p symbol))
            (delete-char -1)  ; Remove the '#' we just typed
-           (insert (concat "#" symbol))))))))
+           (insert "#" symbol)))))))
 
 (defun ai-code--session-auto-trigger-filepath-completion ()
   "Auto trigger file path/symbol completion in AI session buffers."
@@ -519,7 +519,7 @@ END-POS defaults to the current '#' position."
 (defun ai-code--session-link-property-at-point ()
   "Return the clickable session link text at point, or nil."
   (or (get-text-property (point) 'ai-code-session-link)
-      (when (> (point) (point-min))
+      (when (not (bobp))
         (get-text-property (1- (point)) 'ai-code-session-link))))
 
 (defun ai-code--session-link-bounds-at-point ()

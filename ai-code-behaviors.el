@@ -3011,9 +3011,9 @@ CONSTRAINTS is a list of constraint names."
         (insert "# Lines starting with # are constraints\n")
         (insert "# Bundle: <name> applies a predefined bundle\n\n")
         (dolist (c constraints)
-          (insert (concat "#" c "\n")))
+          (insert "#" c "\n"))
         (when-let ((bundle (ai-code--behaviors-get-active-bundle)))
-          (insert (concat "\n# Bundle: " bundle "\n")))
+          (insert "\n# Bundle: " bundle "\n"))
         (write-region (point-min) (point-max) path nil 'silent)))))
 
 (defun ai-code--glob-to-regexp (glob)

@@ -162,7 +162,7 @@
   (cond
    ((null value) default)
    ((eq value :json-false) nil)
-   (t (not (null value)))))
+   (t t)))
 
 (defun ai-code-mcp-debug-tools--selected-window ()
   "Return the selected window, falling back to the frame root window."
@@ -342,7 +342,7 @@ keeps the backtrace on failures."
   (condition-case nil
       (error-message-string data)
     (error
-     (format "%S" data))))
+     (prin1-to-string data))))
 
 (defun ai-code-mcp--record-command-error (data context signal)
   "Record the command error DATA, CONTEXT, and SIGNAL for MCP tools."
@@ -350,7 +350,7 @@ keeps the backtrace on failures."
     (setq ai-code-mcp--last-error-record
           `((error_symbol . ,(symbol-name (car data)))
             (error_message . ,(ai-code-mcp--error-message data))
-            (context . ,(format "%s" context))
+            (context . ,context)
             (signal . ,signal)
             (timestamp . ,(format-time-string "%Y-%m-%dT%H:%M:%S%z"))
             (frame_count . ,(length frames))

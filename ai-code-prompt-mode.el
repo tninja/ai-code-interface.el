@@ -44,6 +44,32 @@ the terminal backend infrastructure.")
 (declare-function ai-code-backends-infra--terminal-send-return "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--display-buffer-in-side-window "ai-code-backends-infra" (buffer))
 
+(defun ai-code--session-buffer-p (buffer)
+  "Return non-nil when BUFFER is an AI session buffer.
+Falls back to a local session marker when backend infra is unavailable."
+  (and (buffer-live-p buffer)
+       (or (and (fboundp 'ai-code-backends-infra--session-buffer-p)
+                (ai-code-backends-infra--session-buffer-p buffer))
+           (buffer-local-value 'ai-code-backends-infra--session-terminal-backend
+                               buffer))))
+
+(defun ai-code--session-buffer-matches-directory-p (buffer directory)
+  "Return non-nil when BUFFER is associated with DIRECTORY.
+Falls back to `default-directory' or a local session directory when backend
+infra is unavailable."
+  (and (buffer-live-p buffer)
+       (stringp directory)
+       (or (and (fboundp 'ai-code-backends-infra--session-buffer-matches-directory-p)
+                (ai-code-backends-infra--session-buffer-matches-directory-p
+                 buffer directory))
+           (with-current-buffer buffer
+             (let ((buffer-directory (or (bound-and-true-p ai-code-backends-infra--session-directory)
+                                         default-directory)))
+               (and (stringp buffer-directory)
+                    (string=
+                     (file-name-as-directory (expand-file-name buffer-directory))
+                     (file-name-as-directory (expand-file-name directory)))))))))
+
 (defcustom ai-code-prompt-preprocess-filepaths t
   "When non-nil, preprocess the prompt to replace file paths.
 If a word in the prompt is a file path within the current git repository,
@@ -189,10 +215,7 @@ that should be recorded in the prompt history file."
   (cl-some
    (lambda (win)
      (let ((buf (window-buffer win)))
-       (when (and (buffer-live-p buf)
-                  (ai-code-backends-infra--session-buffer-p buf)
-                  (buffer-local-value
-                   'ai-code-backends-infra--session-terminal-backend buf))
+       (when (ai-code--session-buffer-p buf)
          buf)))
    (window-list nil 'no-minibuffer)))
 
@@ -201,10 +224,8 @@ that should be recorded in the prompt history file."
   (when-let ((git-root (ai-code--git-root)))
     (cl-remove-if-not
      (lambda (buf)
-       (and (ai-code-backends-infra--session-buffer-p buf)
-            (buffer-local-value
-             'ai-code-backends-infra--session-terminal-backend buf)
-            (ai-code-backends-infra--session-buffer-matches-directory-p buf git-root)))
+       (and (ai-code--session-buffer-p buf)
+            (ai-code--session-buffer-matches-directory-p buf git-root)))
      (buffer-list))))
 
 (defun ai-code--prompt-choose-target-session ()
@@ -480,7 +501,7 @@ that root, otherwise return the absolute path."
                      (symbol (ai-code--choose-symbol-from-file file)))
            (when (not (string-empty-p symbol))
              (delete-char -1)  ; Remove the '#' we just typed
-             (insert (concat "#" symbol)))))))))
+             (insert "#" symbol))))))))
 
 (defun ai-code--insert-prompt (prompt-text)
   "Preprocess and insert PROMPT-TEXT into the AI prompt file.
@@ -750,11 +771,7 @@ Default to AI-CODE-FILES-DIR and keep a dedicated directory history."
   "Build a prompt for searching org files in TARGET-DIR.
 SEARCH-DESCRIPTION describes what content the AI should search for."
   (format
-   (concat
-    "Search the content of all .org files recursively under directory: %s\n"
-    "Search target description: %s\n"
-    "Focus on matching content inside the files, not just file names.\n"
-    "Return the relevant file paths, matched excerpts, and a concise summary.")
+   "Search the content of all .org files recursively under directory: %s\nSearch target description: %s\nFocus on matching content inside the files, not just file names.\nReturn the relevant file paths, matched excerpts, and a concise summary."
    target-dir
    search-description))
 
@@ -804,23 +821,18 @@ exist, prompt once to optionally include them as well."
 (defun ai-code--build-note-search-prompt (scopes search-description)
   "Build a prompt for searching SCOPES for SEARCH-DESCRIPTION."
   (let ((git-root-truename
-         (when-let ((git-root (ai-code--git-root)))
+        (when-let ((git-root (ai-code--git-root)))
            (file-truename git-root))))
     (format
-     (concat
-       "Search my notes and related files for: %s\n"
-       "Search scope paths:\n%s\n"
-       "Use the available search tools to inspect the selected paths.\n"
-       "Focus on relevant information inside files, not just file names.\n"
-       "Return the most relevant paths, matched excerpts, and a concise answer.")
-      search-description
-      (mapconcat
+     "Search my notes and related files for: %s\nSearch scope paths:\n%s\nUse the available search tools to inspect the selected paths.\nFocus on relevant information inside files, not just file names.\nReturn the most relevant paths, matched excerpts, and a concise answer."
+     search-description
+     (mapconcat
       (lambda (scope)
-        (format "- %s"
-                 (if git-root-truename
-                     (ai-code--candidate-path scope git-root-truename)
-                   scope)))
-       scopes "\n"))))
+       (format "- %s"
+               (if git-root-truename
+                   (ai-code--candidate-path scope git-root-truename)
+                 scope)))
+      scopes "\n"))))
 
 (defun ai-code--search-task-files-with-ai (ai-code-files-dir)
   "Prompt for task file search inputs and send a search request to AI."

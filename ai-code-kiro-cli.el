@@ -57,7 +57,7 @@
 
 (defun ai-code-kiro-cli--build-command ()
   "Build the Kiro CLI command string."
-  (mapconcat 'identity
+  (mapconcat #'identity
              (cons ai-code-kiro-cli-program (ai-code-kiro-cli--build-args))
              " "))
 

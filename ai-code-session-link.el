@@ -512,7 +512,7 @@ CANDIDATE-COUNT and LINK-COUNT are the current scan totals."
 (defun ai-code-session-link--property-at-point (property)
   "Return PROPERTY at point or immediately before point."
   (or (get-text-property (point) property)
-      (when (> (point) (point-min))
+      (when (not (bobp))
         (get-text-property (1- (point)) property))))
 
 (defun ai-code-session-link--symbol-search-terms (symbol)
