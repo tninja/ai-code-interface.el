@@ -627,6 +627,48 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
         (kill-buffer session-buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-diagnostics-baseline-response-omits-files ()
+  "Recording a baseline must not echo the full diagnostics list into context.
+The baseline is stored server-side, so the tool response only needs a status
+and summary; returning every diagnostic would bloat the model context."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-omit-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-baseline-omit*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-baseline-omit")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-baseline-omit" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics
+                (list (make-ai-code-test-mcp-mock-diagnostic
+                       :beg (point-min) :end (line-end-position)
+                       :type :warning :text "Existing problem"
+                       :backend 'mock-backend))
+              (let ((baseline (ai-code-test-mcp--read-json
+                               (ai-code-test-mcp--content-text
+                                (ai-code-mcp-dispatch
+                                 "tools/call"
+                                 '((name . "diagnostics_baseline")
+                                   (arguments . ())))))))
+                ;; The baseline is recorded server-side, not in the response body.
+                (should (equal "baseline_recorded"
+                               (alist-get 'status baseline)))
+                ;; So the response must not echo the project diagnostics list.
+                (should (= 0 (length (alist-get 'files baseline))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
 (ert-deftest ai-code-test-mcp-get-diagnostics-since-baseline-reports-regression ()
   "Diagnostics that appear after the baseline are reported as a regression."
   (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-regression-" t))

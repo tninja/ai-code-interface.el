@@ -617,7 +617,12 @@ not introduce new problems."
                                    " since=\"baseline\" and finish only when"
                                    " status is \"clean\".")
                            count (if (= count 1) "" "s")))
-       (files . ,(vconcat entries))
+       ;; The baseline is recorded server-side in `counts' (via `puthash'
+       ;; above); do not echo the full diagnostics list back into the model
+       ;; context.  Returning every project diagnostic here can produce a
+       ;; payload far too large to fit in the model context, which defeats the
+       ;; purpose of keeping the baseline out of context in the first place.
+       (files . ,(vconcat nil))
        (next_actions . ,(vconcat nil))
        (artifacts . ,(vconcat nil))))))
 
