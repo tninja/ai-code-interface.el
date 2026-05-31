@@ -28,8 +28,8 @@
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt))
 (declare-function whisper-run "whisper" ())
 
-(defvar whisper-after-transcription-hook nil
-  "Hook run by whisper.el after transcription finishes.")
+(eval-when-compile
+  (defvar whisper-after-transcription-hook))
 
 (defconst ai-code--speech-to-text-buffer-name "*whisper-stdout*"
   "Buffer name used by whisper.el transcription output.")

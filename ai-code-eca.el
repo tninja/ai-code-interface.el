@@ -3,7 +3,6 @@
 ;; Copyright (C) 2026
 ;; Author: davidwuchn
 ;; Version: 0.2
-;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: ai, code, assistant, eca
 ;; SPDX-License-Identifier: Apache-2.0
 
@@ -64,12 +63,13 @@
 (declare-function transient-append-suffix "transient" (prefix loc suffix &optional face))
 (declare-function transient-remove-suffix "transient" (prefix suffix))
 
-(defvar eca--sessions nil)
-(defvar eca--session-id-cache nil)
-(defvar eca-process--latest-server-version nil)
-(defvar eca-server-install-path nil)
-(defvar eca-server-version-file-path nil)
-(defvar package-vc-selected-packages nil)
+(eval-when-compile
+  (defvar eca--sessions)
+  (defvar eca--session-id-cache)
+  (defvar eca-process--latest-server-version)
+  (defvar eca-server-install-path)
+  (defvar eca-server-version-file-path)
+  (defvar package-vc-selected-packages))
 
 (declare-function ai-code-eca-upgrade--curl-download-string "ai-code-eca" (url))
 (declare-function ai-code-eca-upgrade--curl-download-file "ai-code-eca"

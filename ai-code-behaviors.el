@@ -2624,7 +2624,7 @@ Intended for `gptel-mode-hook'.
 Also adds font-lock for behavior hashtags, keybinding, and mode-line."
   (add-hook 'completion-at-point-functions #'ai-code--behavior-hashtag-capf nil t)
   (add-hook 'completion-at-point-functions #'ai-code--behavior-preset-gptel-capf nil t)
-  (local-set-key (kbd "C-c P") #'ai-code-behaviors-show-last-prompt)
+  (local-set-key (kbd "C-c C-p") #'ai-code-behaviors-show-last-prompt)
   ;; Set up local transform list if needed
   ;; Don't add 't' if our transform is already in the default - avoids double execution
   (when (boundp 'gptel-prompt-transform-functions)
@@ -3333,7 +3333,7 @@ find agent-shell buffer, or default-directory as fallback."
       default-directory))
 
 (defun ai-code--store-last-prompt (project-root original processed state)
-  "Store last prompt for C-c P inspection.
+  "Store last prompt for C-c C-p inspection.
 PROJECT-ROOT is the key, ORIGINAL is the original text,
 PROCESSED is the processed text, STATE is the behavior state."
   (when (and project-root original)
@@ -3388,7 +3388,7 @@ Also handles auto-switching from plan to build mode for modify operations."
                  (mode-switch-needed (nth 1 result))
                  (current-state (when project-root
                                    (ai-code--behaviors-get-state project-root))))
-            ;; Store last prompt for inspection (C-c P)
+            ;; Store last prompt for inspection (C-c C-p)
             (ai-code--store-last-prompt project-root prompt-text processed-text current-state)
             ;; Inject processed text when available
             (when processed-text

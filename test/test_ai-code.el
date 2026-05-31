@@ -358,6 +358,21 @@
              "Package-Requires: ((emacs \"29\\.1\") (transient \"0\\.9\\.0\") (magit \"2\\.1\\.0\"))"
              nil t))))
 
+(ert-deftest ai-code-test-package-summary-fits-package-lint-limit ()
+  "Test that the main package summary fits package-lint's limit."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "ai-code.el" default-directory))
+    (goto-char (point-min))
+    (should (looking-at ";;; ai-code\\.el --- \\(.+?\\) +-\\*- lexical-binding: t; -\\*-"))
+    (should (<= (length (match-string 1)) 60))))
+
+(ert-deftest ai-code-test-secondary-files-do-not-declare-package-requires ()
+  "Test that secondary package files omit ineffective Package-Requires headers."
+  (dolist (file '("ai-code-eca.el"))
+    (with-temp-buffer
+      (insert-file-contents (expand-file-name file default-directory))
+      (should-not (re-search-forward "^;; Package-Requires:" nil t)))))
+
 (ert-deftest ai-code-test-menu-groups-define-four-sections ()
   "Test that menu sections are defined as reusable transient groups."
   (dolist (group '(ai-code--menu-ai-cli-session
