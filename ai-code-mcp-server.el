@@ -74,6 +74,15 @@ Use `auto' to prefer Flycheck and then Flymake when available."
                  (const :tag "Flymake" flymake))
   :group 'ai-code-mcp-server)
 
+(defcustom ai-code-mcp-diagnostics-max-report-diagnostics 200
+  "Maximum number of diagnostics listed in a `get_diagnostics' report.
+When a report would exceed this many diagnostics, the observation envelope
+lists only the first this-many and records the truncation in its summary, so a
+large project cannot overflow the model context.  The summary always reports
+the true totals.  Set to nil to disable truncation."
+  :type '(choice (const :tag "No limit" nil) integer)
+  :group 'ai-code-mcp-server)
+
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to session metadata.")
 
@@ -492,28 +501,67 @@ no new problems before finishing."
           (push (ai-code-mcp--diagnostic-action-line uri diagnostic) actions))))
     (vconcat (nreverse actions))))
 
+(defun ai-code-mcp--cap-diagnostics-entries (entries limit)
+  "Return ENTRIES truncated to at most LIMIT total diagnostics.
+The return value is a cons (CAPPED-ENTRIES . SHOWN-COUNT).  Whole and partial
+file entries beyond LIMIT are dropped so the listed diagnostics never exceed
+LIMIT.  When LIMIT is nil, ENTRIES are returned unchanged."
+  (if (null limit)
+      (cons entries (ai-code-mcp--diagnostics-total-count entries))
+    (let ((remaining (max limit 0))
+          capped)
+      (dolist (entry entries)
+        (when (> remaining 0)
+          (let* ((diagnostics (append (alist-get 'diagnostics entry) nil))
+                 (take (min remaining (length diagnostics))))
+            (when (> take 0)
+              (push `((uri . ,(alist-get 'uri entry))
+                      (diagnostics . ,(vconcat (seq-take diagnostics take))))
+                    capped)
+              (setq remaining (- remaining take))))))
+      (cons (nreverse capped) (- (max limit 0) remaining)))))
+
 (defun ai-code-mcp--diagnostics-envelope (entries &optional context)
   "Return a diagnostics observation envelope alist for ENTRIES.
 CONTEXT is `current' (default) or `delta'.  In the `delta' context the
 status and summary describe diagnostics that are new since the baseline
-and express the done-condition the agent must reach (new == 0)."
+and express the done-condition the agent must reach (new == 0).
+
+The listed `files' and `next_actions' are capped at
+`ai-code-mcp-diagnostics-max-report-diagnostics' so a large project cannot
+overflow the model context; the summary always reports the true totals and
+notes any truncation."
   (let* ((has-issues (and entries t))
+         (total (ai-code-mcp--diagnostics-total-count entries))
+         (capped-cell (ai-code-mcp--cap-diagnostics-entries
+                       entries ai-code-mcp-diagnostics-max-report-diagnostics))
+         (capped (car capped-cell))
+         (shown (cdr capped-cell))
+         (truncated (> total shown))
          (status (cond ((not has-issues) "clean")
                        ((eq context 'delta) "regression")
                        (t "issues")))
-         (summary (cond
-                   ((eq context 'delta)
-                    (if has-issues
-                        (concat (ai-code-mcp--diagnostics-summary entries)
-                                " These are NEW versus the baseline;"
-                                " not done until new == 0.")
-                      (concat "No new diagnostics versus the baseline;"
-                              " done-condition met (new == 0).")))
-                   (t (ai-code-mcp--diagnostics-summary entries)))))
+         (base-summary (cond
+                        ((eq context 'delta)
+                         (if has-issues
+                             (concat (ai-code-mcp--diagnostics-summary entries)
+                                     " These are NEW versus the baseline;"
+                                     " not done until new == 0.")
+                           (concat "No new diagnostics versus the baseline;"
+                                   " done-condition met (new == 0).")))
+                        (t (ai-code-mcp--diagnostics-summary entries))))
+         (summary (if truncated
+                      (concat base-summary
+                              (format (concat " Listing %d of %d diagnostic%s"
+                                              " here; narrow the scope with a"
+                                              " uri argument or since=\"baseline\""
+                                              " to see the rest.")
+                                      shown total (if (= total 1) "" "s")))
+                    base-summary)))
     `((status . ,status)
       (summary . ,summary)
-      (files . ,(vconcat entries))
-      (next_actions . ,(ai-code-mcp--diagnostics-next-actions entries))
+      (files . ,(vconcat capped))
+      (next_actions . ,(ai-code-mcp--diagnostics-next-actions capped))
       (artifacts . ,(vconcat nil)))))
 
 (defun ai-code-mcp--diagnostics-baseline-key ()
@@ -599,6 +647,27 @@ When no baseline has been recorded, return ENTRIES unchanged."
                        (diagnostics . ,(vconcat new))))))
                entries))))))
 
+(defun ai-code-mcp--diagnostics-source-counts (entries)
+  "Return an alist of (SOURCE . COUNT) for ENTRIES, ordered by descending count."
+  (let ((counts (make-hash-table :test 'equal))
+        pairs)
+    (dolist (entry entries)
+      (seq-doseq (diagnostic (alist-get 'diagnostics entry))
+        (let ((source (or (alist-get 'source diagnostic) "unknown")))
+          (puthash source (1+ (gethash source counts 0)) counts))))
+    (maphash (lambda (source count) (push (cons source count) pairs)) counts)
+    (sort pairs (lambda (a b) (> (cdr a) (cdr b))))))
+
+(defun ai-code-mcp--diagnostics-top-sources-string (entries &optional top-n)
+  "Return a human string naming the TOP-N diagnostic sources in ENTRIES, or nil.
+TOP-N defaults to 3.  The string keeps a compact signal about what produced the
+diagnostics without listing every diagnostic."
+  (let ((pairs (seq-take (ai-code-mcp--diagnostics-source-counts entries)
+                         (or top-n 3))))
+    (when pairs
+      (mapconcat (lambda (pair) (format "%s (%d)" (car pair) (cdr pair)))
+                 pairs ", "))))
+
 (defun ai-code-mcp-diagnostics-baseline ()
   "Record current project diagnostics as the session baseline.
 Return a JSON observation envelope describing what was recorded.  Later
@@ -607,16 +676,20 @@ diagnostics relative to this snapshot, which lets the agent verify it did
 not introduce new problems."
   (let* ((entries (ai-code-mcp--diagnostics-for-project))
          (counts (ai-code-mcp--diagnostics-identity-counts entries))
-         (count (ai-code-mcp--diagnostics-total-count entries)))
+         (count (ai-code-mcp--diagnostics-total-count entries))
+         (sources (ai-code-mcp--diagnostics-top-sources-string entries))
+         (summary (concat
+                   (format (concat "Recorded %d diagnostic%s as the baseline."
+                                   " Edit, then call get_diagnostics with"
+                                   " since=\"baseline\" and finish only when"
+                                   " status is \"clean\".")
+                           count (if (= count 1) "" "s"))
+                   (when sources (format " Top sources: %s." sources)))))
     (puthash (ai-code-mcp--diagnostics-baseline-key) counts
              ai-code-mcp--diagnostics-baselines)
     (json-encode
      `((status . "baseline_recorded")
-       (summary . ,(format (concat "Recorded %d diagnostic%s as the baseline."
-                                   " Edit, then call get_diagnostics with"
-                                   " since=\"baseline\" and finish only when"
-                                   " status is \"clean\".")
-                           count (if (= count 1) "" "s")))
+       (summary . ,summary)
        ;; The baseline is recorded server-side in `counts' (via `puthash'
        ;; above); do not echo the full diagnostics list back into the model
        ;; context.  Returning every project diagnostic here can produce a
