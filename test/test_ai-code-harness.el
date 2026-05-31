@@ -60,6 +60,7 @@
                                   "prompt/tdd-with-refactoring-diagnostics.v1.md"
                                   package-dir)))
               (should (string-match-p "Read the local harness file:" suffix))
+              (should (string-match-p "Read the local harness file: @" suffix))
               (should (string-match-p "Use its instructions for this work\\." suffix))
               (should (string-match-p (regexp-quote expected-file) suffix))
               (should (file-exists-p expected-file))
@@ -161,8 +162,8 @@
               (should (equal bundled-content (buffer-string))))))
       (delete-directory temp-root t))))
 
-(ert-deftest ai-code-test-auto-test-harness-prompt-path-uses-repo-relative-at-path ()
-  "Test that harness prompt path becomes an `@` repo-relative path."
+(ert-deftest ai-code-test-auto-test-harness-prompt-path-uses-repo-relative-path ()
+  "Test that harness prompt path becomes a repo-relative path."
   (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
          (harness-file (expand-file-name "prompt/tdd.v1.md" temp-root)))
     (unwind-protect
@@ -172,7 +173,7 @@
             (insert "harness"))
           (cl-letf (((symbol-function 'ai-code--git-root)
                      (lambda (&optional _dir) temp-root)))
-            (should (equal "@prompt/tdd.v1.md"
+            (should (equal "prompt/tdd.v1.md"
                            (ai-code--auto-test-harness-prompt-path harness-file)))))
       (delete-directory temp-root t))))
 

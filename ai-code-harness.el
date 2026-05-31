@@ -60,13 +60,13 @@
 
 (defun ai-code--auto-test-harness-prompt-path (file-path)
   "Return FILE-PATH formatted for prompt usage.
-When FILE-PATH is inside the current git repository, return an `@`-prefixed
-repo-relative path.  Otherwise return the absolute FILE-PATH."
+When FILE-PATH is inside the current git repository, return a repo-relative
+path. Otherwise return the absolute FILE-PATH."
   (if-let ((git-root (ai-code--git-root)))
       (let ((git-root-truename (file-name-as-directory (file-truename git-root)))
             (file-truename (file-truename file-path)))
         (if (file-in-directory-p file-truename git-root-truename)
-            (concat "@" (file-relative-name file-truename git-root-truename))
+            (file-relative-name file-truename git-root-truename)
           file-path))
     file-path))
 
@@ -167,7 +167,7 @@ If the harness file cannot be prepared, fall back to the inline suffix."
   (condition-case err
       (when-let ((file-path (ai-code--ensure-auto-test-harness-file type)))
         (format
-         "Read the local harness file: %s. Use its instructions for this work. Apply it without repeating its full contents."
+         "Read the local harness file: @%s. Use its instructions for this work. Apply it without repeating its full contents."
          (ai-code--auto-test-harness-prompt-path file-path)))
     (file-error
      (message "Failed to prepare auto-test harness file for %s: %s"
