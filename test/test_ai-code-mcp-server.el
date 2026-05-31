@@ -741,6 +741,51 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
         (kill-buffer session-buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-get-diagnostics-since-baseline-canonicalizes-uri ()
+  "Per-file delta should match the baseline regardless of the request URI form."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-uri-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (localhost-uri (concat "file://localhost" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-baseline-uri*"))
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-baseline-uri")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t)
+            (ai-code-mcp-register-session
+             "session-baseline-uri" project-dir session-buffer)
+            (ai-code-test-mcp--with-flymake-diagnostics
+                (list (make-ai-code-test-mcp-mock-diagnostic
+                       :beg (point-min) :end (line-end-position)
+                       :type :warning :text "Existing problem"
+                       :backend 'mock-backend))
+              ;; Baseline is recorded via the project scan (canonical file:// URIs).
+              (ai-code-mcp-dispatch
+               "tools/call"
+               '((name . "diagnostics_baseline")
+                 (arguments . ())))
+              ;; Query the delta for the same file using a non-canonical localhost URI.
+              (let ((delta (ai-code-test-mcp--read-json
+                            (ai-code-test-mcp--content-text
+                             (ai-code-mcp-dispatch
+                              "tools/call"
+                              `((name . "get_diagnostics")
+                                (arguments . ((uri . ,localhost-uri)
+                                              (since . "baseline")))))))))
+                (should (equal "clean" (alist-get 'status delta)))
+                (should (= 0 (length (alist-get 'files delta))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
 (ert-deftest ai-code-test-mcp-project-info-uses-session-project-dir ()
   "Project info should report the session project directory."
   (let* ((project-dir (make-temp-file "ai-code-mcp-project-info-" t))

@@ -610,11 +610,18 @@ not introduce new problems."
        (artifacts . ,(vconcat nil))))))
 
 (defun ai-code-mcp--diagnostics-for-uri (uri)
-  "Return a list with diagnostics for URI, or nil when none exist."
+  "Return a list with diagnostics for URI, or nil when none exist.
+The entry uses the canonical file URI of the resolved buffer (via
+`ai-code-mcp--file-path-to-uri') so its identity matches the baseline that
+`ai-code-mcp-diagnostics-baseline' records from the project scan, even when
+URI is given in a non-canonical form such as a localhost or bare-path URI."
   (when-let* ((file-path (ai-code-mcp--uri-to-file-path uri))
               (buffer (get-file-buffer file-path))
               (diagnostics (ai-code-mcp--buffer-diagnostics buffer)))
-    (when-let ((entry (ai-code-mcp--diagnostics-file-entry uri diagnostics)))
+    (when-let ((entry (ai-code-mcp--diagnostics-file-entry
+                       (ai-code-mcp--file-path-to-uri
+                        (or (buffer-file-name buffer) file-path))
+                       diagnostics)))
       (list entry))))
 
 (defun ai-code-mcp--diagnostics-for-project ()
