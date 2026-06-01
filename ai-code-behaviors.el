@@ -4,9 +4,10 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; This module provides behavior injection based on prompt intent classification.
-;; Behaviors are loaded from the ai-behaviors repository (https://github.com/xificurC/ai-behaviors)
-;; and injected into prompts to guide AI responses.
+;; This module provides behavior injection based on prompt intent
+;; classification.  Behaviors are loaded from the ai-behaviors
+;; repository (https://github.com/xificurC/ai-behaviors) and injected
+;; into prompts to guide AI responses.
 ;;
 ;; Features:
 ;; - Automatic intent classification (GPTel or keyword-based fallback)

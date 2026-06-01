@@ -91,7 +91,7 @@
   (format "http://127.0.0.1:%d/mcp/%s" port session-id))
 
 (defun ai-code-mcp-agent--record-buffer-session (buffer backend session-id working-dir url)
-  "Record session metadata for BUFFER."
+  "Record BUFFER session for BACKEND, SESSION-ID, WORKING-DIR, and URL."
   (ai-code-mcp-register-session session-id working-dir buffer)
   (with-current-buffer buffer
     (setq-local ai-code-mcp-agent--backend backend
@@ -99,7 +99,7 @@
                 ai-code-mcp-agent--server-url url)))
 
 (defun ai-code-mcp-agent--inject-command (backend command url)
-  "Inject backend-specific MCP config into COMMAND for URL."
+  "Inject MCP config for BACKEND into COMMAND for URL."
   (pcase backend
     ('codex
      (concat command
