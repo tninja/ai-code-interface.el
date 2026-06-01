@@ -142,14 +142,14 @@ Each entry is (CONTENT . TIMESTAMP).")
 
 (defcustom ai-code-behaviors-cache-ttl 3600
   "Time-to-live in seconds for behavior prompt cache.
-Default is 1 hour. Set to 0 to disable TTL checking."
+Default is 1 hour.  Set to 0 to disable TTL checking."
   :type 'integer
   :group 'ai-code-behaviors)
 
 (defcustom ai-code-behaviors-max-response-size 10240
   "Maximum GPTel response size in bytes for JSON parsing.
 Responses larger than this are rejected to prevent DoS.
-Default is 10KB. Set to 0 to disable limit."
+Default is 10KB.  Set to 0 to disable limit."
   :type 'integer
   :group 'ai-code-behaviors)
 
@@ -161,7 +161,7 @@ Prevents CPU exhaustion on deeply nested malformed responses."
 
 (defun ai-code--git-command-output (&rest args)
   "Run git with ARGS and return trimmed output, or nil on error.
-Uses call-process instead of shell to avoid injection vulnerabilities."
+Uses `call-process' instead of shell to avoid injection vulnerabilities."
   (with-temp-buffer
     (when (zerop (apply #'call-process "git" nil t nil args))
       (string-trim (buffer-string)))))
@@ -285,7 +285,7 @@ Does nothing and returns nil if not in a project (prevents state leakage)."
 (defconst ai-code--behavior-operating-modes
   '("=frame" "=research" "=design" "=spec" "=code" "=debug"
     "=review" "=test" "=mentor" "=drive" "=navigate" "=probe" "=record")
-  "Operating mode behaviors. Only one can be active at a time.")
+  "Operating mode behaviors.  Only one can be active at a time.")
 
 (defconst ai-code--behavior-modifiers
   '("deep" "wide" "ground" "negative-space" "challenge" "steel-man"
@@ -293,7 +293,7 @@ Does nothing and returns nil if not in a project (prevents state leakage)."
     "meta" "simulate" "decompose" "recursive" "fractal" "tdd"
     "io" "contract" "backward" "analogy" "temporal" "name" "checklist" "file"
     "factor" "stop")
-  "Modifier behaviors. Multiple can be active simultaneously.")
+  "Modifier behaviors.  Multiple can be active simultaneously.")
 
 (defconst ai-code--behavior-readonly-modes
   '("=frame" "=research" "=design" "=spec" "=review" "=test"
@@ -793,7 +793,7 @@ Return non-nil if repo is available after this call."
   (ai-code--behaviors-repo-available-p))
 
 (defun ai-code--behaviors-check-for-updates ()
-  "Check if ai-behaviors repo has updates available.
+  "Return status for ai-behaviors repo remote availability.
 Fetches from remote first (with 5s timeout), then compares.
 Return `up-to-date', `updates-available', `no-remote',
 `no-repo', or `error'.
@@ -814,7 +814,7 @@ Note: This performs network I/O; use sparingly."
         (error 'error))))))
 
 (defun ai-code--behaviors-maybe-check-updates ()
-  "Check for updates once per session and message if available."
+  "Report ai-behaviors remote availability once per session."
   (unless ai-code--behaviors-update-checked
     (setq ai-code--behaviors-update-checked t)
     (when (eq (ai-code--behaviors-check-for-updates) 'updates-available)
@@ -930,7 +930,7 @@ Include presets, constraints, and bundles."
   "Completion-at-point function for @preset and @bundle names.
 Shows * annotation for modify presets in gptel modes."
   (when (and (boundp 'major-mode)
-             (eq major-mode 'ai-code-prompt-mode)
+             (derived-mode-p 'ai-code-prompt-mode)
              (save-excursion
                (skip-chars-backward "a-zA-Z0-9_-")
                (eq (char-before) ?@)))
@@ -1013,7 +1013,8 @@ auto-triggered completion."
 
 (defun ai-code--behavior-plain-read-string-advice (orig-fun prompt &optional initial-input candidate-list)
   "Advice for `ai-code-plain-read-string' to inject behavior candidates.
-ORIG-FUN is the original function."
+ORIG-FUN is the original function.
+PROMPT, INITIAL-INPUT, and CANDIDATE-LIST are forwarded to ORIG-FUN."
   (let* ((behavior-candidates (ai-code--all-behavior-names))
          (completion-candidates
           (delete-dups (append candidate-list
@@ -1028,7 +1029,8 @@ ORIG-FUN is the original function."
 (defun ai-code--behavior-helm-read-string-advice
     (orig-fun prompt history-file-name &optional initial-input candidate-list)
   "Inject behavior candidates into Helm prompt reading.
-ORIG-FUN is the original function."
+ORIG-FUN is the original function.
+PROMPT, HISTORY-FILE-NAME, INITIAL-INPUT, and CANDIDATE-LIST are forwarded."
   (let* ((behavior-candidates (ai-code--all-behavior-names))
          (result (funcall orig-fun prompt history-file-name initial-input
                           (append (or candidate-list '()) behavior-candidates))))
@@ -1036,7 +1038,7 @@ ORIG-FUN is the original function."
 
 (defun ai-code--behavior-prompt-auto-trigger-advice (orig-fun)
   "Handle # behavior completion in prompt auto-trigger advice.
-ORIG-FUN is the original function. When # is typed at start of line or after
+ORIG-FUN is the original function.  When # is typed at start of line or after
 whitespace, offer behavior completion instead of symbol completion."
   (when (not (minibufferp))
     (pcase (char-before)
@@ -2102,7 +2104,7 @@ Auto-switches to agent mode when modify preset is selected in plan mode."
   (interactive)
   (let* ((current-preset (when (boundp 'gptel--preset) gptel--preset))
          (gptel-mode-p (memq current-preset '(gptel-plan gptel-agent)))
-         (agent-shell-mode-p (eq major-mode 'agent-shell-mode))
+         (agent-shell-mode-p (derived-mode-p 'agent-shell-mode))
          (readonly-presets '("frame-problem" "research-deep" "design-options"
                              "spec-planning" "quick-review" "deep-review" "mentor-learn"))
          (modify-presets '("tdd-dev" "quick-fix" "thorough-debug"))
@@ -2189,7 +2191,7 @@ Sets session state based on selection."
 
 (defun ai-code-behaviors-mode-line-enable ()
   "Enable mode-line display of active behaviors for current buffer.
-Shows in gptel-mode, ai-code-prompt-mode, or agent-shell-mode buffers.
+Shows in gptel-mode, `ai-code-prompt-mode', or agent-shell-mode buffers.
 For gptel-agent buffers, extracts project from buffer name.
 Installs global advice for gptel preset changes (once only).
 Starts idle timer for periodic cache cleanup."
@@ -2197,8 +2199,8 @@ Starts idle timer for periodic cache cleanup."
   (ai-code--behaviors-install-gptel-advice)
   (ai-code--behaviors-start-cleanup-timer)
   (when (or (bound-and-true-p gptel-mode)
-            (eq major-mode 'ai-code-prompt-mode)
-            (eq major-mode 'agent-shell-mode))
+            (derived-mode-p 'ai-code-prompt-mode)
+            (derived-mode-p 'agent-shell-mode))
     (make-local-variable 'mode-line-misc-info)
     (unless (member '(:eval (ai-code--behaviors-mode-line-string)) mode-line-misc-info)
       (setq mode-line-misc-info
@@ -2216,7 +2218,7 @@ Note: Global gptel advice remains installed for other buffers."
     (force-mode-line-update t)))
 
 (defun ai-code--behaviors-install-gptel-advice ()
-  "Install global advice for gptel preset changes.
+  "Install global advice for gptel preset applications.
 Uses `advice-member-p' (Emacs 27+) to ensure advice is installed only once.
 On older Emacs versions, advice is always installed (may have duplicates)."
   (when (fboundp 'gptel--apply-preset)
@@ -2227,7 +2229,7 @@ On older Emacs versions, advice is always installed (may have duplicates)."
                   #'ai-code--behaviors-gptel-preset-change-advice))))
 
 (defun ai-code--behaviors-uninstall-gptel-advice ()
-  "Remove global advice for gptel preset changes.
+  "Remove global advice for gptel preset applications.
 Call this when completely disabling ai-code-behaviors."
   (when (and (fboundp 'advice-member-p)
              (advice-member-p #'ai-code--behaviors-gptel-preset-change-advice
@@ -2350,7 +2352,7 @@ Otherwise return nil to continue normal processing."
           t)))))
 
 (defun ai-code--insert-prompt-behaviors-advice (orig-fun prompt-text)
-  "Advice for ai-code--insert-prompt.
+  "Advice for `ai-code--insert-prompt'.
 ORIG-FUN is the original function.
 PROMPT-TEXT is the prompt being processed.
 Handles preset-only detection, session checks, and preset application.
@@ -2361,10 +2363,10 @@ Signals `user-error' for preset-only prompts to abort the send cleanly."
         (user-error "Preset-only prompt: behavior applied, no message sent")
       (when (and this-command (assq this-command ai-code--command-preset-map))
         (unless (ai-code--session-exists-p)
-          (if (y-or-n-p "No AI session for this project. Start one? ")
+          (if (y-or-n-p "No AI session for this project.  Start one? ")
               (progn
                 (ai-code-cli-start)
-                (user-error "Session started. Please run the command again."))
+                (user-error "Session started; please run the command again"))
             (user-error "Cancelled")))
         (ai-code--apply-preset-for-command this-command))
       (funcall orig-fun prompt-text))))
@@ -2508,6 +2510,8 @@ Priority order (gptel-agent context):
 
 (defun ai-code--gptel-agent-transform-inject-behaviors (next-or-fsm &optional fsm)
   "Transform function for gptel-agent to inject behaviors.
+NEXT-OR-FSM is either the next function or FSM object.
+Optional FSM is the gptel finite state machine.
 Only injects when `gptel--preset' is `gptel-plan' or `gptel-agent'.
 Handles preset-only prompts by applying state without sending.
 Operates on current buffer (gptel request buffer).
@@ -2583,7 +2587,7 @@ Mode-line setup is handled by `gptel-mode-hook'.
 
 Do not register behavior presets with gptel--known-presets.
 If we did, gptel's gptel--transform-apply-preset would remove @preset
-from prompts before our transform could see it. We handle @preset
+from prompts before our transform could see it.  We handle @preset
 in our own transform and provide completion via the gptel CAPF."
   (add-hook 'gptel-mode-hook #'ai-code--behavior-setup-hashtag-completion)
   (unless (memq 'ai-code--gptel-agent-transform-inject-behaviors
@@ -2668,12 +2672,12 @@ Return fontification info for text up to END."
 
 (defun ai-code--behavior-hashtag-capf ()
   "Completion-at-point function for #behavior hashtags.
-Works in gptel-agent buffers and ai-code-prompt-mode.
+Works in gptel-agent buffers and `ai-code-prompt-mode'.
 Requires #= prefix for operating modes, # prefix for modifiers/constraints.
 In gptel-plan mode, only shows readonly operating modes."
   (when (and ai-code-behaviors-enabled
              (or (bound-and-true-p gptel-mode)
-                 (and (boundp 'major-mode) (eq major-mode 'ai-code-prompt-mode))))
+                 (and (boundp 'major-mode) (derived-mode-p 'ai-code-prompt-mode))))
     (let* ((pos (save-excursion
                   (skip-chars-backward "=a-zA-Z0-9_-")
                   (point)))
@@ -2873,8 +2877,8 @@ Returns preset name string or nil."
 
 (defun ai-code--behaviors-extract-project-from-buffer-name ()
   "Extract project path from gptel-agent or agent-shell buffer name.
-For gptel-agent buffers, returns default-directory which is set correctly.
-For agent-shell buffers, extracts project name and returns default-directory.
+For gptel-agent buffers, returns `default-directory' which is set correctly.
+For agent-shell buffers, extracts project name and returns `default-directory'.
 Returns nil if not a recognized buffer type."
   (cond
    ;; gptel-agent buffer: "*gptel-agent:project*"
@@ -2895,7 +2899,7 @@ Works in gptel-agent and agent-shell buffers."
           (delq nil
                 (list
                  ;; For agent-shell
-                 (when (eq major-mode 'agent-shell-mode)
+	                 (when (derived-mode-p 'agent-shell-mode)
                    (ai-code--behaviors-project-root))
                  ;; For gptel-agent
                  (when (bound-and-true-p gptel-mode)
@@ -3011,9 +3015,9 @@ CONSTRAINTS is a list of constraint names."
         (insert "# Lines starting with # are constraints\n")
         (insert "# Bundle: <name> applies a predefined bundle\n\n")
         (dolist (c constraints)
-          (insert (concat "#" c "\n")))
-        (when-let ((bundle (ai-code--behaviors-get-active-bundle)))
-          (insert (concat "\n# Bundle: " bundle "\n")))
+	          (insert "#" c "\n"))
+	        (when-let ((bundle (ai-code--behaviors-get-active-bundle)))
+	          (insert "\n# Bundle: " bundle "\n"))
         (write-region (point-min) (point-max) path nil 'silent)))))
 
 (defun ai-code--glob-to-regexp (glob)
@@ -3068,7 +3072,7 @@ Returns list of detected constraint names."
         detected))))
 
 (defun ai-code--glob-pattern-p (pattern)
-  "Return non-nil if PATTERN contains glob wildcards (* or ?)."
+  "Return non-nil if PATTERN includes glob wildcards (* or ?)."
   (string-match-p "[*?]" pattern))
 
 (defun ai-code--expand-glob-in-dir (pattern dir)
@@ -3227,9 +3231,7 @@ Shows only constraints and bundles, not presets or behaviors."
   (append (mapcar (lambda (c) (concat "#" (car c))) ai-code--constraint-modifiers)
           (ai-code--constraint-bundle-names)))
 
-;;; ==============================================================================
-;;; AGENT-SHELL Integration
-;;; ==============================================================================
+;;; Agent-shell Integration:
 
 (defcustom ai-code-behaviors-agent-shell-auto-classify t
   "When non-nil, auto-classify prompts in agent-shell buffers.
@@ -3335,21 +3337,21 @@ Handles three formats:
 (defun ai-code--detect-agent-shell-project-root ()
   "Detect project root for agent-shell buffer.
 Tries multiple strategies: behaviors project root, current buffer,
-find agent-shell buffer, or default-directory as fallback."
+	find agent-shell buffer, or `default-directory' as fallback."
   (or (ai-code--behaviors-project-root)
-      (when (eq major-mode 'agent-shell-mode)
+	      (when (derived-mode-p 'agent-shell-mode)
         default-directory)
       (let ((shell-buf (cl-find-if
                          (lambda (b)
                            (with-current-buffer b
-                             (eq major-mode 'agent-shell-mode)))
+	                             (derived-mode-p 'agent-shell-mode)))
                          (buffer-list))))
         (when shell-buf
           (buffer-local-value 'default-directory shell-buf)))
       default-directory))
 
 (defun ai-code--store-last-prompt (project-root original processed state)
-  "Store last prompt for C-c C-p inspection.
+  "Store last prompt for later inspection.
 PROJECT-ROOT is the key, ORIGINAL is the original text,
 PROCESSED is the processed text, STATE is the behavior state."
   (when (and project-root original)
@@ -3482,7 +3484,7 @@ Note: # completions are handled by ai-code--agent-shell-hashtag-capf."
         (apply orig-fn args)
       ;; Has @ prefix, check if there's text after it
       (let* ((next-char (char-after pos))
-             (has-text-after (and next-char 
+	             (has-text-after (and next-char
                                   (not (memq next-char '(?\s ?\t ?\n nil))))))
         (if (not has-text-after)
             ;; @ alone: show files (call original)
@@ -3520,7 +3522,7 @@ Excludes operating modes (=code, =debug) - use #= for those."
 - #= prefix: only shows operating modes (#=code, #=debug)
 - #text: shows modifiers (#deep) and constraints (#chinese)"
   (when (and (boundp 'major-mode)
-             (eq major-mode 'agent-shell-mode)
+             (derived-mode-p 'agent-shell-mode)
              (save-excursion
                (skip-chars-backward "a-zA-Z0-9_=-")
                (eq (char-before) ?#)))
@@ -3552,7 +3554,7 @@ Merges file completion and preset completion.
 - @ alone: shows files + presets
 - @text: shows matching files + matching presets"
   (when (and (boundp 'major-mode)
-             (eq major-mode 'agent-shell-mode)
+             (derived-mode-p 'agent-shell-mode)
              (save-excursion
                (skip-chars-backward "a-zA-Z0-9_=")
                (eq (char-before) ?@)))
@@ -3583,7 +3585,7 @@ Merges file completion and preset completion.
                (lambda (cand)
                  (pcase (get-text-property 0 'ai-code--type cand)
                    ('file " [file]")
-                   ('preset 
+                   ('preset
                     (let ((name (string-trim (substring cand 1))))
                       (cond
                        ((assoc name ai-code--constraint-bundles) " [bundle]")

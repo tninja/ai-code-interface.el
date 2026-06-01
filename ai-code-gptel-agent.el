@@ -25,9 +25,9 @@
     (get-buffer buf-name)))
 
 (defun ai-code-gptel-agent--ensure-available ()
-  "Ensure gptel-agent is available."
+  "Ensure `gptel-agent' is available."
   (unless (require 'gptel-agent nil t)
-    (user-error "gptel-agent backend requires gptel-agent package")))
+    (user-error "Gptel-agent backend requires gptel-agent package")))
 
 ;;;###autoload
 (defun ai-code-gptel-agent (&optional arg)
@@ -45,7 +45,7 @@ With prefix ARG, prompt for project directory."
   (ai-code-gptel-agent--ensure-available)
   (if-let ((buffer (ai-code-gptel-agent--get-buffer)))
       (pop-to-buffer buffer)
-    (user-error "No gptel-agent session for this project. Use 'a' to start one.")))
+    (user-error "No gptel-agent session for this project; use 'a' to start one")))
 
 ;;;###autoload
 (defun ai-code-gptel-agent-send-command (prompt)
@@ -57,7 +57,7 @@ With prefix ARG, prompt for project directory."
         (goto-char (point-max))
         (insert prompt)
         (gptel-send))
-    (user-error "No gptel-agent session for this project. Use 'a' to start one.")))
+    (user-error "No gptel-agent session for this project; use 'a' to start one")))
 
 (provide 'ai-code-gptel-agent)
 

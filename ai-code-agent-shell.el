@@ -19,17 +19,17 @@
 (defvar agent-shell-session-strategy)
 
 (defgroup ai-code-agent-shell nil
-  "agent-shell backend bridge for ai-code."
+  "Agent-shell backend bridge for ai-code."
   :group 'tools
   :prefix "ai-code-agent-shell-")
 
 (defun ai-code-agent-shell--ensure-available ()
   "Ensure `agent-shell' can be used."
   (unless (require 'agent-shell nil t)
-    (user-error "agent-shell backend is not available. Please install agent-shell"))
+    (user-error "Agent-shell backend is not available; please install agent-shell"))
   (dolist (fn '(agent-shell agent-shell--shell-buffer agent-shell-queue-request))
     (unless (fboundp fn)
-      (user-error "agent-shell backend missing required function: %s" fn))))
+      (user-error "Agent-shell backend missing required function: %s" fn))))
 
 ;;;###autoload
 (defun ai-code-agent-shell (&optional arg)

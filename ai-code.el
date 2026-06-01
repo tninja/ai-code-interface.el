@@ -10,8 +10,8 @@
 ;;; Commentary:
 ;; This package provides a uniform Emacs interface for various AI-assisted software
 ;; development CLI tools.  Its purpose is to offer a consistent user experience
-;; across different AI backends, providing context-aware code actions, and integrating
-;; seamlessly with AI-driven agile development workflows.
+;; across different AI backends, providing context-aware code actions, and
+;; integrating seamlessly with AI-driven agile development workflows.
 ;;
 ;; URL: https://github.com/tninja/ai-code-interface.el
 ;;
@@ -257,16 +257,14 @@ ARG is the prefix argument."
 EVAL-AVAILABLE-P reports whether `eval_elisp' is globally enabled.
 Optional REGION-TEXT and REGION-LOCATION-INFO add selected-region context."
   (format
-   (concat
-    "Use the Emacs MCP tools available in this session to debug my Emacs runtime.\n"
-    "The issue may involve an interactive function or a key binding.\n"
-    "%s\n\n"
-    "Inspect the relevant runtime state first: keymaps, command metadata,\n"
-    "variables, recent messages, load state, and the last backtrace when useful.\n"
-    "Explain what you find, then recommend the smallest fix or next step.\n\n"
-    "Runtime issue description:\n"
-    "%s"
-    "%s")
+   "Use the Emacs MCP tools available in this session to debug my Emacs runtime.\n\
+The issue may involve an interactive function or a key binding.\n\
+%s\n\n\
+Inspect the relevant runtime state first: keymaps, command metadata,\n\
+variables, recent messages, load state, and the last backtrace when useful.\n\
+Explain what you find, then recommend the smallest fix or next step.\n\n\
+Runtime issue description:\n\
+%s%s"
    (if eval-available-p
        "eval_elisp is enabled in your Emacs MCP config."
      "eval_elisp is disabled in your Emacs MCP config, so rely on non-eval inspection tools unless you first enable ai-code-mcp-debug-tools-enable-eval-elisp.")

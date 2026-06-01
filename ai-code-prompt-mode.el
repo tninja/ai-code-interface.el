@@ -4,6 +4,10 @@
 
 ;; SPDX-License-Identifier: Apache-2.0
 
+;;; Commentary:
+;; Prompt file management, prompt history, and file completion helpers for
+;; ai-code sessions.
+
 ;;; Code:
 
 (require 'cl-lib)
@@ -116,7 +120,7 @@ If file doesn't exist, create it with sample prompt."
 This function blocks until a response is received or a timeout occurs.
 Only works when gptel package is installed, otherwise shows error message."
   (unless (featurep 'gptel)
-    (user-error "GPTel package is required for AI command generation. Please install gptel package"))
+    (user-error "GPTel package is required for AI command generation; please install gptel package"))
   (let ((answer nil)
         (done nil)
         (error-info nil)
@@ -151,7 +155,7 @@ Only works when gptel package is installed, otherwise shows error message."
       (when (buffer-live-p temp-buffer)
         (kill-buffer temp-buffer)))
     (if error-info
-        (error "ai-code-call-gptel-sync failed: %s" error-info)
+        (error "Ai-code-call-gptel-sync failed: %s" error-info)
       answer)))
 
 (defun ai-code--format-and-insert-prompt (prompt-text)
@@ -169,7 +173,7 @@ Only works when gptel package is installed, otherwise shows error message."
   "Insert an Org drawer recording the current AI backend label."
   (let ((label (condition-case nil
                    (ai-code-current-backend-label)
-                 (error "unknown"))))
+                (error "Unknown"))))
     (insert ":PROPERTIES:\n")
     (insert (format ":AGENT: %s\n" label))
     (insert ":END:\n")))
@@ -318,7 +322,7 @@ NOTE: This does not handle file paths containing spaces."
 
 (defun ai-code--normalize-path (file)
   "Return normalized absolute path for FILE.
-If FILE exists, return its truename. Otherwise return expanded path."
+If FILE exists, return its truename.  Otherwise return expanded path."
   (let ((full (expand-file-name file)))
     (if (file-exists-p full)
         (file-truename full)
@@ -334,7 +338,7 @@ that root, otherwise return the absolute path."
       full-truename)))
 
 (defun ai-code--current-frame-dired-paths (git-root-truename)
-  "Return dired directory candidates from current frame under GIT-ROOT-TRUENAME."
+  "Return Dired directory candidates from current frame under GIT-ROOT-TRUENAME."
   (let ((paths '()))
     (dolist (win (window-list nil 'no-minibuffer))
       (with-current-buffer (window-buffer win)
@@ -366,7 +370,8 @@ that root, otherwise return the absolute path."
     (nreverse (delete-dups files))))
 
 (defun ai-code--recent-buffer-paths (git-root-truename)
-  "Return candidate paths for most recent 5 visited buffer files or directories."
+  "Return candidate paths for most recent 5 visited buffers.
+GIT-ROOT-TRUENAME is the normalized Git root."
   (let ((files '())
         (count 0))
     (dolist (buf (buffer-list))
@@ -480,7 +485,7 @@ that root, otherwise return the absolute path."
                      (symbol (ai-code--choose-symbol-from-file file)))
            (when (not (string-empty-p symbol))
              (delete-char -1)  ; Remove the '#' we just typed
-             (insert (concat "#" symbol)))))))))
+            (insert "#" symbol))))))))
 
 (defun ai-code--insert-prompt (prompt-text)
   "Preprocess and insert PROMPT-TEXT into the AI prompt file.
@@ -572,7 +577,7 @@ A prompt block is multiple non-empty lines surrounded by empty lines."
 (defcustom ai-code-task-use-gptel-filename nil
   "Whether to use GPTel to generate filename for task files.
 If non-nil, call `ai-code-call-gptel-sync` to generate a smart filename
-based on the task name. Otherwise, use cleaned-up task name directly."
+based on the task name.  Otherwise, use cleaned-up task name directly."
   :type 'boolean
   :group 'ai-code)
 
@@ -603,7 +608,7 @@ for example `org-roam-directory'."
 (defun ai-code--generate-task-filename (task-name)
   "Generate a task filename from TASK-NAME.
 If `ai-code-task-use-gptel-filename` is non-nil, use GPTel to generate
-a smart filename. Otherwise, use cleaned-up task name directly.
+a smart filename.  Otherwise, use cleaned-up task name directly.
 If TASK-NAME contains `rdar://ID`, use `rdar_ID_` as prefix.
 Otherwise, use `task_YYYYMMDD_` as prefix.
 Returns a filename with .org suffix."
@@ -633,7 +638,7 @@ Returns a filename with .org suffix."
 (defun ai-code--initialize-task-file-content (task-name task-url)
   "Insert initial task content using TASK-NAME and TASK-URL."
   (insert (format "#+TITLE: %s\n" task-name))
-  (insert (format "#+DATE: %s\n" (format-time-string "%Y-%m-%d")))
+  (insert (format "#+DATE: %s\n" (format-time-string "%F")))
   (unless (string-empty-p task-url)
     (insert (format "#+URL: %s\n" task-url)))
   (let ((branch (magit-get-current-branch)))
@@ -727,7 +732,8 @@ Returns the selected directory path."
    nil nil))
 
 (defun ai-code--existing-task-file-path (task-name task-file-candidates ai-code-files-dir)
-  "Return the full path for TASK-NAME when it is in TASK-FILE-CANDIDATES."
+  "Return the full path for TASK-NAME when it is in TASK-FILE-CANDIDATES.
+AI-CODE-FILES-DIR is the directory that contains task files."
   (when (member task-name task-file-candidates)
     (expand-file-name task-name ai-code-files-dir)))
 
@@ -750,11 +756,10 @@ Default to AI-CODE-FILES-DIR and keep a dedicated directory history."
   "Build a prompt for searching org files in TARGET-DIR.
 SEARCH-DESCRIPTION describes what content the AI should search for."
   (format
-   (concat
-    "Search the content of all .org files recursively under directory: %s\n"
-    "Search target description: %s\n"
-    "Focus on matching content inside the files, not just file names.\n"
-    "Return the relevant file paths, matched excerpts, and a concise summary.")
+   "Search the content of all .org files recursively under directory: %s\n\
+Search target description: %s\n\
+Focus on matching content inside the files, not just file names.\n\
+Return the relevant file paths, matched excerpts, and a concise summary."
    target-dir
    search-description))
 
@@ -807,14 +812,13 @@ exist, prompt once to optionally include them as well."
          (when-let ((git-root (ai-code--git-root)))
            (file-truename git-root))))
     (format
-     (concat
-       "Search my notes and related files for: %s\n"
-       "Search scope paths:\n%s\n"
-       "Use the available search tools to inspect the selected paths.\n"
-       "Focus on relevant information inside files, not just file names.\n"
-       "Return the most relevant paths, matched excerpts, and a concise answer.")
-      search-description
-      (mapconcat
+     "Search my notes and related files for: %s\n\
+Search scope paths:\n%s\n\
+Use the available search tools to inspect the selected paths.\n\
+Focus on relevant information inside files, not just file names.\n\
+Return the most relevant paths, matched excerpts, and a concise answer."
+     search-description
+     (mapconcat
       (lambda (scope)
         (format "- %s"
                  (if git-root-truename
@@ -823,7 +827,7 @@ exist, prompt once to optionally include them as well."
        scopes "\n"))))
 
 (defun ai-code--search-task-files-with-ai (ai-code-files-dir)
-  "Prompt for task file search inputs and send a search request to AI."
+  "Prompt for task file search inputs under AI-CODE-FILES-DIR and send to AI."
   (let* ((target-dir (ai-code--read-task-search-directory ai-code-files-dir))
          (search-description (ai-code-read-string "Search description for .org files: "))
          (default-prompt (ai-code--build-task-search-prompt target-dir search-description))
@@ -861,7 +865,7 @@ ARG is the prefix argument."
 ;;;###autoload
 (defun ai-code-create-or-open-task-file ()
   "Create or open an AI task file.
-Prompts for a task name. If empty, opens the task directory in Dired.
+Prompts for a task name.  If empty, opens the task directory in Dired.
 If non-empty, optionally prompts for a URL, generates a filename
 using GPTel, and creates the task file."
   (interactive)

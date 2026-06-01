@@ -39,7 +39,16 @@ the current prompt is about code changes.  This lets code-change prompts
 skip discussion follow-up suggestions, and discussion prompts skip auto
 test suffixes.")
 (custom-autoload 'ai-code-use-gptel-classify-prompt "ai-code" t)
-(defvar ai-code-next-step-suggestion-suffix (concat "At the end of your response, provide 3-4 numbered candidate next\n" "steps. Keep each option to one sentence. At least 2 candidates must\n" "be AI-actionable items as follow up: either a code change or tool usage. Mark the\n" "single best option with \"(Recommended)\". If the user replies with\n" "only a number such as 1, 2, 3, or 4, treat that as selecting the\n" "corresponding next step from your previous answer. The user may also\n" "ignore these options and send a different follow-up request instead.") "\
+(defvar ai-code-next-step-suggestion-suffix
+  (concat
+   "At the end of your response, provide 3-4 numbered candidate next\n"
+   "steps. Keep each option to one sentence. At least 2 candidates must\n"
+   "be AI-actionable items as follow up: either a code change or tool usage. Mark the\n"
+   "single best option with \"(Recommended)\". If the user replies with\n"
+   "only a number such as 1, 2, 3, or 4, treat that as selecting the\n"
+   "corresponding next step from your previous answer. The user may also\n"
+   "ignore these options and send a different follow-up request instead.")
+  "\
 Prompt suffix for numbered next-step suggestions in discussion prompts.")
 (custom-autoload 'ai-code-next-step-suggestion-suffix "ai-code" t)
 (defvar ai-code-cli "claude" "\
@@ -226,7 +235,126 @@ When called interactively, prompts for the command.
 When called from Lisp code, sends CMD directly without prompting.
 
 (fn CMD)" t)
-(defvar ai-code-backends '((claude-code :label "Claude Code" :require ai-code-claude-code :start ai-code-claude-code :switch ai-code-claude-code-switch-to-buffer :send ai-code-claude-code-send-command :resume ai-code-claude-code-resume :config "~/.claude.json" :agent-file "CLAUDE.md" :upgrade "npm install -g @anthropic-ai/claude-code@latest" :install-skills nil :cli "claude") (gemini :label "Gemini CLI" :require ai-code-gemini-cli :start ai-code-gemini-cli :switch ai-code-gemini-cli-switch-to-buffer :send ai-code-gemini-cli-send-command :resume ai-code-gemini-cli-resume :config "~/.gemini/settings.json" :agent-file "GEMINI.md" :upgrade "npm install -g @google/gemini-cli" :install-skills nil :cli "gemini") (antigravity :label "Antigravity CLI" :require ai-code-antigravity-cli :start ai-code-antigravity-cli :switch ai-code-antigravity-cli-switch-to-buffer :send ai-code-antigravity-cli-send-command :resume ai-code-antigravity-cli-resume :config nil :agent-file nil :upgrade nil :install-skills nil :cli "agy") (github-copilot-cli :label "GitHub Copilot CLI" :require ai-code-github-copilot-cli :start ai-code-github-copilot-cli :switch ai-code-github-copilot-cli-switch-to-buffer :send ai-code-github-copilot-cli-send-command :resume ai-code-github-copilot-cli-resume :config "~/.copilot/mcp-config.json" :agent-file nil :upgrade "npm install -g @github/copilot" :install-skills nil :cli "copilot") (codex :label "OpenAI Codex CLI" :require ai-code-codex-cli :start ai-code-codex-cli :switch ai-code-codex-cli-switch-to-buffer :send ai-code-codex-cli-send-command :resume ai-code-codex-cli-resume :config "~/.codex/config.toml" :agent-file "AGENTS.md" :upgrade "npm install -g @openai/codex@latest" :install-skills nil :cli "codex") (opencode :label "Opencode" :require ai-code-opencode :start ai-code-opencode :switch ai-code-opencode-switch-to-buffer :send ai-code-opencode-send-command :resume ai-code-opencode-resume :config "~/.config/opencode/opencode.jsonc" :agent-file nil :upgrade "npm i -g opencode-ai@latest" :install-skills nil :cli "opencode") (kilo :label "Kilo" :require ai-code-kilo :start ai-code-kilo :switch ai-code-kilo-switch-to-buffer :send ai-code-kilo-send-command :resume ai-code-kilo-resume :config "~/.config/kilo/kilo.json" :agent-file nil :upgrade "npm install -g kilo@latest" :install-skills nil :cli "kilo") (grok :label "Grok CLI" :require ai-code-grok-cli :start ai-code-grok-cli :switch ai-code-grok-cli-switch-to-buffer :send ai-code-grok-cli-send-command :resume ai-code-grok-cli-resume :config "~/.config/grok/config.json" :agent-file nil :upgrade "bun add -g @vibe-kit/grok-cli" :install-skills nil :cli "grok") (cursor :label "Cursor CLI" :require ai-code-cursor-cli :start ai-code-cursor-cli :switch ai-code-cursor-cli-switch-to-buffer :send ai-code-cursor-cli-send-command :resume ai-code-cursor-cli-resume :config "~/.cursor" :agent-file nil :upgrade "cursor-agent update" :install-skills nil :cli "cursor-agent") (kiro :label "Kiro CLI" :require ai-code-kiro-cli :start ai-code-kiro-cli :switch ai-code-kiro-cli-switch-to-buffer :send ai-code-kiro-cli-send-command :resume ai-code-kiro-cli-resume :config "~/.kiro/settings/cli.json" :agent-file nil :upgrade "kiro-cli update" :install-skills nil :cli "kiro-cli") (codebuddy :label "CodeBuddy Code" :require ai-code-codebuddy-cli :start ai-code-codebuddy-cli :switch ai-code-codebuddy-cli-switch-to-buffer :send ai-code-codebuddy-cli-send-command :resume ai-code-codebuddy-cli-resume :config "~/.codebuddy" :agent-file nil :upgrade "codebuddy update" :install-skills nil :cli "codebuddy") (aider :label "Aider CLI" :require ai-code-aider-cli :start ai-code-aider-cli :switch ai-code-aider-cli-switch-to-buffer :send ai-code-aider-cli-send-command :resume nil :config "~/.aider.conf.yml" :agent-file nil :upgrade nil :install-skills nil :cli "aider") (eca :label "ECA (Editor Code Assistant)" :require ai-code-eca :start ai-code-eca-start :switch ai-code-eca-switch :send ai-code-eca-send :resume ai-code-eca-resume :config "~/.config/eca/config.json" :agent-file "AGENTS.md" :upgrade ai-code-eca-upgrade :install-skills ai-code-eca-install-skills :cli nil) (agent-shell :label "agent-shell" :require ai-code-agent-shell :start ai-code-agent-shell :switch ai-code-agent-shell-switch-to-buffer :send ai-code-agent-shell-send-command :resume ai-code-agent-shell-resume :config nil :agent-file nil :upgrade nil :install-skills nil :cli "agent-shell") (gptel-agent :label "GPTel Agent" :require ai-code-gptel-agent :start ai-code-gptel-agent :switch ai-code-gptel-agent-switch-to-buffer :send ai-code-gptel-agent-send-command :resume nil :config nil :agent-file nil :upgrade nil :install-skills nil :cli nil) (claude-code-ide :label "claude-code-ide.el" :require claude-code-ide :start claude-code-ide--start-if-no-session :switch claude-code-ide-switch-to-buffer :send claude-code-ide-send-prompt :resume claude-code-ide-resume :config "~/.claude.json" :agent-file "CLAUDE.md" :upgrade "npm install -g @anthropic-ai/claude-code@latest" :install-skills nil :cli "claude") (claude-code-el :label "claude-code.el" :require claude-code :start claude-code :switch claude-code-switch-to-buffer :send ai-code-claude-code-el-send-command :resume claude-code-resume :config "~/.claude.json" :agent-file "CLAUDE.md" :upgrade "npm install -g @anthropic-ai/claude-code@latest" :install-skills nil :cli "claude")) "\
+(defvar ai-code-backends
+  '((claude-code :label "Claude Code" :require ai-code-claude-code
+                 :start ai-code-claude-code :switch
+                 ai-code-claude-code-switch-to-buffer :send
+                 ai-code-claude-code-send-command :resume
+                 ai-code-claude-code-resume :config "~/.claude.json"
+                 :agent-file "CLAUDE.md" :upgrade
+                 "npm install -g @anthropic-ai/claude-code@latest"
+                 :install-skills nil :cli "claude")
+    (gemini :label "Gemini CLI" :require ai-code-gemini-cli :start
+            ai-code-gemini-cli :switch
+            ai-code-gemini-cli-switch-to-buffer :send
+            ai-code-gemini-cli-send-command :resume
+            ai-code-gemini-cli-resume :config "~/.gemini/settings.json"
+            :agent-file "GEMINI.md" :upgrade
+            "npm install -g @google/gemini-cli" :install-skills nil :cli
+            "gemini")
+    (antigravity :label "Antigravity CLI" :require
+                 ai-code-antigravity-cli :start ai-code-antigravity-cli
+                 :switch ai-code-antigravity-cli-switch-to-buffer :send
+                 ai-code-antigravity-cli-send-command :resume
+                 ai-code-antigravity-cli-resume :config
+                 "~/.gemini/antigravity-cli/settings.json" :agent-file
+                 "AGENTS.md" :upgrade
+                 "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+                 :install-skills nil :cli "agy")
+    (github-copilot-cli :label "GitHub Copilot CLI" :require
+                        ai-code-github-copilot-cli :start
+                        ai-code-github-copilot-cli :switch
+                        ai-code-github-copilot-cli-switch-to-buffer
+                        :send ai-code-github-copilot-cli-send-command
+                        :resume ai-code-github-copilot-cli-resume
+                        :config "~/.copilot/mcp-config.json" :agent-file
+                        nil :upgrade "npm install -g @github/copilot"
+                        :install-skills nil :cli "copilot")
+    (codex :label "OpenAI Codex CLI" :require ai-code-codex-cli :start
+           ai-code-codex-cli :switch ai-code-codex-cli-switch-to-buffer
+           :send ai-code-codex-cli-send-command :resume
+           ai-code-codex-cli-resume :config "~/.codex/config.toml"
+           :agent-file "AGENTS.md" :upgrade
+           "npm install -g @openai/codex@latest" :install-skills nil
+           :cli "codex")
+    (opencode :label "Opencode" :require ai-code-opencode :start
+              ai-code-opencode :switch ai-code-opencode-switch-to-buffer
+              :send ai-code-opencode-send-command :resume
+              ai-code-opencode-resume :config
+              "~/.config/opencode/opencode.jsonc" :agent-file nil
+              :upgrade "npm i -g opencode-ai@latest" :install-skills nil
+              :cli "opencode")
+    (kilo :label "Kilo" :require ai-code-kilo :start ai-code-kilo
+          :switch ai-code-kilo-switch-to-buffer :send
+          ai-code-kilo-send-command :resume ai-code-kilo-resume :config
+          "~/.config/kilo/kilo.json" :agent-file nil :upgrade
+          "npm install -g kilo@latest" :install-skills nil :cli "kilo")
+    (grok :label "Grok CLI" :require ai-code-grok-cli :start
+          ai-code-grok-cli :switch ai-code-grok-cli-switch-to-buffer
+          :send ai-code-grok-cli-send-command :resume
+          ai-code-grok-cli-resume :config "~/.config/grok/config.json"
+          :agent-file nil :upgrade "bun add -g @vibe-kit/grok-cli"
+          :install-skills nil :cli "grok")
+    (cursor :label "Cursor CLI" :require ai-code-cursor-cli :start
+            ai-code-cursor-cli :switch
+            ai-code-cursor-cli-switch-to-buffer :send
+            ai-code-cursor-cli-send-command :resume
+            ai-code-cursor-cli-resume :config "~/.cursor" :agent-file
+            nil :upgrade "cursor-agent update" :install-skills nil :cli
+            "cursor-agent")
+    (kiro :label "Kiro CLI" :require ai-code-kiro-cli :start
+          ai-code-kiro-cli :switch ai-code-kiro-cli-switch-to-buffer
+          :send ai-code-kiro-cli-send-command :resume
+          ai-code-kiro-cli-resume :config "~/.kiro/settings/cli.json"
+          :agent-file nil :upgrade "kiro-cli update" :install-skills nil
+          :cli "kiro-cli")
+    (codebuddy :label "CodeBuddy Code" :require ai-code-codebuddy-cli
+               :start ai-code-codebuddy-cli :switch
+               ai-code-codebuddy-cli-switch-to-buffer :send
+               ai-code-codebuddy-cli-send-command :resume
+               ai-code-codebuddy-cli-resume :config "~/.codebuddy"
+               :agent-file nil :upgrade "codebuddy update"
+               :install-skills nil :cli "codebuddy")
+    (aider :label "Aider CLI" :require ai-code-aider-cli :start
+           ai-code-aider-cli :switch ai-code-aider-cli-switch-to-buffer
+           :send ai-code-aider-cli-send-command :resume nil :config
+           "~/.aider.conf.yml" :agent-file nil :upgrade nil
+           :install-skills nil :cli "aider")
+    (eca :label "ECA (Editor Code Assistant)" :require ai-code-eca
+         :start ai-code-eca-start :switch ai-code-eca-switch :send
+         ai-code-eca-send :resume ai-code-eca-resume :config
+         "~/.config/eca/config.json" :agent-file "AGENTS.md" :upgrade
+         ai-code-eca-upgrade :install-skills ai-code-eca-install-skills
+         :cli nil)
+    (agent-shell :label "agent-shell" :require ai-code-agent-shell
+                 :start ai-code-agent-shell :switch
+                 ai-code-agent-shell-switch-to-buffer :send
+                 ai-code-agent-shell-send-command :resume
+                 ai-code-agent-shell-resume :config nil :agent-file nil
+                 :upgrade nil :install-skills nil :cli "agent-shell")
+    (gptel-agent :label "GPTel Agent" :require ai-code-gptel-agent
+                 :start ai-code-gptel-agent :switch
+                 ai-code-gptel-agent-switch-to-buffer :send
+                 ai-code-gptel-agent-send-command :resume nil :config
+                 nil :agent-file nil :upgrade nil :install-skills nil
+                 :cli nil)
+    (claude-code-ide :label "claude-code-ide.el" :require
+                     claude-code-ide :start
+                     claude-code-ide--start-if-no-session :switch
+                     claude-code-ide-switch-to-buffer :send
+                     claude-code-ide-send-prompt :resume
+                     claude-code-ide-resume :config "~/.claude.json"
+                     :agent-file "CLAUDE.md" :upgrade
+                     "npm install -g @anthropic-ai/claude-code@latest"
+                     :install-skills nil :cli "claude")
+    (claude-code-el :label "claude-code.el" :require claude-code :start
+                    claude-code :switch claude-code-switch-to-buffer
+                    :send ai-code-claude-code-el-send-command :resume
+                    claude-code-resume :config "~/.claude.json"
+                    :agent-file "CLAUDE.md" :upgrade
+                    "npm install -g @anthropic-ai/claude-code@latest"
+                    :install-skills nil :cli "claude"))
+  "\
 Available AI backends and how to integrate with them.
 Each entry is (KEY :label STRING :require FEATURE :start FN :switch FN
 :send FN :resume FN-or-nil :upgrade STRING-or-nil :cli STRING
@@ -924,7 +1052,7 @@ Directory name for storing AI task files.")
 (defvar ai-code-task-use-gptel-filename nil "\
 Whether to use GPTel to generate filename for task files.
 If non-nil, call `ai-code-call-gptel-sync` to generate a smart filename
-based on the task name. Otherwise, use cleaned-up task name directly.")
+based on the task name.  Otherwise, use cleaned-up task name directly.")
 (custom-autoload 'ai-code-task-use-gptel-filename "ai-code-prompt-mode" t)
 (autoload 'ai-code-create-or-open-task-file "ai-code-prompt-mode" "\
 Create or open an AI task file.
@@ -966,7 +1094,11 @@ Disable future auto-display of the onboarding quickstart." t)
 
 ;;; Generated autoloads from ai-code-harness.el
 
-(defvar ai-code-test-after-code-change-suffix "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)." "\
+(defvar ai-code-test-after-code-change-suffix
+  (concat
+   "If any program code changes, "
+   "run unit-tests and follow up on the test-result (fix code if there is an error).")
+  "\
 User-provided prompt suffix for test-after-code-change.")
 (custom-autoload 'ai-code-test-after-code-change-suffix "ai-code-harness" t)
 (defvar ai-code-auto-test-harness-cache-directory nil "\

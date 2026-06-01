@@ -742,12 +742,11 @@ DEFAULT-NOTE-FILE is included in the list.  Visible org buffers are prioritized.
 (defun ai-code--build-note-insert-prompt (file-path line-number note-request)
   "Build an AI prompt to insert a note into FILE-PATH.
 LINE-NUMBER and NOTE-REQUEST are included in the prompt context."
-  (format (concat
-           "Insert the note into the current Org file.\n"
-           "Target file: %s\n"
-           "Insert location: around line %d (current cursor position)\n\n"
-           "Note request:\n%s\n\n"
-           "Only update the requested insertion location. Do not change unrelated sections. Go ahead and start do the work.")
+  (format "Insert the note into the current Org file.\n\
+Target file: %s\n\
+Insert location: around line %d (current cursor position)\n\n\
+Note request:\n%s\n\n\
+Only update the requested insertion location. Do not change unrelated sections. Go ahead and start do the work."
           file-path
           line-number
           note-request))
@@ -764,13 +763,11 @@ Normalizes paths for robustness against symlinks and case sensitivity."
 (defun ai-code--build-note-create-prompt (target-dir note-request)
   "Build an AI prompt to create a note under TARGET-DIR.
 NOTE-REQUEST is included in the prompt body."
-  (format (concat
-           "Create a new Org note file under directory: %s\n"
-           "Automatically determine a concise filename from the note title/content you identified. "
-           "Use lowercase letters, numbers, and underscores for the filename, with .org extension.\n\n"
-           "Note request:\n%s\n\n"
-           "%s"
-           "Do not modify unrelated files. Go ahead and start the work.")
+  (format "Create a new Org note file under directory: %s\n\
+Automatically determine a concise filename from the note title/content you identified. \
+Use lowercase letters, numbers, and underscores for the filename, with .org extension.\n\n\
+Note request:\n%s\n\n\
+%sDo not modify unrelated files. Go ahead and start the work."
           target-dir
           note-request
           (if (ai-code--target-directory-under-org-roam-p target-dir)

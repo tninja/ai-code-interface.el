@@ -88,7 +88,7 @@ When nil, an available port is selected automatically."
       (ai-code-mcp-http-server--handle-request process request))))
 
 (defun ai-code-mcp-http-server--parse-request (data)
-  "Parse DATA when it contains a full HTTP request."
+  "Parse DATA when it includes a full HTTP request."
   (when (string-match "\r\n\r\n" data)
     (let* ((separator-start (match-beginning 0))
            (body-start (match-end 0))
@@ -158,13 +158,13 @@ Returns nil for notifications."
          (params (alist-get 'params json-object))
          (ai-code-mcp--current-session-id
           (ai-code-mcp-http-server--session-id-from-path path)))
-    (unless (null id)
+    (when id
       `((jsonrpc . "2.0")
         (id . ,id)
         (result . ,(ai-code-mcp-dispatch method params))))))
 
 (defun ai-code-mcp-http-server--request-id (request)
-  "Extract the JSON-RPC request id from REQUEST."
+  "Extract the JSON-RPC request ID from REQUEST."
   (when-let ((body (plist-get request :body)))
     (condition-case nil
         (alist-get 'id
@@ -172,12 +172,12 @@ Returns nil for notifications."
       (error nil))))
 
 (defun ai-code-mcp-http-server--session-id-from-path (path)
-  "Extract session id from PATH."
+  "Extract session ID from PATH."
   (when (string-match "\\`/mcp/\\([^/?]+\\)" path)
     (match-string 1 path)))
 
 (defun ai-code-mcp-http-server--send-json-error (process id code message)
-  "Send a JSON-RPC error response on PROCESS."
+  "Send a JSON-RPC error response with ID, CODE, and MESSAGE on PROCESS."
   (ai-code-mcp-http-server--send-json
    process
    500

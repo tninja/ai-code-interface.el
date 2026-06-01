@@ -222,7 +222,8 @@ terminal output redraw."
            (directory-files-recursively root ".*" t))))))
 
 (defun ai-code-session-link--in-project-file-p (file root &optional project-files)
-  "Return non-nil when FILE exists and belongs to ROOT."
+  "Return non-nil when FILE exists and belongs to ROOT.
+Optional PROJECT-FILES supplies the project file list."
   (let* ((project-root (and root (file-name-as-directory (expand-file-name root))))
          (candidate (and file (expand-file-name file)))
          (project-files (or project-files
@@ -313,7 +314,9 @@ terminal output redraw."
                                    (string-to-number column))))))))))
 
 (defun ai-code-session-link--apply-properties (start end &optional text help-echo)
-  "Apply session link properties from START to END."
+  "Apply session link properties from START to END.
+Optional TEXT overrides the stored link text.
+Optional HELP-ECHO overrides the hover help text."
   (add-text-properties
    start end
    (list 'ai-code-session-link (or text
@@ -326,7 +329,7 @@ terminal output redraw."
          'face 'link)))
 
 (defun ai-code-session-link--apply-symbol-properties (start end symbol file-link)
-  "Apply clickable symbol properties from START to END."
+  "Apply clickable SYMBOL properties from START to END using FILE-LINK."
   (add-text-properties
    start end
    (list 'ai-code-session-link file-link
@@ -340,7 +343,7 @@ terminal output redraw."
          'face 'link)))
 
 (defun ai-code-session-link--elisp-symbol-candidate-p (candidate)
-  "Return non-nil when CANDIDATE looks like an Elisp symbol worth linking."
+  "Return non-nil when CANDIDATE resembles an Elisp symbol worth linking."
   (or (intern-soft candidate)
       (string-match-p "--" candidate)
       (string-match-p
@@ -353,7 +356,7 @@ terminal output redraw."
     (string-match-p regexp candidate)))
 
 (defun ai-code-session-link--java-camel-case-symbol-p (candidate)
-  "Return non-nil when CANDIDATE looks like a Java-style CamelCase symbol."
+  "Return non-nil when CANDIDATE resembles a Java-style CamelCase symbol."
   (and (ai-code-session-link--case-sensitive-match-p
         (concat "\\`" ai-code-session-link--camel-case-symbol-regexp "\\'")
         candidate)
@@ -363,13 +366,13 @@ terminal output redraw."
         candidate)))
 
 (defun ai-code-session-link--snake-case-symbol-p (candidate)
-  "Return non-nil when CANDIDATE looks like a bare snake_case symbol."
+  "Return non-nil when CANDIDATE resembles a bare snake_case symbol."
   (ai-code-session-link--case-sensitive-match-p
    "\\`_*[[:lower:]][[:lower:][:digit:]]*\\(?:_[[:lower:][:digit:]]+\\)+\\'"
    candidate))
 
 (defun ai-code-session-link--bare-symbol-candidate-p (candidate)
-  "Return non-nil when bare CANDIDATE looks like a supported code symbol."
+  "Return non-nil when bare CANDIDATE resembles a supported code symbol."
   (or (ai-code-session-link--java-camel-case-symbol-p candidate)
       (ai-code-session-link--snake-case-symbol-p candidate)
       (and (string-match-p "-" candidate)
@@ -418,7 +421,8 @@ CANDIDATE-COUNT and LINK-COUNT are the current scan totals."
        (< link-count ai-code-session-link--symbol-neighborhood-max-links)))
 
 (defun ai-code-session-link--next-nearby-symbol-boundary (start end &optional next-file-start)
-  "Return the next boundary after START for symbol scanning up to END."
+  "Return the next boundary after START for symbol scanning up to END.
+Optional NEXT-FILE-START caps the returned boundary."
   (let ((boundary end))
     (save-excursion
       (goto-char start)
@@ -429,14 +433,16 @@ CANDIDATE-COUNT and LINK-COUNT are the current scan totals."
       boundary)))
 
 (defun ai-code-session-link--symbol-scan-end (scan-start end &optional next-file-start)
-  "Return the final nearby symbol scan boundary for SCAN-START up to END."
+  "Return the final nearby symbol scan boundary for SCAN-START up to END.
+Optional NEXT-FILE-START caps the returned boundary."
   (ai-code-session-link--next-nearby-symbol-boundary
    scan-start
    (ai-code-session-link--symbol-window-end scan-start end)
    next-file-start))
 
 (defun ai-code-session-link--linkify-symbols-near-file (file-link scan-start end &optional next-file-start)
-  "Linkify code-like symbols near FILE-LINK from SCAN-START up to END."
+  "Linkify code-like symbols near FILE-LINK from SCAN-START up to END.
+Optional NEXT-FILE-START caps the scan boundary."
   (let ((scan-end (ai-code-session-link--symbol-scan-end scan-start end next-file-start)))
     (when (< scan-start scan-end)
       (save-excursion
@@ -512,7 +518,7 @@ CANDIDATE-COUNT and LINK-COUNT are the current scan totals."
 (defun ai-code-session-link--property-at-point (property)
   "Return PROPERTY at point or immediately before point."
   (or (get-text-property (point) property)
-      (when (> (point) (point-min))
+      (when (not (bobp))
         (get-text-property (1- (point)) property))))
 
 (defun ai-code-session-link--symbol-search-terms (symbol)

@@ -120,7 +120,7 @@ variables for the terminal process."
     (with-current-buffer buffer
       (setq-local default-directory working-dir)
       (setq-local ai-code-backends-infra--session-terminal-backend 'eat)
-      (unless (eq major-mode 'eat-mode) (eat-mode))
+      (unless (derived-mode-p 'eat-mode) (eat-mode))
       (when ai-code-backends-infra-eat-preserve-position
         (setq-local eat--synchronize-scroll-function
                     #'ai-code-backends-infra--eat-terminal-position-keeper))

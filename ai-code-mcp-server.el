@@ -530,12 +530,12 @@ it also offers since=\"baseline\" as a way to focus on newly introduced
 diagnostics -- not as a way to page through the omitted ones."
   (let ((plural (if (= total 1) "" "s")))
     (if (eq context 'delta)
-        (format (concat " Listing %d of %d new diagnostic%s here;"
-                        " request a specific file by uri to see the rest.")
+        (format " Listing %d of %d new diagnostic%s here;\
+ request a specific file by uri to see the rest."
                 shown total plural)
-      (format (concat " Listing %d of %d diagnostic%s here; request a specific"
-                      " file by uri to see the rest, or use since=\"baseline\""
-                      " to focus on diagnostics you introduced.")
+      (format " Listing %d of %d diagnostic%s here; request a specific\
+ file by uri to see the rest, or use since=\"baseline\"\
+ to focus on diagnostics you introduced."
               shown total plural))))
 
 (defun ai-code-mcp--diagnostics-envelope (entries &optional context)
@@ -693,10 +693,9 @@ not introduce new problems."
          (count (ai-code-mcp--diagnostics-total-count entries))
          (sources (ai-code-mcp--diagnostics-top-sources-string entries))
          (summary (concat
-                   (format (concat "Recorded %d diagnostic%s as the baseline."
-                                   " Edit, then call get_diagnostics with"
-                                   " since=\"baseline\" and finish only when"
-                                   " status is \"clean\".")
+                   (format "Recorded %d diagnostic%s as the baseline.\
+ Edit, then call get_diagnostics with since=\"baseline\" and finish only when\
+ status is \"clean\"."
                            count (if (= count 1) "" "s"))
                    (when sources (format " Top sources: %s." sources)))))
     (puthash (ai-code-mcp--diagnostics-baseline-key) counts

@@ -768,15 +768,15 @@ toggle dedication for every window in the current frame."
     clean-name))
 
 (defun ai-code--generate-file-or-dir-name-with-gptel (description target-type)
-  "Generate a file or directory name for DESCRIPTION and TARGET-TYPE.
+	  "Generate a file or directory name for DESCRIPTION and TARGET-TYPE.
 TARGET-TYPE should be either \"file\" or \"directory\"."
-  (let* ((prompt
-          (format
-           (concat "Generate one concise lowercase %s name for this request: %s\n"
-                   "Rules: return only the name, no explanation, no markdown, no quotes, max 60 chars.\n"
-                   "Use letters/numbers/_/./- only, no slashes or path separators.")
-           target-type
-           description))
+	  (let* ((prompt
+	          (format
+	           "Generate one concise lowercase %s name for this request: %s\n\
+Rules: return only the name, no explanation, no markdown, no quotes, max 60 chars.\n\
+Use letters/numbers/_/./- only, no slashes or path separators."
+	           target-type
+	           description))
          (generated-name (condition-case nil
                              (ai-code-call-gptel-sync prompt)
                            (error description))))

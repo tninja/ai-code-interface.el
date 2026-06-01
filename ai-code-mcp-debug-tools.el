@@ -162,7 +162,7 @@
   (cond
    ((null value) default)
    ((eq value :json-false) nil)
-   (t (not (null value)))))
+   (t (and value t))))
 
 (defun ai-code-mcp-debug-tools--selected-window ()
   "Return the selected window, falling back to the frame root window."
@@ -342,7 +342,7 @@ keeps the backtrace on failures."
   (condition-case nil
       (error-message-string data)
     (error
-     (format "%S" data))))
+     (prin1-to-string data))))
 
 (defun ai-code-mcp--record-command-error (data context signal)
   "Record the command error DATA, CONTEXT, and SIGNAL for MCP tools."
@@ -352,7 +352,7 @@ keeps the backtrace on failures."
             (error_message . ,(ai-code-mcp--error-message data))
             (context . ,(format "%s" context))
             (signal . ,signal)
-            (timestamp . ,(format-time-string "%Y-%m-%dT%H:%M:%S%z"))
+            (timestamp . ,(format-time-string "%FT%T%z"))
             (frame_count . ,(length frames))
             (frames . ,frames)))))
 
@@ -451,9 +451,9 @@ existing bound variable."
                                    (indirect-function symbol))))
         (cond
          ((subrp resolved-definition) "subr")
-         ((or (functionp resolved-definition)
-              (and (consp resolved-definition)
-                   (memq (car resolved-definition) '(lambda closure))))
+             ((or (functionp resolved-definition)
+                  (and (consp resolved-definition)
+                       (memq (car resolved-definition) (list 'lambda 'closure))))
           "lambda")
          (t "unknown")))))))
 
