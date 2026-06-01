@@ -158,7 +158,7 @@ Returns nil for notifications."
          (params (alist-get 'params json-object))
          (ai-code-mcp--current-session-id
           (ai-code-mcp-http-server--session-id-from-path path)))
-    (when id
+    (unless (null id)
       `((jsonrpc . "2.0")
         (id . ,id)
         (result . ,(ai-code-mcp-dispatch method params))))))
