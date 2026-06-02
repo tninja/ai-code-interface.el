@@ -101,7 +101,7 @@
 
 (ert-deftest ai-code-test-auto-test-harness-directory-defaults-to-package-prompt ()
   "Test that harness directory defaults to the package `prompt/' directory."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
+  (let* ((temp-root (file-truename (make-temp-file "ai-code-harness-root-" t)))
          (package-dir (expand-file-name "package/" temp-root))
          (package-main-file (expand-file-name "ai-code.el" package-dir)))
     (unwind-protect
@@ -118,7 +118,7 @@
 
 (ert-deftest ai-code-test-ensure-auto-test-harness-prompt-directory-creates-package-prompt ()
   "Test that harness directory creation creates package `prompt/'."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
+  (let* ((temp-root (file-truename (make-temp-file "ai-code-harness-root-" t)))
          (package-dir (expand-file-name "package/" temp-root))
          (package-main-file (expand-file-name "ai-code.el" package-dir))
          (expected-directory (expand-file-name "prompt/" package-dir)))
@@ -137,7 +137,7 @@
 
 (ert-deftest ai-code-test-ensure-auto-test-harness-file-preserves-bundled-prompt ()
   "Test that existing package prompt files are not overwritten."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
+  (let* ((temp-root (file-truename (make-temp-file "ai-code-harness-root-" t)))
          (package-dir (expand-file-name "package/" temp-root))
          (package-main-file (expand-file-name "ai-code.el" package-dir))
          (prompt-file (expand-file-name "prompt/test-after-change.v1.md"
@@ -164,7 +164,7 @@
 
 (ert-deftest ai-code-test-ensure-auto-test-harness-file-generates-missing-prompt ()
   "Test that missing package prompt files are generated on demand."
-  (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
+  (let* ((temp-root (file-truename (make-temp-file "ai-code-harness-root-" t)))
          (package-dir (expand-file-name "package/" temp-root))
          (package-main-file (expand-file-name "ai-code.el" package-dir))
          (prompt-file (expand-file-name "prompt/test-after-change.v1.md"

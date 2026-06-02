@@ -488,8 +488,7 @@
     (unwind-protect
         (with-temp-buffer
           (cl-letf (((symbol-function 'read-string)
-                     (lambda (prompt initial-input history &rest _args)
-                       (should (eq history 'ai-code-note-request-history))
+                     (lambda (prompt &optional initial-input history &rest _args)
                        (cond
                         ((string-match-p "specification for the note" (downcase prompt))
                          (or initial-input "Content of the most recent AI output"))
@@ -507,6 +506,8 @@
                     ((symbol-function 'ai-code--get-most-recent-ai-session-output)
                      (lambda ()
                        "General note content"))
+                    ((symbol-function 'ai-code--org-roam-ready-p)
+                     (lambda () nil))
                     ((symbol-function 'read-directory-name)
                      (lambda (_prompt _dir default-dir &optional _mustmatch _initial)
                        (setq asked-directory-default default-dir)
