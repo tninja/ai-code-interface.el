@@ -41,6 +41,7 @@ the terminal backend infrastructure.")
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
 (declare-function ai-code--choose-symbol-from-file "ai-code-input" (file))
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
+(declare-function ai-code--worktree-main-repo-root "ai-code-utils" ())
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--session-buffer-matches-directory-p "ai-code-backends-infra" (buffer directory))
@@ -667,6 +668,16 @@ TASK-NAME and TASK-URL are used to initialize new files."
     (save-buffer))
   (message "Opened task file: %s" task-file))
 
+(defun ai-code--maybe-symlink-task-to-worktree (task-file)
+  "Symlink TASK-FILE into the worktree root when inside a git worktree."
+  (when-let* ((worktree-root (ai-code--git-root))
+              (main-repo-root (ai-code--worktree-main-repo-root)))
+    (let ((symlink-path (expand-file-name (file-name-nondirectory task-file)
+                                          worktree-root)))
+      (unless (file-exists-p symlink-path)
+        (make-symbolic-link task-file symlink-path)
+        (message "Linked task file to worktree: %s" symlink-path)))))
+
 (defun ai-code--select-task-target-directory (ai-code-files-dir current-dir)
   "Prompt user to select target directory.
 
@@ -869,6 +880,7 @@ Prompts for a task name.  If empty, opens the task directory in Dired.
 If non-empty, optionally prompts for a URL, generates a filename
 using GPTel, and creates the task file."
   (interactive)
+  ;; DONE: if this function is triggered inside a worktree repo branch, it should create task file in main repo and link it to the worktree repo root dir
   (let ((ai-code-files-dir (ai-code--ensure-files-directory)))
     (let* ((task-file-candidates (ai-code--task-file-candidates ai-code-files-dir))
            (task-name (ai-code--read-task-name task-file-candidates))
@@ -878,7 +890,8 @@ using GPTel, and creates the task file."
         (dired-other-window ai-code-files-dir)
         (message "Opened task directory: %s" ai-code-files-dir))
        (existing-task-file
-        (ai-code--open-or-create-task-file existing-task-file task-name task-name ""))
+        (ai-code--open-or-create-task-file existing-task-file task-name task-name "")
+        (ai-code--maybe-symlink-task-to-worktree existing-task-file))
        (t
         (let* ((task-url (read-string "URL (optional, press Enter to skip): "))
                (generated-filename (ai-code--generate-task-filename task-name))
@@ -893,7 +906,8 @@ using GPTel, and creates the task file."
                   (make-directory subdir t))
                 (dired-other-window subdir)
                 (message "Opened directory: %s" subdir))
-            (ai-code--open-or-create-task-file task-file confirmed-filename task-name task-url))))))))
+            (ai-code--open-or-create-task-file task-file confirmed-filename task-name task-url)
+            (ai-code--maybe-symlink-task-to-worktree task-file))))))))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist

@@ -38,6 +38,19 @@ a Git repository or when `magit-toplevel' signals an error."
         (when root (file-truename root)))
     (error nil)))
 
+(defun ai-code--worktree-main-repo-root ()
+  "Return the main repository root when inside a git worktree, or nil.
+Uses git-common-dir to find the shared .git directory and derives the
+main repo root from it."
+  (condition-case nil
+      (let* ((git-common-dir (magit-git-string "rev-parse" "--git-common-dir"))
+             (git-dir (magit-git-string "rev-parse" "--git-dir")))
+        (when (and git-common-dir git-dir
+                   (not (string= (file-truename git-common-dir)
+                                 (file-truename git-dir))))
+          (file-truename (expand-file-name ".." git-common-dir))))
+    (error nil)))
+
 (defun ai-code--project-root ()
   "Return the current project root using Projectile first, then Git."
   (or (and (fboundp 'projectile-project-root)
