@@ -11,6 +11,7 @@
 (require 'ert)
 (require 'ai-code-prompt-mode)
 (require 'ai-code-git)
+(require 'ai-code-backends-infra)
 (require 'magit)
 (require 'cl-lib)
 
