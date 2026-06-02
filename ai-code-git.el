@@ -741,6 +741,7 @@ buffer from which this command was invoked, instead of visiting the file."
   "Create BRANCH and check it out in a new centralized worktree.
 The worktree path for START-POINT is
 `ai-code-git-worktree-root/REPO-NAME/BRANCH'."
+  ;; DONE: after creating the worktree, it should show the worktree dired buffer instead of magit status buffer
   (interactive
    (magit-branch-read-args "Create and checkout branch"))
   (let* ((git-root (ai-code--validate-git-repository))
@@ -760,7 +761,7 @@ The worktree path for START-POINT is
                                        (file-truename path) branch)
                      (magit-call-git "worktree" "add" "-b" branch
                                      (file-truename path) start-point)))
-        (magit-diff-visit-directory path)))))
+        (dired path)))))
 
 ;;;###autoload
 (defun ai-code-git-worktree-action (&optional prefix)
@@ -774,7 +775,12 @@ With PREFIX (for example \\[universal-argument]), call
                (> (length ai-code-git-worktree-root) 0))
     (user-error "Please configure `ai-code-git-worktree-root` first"))
   (if prefix
-      (call-interactively #'magit-worktree-status)
+      ;; DONE: with prefix, it should show the dired buffer of git worktree
+      (let* ((git-root (ai-code--validate-git-repository))
+             (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root)))
+        (if (file-directory-p repo-worktree-dir)
+            (dired repo-worktree-dir)
+          (user-error "Worktree directory does not exist: %s" repo-worktree-dir)))
     (call-interactively #'ai-code-git-worktree-branch)))
 
 (provide 'ai-code-git)
