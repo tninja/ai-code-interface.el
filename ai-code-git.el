@@ -49,6 +49,7 @@ Candidate values:
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--ensure-files-directory "ai-code-utils" ())
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function ai-code--generate-task-filename "ai-code-prompt-mode" (task-name))
 
 (defvar ai-code-files-dir-name)
 
@@ -742,6 +743,7 @@ buffer from which this command was invoked, instead of visiting the file."
 The worktree path for START-POINT is
 `ai-code-git-worktree-root/REPO-NAME/BRANCH'."
   ;; DONE: after creating the worktree, it should show the worktree dired buffer instead of magit status buffer
+  ;; DONE: after creating the worktree, ask user if they want to create task file (y/n), if yes, use C-c a K to create task file in the main repo, and then symbolic link it to the worktree repo root dir, and open it, side by side with the worktree dired buffer
   (interactive
    (magit-branch-read-args "Create and checkout branch"))
   (let* ((git-root (ai-code--validate-git-repository))
@@ -761,7 +763,31 @@ The worktree path for START-POINT is
                                        (file-truename path) branch)
                      (magit-call-git "worktree" "add" "-b" branch
                                      (file-truename path) start-point)))
-        (dired path)))))
+        (dired path)
+        (when (y-or-n-p "Create a task file for this worktree? ")
+          (ai-code--worktree-create-and-link-task-file git-root path branch))))))
+
+(defun ai-code--worktree-create-and-link-task-file (git-root worktree-path branch)
+  "Create a task file in GIT-ROOT and symlink it into WORKTREE-PATH.
+BRANCH is used as the default task name."
+  (let* ((files-dir (expand-file-name ai-code-files-dir-name git-root))
+         (task-name (ai-code-read-string "Task name: " branch))
+         (generated-filename (ai-code--generate-task-filename task-name))
+         (confirmed-filename (ai-code-read-string "Task filename: " generated-filename)))
+    (unless (string-suffix-p ".org" confirmed-filename)
+      (setq confirmed-filename (concat confirmed-filename ".org")))
+    (unless (file-directory-p files-dir)
+      (make-directory files-dir t))
+    (let ((task-file (expand-file-name confirmed-filename files-dir)))
+      (unless (file-exists-p task-file)
+        (with-temp-file task-file
+          (insert (format "#+TITLE: %s\n#+DATE: %s\n\n"
+                          task-name
+                          (format-time-string "%Y-%m-%d")))))
+      (let ((symlink-path (expand-file-name confirmed-filename worktree-path)))
+        (unless (file-exists-p symlink-path)
+          (make-symbolic-link task-file symlink-path)))
+      (find-file-other-window task-file))))
 
 ;;;###autoload
 (defun ai-code-git-worktree-action (&optional prefix)
