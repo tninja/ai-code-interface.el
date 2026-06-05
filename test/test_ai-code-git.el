@@ -243,7 +243,9 @@ other-file"))
          (dired-called-with nil))
     (make-directory repo-dir t)
     (unwind-protect
-        (cl-letf (((symbol-function 'dired)
+        (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+                   (lambda () "/tmp/fake/ai-code-interface.el/"))
+                  ((symbol-function 'dired)
                    (lambda (dir) (setq dired-called-with dir))))
           (ai-code-git-worktree-action '(4))
           (should (equal dired-called-with repo-dir)))
@@ -252,7 +254,9 @@ other-file"))
 (ert-deftest ai-code-test-git-worktree-action-with-prefix-errors-when-missing ()
   "With prefix arg, signal error when worktree directory does not exist."
   (let ((ai-code-git-worktree-root (expand-file-name "nonexistent-wt" temporary-file-directory)))
-    (should-error (ai-code-git-worktree-action '(4)) :type 'user-error)))
+    (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+               (lambda () "/tmp/fake/some-repo/")))
+      (should-error (ai-code-git-worktree-action '(4)) :type 'user-error))))
 
 (ert-deftest ai-code-test-git-worktree-branch-opens-dired-after-creation ()
   "After creating worktree, open dired on the worktree path instead of magit status."
