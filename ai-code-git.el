@@ -742,8 +742,6 @@ buffer from which this command was invoked, instead of visiting the file."
   "Create BRANCH and check it out in a new centralized worktree.
 The worktree path for START-POINT is
 `ai-code-git-worktree-root/REPO-NAME/BRANCH'."
-  ;; DONE: after creating the worktree, it should show the worktree dired buffer instead of magit status buffer
-  ;; DONE: after creating the worktree, ask user if they want to create task file (y/n), if yes, use C-c a K to create task file in the main repo, and then symbolic link it to the worktree repo root dir, and open it, side by side with the worktree dired buffer
   (interactive
    (magit-branch-read-args "Create and checkout branch"))
   (let* ((git-root (ai-code--validate-git-repository))
@@ -781,9 +779,7 @@ BRANCH is used as the default task name."
     (let ((task-file (expand-file-name confirmed-filename files-dir)))
       (unless (file-exists-p task-file)
         (with-temp-file task-file
-          (insert (format "#+TITLE: %s\n#+DATE: %s\n\n"
-                          task-name
-                          (format-time-string "%Y-%m-%d")))))
+          (ai-code--initialize-task-file-content task-name "")))
       (let ((symlink-path (expand-file-name confirmed-filename worktree-path)))
         (unless (file-exists-p symlink-path)
           (make-symbolic-link task-file symlink-path)))
@@ -793,15 +789,13 @@ BRANCH is used as the default task name."
 (defun ai-code-git-worktree-action (&optional prefix)
   "Dispatch worktree action by PREFIX.
 Without PREFIX, call `ai-code-git-worktree-branch'.
-With PREFIX (for example \\[universal-argument]), call
-`magit-worktree-status'."
+With PREFIX (for example \\[universal-argument]), open Dired on
+the centralized worktree directory."
   (interactive "P")
-  ;; DONE: if the git branch to be created already exist, let user know and keep working
   (unless (and (stringp ai-code-git-worktree-root)
                (> (length ai-code-git-worktree-root) 0))
     (user-error "Please configure `ai-code-git-worktree-root` first"))
   (if prefix
-      ;; DONE: with prefix, it should show the dired buffer of git worktree
       (let* ((git-root (ai-code--validate-git-repository))
              (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root)))
         (if (file-directory-p repo-worktree-dir)

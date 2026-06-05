@@ -880,7 +880,6 @@ Prompts for a task name.  If empty, opens the task directory in Dired.
 If non-empty, optionally prompts for a URL, generates a filename
 using GPTel, and creates the task file."
   (interactive)
-  ;; DONE: if this function is triggered inside a worktree repo branch, it should create task file in main repo and link it to the worktree repo root dir
   (let ((ai-code-files-dir (ai-code--ensure-files-directory)))
     (let* ((task-file-candidates (ai-code--task-file-candidates ai-code-files-dir))
            (task-name (ai-code--read-task-name task-file-candidates))

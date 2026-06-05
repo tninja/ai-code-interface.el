@@ -67,11 +67,14 @@ Tries project.el first, then Git root, then `default-directory'."
 
 (defun ai-code--get-files-directory ()
   "Get the task directory path.
-If in a git repository, return `.ai.code.files/' under git root.
+If inside a git worktree, return `.ai.code.files/' under the main
+repository root so task files are shared across worktrees.
+If in a regular git repository, return `.ai.code.files/' under git root.
 Otherwise, return the current `default-directory'."
-  (let ((git-root (ai-code--git-root)))
-    (if git-root
-        (expand-file-name ai-code-files-dir-name git-root)
+  (let ((root (or (ai-code--worktree-main-repo-root)
+                  (ai-code--git-root))))
+    (if root
+        (expand-file-name ai-code-files-dir-name root)
       default-directory)))
 
 (defun ai-code--ensure-files-directory ()
