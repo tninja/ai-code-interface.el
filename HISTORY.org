@@ -2,7 +2,8 @@
 * Release history
 
 ** Main branch change
-
+- Fix: Use Git branch names for AI session defaults
+  
 ** 1.84
 - Avoid eager session file resolution during terminal linkification
 - Chore: improve worktree experience and task file for worktree creation
