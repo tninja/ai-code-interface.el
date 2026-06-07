@@ -28,8 +28,6 @@
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
 (declare-function ai-code--session-project-root "ai-code-utils" ())
 
-;; DONE: In previous PR: https://github.com/tninja/ai-code-interface.el/pull/349, it set default new AI session instance names from prompt buffer filenames
-;; But now we want to set the default new AI session instance names as current branch name. If this name has been used for an existing session, then we can fallback to using the prompt buffer filename as the default new AI session instance name.
 
 ;;; Customization
 
@@ -687,12 +685,8 @@ EXISTING-INSTANCE-NAMES is a list of existing instance names."
 (defun ai-code-backends-infra--default-instance-name (&optional existing-instance-names)
   "Return the default instance name for the current buffer, or nil.
 When the current git branch is available and not in EXISTING-INSTANCE-NAMES,
-use the branch name.  Otherwise fall back to the prompt buffer filename."
-  (or (ai-code-backends-infra--branch-instance-name existing-instance-names)
-      (when (and (derived-mode-p 'ai-code-prompt-mode)
-                 (stringp buffer-file-name)
-                 (> (length buffer-file-name) 0))
-        (file-name-nondirectory buffer-file-name))))
+use the branch name."
+  (ai-code-backends-infra--branch-instance-name existing-instance-names))
 
 (defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
   "Return file-session map key for PREFIX and SOURCE-BUFFER."

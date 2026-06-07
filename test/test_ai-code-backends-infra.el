@@ -1540,12 +1540,13 @@ The result is a cons of whether SYMBOL is bound and its default value."
                      (cons working-dir "review")))
       (should-not prompt-called))))
 
-(ert-deftest test-ai-code-backends-infra-resolve-session-target-prefills-prompt-buffer-filename ()
-  "Prompt-mode buffers should seed new instance names from the file name."
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-does-not-prefill-prompt-buffer-filename ()
+  "Prompt-mode buffers should not seed new instance names from the file name."
   (let* ((working-dir "/tmp/ai-code-session-target/")
          (prefix "codex")
          (existing-buffer (get-buffer-create "*codex[ai-code-session-target]*"))
          seen-prompt
+         seen-initial-input
          seen-default
          context)
     (unwind-protect
@@ -1558,10 +1559,11 @@ The result is a cons of whether SYMBOL is bound and its default value."
                     ((symbol-function 'magit-get-current-branch)
                      (lambda () nil))
                     ((symbol-function 'read-string)
-                     (lambda (prompt &optional _initial-input _history default-value &rest _args)
+                     (lambda (prompt &optional initial-input _history default-value &rest _args)
                        (setq seen-prompt prompt
+                             seen-initial-input initial-input
                              seen-default default-value)
-                       default-value)))
+                       "manual-session")))
             (setq context
                   (ai-code-backends-infra--resolve-session-target
                    working-dir
@@ -1572,12 +1574,13 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (when (buffer-live-p existing-buffer)
         (kill-buffer existing-buffer)))
     (should (equal seen-prompt "Instance name (existing: default): "))
-    (should (equal seen-default "review-notes.org"))
-    (should (equal (plist-get context :instance-name) "review-notes.org"))
+    (should-not seen-initial-input)
+    (should-not seen-default)
+    (should (equal (plist-get context :instance-name) "manual-session"))
     (should (equal (plist-get context :buffer-name)
-                   "*codex[ai-code-session-target:review-notes.org]*"))
+                   "*codex[ai-code-session-target:manual-session]*"))
     (should (equal (plist-get context :session-key)
-                   (cons working-dir "review-notes.org")))))
+                   (cons working-dir "manual-session")))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-prefills-source-buffer-branch ()
   "Source buffers should seed new instance names from the current branch."
@@ -2931,26 +2934,24 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (should (equal (ai-code-backends-infra--default-instance-name)
                      "feat/login-page")))))
 
-(ert-deftest test-ai-code-backends-infra-default-instance-name-falls-back-to-filename-when-branch-taken ()
-  "Default instance name should fall back to filename when branch is already in use."
+(ert-deftest test-ai-code-backends-infra-default-instance-name-nil-when-branch-taken ()
+  "Default instance name should be nil when the branch is already in use."
   (with-temp-buffer
     (setq-local major-mode 'ai-code-prompt-mode)
     (setq-local buffer-file-name "/tmp/test.ai.code.prompt.org")
     (cl-letf (((symbol-function 'magit-get-current-branch)
                (lambda () "feat/login-page")))
-      (should (equal (ai-code-backends-infra--default-instance-name
-                      '("feat/login-page"))
-                     "test.ai.code.prompt.org")))))
+      (should-not (ai-code-backends-infra--default-instance-name
+                   '("feat/login-page"))))))
 
-(ert-deftest test-ai-code-backends-infra-default-instance-name-falls-back-to-filename-without-branch ()
-  "Default instance name should fall back to filename when branch is unavailable."
+(ert-deftest test-ai-code-backends-infra-default-instance-name-nil-without-branch ()
+  "Default instance name should be nil when branch is unavailable."
   (with-temp-buffer
     (setq-local major-mode 'ai-code-prompt-mode)
     (setq-local buffer-file-name "/tmp/test.ai.code.prompt.org")
     (cl-letf (((symbol-function 'magit-get-current-branch)
                (lambda () nil)))
-      (should (equal (ai-code-backends-infra--default-instance-name)
-                     "test.ai.code.prompt.org")))))
+      (should-not (ai-code-backends-infra--default-instance-name)))))
 
 (ert-deftest test-ai-code-backends-infra-default-instance-name-uses-branch-outside-prompt-mode ()
   "Default instance name should use the branch outside prompt mode."
