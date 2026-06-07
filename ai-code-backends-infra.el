@@ -28,7 +28,6 @@
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
 (declare-function ai-code--session-project-root "ai-code-utils" ())
 
-
 ;;; Customization
 
 (defgroup ai-code-backends-infra nil
