@@ -1647,6 +1647,33 @@ The result is a cons of whether SYMBOL is bound and its default value."
     (should (equal (plist-get context :session-key)
                    (cons working-dir "feat/first-session")))))
 
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-sanitizes-branch-name ()
+  "Branch-derived instance names should keep session buffer names parseable."
+  (let* ((working-dir "/tmp/ai-code-session-target/")
+         (prefix "codex")
+         context)
+    (with-temp-buffer
+      (setq-local major-mode 'emacs-lisp-mode)
+      (setq-local buffer-file-name "/tmp/project/source.el")
+      (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
+                 (lambda (&rest _args) nil))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "feat/foo]bar")))
+        (setq context
+              (ai-code-backends-infra--resolve-session-target
+               working-dir
+               nil
+               prefix
+               nil
+               nil))))
+    (should (equal (plist-get context :instance-name) "feat/foo-bar"))
+    (should (equal (plist-get context :buffer-name)
+                   "*codex[ai-code-session-target:feat/foo-bar]*"))
+    (should (equal (ai-code-backends-infra--session-instance-name
+                    (plist-get context :buffer-name)
+                    prefix)
+                   "feat/foo-bar"))))
+
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-first-session-defaults-outside-git ()
   "First session should keep the default instance name without a branch."
   (let* ((working-dir "/tmp/ai-code-session-target/")
@@ -2960,6 +2987,14 @@ The result is a cons of whether SYMBOL is bound and its default value."
                (lambda () "main")))
       (should (equal (ai-code-backends-infra--default-instance-name)
                      "main")))))
+
+(ert-deftest test-ai-code-backends-infra-default-instance-name-sanitizes-branch ()
+  "Default instance name should sanitize branch delimiters."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'magit-get-current-branch)
+               (lambda () "main]work")))
+      (should (equal (ai-code-backends-infra--default-instance-name)
+                     "main-work")))))
 
 ;;; --- session-working-directory delegation tests ---
 

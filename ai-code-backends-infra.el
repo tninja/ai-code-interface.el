@@ -672,14 +672,21 @@ from the window where it was initially created."
 
 (declare-function magit-get-current-branch "magit-git" ())
 
+(defun ai-code-backends-infra--sanitize-instance-name (instance-name)
+  "Return INSTANCE-NAME with buffer name delimiters sanitized."
+  (replace-regexp-in-string "]" "-" instance-name t t))
+
 (defun ai-code-backends-infra--branch-instance-name (&optional existing-instance-names)
   "Return the current branch as an instance name, unless already used.
 EXISTING-INSTANCE-NAMES is a list of existing instance names."
-  (let ((branch (ignore-errors (magit-get-current-branch))))
-    (when (and (stringp branch)
-               (not (string-empty-p branch))
-               (not (member branch existing-instance-names)))
-      branch)))
+  (let* ((branch (ignore-errors (magit-get-current-branch)))
+         (instance (and (stringp branch)
+                        (ai-code-backends-infra--sanitize-instance-name
+                         branch))))
+    (when (and instance
+               (not (string-empty-p instance))
+               (not (member instance existing-instance-names)))
+      instance)))
 
 (defun ai-code-backends-infra--default-instance-name (&optional existing-instance-names)
   "Return the default instance name for the current buffer, or nil.
