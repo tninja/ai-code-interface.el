@@ -111,6 +111,7 @@ Argument _ARG is ignored."
               (ai-code-current-backend-label)))
 
 ;;;###autoload
+;; TODO: this function (and ai-code-cli-resume), when start the >=2nd session for the same repo, it will ask user for the session name. The current code suppose to use the current branch name as session name default value for user to confirm, however it doesn't work. 
 (defun ai-code-cli-start (&optional arg)
   "Start the current backend's CLI session when supported.
 Argument ARG is passed to the backend's start function."

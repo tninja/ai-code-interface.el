@@ -1579,6 +1579,43 @@ The result is a cons of whether SYMBOL is bound and its default value."
     (should (equal (plist-get context :session-key)
                    (cons working-dir "review-notes.org")))))
 
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-prefills-source-buffer-branch ()
+  "Source buffers should seed new instance names from the current branch."
+  (let* ((working-dir "/tmp/ai-code-session-target/")
+         (prefix "codex")
+         (existing-buffer (get-buffer-create "*codex[ai-code-session-target]*"))
+         seen-initial-input
+         seen-default
+         context)
+    (unwind-protect
+        (with-temp-buffer
+          (setq-local major-mode 'emacs-lisp-mode)
+          (setq-local buffer-file-name "/tmp/project/source.el")
+          (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
+                     (lambda (&rest _args)
+                       (list existing-buffer)))
+                    ((symbol-function 'magit-get-current-branch)
+                     (lambda () "feat/source-session"))
+                    ((symbol-function 'read-string)
+                     (lambda (_prompt &optional initial-input _history default-value &rest _args)
+                       (setq seen-initial-input initial-input
+                             seen-default default-value)
+                       initial-input)))
+            (setq context
+                  (ai-code-backends-infra--resolve-session-target
+                   working-dir
+                   nil
+                   prefix
+                   nil
+                   nil))))
+      (when (buffer-live-p existing-buffer)
+        (kill-buffer existing-buffer)))
+    (should (equal seen-initial-input "feat/source-session"))
+    (should (equal seen-default "feat/source-session"))
+    (should (equal (plist-get context :instance-name) "feat/source-session"))
+    (should (equal (plist-get context :buffer-name)
+                   "*codex[ai-code-session-target:feat/source-session]*"))))
+
 (ert-deftest test-ai-code-backends-infra-resolve-session-context-includes-runtime-state ()
   "Resolved session context should include target data plus buffer and process."
   (let* ((working-dir "/tmp/ai-code-session-context/")
@@ -2859,12 +2896,13 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (should (equal (ai-code-backends-infra--default-instance-name)
                      "test.ai.code.prompt.org")))))
 
-(ert-deftest test-ai-code-backends-infra-default-instance-name-nil-outside-prompt-mode ()
-  "Default instance name should be nil outside prompt mode."
+(ert-deftest test-ai-code-backends-infra-default-instance-name-uses-branch-outside-prompt-mode ()
+  "Default instance name should use the branch outside prompt mode."
   (with-temp-buffer
     (cl-letf (((symbol-function 'magit-get-current-branch)
                (lambda () "main")))
-      (should-not (ai-code-backends-infra--default-instance-name)))))
+      (should (equal (ai-code-backends-infra--default-instance-name)
+                     "main")))))
 
 ;;; --- session-working-directory delegation tests ---
 

@@ -679,13 +679,17 @@ from the window where it was initially created."
   "Return the default instance name for the current buffer, or nil.
 When the current git branch is available and not in EXISTING-INSTANCE-NAMES,
 use the branch name.  Otherwise fall back to the prompt buffer filename."
-  (when (and (derived-mode-p 'ai-code-prompt-mode)
-             (stringp buffer-file-name)
-             (> (length buffer-file-name) 0))
-    (let ((branch (ignore-errors (magit-get-current-branch))))
-      (if (and branch (not (member branch existing-instance-names)))
-          branch
-        (file-name-nondirectory buffer-file-name)))))
+  (let ((branch (ignore-errors (magit-get-current-branch))))
+    (cond
+     ((and (stringp branch)
+           (not (string-empty-p branch))
+           (not (member branch existing-instance-names)))
+      branch)
+     ((and (derived-mode-p 'ai-code-prompt-mode)
+           (stringp buffer-file-name)
+           (> (length buffer-file-name) 0))
+      (file-name-nondirectory buffer-file-name))
+     (t nil))))
 
 (defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
   "Return file-session map key for PREFIX and SOURCE-BUFFER."
@@ -960,12 +964,14 @@ DEFAULT-INSTANCE-NAME seeds the minibuffer when prompting."
         (while (or (string= proposed-name "")
                    (member proposed-name existing-instance-names))
           (setq proposed-name
-                (read-string (if existing-instance-names
-                                 (format "Instance name (existing: %s): "
-                                         (mapconcat #'identity existing-instance-names ", "))
-                                "Instance name: ")
-                             nil nil (or (and (> (length proposed-name) 0) proposed-name)
+                (let ((default-input (or (and (> (length proposed-name) 0)
+                                              proposed-name)
                                          default-instance-name)))
+                  (read-string (if existing-instance-names
+                                   (format "Instance name (existing: %s): "
+                                           (mapconcat #'identity existing-instance-names ", "))
+                                  "Instance name: ")
+                               default-input nil default-input)))
           (cond
            ((string= proposed-name "")
             (message "Instance name cannot be empty. Please enter a name.")
