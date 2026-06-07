@@ -112,6 +112,7 @@ Argument _ARG is ignored."
 
 ;;;###autoload
 ;; TODO: this function (and ai-code-cli-resume), when start the >=2nd session for the same repo, it will ask user for the session name. The current code suppose to use the current branch name as session name default value for user to confirm, however it doesn't work. 
+;; TODO: current the first session always use default as name. Can we also use current branch name as default for the first session? If the starting dir is not a git repo, keep using default as session name.
 (defun ai-code-cli-start (&optional arg)
   "Start the current backend's CLI session when supported.
 Argument ARG is passed to the backend's start function."

@@ -675,21 +675,24 @@ from the window where it was initially created."
 
 (declare-function magit-get-current-branch "magit-git" ())
 
+(defun ai-code-backends-infra--branch-instance-name (&optional existing-instance-names)
+  "Return the current branch as an instance name, unless already used.
+EXISTING-INSTANCE-NAMES is a list of existing instance names."
+  (let ((branch (ignore-errors (magit-get-current-branch))))
+    (when (and (stringp branch)
+               (not (string-empty-p branch))
+               (not (member branch existing-instance-names)))
+      branch)))
+
 (defun ai-code-backends-infra--default-instance-name (&optional existing-instance-names)
   "Return the default instance name for the current buffer, or nil.
 When the current git branch is available and not in EXISTING-INSTANCE-NAMES,
 use the branch name.  Otherwise fall back to the prompt buffer filename."
-  (let ((branch (ignore-errors (magit-get-current-branch))))
-    (cond
-     ((and (stringp branch)
-           (not (string-empty-p branch))
-           (not (member branch existing-instance-names)))
-      branch)
-     ((and (derived-mode-p 'ai-code-prompt-mode)
-           (stringp buffer-file-name)
-           (> (length buffer-file-name) 0))
-      (file-name-nondirectory buffer-file-name))
-     (t nil))))
+  (or (ai-code-backends-infra--branch-instance-name existing-instance-names)
+      (when (and (derived-mode-p 'ai-code-prompt-mode)
+                 (stringp buffer-file-name)
+                 (> (length buffer-file-name) 0))
+        (file-name-nondirectory buffer-file-name))))
 
 (defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
   "Return file-session map key for PREFIX and SOURCE-BUFFER."
@@ -957,7 +960,8 @@ Returns the selected buffer or nil if none exist."
                                                          default-instance-name)
   "Prompt for a new instance name.
 EXISTING-INSTANCE-NAMES is a list of existing instance names.
-If FORCE-PROMPT is nil and there are no existing instances, return \"default\".
+If FORCE-PROMPT is nil and there are no existing instances, return the current
+branch name when available; otherwise return \"default\".
 DEFAULT-INSTANCE-NAME seeds the minibuffer when prompting."
   (if (or existing-instance-names force-prompt)
       (let ((proposed-name ""))
@@ -980,7 +984,8 @@ DEFAULT-INSTANCE-NAME seeds the minibuffer when prompting."
             (message "Instance name '%s' already exists. Please choose a different name." proposed-name)
             (sit-for 1))))
         proposed-name)
-    "default"))
+    (or (ai-code-backends-infra--branch-instance-name existing-instance-names)
+        "default")))
 
 (defun ai-code-backends-infra--resolve-start-command (program switches arg &optional prompt-label)
   "Build command string for PROGRAM.
