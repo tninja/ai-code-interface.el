@@ -19,6 +19,7 @@
 (require 'subr-x)
 
 (declare-function browse-url "browse-url" (url &optional new-window))
+(declare-function helm-comp-read "helm-mode" (prompt collection &rest args))
 (declare-function helm-read-string "helm-core" (prompt &optional initial-input history
                                                        default-value inherit-input-method))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
@@ -54,6 +55,9 @@ Uses `read-string' directly to avoid `helm-mode' intercepting `completing-read'.
 (defvar ai-code-helm-read-string--history nil
   "Minibuffer history used by `ai-code-helm-read-string-with-history'.")
 
+(defconst ai-code-helm-read-string--new-prompt-candidate "[New prompt]"
+  "Candidate used to skip history selection and write a new prompt.")
+
 ;;;###autoload
 (defun ai-code-read-string (prompt &optional initial-input candidate-list)
   "Read a string from the user with PROMPT and optional INITIAL-INPUT.
@@ -71,11 +75,12 @@ Returns non-nil on successful send."
 PROMPT is the prompt string.
 HISTORY-FILE-NAME is the base name for history file.
 INITIAL-INPUT is optional initial input string.
-CANDIDATE-LIST is an optional list of strings to add to minibuffer history.
+CANDIDATE-LIST is an optional list of strings to show before history.
 
-Read free-form input with a literal string reader instead of
-`helm-comp-read', because Helm completion patterns treat characters
-such as `!', spaces, and backslashes as matching syntax."
+Use Helm completion only to choose a history or candidate entry, then
+read the final free-form prompt with a literal string reader.  This
+keeps history navigation while preventing Helm completion patterns from
+interpreting prompt characters such as `!', spaces, and backslashes."
   ;; Load history from file
   (let* ((helm-history-file (expand-file-name history-file-name user-emacs-directory))
          (helm-history (if (file-exists-p helm-history-file)
@@ -88,14 +93,30 @@ such as `!', spaces, and backslashes as matching syntax."
                              (error nil))
                          '()))
          (history helm-history)
-         (ai-code-helm-read-string--history
+         (completion-list
           (cl-remove-duplicates
-           (append history (or candidate-list '()))
+           (append (or candidate-list '()) history)
            :test #'equal))
+         (history-choice
+          (when (and completion-list (fboundp 'helm-comp-read))
+            (helm-comp-read
+             "Prompt history: "
+             (cons ai-code-helm-read-string--new-prompt-candidate
+                   completion-list)
+             :must-match t
+             :name "Helm Prompt History"
+             :fuzzy nil)))
+         (initial-edit
+          (if (or (null history-choice)
+                  (string= history-choice
+                           ai-code-helm-read-string--new-prompt-candidate))
+              initial-input
+            history-choice))
+         (ai-code-helm-read-string--history completion-list)
          (input (if (fboundp 'helm-read-string)
-                    (helm-read-string prompt initial-input
+                    (helm-read-string prompt initial-edit
                                       'ai-code-helm-read-string--history)
-                  (read-string prompt initial-input
+                  (read-string prompt initial-edit
                                'ai-code-helm-read-string--history))))
     ;; Add to history if non-empty, single-line and save
     (unless (or (not (stringp input))

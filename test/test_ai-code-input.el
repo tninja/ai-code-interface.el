@@ -16,32 +16,43 @@
 
 ;;; Tests for ai-code--comment-context-p
 
-(ert-deftest ai-code-test-helm-read-string-keeps-special-pattern-characters-literal ()
-  "Helm prompt reading should keep pattern-like characters literal."
+(ert-deftest ai-code-test-helm-read-string-completes-history-then-edits-literally ()
+  "Helm prompt reading should complete history before literal editing."
   (let* ((user-emacs-directory (file-name-as-directory
                                 (make-temp-file "ai-code-helm-history-" t)))
          (history-file-name "history.el")
+         (history-prompt "Previous prompt with ! & special characters")
          (literal-prompt "Explain why ! & ^ $ ? [abc] (x) foo\\ bar should stay literal.")
+         (helm-comp-read-called nil)
          (helm-read-called nil))
     (unwind-protect
-        (cl-letf (((symbol-function 'helm-comp-read)
-                   (lambda (&rest _args)
-                     (ert-fail "Free-form prompt input should not use `helm-comp-read' pattern matching.")))
-                  ((symbol-function 'helm-read-string)
-                   (lambda (prompt initial-input history &rest _args)
-                     (setq helm-read-called t)
-                     (should (equal prompt "Prompt: "))
-                     (should (equal initial-input ""))
-                     (should (eq history 'ai-code-helm-read-string--history))
-                     literal-prompt)))
-          (should (equal (ai-code-helm-read-string-with-history
-                          "Prompt: " history-file-name "" '("Use ! in candidate"))
-                         literal-prompt))
-          (should helm-read-called)
-          (with-temp-buffer
-            (insert-file-contents
-             (expand-file-name history-file-name user-emacs-directory))
-            (should (equal (read (current-buffer)) (list literal-prompt)))))
+        (progn
+          (with-temp-file (expand-file-name history-file-name user-emacs-directory)
+            (prin1 (list history-prompt) (current-buffer)))
+          (cl-letf (((symbol-function 'helm-comp-read)
+                     (lambda (prompt collection &rest args)
+                       (setq helm-comp-read-called t)
+                       (should (equal prompt "Prompt history: "))
+                       (should (member history-prompt collection))
+                       (should (plist-get args :must-match))
+                       history-prompt))
+                    ((symbol-function 'helm-read-string)
+                     (lambda (prompt initial-input history &rest _args)
+                       (setq helm-read-called t)
+                       (should (equal prompt "Prompt: "))
+                       (should (equal initial-input history-prompt))
+                       (should (eq history 'ai-code-helm-read-string--history))
+                       literal-prompt)))
+            (should (equal (ai-code-helm-read-string-with-history
+                            "Prompt: " history-file-name "" '("Use ! in candidate"))
+                           literal-prompt))
+            (should helm-comp-read-called)
+            (should helm-read-called)
+            (with-temp-buffer
+              (insert-file-contents
+               (expand-file-name history-file-name user-emacs-directory))
+              (should (equal (read (current-buffer))
+                             (list literal-prompt history-prompt))))))
       (delete-directory user-emacs-directory t))))
 
 (ert-deftest ai-code-test-comment-context-p-inside-line-comment ()
