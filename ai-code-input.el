@@ -19,7 +19,8 @@
 (require 'subr-x)
 
 (declare-function browse-url "browse-url" (url &optional new-window))
-(declare-function helm-comp-read "helm-mode" (prompt collection &rest args))
+(declare-function helm-read-string "helm-core" (prompt &optional initial-input history
+                                                       default-value inherit-input-method))
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--linkify-session-region "ai-code-backends-infra" (start end))
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
@@ -50,6 +51,9 @@ Uses `read-string' directly to avoid `helm-mode' intercepting `completing-read'.
 (defvar ai-code--read-string-fn #'ai-code-plain-read-string
   "Function used by `ai-code-read-string' to read user input.")
 
+(defvar ai-code-helm-read-string--history nil
+  "Minibuffer history used by `ai-code-helm-read-string-with-history'.")
+
 ;;;###autoload
 (defun ai-code-read-string (prompt &optional initial-input candidate-list)
   "Read a string from the user with PROMPT and optional INITIAL-INPUT.
@@ -63,11 +67,15 @@ Returns non-nil on successful send."
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
-  "Read a string with Helm completion using specified history file.
+  "Read a string with Helm history using specified history file.
 PROMPT is the prompt string.
 HISTORY-FILE-NAME is the base name for history file.
 INITIAL-INPUT is optional initial input string.
-CANDIDATE-LIST is an optional list of candidate strings to show before history."
+CANDIDATE-LIST is an optional list of strings to add to minibuffer history.
+
+Read free-form input with a literal string reader instead of
+`helm-comp-read', because Helm completion patterns treat characters
+such as `!', spaces, and backslashes as matching syntax."
   ;; Load history from file
   (let* ((helm-history-file (expand-file-name history-file-name user-emacs-directory))
          (helm-history (if (file-exists-p helm-history-file)
@@ -79,41 +87,26 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
                                      (read content))))
                              (error nil))
                          '()))
-         ;; Use only Helm history, no CLI history
          (history helm-history)
-         ;; Extract the most recent item from history (if exists)
-         (most-recent (when history
-                        (car history)))
-         ;; Remove the first item to add it back later
-         (rest-history (when history
-                         (cl-remove-duplicates (cdr history) :test #'equal)))
-         ;; Combine completion list: most recent + candidates + separator + rest of history
-         (completion-list
-          (append
-           ;; If most recent item exists, put it at the top
-           (when most-recent
-             (list most-recent))
-           ;; Add candidate list
-           (or candidate-list '())
-           ;; Add separator and rest of history
-           (when rest-history
-             (cons "==================== HISTORY ========================================" rest-history))))
-         ;; Read input with helm
-         (input (helm-comp-read
-                 prompt
-                 completion-list
-                 :must-match nil
-                 :name "Helm Read String, Use C-c C-y to edit selected command. C-b and C-f to move cursor during editing"
-                 :fuzzy nil
-                 :initial-input initial-input)))
+         (ai-code-helm-read-string--history
+          (cl-remove-duplicates
+           (append history (or candidate-list '()))
+           :test #'equal))
+         (input (if (fboundp 'helm-read-string)
+                    (helm-read-string prompt initial-input
+                                      'ai-code-helm-read-string--history)
+                  (read-string prompt initial-input
+                               'ai-code-helm-read-string--history))))
     ;; Add to history if non-empty, single-line and save
-    (unless (or (string-empty-p input) (string-match "\n" input))
+    (unless (or (not (stringp input))
+                (string-empty-p input)
+                (string-match "\n" input))
       (push input history)
-      ;; (setq history (mapcar #'substring-no-properties history))
       (with-temp-file helm-history-file ; Save to the Helm-specific history file
-        (let ((history-entries (cl-subseq history
-                                          0 (min (length history)
-                                                 1000))))  ; Keep last 1000 entries
+        (let* ((deduped-history (cl-remove-duplicates history :test #'equal))
+               (history-entries (cl-subseq deduped-history
+                                           0 (min (length deduped-history)
+                                                  1000))))  ; Keep last 1000 entries
           (insert (let ((print-circle nil))
                     (prin1-to-string history-entries))))))
     input))
