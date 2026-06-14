@@ -95,6 +95,7 @@
 (require 'magit)
 (require 'transient)
 (require 'seq)
+(require 'subr-x)
 
 (defgroup ai-code nil
   "Unified interface for multiple AI coding CLIs."
@@ -258,35 +259,82 @@ ARG is the prefix argument."
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code--emacs-runtime-debug-prompt (description eval-available-p
-                                                       &optional region-text region-location-info)
+                                                       &optional region-text
+                                                       region-location-info
+                                                       buffer-scope
+                                                       function-name
+                                                       files-context-string
+                                                       repo-context-string
+                                                       clipboard-context)
   "Return an Emacs runtime debugging prompt from DESCRIPTION.
 EVAL-AVAILABLE-P reports whether `eval_elisp' is globally enabled.
-Optional REGION-TEXT and REGION-LOCATION-INFO add selected-region context."
-  (format
-   "Use the Emacs MCP tools available in this session to debug my Emacs runtime.\n\
+Optional REGION-TEXT and REGION-LOCATION-INFO add selected-region context.
+BUFFER-SCOPE, FUNCTION-NAME, FILES-CONTEXT-STRING, REPO-CONTEXT-STRING,
+and CLIPBOARD-CONTEXT add broader debugging context."
+  (let ((scope-string
+         (ai-code--emacs-runtime-debug-scope-string
+          buffer-scope function-name files-context-string))
+        (context-string
+         (ai-code--emacs-runtime-debug-context-string
+          repo-context-string clipboard-context)))
+    (format
+     "Use the Emacs MCP tools available in this session to debug my Emacs runtime.\n\
 The issue may involve an interactive function or a key binding.\n\
 %s\n\n\
 Inspect the relevant runtime state first: keymaps, command metadata,\n\
 variables, recent messages, load state, and the last backtrace when useful.\n\
 Explain what you find, then recommend the smallest fix or next step.\n\n\
 Runtime issue description:\n\
-%s%s"
-   (if eval-available-p
-       "eval_elisp is enabled in your Emacs MCP config."
-     "eval_elisp is disabled in your Emacs MCP config, so rely on non-eval inspection tools unless you first enable ai-code-mcp-debug-tools-enable-eval-elisp.")
-   description
-   (if region-text
-       (concat
-        "\n\nSelected region:\n"
-        (when region-location-info
-          (concat region-location-info "\n"))
-        region-text)
-     "")))
+%s%s%s%s"
+     (if eval-available-p
+         "eval_elisp is enabled in your Emacs MCP config."
+       "eval_elisp is disabled in your Emacs MCP config, so rely on non-eval inspection tools unless you first enable ai-code-mcp-debug-tools-enable-eval-elisp.")
+     description
+     (if (string-empty-p scope-string)
+         ""
+       (concat "\n\nScope:\n" scope-string))
+     (if region-text
+         (concat
+          "\n\nSelected region:\n"
+          (when region-location-info
+            (concat region-location-info "\n"))
+          region-text)
+       "")
+     (if (string-empty-p context-string)
+         ""
+       (concat "\n\nContext:\n" context-string)))))
+
+(defun ai-code--emacs-runtime-debug-scope-string (buffer-scope function-name
+                                                              files-context-string)
+  "Return scope text for one Emacs runtime debug prompt.
+BUFFER-SCOPE describes the current file or buffer.  FUNCTION-NAME and
+FILES-CONTEXT-STRING are optional additional scope levels."
+  (string-trim
+   (concat
+    (or buffer-scope "")
+    (when function-name
+      (format "\nFunction: %s" function-name))
+    (or files-context-string ""))))
+
+(defun ai-code--emacs-runtime-debug-context-string (repo-context-string
+                                                    clipboard-context)
+  "Return context text for one Emacs runtime debug prompt.
+REPO-CONTEXT-STRING is stored repository context.  CLIPBOARD-CONTEXT is
+optional runtime/debugging text from the clipboard."
+  (string-trim
+   (concat
+    (or repo-context-string "")
+    (when (and repo-context-string
+               clipboard-context)
+      "\n\n")
+    (when clipboard-context
+      (concat "Clipboard context:\n" clipboard-context)))))
 
 ;;;###autoload
 (defun ai-code-debug-emacs-runtime ()
   "Assemble and send an Emacs runtime debugging prompt for the current AI session."
   (interactive)
+  ;; DONE: similar to ai-code-investigate-exception, this function should support multiple level of context: file, function, selected region, clipboard, etc
   (unless (bound-and-true-p ai-code-mcp-debug-tools-enabled)
     (user-error
      "Enable ai-code-mcp-debug-tools-enabled before using Emacs runtime debugging"))
@@ -299,6 +347,17 @@ Runtime issue description:\n\
                                  (ai-code--get-region-location-info
                                   (region-beginning)
                                   (region-end))))
+         (buffer-scope (if buffer-file-name
+                           (format "Current file: %s" buffer-file-name)
+                         (format "Current buffer: %s" (buffer-name))))
+         (function-name (which-function))
+         (files-context-string (ai-code--get-context-files-string))
+         (repo-context-string (ai-code--format-repo-context-info))
+         (clipboard-context (when current-prefix-arg
+                              (let ((text (ai-code--get-clipboard-text)))
+                                (when (and text
+                                           (string-match-p "\\S-" text))
+                                  text))))
          (eval-available-p
           (bound-and-true-p ai-code-mcp-debug-tools-enable-eval-elisp)))
     (if eval-available-p
@@ -313,7 +372,12 @@ Runtime issue description:\n\
         description
         eval-available-p
         region-text
-        region-location-info)))))
+        region-location-info
+        buffer-scope
+        function-name
+        files-context-string
+        repo-context-string
+        clipboard-context)))))
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer-or-hide ()

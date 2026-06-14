@@ -209,6 +209,66 @@
              (cadr confirm-read-args)))
     (should (equal sent-prompt (cadr confirm-read-args)))))
 
+(ert-deftest ai-code-test-debug-emacs-runtime-includes-context-levels ()
+  "Debug Emacs runtime should include file, function, region, clipboard, and stored context."
+  (let ((ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-debug-tools-enable-eval-elisp t)
+        (current-prefix-arg '(4))
+        confirm-read-args
+        sent-prompt)
+    (cl-letf (((symbol-function 'message)
+               (lambda (&rest _args) nil))
+              ((symbol-function 'use-region-p)
+               (lambda () t))
+              ((symbol-function 'region-beginning)
+               (lambda () 10))
+              ((symbol-function 'region-end)
+               (lambda () 42))
+              ((symbol-function 'buffer-substring-no-properties)
+               (lambda (_beg _end)
+                 "(define-key test-map (kbd \"C-c x\") #'broken-command)"))
+              ((symbol-function 'ai-code--get-region-location-info)
+               (lambda (_beg _end)
+                 "ai-code.el#L10-L11"))
+              ((symbol-function 'which-function)
+               (lambda () "ai-code-test-command"))
+              ((symbol-function 'ai-code--get-context-files-string)
+               (lambda () "\nFiles:\n/tmp/project/ai-code.el\n/tmp/project/ai-code-discussion.el"))
+              ((symbol-function 'ai-code--format-repo-context-info)
+               (lambda () "\nStored repository context:\n  - ai-code.el#ai-code-test-command"))
+              ((symbol-function 'ai-code--get-clipboard-text)
+               (lambda () "Debugger entered--Lisp error: (void-function broken-command)"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (prompt &optional initial-input _candidate-list)
+                 (cond
+                  ((string-match-p "Describe the Emacs runtime issue" prompt)
+                   "C-c x fails at runtime")
+                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
+                   (setq confirm-read-args (list prompt initial-input))
+                   initial-input)
+                  (t
+                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt)
+                 (setq sent-prompt prompt))))
+      (with-temp-buffer
+        (setq buffer-file-name "/tmp/project/ai-code.el")
+        (ai-code-debug-emacs-runtime)))
+    (should (string-match-p "Current file: /tmp/project/ai-code\\.el"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Function: ai-code-test-command"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Selected region:" (cadr confirm-read-args)))
+    (should (string-match-p "ai-code.el#L10-L11" (cadr confirm-read-args)))
+    (should (string-match-p "Clipboard context:" (cadr confirm-read-args)))
+    (should (string-match-p "void-function broken-command"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Files:\n/tmp/project/ai-code\\.el\n/tmp/project/ai-code-discussion\\.el"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Stored repository context:"
+                            (cadr confirm-read-args)))
+    (should (equal sent-prompt (cadr confirm-read-args)))))
+
 (ert-deftest ai-code-test-debug-emacs-runtime-removes-stale-done-comment ()
   "The source should not keep the stale DONE note for the runtime debug menu item."
   (with-temp-buffer
