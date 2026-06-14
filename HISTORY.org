@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Add context levels to Emacs runtime debug prompts
 - Fix: keep terminal multiline bindings buffer-local, by Silex
 - Fix: Use Git branch names for AI session defaults
   
