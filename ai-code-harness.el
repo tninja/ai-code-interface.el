@@ -440,6 +440,12 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
   (ai-code--test-after-code-change--set 'ai-code-auto-test-type value)
   value)
 
+(defun ai-code--cycle-auto-test-type-value (current-val)
+  "Return the next cycled value of `ai-code-auto-test-type` for CURRENT-VAL."
+  (if (eq current-val 'ask-me)
+      nil
+    'ask-me))
+
 (defun ai-code--apply-discussion-auto-follow-up-enabled (value)
   "Set `ai-code-discussion-auto-follow-up-enabled` to VALUE."
   (setq ai-code-discussion-auto-follow-up-enabled value)

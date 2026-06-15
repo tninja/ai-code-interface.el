@@ -932,6 +932,12 @@
   (should (eq 'always (ai-code--cycle-discussion-auto-follow-up-value 'ask-me)))
   (should (eq nil (ai-code--cycle-discussion-auto-follow-up-value 'always))))
 
+(ert-deftest ai-code-test-cycle-auto-test-type-value ()
+  "Test that cycling auto test type value works nil -> ask-me -> nil."
+  (should (eq 'ask-me (ai-code--cycle-auto-test-type-value nil)))
+  (should (eq nil (ai-code--cycle-auto-test-type-value 'ask-me))))
+
 (provide 'test_ai-code-harness)
 
 ;;; test_ai-code-harness.el ends here
+

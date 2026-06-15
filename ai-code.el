@@ -419,19 +419,14 @@ Otherwise switch to AI CLI buffer."
   :key "T"
   :description "Auto test type:"
   :reader (lambda (_prompt _initial-input _history)
-            (let* ((choices ai-code--auto-test-type-persistent-choices)
-                   (choice (completing-read "Test after code change: "
-                                            (mapcar #'car choices)
-                                            nil t nil nil
-                                            (caar choices))))
-              (let ((value (cdr (assoc choice choices))))
-                (ai-code--apply-auto-test-type value)
-                (message "Auto test type set to %s; prompt suffix is now %s"
-                         (or value "off")
-                         (if (eq value 'ask-me)
-                             "ask each send"
-                           (or ai-code-auto-test-suffix "cleared")))
-                value))))
+            (let ((next-val (ai-code--cycle-auto-test-type-value ai-code-auto-test-type)))
+              (ai-code--apply-auto-test-type next-val)
+              (message "Auto test type set to %s; prompt suffix is now %s"
+                       (or next-val "off")
+                       (if (eq next-val 'ask-me)
+                           "ask each send"
+                         (or ai-code-auto-test-suffix "cleared")))
+              next-val)))
 
 (defclass ai-code--discussion-auto-follow-up-enabled-type (transient-lisp-variable)
   ((variable :initform 'ai-code-discussion-auto-follow-up-enabled)
