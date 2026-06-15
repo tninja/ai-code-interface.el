@@ -353,6 +353,31 @@ CLASSIFICATION is the optional prompt classification result."
         (_ (ai-code--read-auto-test-type-choice)))
     (ai-code--read-auto-test-type-choice)))
 
+(defun ai-code--ensure-discussion-follow-up-harness-file ()
+  "Write and return the package prompt file path for discussion follow-up."
+  (when-let ((content ai-code-next-step-suggestion-suffix))
+    (let* ((directory (ai-code--ensure-auto-test-harness-prompt-directory))
+           (file-path (expand-file-name "discussion-follow-up.v1.md" directory)))
+      (unless (file-exists-p file-path)
+        (with-temp-file file-path
+          (insert content)
+          (unless (bolp)
+            (insert "\n"))))
+      file-path)))
+
+(defun ai-code--discussion-follow-up-reference-suffix ()
+  "Return a short suffix that references the discussion follow-up prompt file.
+If the harness file cannot be prepared, fall back to the inline suffix."
+  (condition-case err
+      (when-let ((file-path (ai-code--ensure-discussion-follow-up-harness-file)))
+        (format
+         "Read the local harness file: @%s. Use its instructions for this work. Apply it without repeating its full contents."
+         (ai-code--auto-test-harness-prompt-path file-path)))
+    (file-error
+     (message "Failed to prepare discussion follow-up harness file: %s"
+              (error-message-string err))
+     ai-code-next-step-suggestion-suffix)))
+
 (defun ai-code--resolve-auto-follow-up-suffix-for-send (&optional prompt-text classification)
   "Resolve next-step suggestion suffix for current send action for PROMPT-TEXT.
 CLASSIFICATION is the optional prompt classification result."
@@ -361,9 +386,13 @@ CLASSIFICATION is the optional prompt classification result."
     (let ((classification (or classification
                               (and ai-code-use-gptel-classify-prompt
                                    (ai-code--classify-prompt-code-change prompt-text)))))
-      (unless (eq classification 'code-change)
-        (and (ai-code--read-auto-follow-up-choice)
-             ai-code-next-step-suggestion-suffix)))))
+      (unless (and (eq classification 'code-change)
+                   (not ai-code-discussion-auto-follow-up-on-code-change))
+        (and (pcase ai-code-discussion-auto-follow-up-enabled
+               ('always t)
+               ((or 't 'ask-me) (ai-code--read-auto-follow-up-choice))
+               (_ nil))
+             (ai-code--discussion-follow-up-reference-suffix))))))
 
 (defun ai-code--resolve-auto-test-suffix-for-send (&optional prompt-text classification)
   "Resolve auto test suffix for current send action for PROMPT-TEXT.
@@ -416,6 +445,14 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
   (setq ai-code-discussion-auto-follow-up-enabled value)
   value)
 
+(defun ai-code--cycle-discussion-auto-follow-up-value (current-val)
+  "Return the next cycled value of `ai-code-discussion-auto-follow-up-enabled` for CURRENT-VAL."
+  (pcase current-val
+    ('nil 'ask-me)
+    ((or 't 'ask-me) 'always)
+    ('always 'nil)
+    (_ 'ask-me)))
+
 (defcustom ai-code-auto-test-type nil
   "Select how prompts request tests after code changes."
   :type '(choice (const :tag "Ask every time" ask-me)
@@ -423,13 +460,21 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
   :set #'ai-code--test-after-code-change--set
   :group 'ai-code)
 
+;;;###autoload
+(defcustom ai-code-discussion-auto-follow-up-on-code-change nil
+  "Whether to allow discussion follow-up suggestions for code-change prompts.
+When non-nil, next-step suggestions can be appended to code-change prompts
+as well, depending on the routing choice."
+  :type 'boolean
+  :group 'ai-code)
+
 (defcustom ai-code-discussion-auto-follow-up-enabled t
   "When non-nil, prompts may request numbered next-step suggestions.
-This is enabled by default; customize it to nil to turn the send-time
-choice off globally.  Pair it with `ai-code-use-gptel-classify-prompt`
-when you want code-change prompts to skip these discussion follow-up
-suggestions."
-  :type 'boolean
+This can be nil to disable it, always to always append without prompt,
+or ask-me (or t) to ask the user on each send."
+  :type '(choice (const :tag "Ask each send" ask-me)
+                 (const :tag "Always" always)
+                 (const :tag "Off" nil))
   :set (lambda (symbol value)
          (set-default symbol value)
          (set symbol value))

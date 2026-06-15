@@ -469,7 +469,9 @@
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda (&rest _args) t)))
+               (lambda (&rest _args) t))
+              ((symbol-function 'ai-code--discussion-follow-up-reference-suffix)
+               (lambda () ai-code-next-step-suggestion-suffix)))
       (should (string-match-p
                "3-4 numbered candidate next[[:space:]\n]+steps"
                (ai-code--resolve-auto-follow-up-suffix-for-send
@@ -485,7 +487,9 @@
         (ai-code-next-step-suggestion-suffix "FOLLOW-UP")
         (ai-code-use-gptel-classify-prompt nil))
     (cl-letf (((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda () t)))
+               (lambda () t))
+              ((symbol-function 'ai-code--discussion-follow-up-reference-suffix)
+               (lambda () ai-code-next-step-suggestion-suffix)))
       (should (equal "FOLLOW-UP"
                      (ai-code--resolve-auto-follow-up-suffix-for-send
                       "Explain this function"))))))
@@ -531,7 +535,9 @@
     (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
-               (lambda (&rest _args) t)))
+               (lambda (&rest _args) t))
+              ((symbol-function 'ai-code--discussion-follow-up-reference-suffix)
+               (lambda () ai-code-next-step-suggestion-suffix)))
       (let ((this-command 'ai-code-ask-question))
         (should (string-match-p
                  "The user may also[[:space:]\n]+ignore these options"
@@ -555,6 +561,8 @@
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
                (lambda (&rest _args) t))
+              ((symbol-function 'ai-code--discussion-follow-up-reference-suffix)
+               (lambda () ai-code-next-step-suggestion-suffix))
               ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                (lambda () nil))
               ((symbol-function 'ai-code--prompt-choose-target-session)
@@ -566,7 +574,7 @@
       (ai-code--write-prompt-to-file-and-send "Explain this function")
       (should (string-match-p "BASE SUFFIX" sent-command))
       (should (string-match-p "3-4 numbered candidate next[[:space:]\n]+steps"
-                              sent-command))
+                               sent-command))
       (should (string-match-p
                "At least 2 candidates must[[:space:]\n]+be AI-actionable items"
                sent-command))
@@ -588,6 +596,8 @@
                    (lambda (_prompt-text) 'non-code-change))
                   ((symbol-function 'ai-code--read-auto-follow-up-choice)
                    (lambda (&rest _args) t))
+                  ((symbol-function 'ai-code--discussion-follow-up-reference-suffix)
+                   (lambda () ai-code-next-step-suggestion-suffix))
                   ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                    (lambda () prompt-file))
                   ((symbol-function 'ai-code--prompt-choose-target-session)
@@ -603,7 +613,7 @@
               (should (string-match-p "Explain this function" contents))
               (should (string-match-p "BASE SUFFIX" contents))
               (should (string-match-p "3-4 numbered candidate next[[:space:]\n]+steps"
-                                      contents))
+                                       contents))
               (should (string-match-p
                        "At least 2 candidates must[[:space:]\n]+be AI-actionable items"
                        contents)))))
@@ -620,6 +630,8 @@
                (lambda (_prompt-text) 'non-code-change))
               ((symbol-function 'ai-code--read-auto-follow-up-choice)
                (lambda (&rest _args) t))
+              ((symbol-function 'ai-code--discussion-follow-up-reference-suffix)
+               (lambda () ai-code-next-step-suggestion-suffix))
               ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
                (lambda () nil))
               ((symbol-function 'ai-code--prompt-choose-target-session)
@@ -630,7 +642,7 @@
                (lambda (&rest _args) nil)))
       (ai-code--write-prompt-to-file-and-send "Summarize this design")
       (should (string-match-p "3-4 numbered candidate next[[:space:]\n]+steps"
-                              sent-command))
+                               sent-command))
       (should (string-match-p
                "either a code change or tool usage"
                sent-command)))))
@@ -769,11 +781,13 @@
                    ("Off" . nil))
                  ai-code--auto-test-type-persistent-choices)))
 
-(ert-deftest ai-code-test-discussion-auto-follow-up-enabled-custom-option-is-boolean ()
-  "Test that discussion auto follow-up setting is a boolean toggle."
+(ert-deftest ai-code-test-discussion-auto-follow-up-enabled-custom-option-is-choice ()
+  "Test that discussion auto follow-up setting is a choice option."
   (should
    (equal
-    'boolean
+    '(choice (const :tag "Ask each send" ask-me)
+             (const :tag "Always" always)
+             (const :tag "Off" nil))
     (get 'ai-code-discussion-auto-follow-up-enabled 'custom-type))))
 
 (ert-deftest ai-code-test-discussion-auto-follow-up-enabled-default-is-on ()
@@ -843,6 +857,80 @@
       (should (string-match-p "BASE SUFFIX" sent-command))
       (should (string-match-p "Do not write or run any test\\." sent-command))
       (should-not (string-match-p "SHOULD NOT APPEAR" sent-command)))))
+
+(ert-deftest ai-code-test-ensure-discussion-follow-up-harness-file ()
+  "Test that discussion follow-up harness file is written and returned."
+  (let* ((ai-code-next-step-suggestion-suffix "TEST SUFFIX CONTENT")
+         (temp-dir (make-temp-file "ai-code-test-prompt-" t))
+         (file-path (expand-file-name "discussion-follow-up.v1.md" temp-dir)))
+    (cl-letf (((symbol-function 'ai-code--ensure-auto-test-harness-prompt-directory)
+               (lambda () temp-dir)))
+      (unwind-protect
+          (let ((result (ai-code--ensure-discussion-follow-up-harness-file)))
+            (should (equal file-path result))
+            (should (file-exists-p result))
+            (with-temp-buffer
+              (insert-file-contents result)
+              (should (equal "TEST SUFFIX CONTENT\n" (buffer-string)))))
+        (when (file-exists-p file-path)
+          (delete-file file-path))
+        (delete-directory temp-dir)))))
+
+(ert-deftest ai-code-test-discussion-follow-up-reference-suffix-resolves-path ()
+  "Test that discussion follow-up reference suffix returns the correct format."
+  (let* ((ai-code-next-step-suggestion-suffix "TEST SUFFIX CONTENT")
+         (temp-dir (make-temp-file "ai-code-test-prompt-" t))
+         (file-path (expand-file-name "discussion-follow-up.v1.md" temp-dir)))
+    (cl-letf (((symbol-function 'ai-code--ensure-auto-test-harness-prompt-directory)
+               (lambda () temp-dir))
+              ((symbol-function 'ai-code--auto-test-harness-prompt-path)
+               (lambda (path) path)))
+      (unwind-protect
+          (let ((suffix (ai-code--discussion-follow-up-reference-suffix)))
+            (should (string-match-p (regexp-quote file-path) suffix)))
+        (when (file-exists-p file-path)
+          (delete-file file-path))
+        (delete-directory temp-dir)))))
+
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-for-send-always ()
+  "Test that always mode returns follow-up suffix without asking."
+  (let ((ai-code-discussion-auto-follow-up-enabled 'always)
+        (ai-code-next-step-suggestion-suffix "FOLLOW-UP")
+        (temp-dir (make-temp-file "ai-code-test-prompt-" t)))
+    (cl-letf (((symbol-function 'ai-code--ensure-auto-test-harness-prompt-directory)
+               (lambda () temp-dir))
+              ((symbol-function 'ai-code--read-auto-follow-up-choice)
+               (lambda () (ert-fail "Should not ask in always mode"))))
+      (unwind-protect
+          (let ((result (ai-code--resolve-auto-follow-up-suffix-for-send "Explain this function")))
+            (should (string-match-p "Read the local harness file: @.*discussion-follow-up.v1.md" result)))
+        (let ((file-path (expand-file-name "discussion-follow-up.v1.md" temp-dir)))
+          (when (file-exists-p file-path) (delete-file file-path)))
+        (delete-directory temp-dir)))))
+
+(ert-deftest ai-code-test-resolve-auto-follow-up-suffix-on-code-change-enabled ()
+  "Test that code-change prompts are allowed when on-code-change variable is non-nil."
+  (let ((ai-code-discussion-auto-follow-up-enabled 'always)
+        (ai-code-discussion-auto-follow-up-on-code-change t)
+        (ai-code-next-step-suggestion-suffix "FOLLOW-UP")
+        (temp-dir (make-temp-file "ai-code-test-prompt-" t)))
+    (cl-letf (((symbol-function 'ai-code--ensure-auto-test-harness-prompt-directory)
+               (lambda () temp-dir))
+              ((symbol-function 'ai-code--classify-prompt-code-change)
+               (lambda (_) 'code-change)))
+      (unwind-protect
+          (let ((result (ai-code--resolve-auto-follow-up-suffix-for-send "Modify this function")))
+            (should (string-match-p "Read the local harness file: @.*discussion-follow-up.v1.md" result)))
+        (let ((file-path (expand-file-name "discussion-follow-up.v1.md" temp-dir)))
+          (when (file-exists-p file-path) (delete-file file-path)))
+        (delete-directory temp-dir)))))
+
+(ert-deftest ai-code-test-toggle-auto-follow-up-cycles ()
+  "Test that cycling auto follow-up value works nil -> ask-me -> always -> nil."
+  (should (eq 'ask-me (ai-code--cycle-discussion-auto-follow-up-value nil)))
+  (should (eq 'always (ai-code--cycle-discussion-auto-follow-up-value t)))
+  (should (eq 'always (ai-code--cycle-discussion-auto-follow-up-value 'ask-me)))
+  (should (eq nil (ai-code--cycle-discussion-auto-follow-up-value 'always))))
 
 (provide 'test_ai-code-harness)
 

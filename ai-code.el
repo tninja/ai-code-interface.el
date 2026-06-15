@@ -446,7 +446,23 @@ Otherwise switch to AI CLI buffer."
   :description "Discussion follow-up:"
   :reader (lambda (_prompt _initial-input _history)
             (ai-code--apply-discussion-auto-follow-up-enabled
-             (not ai-code-discussion-auto-follow-up-enabled))))
+             (ai-code--cycle-discussion-auto-follow-up-value
+              ai-code-discussion-auto-follow-up-enabled))))
+
+(defclass ai-code--discussion-auto-follow-up-on-code-change-type (transient-lisp-variable)
+  ((variable :initform 'ai-code-discussion-auto-follow-up-on-code-change)
+   (format :initform "%k %d %v")
+   (reader :initform #'transient-lisp-variable--read-value))
+  "Selection helper for `ai-code-discussion-auto-follow-up-on-code-change`.")
+
+(transient-define-infix ai-code--infix-toggle-auto-follow-up-on-code-change ()
+  "Toggle `ai-code-discussion-auto-follow-up-on-code-change`."
+  :class 'ai-code--discussion-auto-follow-up-on-code-change-type
+  :key "C"
+  :description "Follow-up on code-change:"
+  :reader (lambda (_prompt _initial-input _history)
+            (setq ai-code-discussion-auto-follow-up-on-code-change
+                  (not ai-code-discussion-auto-follow-up-on-code-change))))
 
 (defun ai-code--select-backend-description (&rest _)
   "Dynamic description for the Select Backend menu item.
@@ -549,6 +565,7 @@ Shows the current backend label to the right."
 
 (transient-define-group ai-code--menu-other-tools
   (ai-code--infix-toggle-auto-follow-up)
+  (ai-code--infix-toggle-auto-follow-up-on-code-change)
   ("." "Init projectile and gtags" ai-code-init-project)
   ("P" "AI session checkpoint" ai-code-session-checkpoint)
   ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
