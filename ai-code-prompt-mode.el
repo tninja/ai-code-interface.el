@@ -57,6 +57,22 @@ it will be replaced with a relative path prefixed with '@'."
   :group 'ai-code)
 
 ;;;###autoload
+(defcustom ai-code-gptel-sync-timeout 15
+  "Timeout in seconds for synchronous gptel requests.
+Used by `ai-code-call-gptel-sync`."
+  :type 'integer
+  :group 'ai-code)
+
+;;;###autoload
+(defcustom ai-code-gptel-sync-max-length 1000
+  "Maximum length of characters to send to gptel synchronously.
+If the prompt exceeds this limit, it will be truncated to prevent
+long request times."
+  :type 'integer
+  :group 'ai-code)
+
+
+;;;###autoload
 (defcustom ai-code-prompt-file-name ".ai.code.prompt.org"
   "File name that will automatically enable `ai-code-prompt-mode` when opened.
 This is the file name without path."
@@ -105,8 +121,8 @@ If file doesn't exist, create it with sample prompt."
   (ai-code-cli-switch-to-buffer))
 
 (defun ai-code--generate-prompt-headline (prompt-text)
-  "Generate and insert a headline for PROMPT-TEXT."
-  (insert "** ")
+  "Generate an Org headline for PROMPT-TEXT."
+  (insert "* ")
   (if (and ai-code-use-gptel-headline (require 'gptel nil t))
       (condition-case nil
           (let ((headline (ai-code-call-gptel-sync (concat "Create a 5-10 word action-oriented headline for this AI prompt that captures the main task. Use keywords like: refactor, implement, fix, optimize, analyze, document, test, review, enhance, add, remove, improve, integrate, task. Example: 'Optimize database queries' or 'Implement error handling'.\n\nPrompt: " prompt-text))))
@@ -122,42 +138,61 @@ This function blocks until a response is received or a timeout occurs.
 Only works when gptel package is installed, otherwise shows error message."
   (unless (featurep 'gptel)
     (user-error "GPTel package is required for AI command generation; please install gptel package"))
-  (let ((answer nil)
-        (done nil)
-        (error-info nil)
-        (start-time (float-time))
-        (temp-buffer (generate-new-buffer " *gptel-sync*")))
-    (unwind-protect
-        (progn
-          (gptel-request question
-                         :buffer temp-buffer
-                         :stream nil
-                         :callback (lambda (response info)
-                                     (cond
-                                      ((stringp response)
-                                       (setq answer response))
-                                      ((eq response 'abort)
-                                       (setq error-info "Request aborted."))
-                                      (t
-                                       (setq error-info (or (plist-get info :status) "Unknown error"))))
-                                     (setq done t)))
-          ;; Block until 'done' is true or timeout is reached
-          (while (not done)
-            (when quit-flag
-              (keyboard-quit))
-            (when (> (- (float-time) start-time) 30) ;; timeout after 30 seconds
-              ;; Try to abort any running processes
-              (gptel-abort temp-buffer)
-              (setq done t
-                    error-info (format "Request timed out after %d seconds" 30)))
-            ;; Use sit-for to process events and allow interruption
-            (sit-for 0.1)))
-      ;; Clean up temp buffer
-      (when (buffer-live-p temp-buffer)
-        (kill-buffer temp-buffer)))
-    (if error-info
-        (error "Ai-code-call-gptel-sync failed: %s" error-info)
-      answer)))
+  (let ((truncated-question (if (and ai-code-gptel-sync-max-length
+                                      (> (length question) ai-code-gptel-sync-max-length))
+                                 (substring question 0 ai-code-gptel-sync-max-length)
+                               question))
+        (retry t)
+        (result nil))
+    (while retry
+      (let ((answer nil)
+            (done nil)
+            (error-info nil)
+            (start-time (float-time))
+            (temp-buffer (generate-new-buffer " *gptel-sync*")))
+        (unwind-protect
+            (progn
+              (gptel-request truncated-question
+                             :buffer temp-buffer
+                             :stream nil
+                             :callback (lambda (response info)
+                                         (cond
+                                          ((stringp response)
+                                           (setq answer response))
+                                          ((eq response 'abort)
+                                           (setq error-info "Request aborted."))
+                                          (t
+                                           (setq error-info (or (plist-get info :status) "Unknown error"))))
+                                         (setq done t)))
+              ;; Block until 'done' is true or timeout is reached
+              (while (not done)
+                (when quit-flag
+                  (keyboard-quit))
+                (when (> (- (float-time) start-time) ai-code-gptel-sync-timeout)
+                  ;; Try to abort any running processes
+                  (gptel-abort temp-buffer)
+                  (setq done t
+                        error-info (format "Request timed out after %d seconds" ai-code-gptel-sync-timeout)))
+                ;; Use sit-for to process events and allow interruption
+                (sit-for 0.1)))
+          ;; Clean up temp buffer
+          (when (buffer-live-p temp-buffer)
+            (kill-buffer temp-buffer)))
+        (cond
+         ((null error-info)
+          (setq result answer
+                retry nil))
+         ((and error-info (string-match-p "timed out" error-info))
+          (if (y-or-n-p (format "%s. Do you want to retry? " error-info))
+              (message "Retrying...")
+            (setq retry nil
+                  result (cons 'error error-info))))
+         (t
+          (setq retry nil
+                result (cons 'error error-info))))))
+    (if (and (listp result) (eq (car result) 'error))
+        (error "Ai-code-call-gptel-sync failed: %s" (cdr result))
+      result)))
 
 (defun ai-code--format-and-insert-prompt (prompt-text)
   "Insert PROMPT-TEXT into the current buffer without suffix."
