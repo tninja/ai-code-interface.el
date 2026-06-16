@@ -1,4 +1,4 @@
-;;; ai-code.el --- Unified interface for AI coding backends such as Codex CLI, Antigravity CLI, Claude Code, Opencode, etc -*- lexical-binding: t; -*-
+;;; ai-code.el --- Unified Emacs interface for AI coding CLIs -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; Assisted-by:
