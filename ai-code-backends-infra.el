@@ -687,7 +687,7 @@ from the window where it was initially created."
 
 (defun ai-code-backends-infra--normalize-session-directory (directory)
   "Return DIRECTORY normalized for robust session matching."
-  (file-name-as-directory (expand-file-name directory)))
+  (file-name-as-directory (file-truename (expand-file-name directory))))
 
 (defun ai-code-backends-infra--normalize-file-path (file)
   "Return normalized absolute path for FILE."
@@ -877,7 +877,7 @@ When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
 
 (defun ai-code-backends-infra--session-map-key (prefix directory)
   "Return a map key for PREFIX and DIRECTORY."
-  (cons prefix (expand-file-name directory)))
+  (cons prefix (ai-code-backends-infra--normalize-session-directory directory)))
 
 (defun ai-code-backends-infra--parse-session-buffer-name (buffer-name prefix)
   "Parse BUFFER-NAME for PREFIX.

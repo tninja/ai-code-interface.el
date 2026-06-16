@@ -1019,7 +1019,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
             (should (eq ai-code-backends-infra--session-terminal-backend 'ghostel))
             (should (equal ai-code-backends-infra--session-directory
                            (file-name-as-directory
-                            (expand-file-name default-directory))))
+                            (file-truename (expand-file-name default-directory)))))
             (should (eq ghostel--process process)))
           (should (equal ghostel-exec-call
                          (list buffer "echo" '("hello world" "--flag")))))
