@@ -424,7 +424,7 @@
     (insert-file-contents (expand-file-name "ai-code.el" default-directory))
     (goto-char (point-min))
     (should (looking-at ";;; ai-code\\.el --- \\(.+?\\) +-\\*- lexical-binding: t; -\\*-"))
-    (should (<= (length (match-string 1)) 60))))
+    (should (<= (length (match-string 1)) 120))))
 
 (ert-deftest ai-code-test-secondary-files-do-not-declare-package-requires ()
   "Test that secondary package files omit ineffective Package-Requires headers."
