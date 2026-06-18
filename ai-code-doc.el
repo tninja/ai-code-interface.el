@@ -38,6 +38,16 @@
                              nil nil #'string=)))
     (funcall command)))
 
+(defun ai-code--read-document-language ()
+  "Ask the user which language they want to use in the doc.
+Default value is English."
+  (let ((lang (read-string "Document language: " "English")))
+    (if (string-empty-p lang) "English" lang)))
+
+(defun ai-code--append-document-language (base-prompt)
+  "Prompt for the language and append it to BASE-PROMPT."
+  (concat base-prompt (format "\nGenerate the document in %s." (ai-code--read-document-language))))
+
 (defconst ai-code-ddd-context-output-relative-path
   ".ai.code.files/architecture/domain-context.org"
   "Repository-relative path for the derived DDD context document.")
@@ -185,14 +195,14 @@
     (unless git-root
       (user-error "Not in a git repository"))
     (ai-code--ensure-architecture-guardrails-file)
-    (if-let ((final-prompt
-              (ai-code-plain-read-string
-               "Prompt: "
-               (ai-code--build-architecture-guardrails-prompt git-root))))
-        (progn
-          (ai-code--insert-prompt final-prompt)
-          (message "Requested architecture guardrails for %s" git-root))
-      (message "Architecture guardrails request cancelled"))))
+    (let* ((base-prompt (ai-code--build-architecture-guardrails-prompt git-root))
+           (initial-prompt (ai-code--append-document-language base-prompt)))
+      (if-let ((final-prompt
+                (ai-code-plain-read-string "Prompt: " initial-prompt)))
+          (progn
+            (ai-code--insert-prompt final-prompt)
+            (message "Requested architecture guardrails for %s" git-root))
+        (message "Architecture guardrails request cancelled")))))
 
 ;;;###autoload
 (defun ai-code-derive-ddd-context ()
@@ -208,9 +218,10 @@ not already exist, so the backend has a concrete document to create or update."
     (make-directory architecture-dir t)
     (unless (file-exists-p target-file)
       (write-region "" nil target-file nil 'silent))
-    (let* ((initial-prompt
+    (let* ((base-prompt
             (concat (ai-code--derive-ddd-context-prompt git-root)
                     (or (ai-code--format-repo-context-info) "")))
+           (initial-prompt (ai-code--append-document-language base-prompt))
            (final-prompt (ai-code-plain-read-string "Derive DDD context prompt: "
                                                     initial-prompt)))
       (when final-prompt
@@ -230,9 +241,10 @@ not already exist, so the backend has a concrete document to create or update."
     (make-directory architecture-dir t)
     (unless (file-exists-p target-file)
       (write-region "" nil target-file nil 'silent))
-    (let* ((initial-prompt
+    (let* ((base-prompt
             (concat (ai-code--derive-test-context-prompt git-root)
                     (or (ai-code--format-repo-context-info) "")))
+           (initial-prompt (ai-code--append-document-language base-prompt))
            (final-prompt (ai-code-plain-read-string "Derive Test Context prompt: "
                                                     initial-prompt)))
       (when final-prompt

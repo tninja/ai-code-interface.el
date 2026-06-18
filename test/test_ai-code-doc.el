@@ -101,6 +101,8 @@ everything is cleaned up afterward."
         (cl-letf (((symbol-function 'ai-code--git-root)
                    (lambda (&optional _dir)
                      tmp-root))
+                  ((symbol-function 'read-string)
+                   (lambda (&rest _args) "English"))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (prompt initial-input)
                      (should (equal prompt "Prompt: "))
@@ -149,6 +151,8 @@ everything is cleaned up afterward."
           (cl-letf (((symbol-function 'ai-code--git-root)
                      (lambda (&optional _dir)
                        tmp-root))
+                    ((symbol-function 'read-string)
+                     (lambda (&rest _args) "English"))
                     ((symbol-function 'ai-code-plain-read-string)
                      (lambda (_prompt initial-input)
                        initial-input))
@@ -177,6 +181,8 @@ everything is cleaned up afterward."
         (cl-letf (((symbol-function 'ai-code--git-root)
                    (lambda (&optional _dir)
                      tmp-root))
+                  ((symbol-function 'read-string)
+                   (lambda (&rest _args) "English"))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (_prompt _initial-input)
                      nil))
@@ -202,6 +208,8 @@ everything is cleaned up afterward."
      (cl-letf (((symbol-function 'ai-code--git-root)
                 (lambda (&optional _dir)
                   default-directory))
+               ((symbol-function 'read-string)
+                (lambda (&rest _args) "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (prompt &optional initial-input)
                   (setq captured-read-prompt prompt
@@ -234,6 +242,8 @@ everything is cleaned up afterward."
      (cl-letf (((symbol-function 'ai-code--git-root)
                 (lambda (&optional _dir)
                   default-directory))
+               ((symbol-function 'read-string)
+                (lambda (&rest _args) "English"))
                ((symbol-function 'ai-code--format-repo-context-info)
                 (lambda ()
                   "\nStored repository context:\n  - Preserve existing CLI UX"))
@@ -264,6 +274,8 @@ everything is cleaned up afterward."
      (cl-letf (((symbol-function 'ai-code--git-root)
                 (lambda (&optional _dir)
                   default-directory))
+               ((symbol-function 'read-string)
+                (lambda (&rest _args) "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (prompt &optional initial-input)
                   (setq captured-read-prompt prompt
@@ -287,5 +299,80 @@ everything is cleaned up afterward."
                 (expand-file-name ".ai.code.files/architecture/test-context.org"
                                   default-directory)))))))
 
+(ert-deftest ai-code-test-derive-architecture-guardrails-asks-language ()
+  "Test that `ai-code-derive-architecture-guardrails' asks for document language and appends it."
+  (let* ((tmp-root (make-temp-file "ai-code-guardrails-lang" t))
+         captured-language-prompt
+         captured-language-default
+         (mock-lang "French")
+         captured-final-prompt)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--git-root)
+                   (lambda (&optional _dir) tmp-root))
+                  ((symbol-function 'read-string)
+                   (lambda (prompt &optional initial-input &rest _args)
+                     (setq captured-language-prompt prompt
+                           captured-language-default initial-input)
+                     mock-lang))
+                  ((symbol-function 'ai-code-plain-read-string)
+                   (lambda (_prompt initial-input) initial-input))
+                  ((symbol-function 'ai-code--insert-prompt)
+                   (lambda (prompt) (setq captured-final-prompt prompt))))
+          (ai-code-derive-architecture-guardrails)
+          (should (equal captured-language-prompt "Document language: "))
+          (should (equal captured-language-default "English"))
+          (should (string-match-p (regexp-quote "Generate the document in French.")
+                                  captured-final-prompt)))
+      (ignore-errors (delete-directory tmp-root t)))))
+
+(ert-deftest ai-code-test-derive-ddd-context-asks-language ()
+  "Test that `ai-code-derive-ddd-context' asks for document language and appends it."
+  (ai-code-file-with-test-env
+   (let (captured-language-prompt
+         captured-language-default
+         (mock-lang "Chinese")
+         captured-final-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (lambda (prompt &optional initial-input &rest _args)
+                  (setq captured-language-prompt prompt
+                        captured-language-default initial-input)
+                  mock-lang))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq captured-final-prompt prompt))))
+       (ai-code-derive-ddd-context)
+       (should (equal captured-language-prompt "Document language: "))
+       (should (equal captured-language-default "English"))
+       (should (string-match-p (regexp-quote "Generate the document in Chinese.")
+                               captured-final-prompt))))))
+
+(ert-deftest ai-code-test-derive-test-context-asks-language ()
+  "Test that `ai-code-derive-test-context' asks for document language and appends it."
+  (ai-code-file-with-test-env
+   (let (captured-language-prompt
+         captured-language-default
+         (mock-lang "German")
+         captured-final-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (lambda (prompt &optional initial-input &rest _args)
+                  (setq captured-language-prompt prompt
+                        captured-language-default initial-input)
+                  mock-lang))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq captured-final-prompt prompt))))
+       (ai-code-derive-test-context)
+       (should (equal captured-language-prompt "Document language: "))
+       (should (equal captured-language-default "English"))
+       (should (string-match-p (regexp-quote "Generate the document in German.")
+                               captured-final-prompt))))))
+
 (provide 'test_ai-code-doc)
+;;; test_ai-code-doc.el ends here
 ;;; test_ai-code-doc.el ends here
