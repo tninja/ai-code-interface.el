@@ -116,6 +116,8 @@ everything is cleaned up afterward."
                                   captured-initial-prompt))
           (should (string-match-p (regexp-quote "Org-mode format")
                                   captured-initial-prompt))
+          (should (string-match-p (regexp-quote "[[file:../../")
+                                  captured-initial-prompt))
           (should (equal captured-final-prompt captured-initial-prompt)))
       (ignore-errors (delete-directory tmp-root t)))))
 
@@ -203,6 +205,8 @@ everything is cleaned up afterward."
                 captured-initial-prompt))
        (should (string-match-p "\\*\\* Notes and Uncertainties"
                                captured-initial-prompt))
+       (should (string-match-p (regexp-quote "[[file:../../")
+                               captured-initial-prompt))
        (should (equal inserted-prompt captured-initial-prompt))
        (should (file-exists-p
                 (expand-file-name ".ai.code.files/architecture/domain-context.org"
@@ -261,6 +265,8 @@ everything is cleaned up afterward."
        (should (string-match-p
                 "\\.ai\\.code\\.files/architecture/test-context\\.org"
                 captured-initial-prompt))
+       (should (string-match-p (regexp-quote "[[file:../../")
+                               captured-initial-prompt))
        (should (equal inserted-prompt captured-initial-prompt))
        (should (file-exists-p
                 (expand-file-name ".ai.code.files/architecture/test-context.org"
