@@ -668,6 +668,37 @@ everything is cleaned up afterward."
                nil)))
     (should-error (ai-code-derive-ddd-context) :type 'user-error)))
 
+
+(ert-deftest ai-code-test-derive-test-context-creates-target-file-and-sends-prompt ()
+  "Derive Test Context should create the target file and send the default prompt."
+  (ai-code-file-with-test-env
+   (let (captured-read-prompt
+         captured-initial-prompt
+         inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir)
+                  default-directory))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (prompt &optional initial-input)
+                  (setq captured-read-prompt prompt
+                        captured-initial-prompt initial-input)
+                  initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt)
+                  (setq inserted-prompt prompt))))
+       (ai-code-derive-test-context)
+       (should (equal captured-read-prompt "Derive Test Context prompt: "))
+       (should (string-match-p
+                "Test Context and Verification Guide"
+                captured-initial-prompt))
+       (should (string-match-p
+                "\\.ai\\.code\\.files/architecture/test-context\\.org"
+                captured-initial-prompt))
+       (should (equal inserted-prompt captured-initial-prompt))
+       (should (file-exists-p
+                (expand-file-name ".ai.code.files/architecture/test-context.org"
+                                  default-directory)))))))
+
 ;;; Tests for ai-code-context-action with completing-read
 
 (ert-deftest ai-code-test-context-action-add-calls-add-context ()

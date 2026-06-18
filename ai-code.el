@@ -492,7 +492,8 @@ Shows the current backend label to the right."
 
 (defconst ai-code--architecture-document-choices
   '(("Derive Architecture Guardrails" . ai-code-derive-architecture-guardrails)
-    ("Derive DDD Context for Repo" . ai-code-derive-ddd-context))
+    ("Derive DDD Context for Repo" . ai-code-derive-ddd-context)
+    ("Derive Test Context Document" . ai-code-derive-test-context))
   "Choices for `ai-code-derive-architecture-document`.")
 
 (defun ai-code-derive-architecture-document ()

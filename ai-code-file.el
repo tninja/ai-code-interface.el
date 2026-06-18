@@ -47,6 +47,10 @@
   ".ai.code.files/architecture/domain-context.org"
   "Repository-relative path for the derived DDD context document.")
 
+(defconst ai-code-test-context-output-relative-path
+  ".ai.code.files/architecture/test-context.org"
+  "Repository-relative path for the derived Test Context document.")
+
 (defconst ai-code-file--architecture-guardrails-file-name
   "guardrails.org"
   "File name for derived architecture guardrails.")
@@ -641,6 +645,26 @@ Clear context.  The prefix argument ARG is ignored."
     "** Testing Ideas\n"
     "** Notes and Uncertainties"))
 
+(defun ai-code--derive-test-context-prompt (git-root)
+  "Build and return Test Context prompt for GIT-ROOT."
+  (concat
+   "Derive a lightweight Test Context and Verification Guide document for this existing repository.\n"
+   "Analyze the existing tests, test runner configuration, and mocking/verification patterns.\n"
+   "Explain how the tests demonstrate and safeguard core business invariants.\n"
+   "Keep the output practical, concise, and useful for future AI coding tasks.\n"
+   (format "Repository root: %s\n" git-root)
+   (format "Create or update the Org file at %s.\n\n"
+           ai-code-test-context-output-relative-path)
+   "Use this structure:\n"
+   "* Test Context and Verification Guide\n\n"
+   "** Purpose\n"
+   "** Test Runner & Tooling\n"
+   "** Folder Structure & Organization\n"
+   "** Key Mocking & Fixture Patterns\n"
+   "** Business Rules Derived from Tests\n"
+   "** Coverage Gaps & Actionable Testing Ideas\n"
+   "** Notes and Uncertainties"))
+
 (defun ai-code--architecture-guardrails-relative-path ()
   "Return the repo-relative path for the architecture guardrails file."
   (concat ai-code-files-dir-name "/"
@@ -731,6 +755,28 @@ not already exist, so the backend has a concrete document to create or update."
             (concat (ai-code--derive-ddd-context-prompt git-root)
                     (or (ai-code--format-repo-context-info) "")))
            (final-prompt (ai-code-plain-read-string "Derive DDD context prompt: "
+                                                     initial-prompt)))
+      (when final-prompt
+        (ai-code--insert-prompt final-prompt)))))
+
+;;;###autoload
+(defun ai-code-derive-test-context ()
+  "Ask AI to derive a lightweight Test Context document for the current repo.
+The target Org file under `.ai.code.files/architecture/` is created if it does
+not already exist, so the backend has a concrete document to create or update."
+  (interactive)
+  (let* ((git-root (or (ai-code--git-root)
+                       (user-error "Not inside a Git repository")))
+         (files-dir (ai-code--ensure-files-directory))
+         (architecture-dir (expand-file-name "architecture" files-dir))
+         (target-file (expand-file-name "test-context.org" architecture-dir)))
+    (make-directory architecture-dir t)
+    (unless (file-exists-p target-file)
+      (write-region "" nil target-file nil 'silent))
+    (let* ((initial-prompt
+            (concat (ai-code--derive-test-context-prompt git-root)
+                    (or (ai-code--format-repo-context-info) "")))
+           (final-prompt (ai-code-plain-read-string "Derive Test Context prompt: "
                                                     initial-prompt)))
       (when final-prompt
         (ai-code--insert-prompt final-prompt)))))
