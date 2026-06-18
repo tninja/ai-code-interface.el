@@ -458,59 +458,6 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Speech to text input"))))
 
-(ert-deftest ai-code-test-menu-agile-development-includes-derive-architecture-document-entry ()
-  "Test that Agile Development menu exposes architecture document derivation."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "A")))
-    (should suffix)
-    (should (eq (plist-get (cdr suffix) :command)
-                'ai-code-derive-architecture-document))
-    (should (equal (plist-get (cdr suffix) :description)
-                   "Derive architecture document"))))
-
-(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-guardrails ()
-  "Test that architecture document derivation dispatches to guardrails."
-  (let (called)
-    (cl-letf (((symbol-function 'completing-read)
-               (lambda (&rest _args)
-                 "Derive Architecture Guardrails"))
-              ((symbol-function 'ai-code-derive-architecture-guardrails)
-               (lambda ()
-                 (setq called 'guardrails)))
-              ((symbol-function 'ai-code-derive-ddd-context)
-               (lambda ()
-                 (setq called 'ddd-context))))
-      (ai-code-derive-architecture-document))
-    (should (eq called 'guardrails))))
-
-(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-ddd-context ()
-  "Test that architecture document derivation dispatches to DDD context."
-  (let (called)
-    (cl-letf (((symbol-function 'completing-read)
-               (lambda (&rest _args)
-                 "Derive DDD Context for Repo"))
-              ((symbol-function 'ai-code-derive-architecture-guardrails)
-               (lambda ()
-                 (setq called 'guardrails)))
-              ((symbol-function 'ai-code-derive-ddd-context)
-               (lambda ()
-                 (setq called 'ddd-context))))
-      (ai-code-derive-architecture-document))
-    (should (eq called 'ddd-context))))
-
-
-
-(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-test-context ()
-  "Test that architecture document derivation dispatches to Test Context."
-  (let (called)
-    (cl-letf (((symbol-function 'completing-read)
-               (lambda (&rest _args)
-                 "Derive Test Context Document"))
-              ((symbol-function 'ai-code-derive-test-context)
-               (lambda ()
-                 (setq called 'test-context))))
-      (ai-code-derive-architecture-document))
-    (should (eq called 'test-context))))
-
 (ert-deftest ai-code-test-menu-agile-development-binds-k-to-task-file ()
   "Test that Agile Development menu exposes task files on K."
   (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "K")))

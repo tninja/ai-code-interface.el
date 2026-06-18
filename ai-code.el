@@ -129,6 +129,7 @@
 (require 'ai-code-grok-cli)
 (require 'ai-code-codebuddy-cli)
 (require 'ai-code-file)
+(require 'ai-code-doc)
 (require 'ai-code-harness)
 (require 'ai-code-ai)
 (require 'ai-code-mcp-server)
@@ -490,22 +491,7 @@ Shows the current backend label to the right."
   (format "Select Terminal (%s)"
           (symbol-name ai-code-backends-infra-terminal-backend)))
 
-(defconst ai-code--architecture-document-choices
-  '(("Derive Architecture Guardrails" . ai-code-derive-architecture-guardrails)
-    ("Derive DDD Context for Repo" . ai-code-derive-ddd-context)
-    ("Derive Test Context Document" . ai-code-derive-test-context))
-  "Choices for `ai-code-derive-architecture-document`.")
 
-(defun ai-code-derive-architecture-document ()
-  "Derive an architecture document by selecting one of the available options."
-  (interactive)
-  (let* ((default-choice (caar ai-code--architecture-document-choices))
-         (choice (completing-read "Derive architecture document: "
-                                  (mapcar #'car ai-code--architecture-document-choices)
-                                  nil t nil nil default-choice))
-         (command (alist-get choice ai-code--architecture-document-choices
-                             nil nil #'string=)))
-    (funcall command)))
 
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
