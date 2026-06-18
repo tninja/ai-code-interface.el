@@ -85,7 +85,7 @@
    "Mark uncertainty explicitly.\n"
    "Keep the output practical, concise, and useful for future AI coding tasks.\n"
    "Do not suggest large refactors unless you list them separately as optional future ideas.\n"
-   "When referencing any code file, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
+   "When referencing any code file, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
             ai-code-ddd-context-output-relative-path)
@@ -107,7 +107,7 @@
    "Analyze the existing tests, test runner configuration, and mocking/verification patterns.\n"
    "Explain how the tests demonstrate and safeguard core business invariants.\n"
    "Keep the output practical, concise, and useful for future AI coding tasks.\n"
-   "When referencing any test file, source file, test case, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
+   "When referencing any test file, source file, test case, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
             ai-code-test-context-output-relative-path)
@@ -161,7 +161,7 @@
            "Focus on what helps future AI coding sessions avoid breaking boundaries or introducing messy dependencies."
            "Do not suggest large refactors unless clearly separated as optional future ideas."
            "Keep it concise, practical, and small enough to reuse in future AI prompts."
-           "When referencing any code file, folder, module, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory)."
+           "When referencing any code file, folder, module, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory)."
            ""
            "Use this Org structure:"
            "#+TITLE: Architecture Guardrails"
