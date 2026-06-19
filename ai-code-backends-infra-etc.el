@@ -72,7 +72,7 @@
          (let ((height-delta (- ai-code-backends-infra-window-height
                                 (window-body-height window))))
            (unless (zerop height-delta)
-             (window-resize window height-delta nil))))
+             (window-resize window height-delta nil t))))
         (_
          (user-error "AI panel is not in a side window")))
       (ai-code-backends-infra--sync-terminal-dimensions buffer window))))

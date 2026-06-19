@@ -649,7 +649,7 @@ buffer is in scroll/copy mode, working around bug #1422."
   (let ((delta (- ai-code-backends-infra-window-width
                   (window-body-width window))))
     (unless (zerop delta)
-      (window-resize window delta t))))
+      (window-resize window delta t t))))
 
 (defun ai-code-backends-infra--sync-terminal-dimensions (buffer window)
   "Sync terminal dimensions in BUFFER to match WINDOW size.
