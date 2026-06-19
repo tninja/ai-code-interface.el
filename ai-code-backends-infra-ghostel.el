@@ -28,6 +28,7 @@
 (declare-function ghostel-exec "ghostel" (buffer program &optional args))
 (declare-function ghostel-send-key "ghostel" (key-name &optional mods))
 (declare-function ghostel-send-string "ghostel" (string))
+(declare-function ghostel-paste-string "ghostel" (string))
 (declare-function ghostel--window-adjust-process-window-size
                   "ghostel" (process windows))
 
@@ -54,9 +55,12 @@
   (add-hook 'post-command-hook
             #'ai-code-backends-infra--sync-terminal-cursor nil t))
 
-(defun ai-code-backends-infra-ghostel-send-string (string &optional _paste)
-  "Send STRING to the current Ghostel process."
-  (ghostel-send-string string))
+(defun ai-code-backends-infra-ghostel-send-string (string &optional paste)
+  "Send STRING to the current Ghostel process.
+If PASTE is non-nil, send it as a pasted string."
+  (if (and paste (fboundp 'ghostel-paste-string))
+      (ghostel-paste-string string)
+    (ghostel-send-string string)))
 
 (defun ai-code-backends-infra-ghostel-send-escape ()
   "Send escape to the current Ghostel process."

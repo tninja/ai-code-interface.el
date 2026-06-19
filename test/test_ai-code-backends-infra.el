@@ -947,6 +947,25 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (ai-code-backends-infra--terminal-send-string "hello"))
       (should (equal calls '("hello"))))))
 
+(ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-supports-paste ()
+  "Ghostel sessions should send paste input through `ghostel-paste-string' when paste is non-nil."
+  (let ((send-calls nil)
+        (paste-calls nil))
+    (cl-letf (((symbol-function 'ghostel-send-string)
+               (lambda (string)
+                 (push string send-calls)))
+              ((symbol-function 'ghostel-paste-string)
+               (lambda (string)
+                 (push string paste-calls))))
+      (with-temp-buffer
+        (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+        ;; Send without paste
+        (ai-code-backends-infra--terminal-send-string "hello" nil)
+        ;; Send with paste
+        (ai-code-backends-infra--terminal-send-string "world" t))
+      (should (equal send-calls '("hello")))
+      (should (equal paste-calls '("world"))))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-special-keys-ghostel-uses-public-api ()
   "Ghostel sessions should send special keys through `ghostel-send-key'."
   (let ((calls nil))
