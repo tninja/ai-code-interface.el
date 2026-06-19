@@ -518,7 +518,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
                 ((symbol-function 'window-body-width)
                  (lambda (&rest _args) 96))
                 ((symbol-function 'window-resize)
-                 (lambda (window delta horizontal)
+                 (lambda (window delta horizontal &optional _ignore)
                    (setq resize-call (list window delta horizontal)))))
         (ai-code-backends-infra--display-buffer-in-side-window (current-buffer))
         (should (functionp (cdr (assq 'window-width captured-entry))))

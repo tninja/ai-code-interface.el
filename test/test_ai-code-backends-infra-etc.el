@@ -85,7 +85,7 @@
                   ((symbol-function 'window-buffer)
                    (lambda (_window) target-buffer))
                   ((symbol-function 'window-resize)
-                   (lambda (window delta horizontal)
+                   (lambda (window delta horizontal &optional _ignore)
                      (setq resize-called (list window delta horizontal))))
                   ((symbol-function 'ai-code-backends-infra--sync-terminal-dimensions)
                    (lambda (buffer window)
