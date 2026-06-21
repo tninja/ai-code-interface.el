@@ -13,7 +13,6 @@
 
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
-(require 'ai-code-github)
 
 (declare-function helm-gtags-create-tags "helm-gtags" (dir &optional label))
 (declare-function magit-anything-modified-p "magit" ())
@@ -28,6 +27,9 @@
 (declare-function magit-run-git "magit-git" (&rest args))
 (declare-function magit-worktree-status "magit-worktree" ())
 (declare-function difftastic-magit-diff "difftastic" ())
+(declare-function ai-code-pull-or-review-diff-file "ai-code-github" ())
+ (declare-function ai-code--open-git-web-compare "ai-code-github" (start end))
+ (declare-function ai-code--open-git-web-commit "ai-code-github" (commit))
 
 (defcustom ai-code-init-project-gtags-label "pygments"
   "Default label passed to Helm-Gtags when initializing a project.
