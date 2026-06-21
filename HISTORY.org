@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Chore: Prompt for draft PR selection in PR creation flow
 - Fix: Support Ghostel paste API and add tests
 - Feat: Add Test Context derivation, refactor doc module, and require relative links
 
