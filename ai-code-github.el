@@ -116,6 +116,42 @@ Review Steps:
 Provide an overall assessment at the end."
             pr-url source-instruction)))
 
+(defun ai-code--build-send-current-branch-pr-init-prompt
+    (review-source current-branch target-branch &optional pr-title)
+  "Build a PR creation prompt.
+REVIEW-SOURCE, CURRENT-BRANCH, TARGET-BRANCH, and PR-TITLE
+define the PR request."
+  ;; DONE: it should ask user if this is a draft PR or not (y/n). If yes, the PR should be created as a draft PR. If no, the PR should be created as a normal PR.
+  (let* ((source-instruction
+          (ai-code--send-current-branch-pr-source-instruction review-source))
+         (draft-pr-p
+          (y-or-n-p "Create this PR as a draft? "))
+         (pr-type-instruction
+          (if draft-pr-p
+              "Create a draft pull request. If you use GitHub CLI, pass `--draft`.\n"
+            "Create a normal pull request, not a draft.\n"))
+         (title-instruction
+          (if (string-empty-p (or pr-title ""))
+              "2. Generate a concise PR title based on the code change.\n"
+            (format "2. Use this PR title exactly: %s\n" pr-title))))
+    (format "Create a pull request from branch %s into %s.
+
+%s
+
+PR Creation Steps:
+1. Inspect the current branch changes and open or send out a pull request into %s.
+   %s
+%s3. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
+4. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
+5. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
+6. Return the final PR URL, the exact PR title, and the exact description that were used."
+            current-branch
+            target-branch
+            source-instruction
+            target-branch
+            pr-type-instruction
+            title-instruction)))
+
 (defun ai-code--build-pr-feedback-check-init-prompt (review-source pr-url)
   "Build unresolved feedback check prompt for REVIEW-SOURCE with PR-URL."
   (let ((source-instruction
@@ -248,42 +284,6 @@ Signal a helpful error when difftastic is unavailable."
      (concat
       "Create the pull request using the backend's PR creation capability. "
       "Do not treat this as a PR review flow before the PR exists."))))
-
-(defun ai-code--build-send-current-branch-pr-init-prompt
-    (review-source current-branch target-branch &optional pr-title)
-  "Build a PR creation prompt.
-REVIEW-SOURCE, CURRENT-BRANCH, TARGET-BRANCH, and PR-TITLE
-define the PR request."
-  ;; DONE: it should ask user if this is a draft PR or not (y/n). If yes, the PR should be created as a draft PR. If no, the PR should be created as a normal PR.
-  (let* ((source-instruction
-          (ai-code--send-current-branch-pr-source-instruction review-source))
-         (draft-pr-p
-          (y-or-n-p "Create this PR as a draft? "))
-         (pr-type-instruction
-          (if draft-pr-p
-              "Create a draft pull request. If you use GitHub CLI, pass `--draft`.\n"
-            "Create a normal pull request, not a draft.\n"))
-         (title-instruction
-          (if (string-empty-p (or pr-title ""))
-              "2. Generate a concise PR title based on the code change.\n"
-            (format "2. Use this PR title exactly: %s\n" pr-title))))
-    (format "Create a pull request from branch %s into %s.
-
-%s
-
-PR Creation Steps:
-1. Inspect the current branch changes and open or send out a pull request into %s.
-   %s
-%s3. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
-4. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
-5. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
-6. Return the final PR URL, the exact PR title, and the exact description that were used."
-            current-branch
-            target-branch
-            source-instruction
-            target-branch
-            pr-type-instruction
-            title-instruction)))
 
 (defun ai-code--build-pr-init-prompt (review-source target-url review-mode)
   "Build initial prompt for REVIEW-SOURCE, TARGET-URL and REVIEW-MODE."
