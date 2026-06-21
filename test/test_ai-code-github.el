@@ -172,20 +172,33 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
     (should (string-match-p "diff" (downcase instruction)))
     (should-not (string-match-p "review comments" (downcase instruction)))))
 
-(ert-deftest ai-code-test-build-send-current-branch-pr-init-prompt ()
-  "Build a concise PR creation prompt for the current branch."
-  (let ((prompt (ai-code--build-send-current-branch-pr-init-prompt
-                 'gh-cli
-                 "feature/improve-pr-flow"
-                 "main")))
-    (let ((case-fold-search nil))
-      (should (string-match-p "Use GitHub CLI to create the pull request" prompt)))
-    (should (string-match-p "feature/improve-pr-flow" prompt))
-    (should (string-match-p "main" prompt))
-    (should (string-match-p "create a pull request" (downcase prompt)))
-    (should (string-match-p "short" (downcase prompt)))
-    (should (string-match-p "author" (downcase prompt)))
-    (should-not (string-match-p "review comments" (downcase prompt)))))
+(ert-deftest ai-code-test-build-send-current-branch-pr-init-prompt-draft ()
+  "Build a draft PR creation prompt for the current branch."
+  (cl-letf (((symbol-function 'y-or-n-p)
+             (lambda (_prompt) t)))
+    (let ((prompt (ai-code--build-send-current-branch-pr-init-prompt
+                   'gh-cli
+                   "feature/improve-pr-flow"
+                   "main")))
+      (let ((case-fold-search nil))
+        (should (string-match-p "Use GitHub CLI to create the pull request" prompt)))
+      (should (string-match-p "feature/improve-pr-flow" prompt))
+      (should (string-match-p "main" prompt))
+      (should (string-match-p "create a draft pull request" (downcase prompt)))
+      (should (string-match-p "short" (downcase prompt)))
+      (should (string-match-p "author" (downcase prompt)))
+      (should-not (string-match-p "review comments" (downcase prompt))))))
+
+(ert-deftest ai-code-test-build-send-current-branch-pr-init-prompt-ready-for-review ()
+  "Build a normal PR creation prompt when draft mode is declined."
+  (cl-letf (((symbol-function 'y-or-n-p)
+             (lambda (_prompt) nil)))
+    (let ((prompt (ai-code--build-send-current-branch-pr-init-prompt
+                   'gh-cli
+                   "feature/improve-pr-flow"
+                   "main")))
+      (should (string-match-p "create a normal pull request" (downcase prompt)))
+      (should-not (string-match-p "draft pull request" (downcase prompt))))))
 
 (ert-deftest ai-code-test-default-pr-target-branch-uses-origin-head-when-main-and-master-absent ()
   "Fallback target branch should use origin HEAD when available."
@@ -227,6 +240,8 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
                  (if (string= prompt "PR title (optional, leave empty for AI to generate): ")
                      ""
                    initial-input)))
+              ((symbol-function 'y-or-n-p)
+               (lambda (_prompt) nil))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq captured-inserted-prompt prompt))))
@@ -237,7 +252,9 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
       (should (member "Enter PR creation prompt: " captured-read-prompts))
       (should-not (member "Enter review prompt: " captured-read-prompts))
       (should (string-match-p "feature/improve-pr-flow" captured-inserted-prompt))
-      (should (string-match-p "generate a concise pr title" (downcase captured-inserted-prompt))))))
+      (should (string-match-p "generate a concise pr title" (downcase captured-inserted-prompt)))
+      (should (string-match-p "create a normal pull request"
+                              (downcase captured-inserted-prompt))))))
 
 (ert-deftest ai-code-test-pull-or-review-pr-with-source-explain-code-change-shares-flow ()
   "Explain code change mode should dispatch to the shared explanation flow."
