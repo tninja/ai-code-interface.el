@@ -17,7 +17,23 @@
 
 (ert-deftest ai-code-test-ai-code-git-does-not-eagerly-load-github-module ()
   "Loading `ai-code-git' should not eagerly load `ai-code-github'."
-  (should-not (featurep 'ai-code-github)))
+  (let ((git-library (locate-library "ai-code-git"))
+        (github-library (locate-library "ai-code-github")))
+    (unwind-protect
+        (progn
+          ;; Isolate the load behavior under test instead of relying on
+          ;; whatever other test files already required globally.
+          (when (featurep 'ai-code-git)
+            (unload-feature 'ai-code-git t))
+          (when (featurep 'ai-code-github)
+            (unload-feature 'ai-code-github t))
+          (load git-library nil 'nomessage)
+          (should (featurep 'ai-code-git))
+          (should-not (featurep 'ai-code-github)))
+      (unless (featurep 'ai-code-git)
+        (load git-library nil 'nomessage))
+      (unless (featurep 'ai-code-github)
+        (load github-library nil 'nomessage)))))
 
 (defun ai-code-test--gitignore-required-entries ()
   "Return the default ignore entries expected from `ai-code-update-git-ignore'."
