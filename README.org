@@ -176,6 +176,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
 - *Reviewing the Current Branch with Difftastic*: Press `C-c a`, then `v`, and choose `Review current branch with difftastic` to run `difftastic-magit-diff` for a structural review of the current branch. If the =difftastic= package is not installed, AI Code will tell you to install it from MELPA or from [[https://github.com/pkryger/difftastic.el][pkryger/difftastic.el]].
 - *Multiple Sessions Support*: Start more AI coding session with C-c a a after launching one. Select active session with C-c a z. Prompt with above command will be sent to the selected session.
 - *Speech to Text Input*: Press `C-c a`, then `:` (`ai-code-speech-to-text-input`). Speak your prompt, press `RET` to stop recording, then choose whether to insert the transcription into the current buffer, send it to the active AI coding session after editing it in `ai-code-read-string`, or copy it to the clipboard.
+- *Agent Handoff*: When switching AI backends or pausing work, press `C-c a H` to have the AI write a neutral handoff log into the task file. Later, in a new backend session, run `C-u C-c a H` to feed the entire handoff history back to the new agent.
+
 
 *** Context Engineering
 
@@ -396,6 +398,16 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 **** Platform Support
 - On Linux with D-Bus, native desktop notifications are used.
 - On other platforms, notifications appear in the Emacs minibuffer.
+
+*** Portable Agent Handoff via Task Files
+
+To transfer development work between different AI coding backends (e.g., from Codex to Antigravity CLI) without relying on backend-specific session histories, *ai-code-interface.el* supports portable agent handoffs using Org-mode task files.
+
+- *Create or Open Task Files (`K` / `ai-code-create-or-open-task-file`)*: Quickly initialize a new task file (by default under `.ai.code.files/`) with date, branch, selected backend, and structured Org headings (`Task Description`, `Investigation`, `Code Change`).
+- *Generate Portable Handoff (`H` / `ai-code-agent-handoff`)*:
+  - Run `C-c a H` (without a prefix) when not on an Org heading to ask the current AI agent to append a structured handoff section (`* Agent Handoff YYYY-MM-DD HH:MM`) summarizing the task objective, current progress, files modified, design decisions, failed approaches, test results, and a startup prompt for the next agent.
+  - Run `C-c a H` with a prefix argument (e.g. `C-u C-c a H`) to load the whole task file as neutral handoff context in a new AI session.
+  - Run `C-c a H` when the cursor is positioned on an Org heading to load only that specific subtree as prompt context for the active session.
 
 ** AI coding CLI backend
 
