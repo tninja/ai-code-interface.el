@@ -245,15 +245,14 @@ Return the relevant file paths, matched excerpts, and a concise summary."
              (choice (completing-read "Task file for handoff: "
                                       candidates nil t)))
         (when (string-empty-p choice)
-          (user-error "Task file is required for agent handoff"))
+          (user-error "Task file is required for agent handoff.  Please create one first using `ai-code-create-or-open-task-file' (C-c a K)"))
         (expand-file-name choice files-dir))))
 
 (defun ai-code--agent-handoff-read-file-or-buffer (task-file)
-  "Return content for TASK-FILE, preferring the current buffer."
-  (if (and buffer-file-name
-           (string= (expand-file-name buffer-file-name)
-                    (expand-file-name task-file)))
-      (buffer-substring-no-properties (point-min) (point-max))
+  "Return content for TASK-FILE, preferring its visiting buffer if active."
+  (if-let* ((buf (find-buffer-visiting task-file)))
+      (with-current-buffer buf
+        (buffer-substring-no-properties (point-min) (point-max)))
     (with-temp-buffer
       (insert-file-contents task-file)
       (buffer-substring-no-properties (point-min) (point-max)))))
