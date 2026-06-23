@@ -634,6 +634,65 @@ and ensures everything is cleaned up afterward."
        (when (file-directory-p files-dir)
          (delete-directory files-dir t))))))
 
+(ert-deftest ai-code-test-agent-handoff-loads-current-heading-subtree ()
+  "Agent handoff loads the current Org heading subtree as context."
+  (let (sent-prompt)
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/project/.ai.code.files/task.org")
+      (insert "* Current Handoff\n")
+      (insert "Goal: finish backend-neutral handoff.\n")
+      (insert "** Decision\n")
+      (insert "Use task files instead of backend session state.\n")
+      (insert "* Other Section\n")
+      (insert "This content should not be sent.\n")
+      (ai-code-prompt-mode)
+      (goto-char (point-min))
+      (cl-letf (((symbol-function 'ai-code--confirm-and-send)
+                 (lambda (_label prompt)
+                   (setq sent-prompt prompt))))
+        (ai-code-agent-handoff nil)))
+    (should (string-match-p "Use this agent handoff context" sent-prompt))
+    (should (string-match-p "Goal: finish backend-neutral handoff" sent-prompt))
+    (should (string-match-p "Use task files instead of backend session state" sent-prompt))
+    (should-not (string-match-p "This content should not be sent" sent-prompt))))
+
+(ert-deftest ai-code-test-agent-handoff-prefix-loads-whole-task-file ()
+  "Agent handoff with prefix loads the whole current task file."
+  (let (sent-prompt)
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/project/.ai.code.files/task.org")
+      (insert "* Task Description\n")
+      (insert "Build handoff support.\n")
+      (insert "* Prior Context\n")
+      (insert "Carry all task notes forward.\n")
+      (ai-code-prompt-mode)
+      (goto-char (point-min))
+      (cl-letf (((symbol-function 'ai-code--confirm-and-send)
+                 (lambda (_label prompt)
+                   (setq sent-prompt prompt))))
+        (ai-code-agent-handoff '(4))))
+    (should (string-match-p "Use this whole task file" sent-prompt))
+    (should (string-match-p "Build handoff support" sent-prompt))
+    (should (string-match-p "Carry all task notes forward" sent-prompt))))
+
+(ert-deftest ai-code-test-agent-handoff-off-heading-dumps-to-task-file ()
+  "Agent handoff off a heading asks the agent to append a handoff."
+  (let (sent-prompt)
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/project/.ai.code.files/task.org")
+      (insert "* Task Description\n")
+      (insert "Build handoff support.\n")
+      (ai-code-prompt-mode)
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'ai-code--confirm-and-send)
+                 (lambda (_label prompt)
+                   (setq sent-prompt prompt))))
+        (ai-code-agent-handoff nil)))
+    (should (string-match-p "append a new top-level Org section" sent-prompt))
+    (should (string-match-p "Agent Handoff" sent-prompt))
+    (should (string-match-p "Task objective" sent-prompt))
+    (should (string-match-p "/tmp/project/.ai.code.files/task.org" sent-prompt))))
+
 (ert-deftest ai-code-test-task-file-candidates-sort-by-modified-time-with-missing-scratch ()
   "Test that task candidates follow modified time and missing scratch.org is fifth."
   (ai-code-with-test-repo

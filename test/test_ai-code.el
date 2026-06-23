@@ -344,6 +344,16 @@
     (should (equal (plist-get definition :description)
                    "AI session checkpoint"))))
 
+(ert-deftest ai-code-test-menu-agile-development-includes-agent-handoff-entry ()
+  "Test that the agile menu exposes agent handoff."
+  (let* ((suffix (transient-get-suffix 'ai-code--menu-agile-development "H"))
+         (definition (cdr suffix)))
+    (should suffix)
+    (should (eq (plist-get definition :command)
+                'ai-code-agent-handoff))
+    (should (equal (plist-get definition :description)
+                   "Agent handoff (C-u: whole task)"))))
+
 (ert-deftest ai-code-test-menu-prefix-command-default-layout ()
   "Test that the default menu layout uses the original transient."
   (let ((ai-code-menu-layout 'default))

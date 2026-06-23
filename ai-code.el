@@ -529,6 +529,7 @@ Shows the current backend label to the right."
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
   ("K" "Create/Open task file" ai-code-create-or-open-task-file)
+  ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
   ("/" "Search notes with AI" ai-code-search-notes-with-ai)
   ("n" "Take notes from AI session" ai-code-take-notes))
 

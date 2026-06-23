@@ -44,11 +44,13 @@ the terminal backend infrastructure.")
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
 (declare-function ai-code--choose-symbol-from-file "ai-code-input" (file))
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
+(declare-function ai-code--confirm-and-send "ai-code-input" (prompt-label initial-prompt))
 (declare-function ai-code--worktree-main-repo-root "ai-code-utils" ())
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--session-buffer-matches-directory-p "ai-code-backends-infra" (buffer directory))
-(declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
+(declare-function ai-code-backends-infra--terminal-send-string
+  "ai-code-backends-infra" (string &optional paste))
 (declare-function ai-code-backends-infra--terminal-send-return "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--display-buffer-in-side-window "ai-code-backends-infra" (buffer))
 
@@ -852,6 +854,108 @@ Return the most relevant paths, matched excerpts, and a concise answer."
          (default-prompt (ai-code--build-task-search-prompt target-dir search-description))
          (confirmed-prompt (ai-code-read-string "Confirm search prompt: " default-prompt)))
     (ai-code--insert-prompt confirmed-prompt)))
+
+(defun ai-code--agent-handoff-current-task-file ()
+  "Return the current saved Org task file, or nil."
+  (when (and (derived-mode-p 'org-mode)
+             (stringp buffer-file-name)
+             (string-suffix-p ".org" buffer-file-name))
+    (expand-file-name buffer-file-name)))
+
+(defun ai-code--agent-handoff-read-task-file ()
+  "Return the task file to use for agent handoff."
+  (or (ai-code--agent-handoff-current-task-file)
+      (let* ((files-dir (ai-code--ensure-files-directory))
+             (candidates (cl-remove-if-not
+                          (lambda (candidate)
+                            (file-exists-p (expand-file-name candidate files-dir)))
+                          (ai-code--task-file-candidates files-dir)))
+             (choice (completing-read "Task file for handoff: "
+                                      candidates nil t)))
+        (when (string-empty-p choice)
+          (user-error "Task file is required for agent handoff"))
+        (expand-file-name choice files-dir))))
+
+(defun ai-code--agent-handoff-read-file-or-buffer (task-file)
+  "Return content for TASK-FILE, preferring the current buffer."
+  (if (and buffer-file-name
+           (string= (expand-file-name buffer-file-name)
+                    (expand-file-name task-file)))
+      (buffer-substring-no-properties (point-min) (point-max))
+    (with-temp-buffer
+      (insert-file-contents task-file)
+      (buffer-substring-no-properties (point-min) (point-max)))))
+
+(defun ai-code--agent-handoff-current-subtree-text ()
+  "Return the current Org heading subtree text."
+  (save-excursion
+    (org-back-to-heading t)
+    (let ((start (point))
+          (end (save-excursion
+                 (org-end-of-subtree t t)
+                 (point))))
+      (buffer-substring-no-properties start end))))
+
+(defun ai-code--agent-handoff-load-prompt (content whole-file-p)
+  "Build a prompt to load handoff CONTENT.
+WHOLE-FILE-P controls whether CONTENT came from the whole task file."
+  (format
+   "Use this %s as portable agent handoff context for the current task.\n\
+Continue from the state described here.  Treat it as backend-neutral context,
+not as a transcript to replay.  Before making changes, restate the next action
+you plan to take.\n\n%s"
+   (if whole-file-p "whole task file" "agent handoff context")
+   content))
+
+(defun ai-code--agent-handoff-dump-prompt (task-file)
+  "Build a prompt asking the current agent to append a handoff to TASK-FILE."
+  (format
+   "Create a portable agent handoff for the current AI coding session.\n\n\
+Append a new top-level Org section to this task file:\n%s\n\n\
+The section headline must be:\n* Agent Handoff %s\n\n\
+Write concise, backend-neutral handoff content.  Include these headings or
+bullets:\n\
+- Task objective\n\
+- Current progress\n\
+- Files modified\n\
+- Important design decisions\n\
+- Constraints and assumptions\n\
+- Failed approaches\n\
+- Relevant test results\n\
+- Git status or diff summary\n\
+- Suggested next steps\n\
+- Startup prompt for the next agent\n\n\
+Modify only the task file for this handoff.  Do not continue feature work after
+writing the handoff."
+   task-file
+   (format-time-string "%Y-%m-%d %H:%M")))
+
+;;;###autoload
+(defun ai-code-agent-handoff (&optional arg)
+  "Create or load a portable agent handoff through the current task file.
+When point is on an Org heading, load that subtree as context for the current
+backend.  When ARG is non-nil, load the whole task file as context.  Otherwise,
+ask the current agent to append a top-level handoff section to the task file."
+  (interactive "P")
+  (let ((task-file (ai-code--agent-handoff-read-task-file)))
+    (cond
+     (arg
+      (ai-code--confirm-and-send
+       "Confirm handoff load prompt: "
+       (ai-code--agent-handoff-load-prompt
+        (ai-code--agent-handoff-read-file-or-buffer task-file)
+        t)))
+     ((and (derived-mode-p 'org-mode)
+           (org-at-heading-p))
+      (ai-code--confirm-and-send
+       "Confirm handoff load prompt: "
+       (ai-code--agent-handoff-load-prompt
+        (ai-code--agent-handoff-current-subtree-text)
+        nil)))
+     (t
+      (ai-code--confirm-and-send
+       "Confirm handoff dump prompt: "
+       (ai-code--agent-handoff-dump-prompt task-file))))))
 
 ;;;###autoload
 (defun ai-code-search-notes-with-ai (&optional arg)
