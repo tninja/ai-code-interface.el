@@ -1028,6 +1028,30 @@ prompt for the project directory.
 (register-definition-prefixes "ai-code-opencode" '("ai-code-opencode-"))
 
 
+;;; Generated autoloads from ai-code-task.el
+
+(defvar ai-code-task-use-gptel-filename nil "\
+Whether to use GPTel to generate filename for task files.
+If non-nil, call `ai-code-call-gptel-sync` to generate a smart filename
+based on the task name.  Otherwise, use cleaned-up task name directly.")
+(custom-autoload 'ai-code-task-use-gptel-filename "ai-code-task" t)
+(autoload 'ai-code-agent-handoff "ai-code-task" "\
+Create or load a portable agent handoff through the current task file.
+When point is on an Org heading, load that subtree as context for the current
+backend.  When ARG is non-nil, load the whole task file as context.  Otherwise,
+ask the current agent to append a top-level handoff section to the task file.
+
+(fn &optional ARG)" t)
+(autoload 'ai-code-create-or-open-task-file "ai-code-task" "\
+Create or open an AI task file.
+Prompts for a task name. If empty, opens the task directory.
+If non-empty, optionally prompts for a URL, generates a filename
+using GPTel, and creates the task file.
+
+(fn &optional ARG)" t)
+(register-definition-prefixes "ai-code-task" '("ai-code-"))
+
+
 ;;; Generated autoloads from ai-code-prompt-mode.el
 
 (defvar ai-code-prompt-file-name ".ai.code.prompt.org" "\
@@ -1049,26 +1073,6 @@ The block is the text separated by blank lines.
 It trims leading/trailing whitespace." t)
 (defconst ai-code-files-dir-name ".ai.code.files" "\
 Directory name for storing AI task files.")
-(defvar ai-code-task-use-gptel-filename nil "\
-Whether to use GPTel to generate filename for task files.
-If non-nil, call `ai-code-call-gptel-sync` to generate a smart filename
-based on the task name.  Otherwise, use cleaned-up task name directly.")
-(custom-autoload 'ai-code-task-use-gptel-filename "ai-code-prompt-mode" t)
-(autoload 'ai-code-agent-handoff "ai-code-prompt-mode" "\
-Create or load a portable agent handoff through the current task file.
-When point is on an Org heading, load that subtree as context for the current
-backend.  When ARG is non-nil, load the whole task file as context.  Otherwise,
-ask the current agent to append a top-level handoff section to the task file.
-
-(fn &optional ARG)" t)
-(autoload 'ai-code-create-or-open-task-file "ai-code-prompt-mode" "\
-Create or open an AI task file.
-Prompts for a task name. If empty, opens the task directory.
-If non-empty, optionally prompts for a URL, generates a filename
-using GPTel, and creates the task file.
-With prefix ARG, prompt AI to search org file content under a target directory.
-
-(fn &optional ARG)" t)
 (add-to-list 'auto-mode-alist '("/\\.ai\\.code\\.files/.*\\.org\\'" . ai-code-prompt-mode))
 (register-definition-prefixes "ai-code-prompt-mode" '("ai-code-"))
 

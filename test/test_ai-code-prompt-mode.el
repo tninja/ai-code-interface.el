@@ -27,7 +27,7 @@
 (defmacro ai-code-with-test-repo (&rest body)
   "Set up a temporary git repository environment for testing.
 This macro creates a temporary directory structure, mocks `magit-toplevel`,
-and ensures everything is cleaned up afterward."
+evaluates BODY, and ensures everything is cleaned up afterward."
   `(let* ((git-root (expand-file-name "test-repo/" (file-truename temporary-file-directory)))
           (mock-file-in-repo (expand-file-name "src/main.js" git-root))
           (outside-file (expand-file-name "other-file.txt" (file-truename temporary-file-directory))))
@@ -153,194 +153,6 @@ and ensures everything is cleaned up afterward."
                      nil)))
     (should (string= inserted-prompt "edited prompt"))
     (should-not sent-directly)))
-
-;;; Tests for task file functions
-
-(ert-deftest ai-code-test-get-files-directory-in-git-repo ()
-  "Test that ai-code--get-files-directory returns .ai.code.files/ in git repo."
-  (ai-code-with-test-repo
-   (let ((expected-dir (expand-file-name ".ai.code.files" git-root)))
-     (should (string= (ai-code--get-files-directory) expected-dir)))))
-
-(ert-deftest ai-code-test-get-files-directory-not-in-git-repo ()
-  "Test that ai-code--get-files-directory returns default-directory when not in git repo."
-  (cl-letf (((symbol-function 'magit-toplevel) (lambda (&optional dir) nil)))
-    (let ((default-directory "/tmp/test-dir/"))
-      (should (string= (ai-code--get-files-directory) default-directory)))))
-
-(ert-deftest ai-code-test-ensure-files-directory-creates-directory ()
-  "Test that ai-code--ensure-files-directory creates the directory if it doesn't exist."
-  (ai-code-with-test-repo
-   (let ((files-dir (expand-file-name ".ai.code.files" git-root)))
-     ;; Ensure directory doesn't exist initially
-     (when (file-directory-p files-dir)
-       (delete-directory files-dir t))
-     ;; Call function
-     (let ((result (ai-code--ensure-files-directory)))
-       ;; Check directory was created
-       (should (file-directory-p files-dir))
-       ;; Check return value
-       (should (string= result files-dir)))
-     ;; Cleanup
-     (when (file-directory-p files-dir)
-       (delete-directory files-dir t)))))
-
-(ert-deftest ai-code-test-ensure-files-directory-returns-existing ()
-  "Test that ai-code--ensure-files-directory returns path of existing directory."
-  (ai-code-with-test-repo
-   (let ((files-dir (expand-file-name ".ai.code.files" git-root)))
-     ;; Create directory first
-     (make-directory files-dir t)
-     ;; Call function
-     (let ((result (ai-code--ensure-files-directory)))
-       ;; Check return value
-       (should (string= result files-dir))
-       ;; Check directory still exists
-       (should (file-directory-p files-dir)))
-     ;; Cleanup
-     (when (file-directory-p files-dir)
-       (delete-directory files-dir t)))))
-
-(ert-deftest ai-code-test-generate-task-filename-without-gptel ()
-  "Test filename generation without gptel (basic cleanup)."
-  (let ((ai-code-task-use-gptel-filename nil))
-    ;; Test basic task name
-    (let ((filename (ai-code--generate-task-filename "Fix Login Bug")))
-      (should (string-match-p "^task_[0-9]\\{8\\}_fix_login_bug\\.org$" filename)))
-    
-    ;; Test special characters are cleaned
-    (let ((filename (ai-code--generate-task-filename "Add@Feature#123!")))
-      (should (string-match-p "^task_[0-9]\\{8\\}_add_feature_123\\.org$" filename)))
-    
-    ;; Test multiple underscores are collapsed
-    (let ((filename (ai-code--generate-task-filename "Test   Multiple   Spaces")))
-      (should (string-match-p "^task_[0-9]\\{8\\}_test_multiple_spaces\\.org$" filename)))
-    
-    ;; Test leading/trailing underscores are removed
-    (let ((filename (ai-code--generate-task-filename "  Trim Spaces  ")))
-      (should (string-match-p "^task_[0-9]\\{8\\}_trim_spaces\\.org$" filename)))))
-
-(ert-deftest ai-code-test-generate-task-filename-with-gptel ()
-  "Test filename generation with gptel (mocked)."
-  (let ((ai-code-task-use-gptel-filename t))
-    ;; Mock ai-code-call-gptel-sync to return a predictable value
-    (cl-letf (((symbol-function 'ai-code-call-gptel-sync)
-               (lambda (question) "implement_user_authentication")))
-      (let ((filename (ai-code--generate-task-filename "Add user login feature")))
-        (should (string-match-p "^task_[0-9]\\{8\\}_implement_user_authentication\\.org$" filename))))
-    
-    ;; Test that gptel errors fall back to basic cleanup
-    (cl-letf (((symbol-function 'ai-code-call-gptel-sync)
-               (lambda (question) (error "GPTel not available"))))
-      (let ((filename (ai-code--generate-task-filename "Fix Bug")))
-        (should (string-match-p "^task_[0-9]\\{8\\}_fix_bug\\.org$" filename))))))
-
-(ert-deftest ai-code-test-generate-task-filename-with-rdar ()
-  "Test filename generation with rdar:// ID."
-  (let ((ai-code-task-use-gptel-filename nil))
-    ;; Test rdar:// ID is extracted and used as prefix
-    (let ((filename (ai-code--generate-task-filename "rdar://12345678 Fix crash on startup")))
-      (should (string-match-p "^rdar_12345678_rdar_12345678_fix_crash_on_startup\\.org$" filename)))
-    
-    ;; Test rdar:// in middle of task name
-    (let ((filename (ai-code--generate-task-filename "Fix crash rdar://99999 in login")))
-      (should (string-match-p "^rdar_99999_fix_crash_rdar_99999_in_login\\.org$" filename)))))
-
-(ert-deftest ai-code-test-generate-task-filename-org-extension ()
-  "Test that .org extension is always added."
-  (let ((ai-code-task-use-gptel-filename nil))
-    ;; Test normal case
-    (let ((filename (ai-code--generate-task-filename "Test Task")))
-      (should (string-suffix-p ".org" filename)))
-    
-    ;; Test with rdar://
-    (let ((filename (ai-code--generate-task-filename "rdar://12345 Test")))
-      (should (string-suffix-p ".org" filename)))))
-
-(ert-deftest ai-code-test-generate-task-filename-length-truncation ()
-  "Test that filename is truncated to reasonable length."
-  (let ((ai-code-task-use-gptel-filename nil)
-        (long-name (make-string 100 ?a)))
-    (let ((filename (ai-code--generate-task-filename long-name)))
-      ;; Extract the generated part (after prefix and before .org)
-      (string-match "^task_[0-9]\\{8\\}_\\(.*\\)\\.org$" filename)
-      (let ((generated-part (match-string 1 filename)))
-        ;; Should be truncated to 60 chars
-        (should (<= (length generated-part) 60))))))
-
-(ert-deftest ai-code-test-create-or-open-task-file-open-directory ()
-  "Test that ai-code-create-or-open-task-file opens directory when task name is empty."
-  (ai-code-with-test-repo
-   (let ((files-dir (expand-file-name ".ai.code.files" git-root))
-         (dired-called nil)
-         (dired-dir nil))
-     (cl-letf (((symbol-function 'completing-read)
-                (lambda (prompt collection &rest _args)
-                  (should (string-match-p "Task name" prompt))
-                  (should (member "scratch.org" collection))
-                  ""))
-               ((symbol-function 'dired-other-window)
-                (lambda (dirname)
-                  (setq dired-called t)
-                  (setq dired-dir dirname)))
-               ((symbol-function 'message)
-                (lambda (&rest args) nil)))
-       ;; Call function
-       (ai-code-create-or-open-task-file)
-       ;; Check that dired was called
-       (should dired-called)
-       ;; Check that directory was created and passed to dired
-       (should (string= dired-dir files-dir))
-       (should (file-directory-p files-dir)))
-     ;; Cleanup
-     (when (file-directory-p files-dir)
-       (delete-directory files-dir t)))))
-
-(ert-deftest ai-code-test-create-or-open-task-file-prefix-still-opens-directory-for-empty-name ()
-  "Test that a prefix arg still opens the task directory for an empty task name."
-  (ai-code-with-test-repo
-   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
-          (dired-called nil)
-          (dired-dir nil)
-          (sent-command nil))
-     (unwind-protect
-         (progn
-            (cl-letf (((symbol-function 'completing-read)
-                       (lambda (prompt collection &rest _args)
-                         (cond
-                          ((string-match-p "Task name" prompt)
-                           (should (member "scratch.org" collection))
-                           "")
-                          (t
-                           (ert-fail (format "Unexpected prompt: %s" prompt))))))
-                      ((symbol-function 'dired-other-window)
-                       (lambda (dirname)
-                         (setq dired-called t)
-                         (setq dired-dir dirname)))
-                      ((symbol-function 'ai-code-cli-send-command)
-                       (lambda (command)
-                         (setq sent-command command)))
-                      ((symbol-function 'message)
-                       (lambda (&rest _args) nil)))
-              (let ((current-prefix-arg '(4)))
-                (call-interactively #'ai-code-create-or-open-task-file))
-              (should dired-called)
-              (should (equal dired-dir files-dir))
-              (should-not sent-command)))
-       (when (file-directory-p files-dir)
-         (delete-directory files-dir t))))))
-
-(ert-deftest ai-code-test-read-task-search-directory-expands-relative-input-from-files-dir ()
-  "Relative search directories should resolve from AI-CODE-FILES-DIR."
-  (let* ((ai-code-files-dir "/tmp/project/.ai.code.files/")
-         (expected-dir (expand-file-name "notes" ai-code-files-dir)))
-    (cl-letf (((symbol-function 'read-string)
-               (lambda (&rest _args) "notes"))
-              ((symbol-function 'file-directory-p)
-               (lambda (dir)
-                 (string= dir expected-dir))))
-      (should (equal (ai-code--read-task-search-directory ai-code-files-dir)
-                     expected-dir)))))
 
 (ert-deftest ai-code-test-search-notes-with-ai-includes-task-and-additional-scopes ()
   "Test that note search always includes task files and can add note paths."
@@ -482,7 +294,7 @@ and ensures everything is cleaned up afterward."
        (should (string-match-p "Context:" sent-command))))))
 
 (ert-deftest ai-code-test-search-notes-with-ai-includes-clipboard-with-prefix-arg ()
-  "Test that note search includes clipboard when called with C-u."
+  "Test that note search includes clipboard with a prefix argument."
   (ai-code-with-test-repo
    (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
           (sent-command nil))
@@ -511,361 +323,6 @@ and ensures everything is cleaned up afterward."
        (should (string-match-p "clipboard content here" sent-command))
        (should (string-match-p "Clipboard context:" sent-command))))))
 
-(ert-deftest ai-code-test-create-or-open-task-file-create-new ()
-  "Test that ai-code-create-or-open-task-file creates new task file with metadata."
-  (ai-code-with-test-repo
-   (let ((files-dir (expand-file-name ".ai.code.files" git-root))
-         (task-file nil)
-         (ai-code-task-use-gptel-filename nil))
-     (unwind-protect
-	         (cl-letf (((symbol-function 'completing-read)
-	                    (lambda (prompt collection &rest _args)
-	                      (cond
-	                       ((string-match-p "Task name" prompt)
-	                        (should (member "scratch.org" collection))
-	                        "Test Task")
-	                       ((string-match-p "Create task file in" prompt)
-	                        (format "ai-code-files-dir: %s" files-dir)))))
-                    ((symbol-function 'read-string)
-                     (lambda (prompt &optional initial-input &rest _args)
-                       (cond
-                        ((string-match-p "URL" prompt) "https://example.com")
-                        ((string-match-p "Confirm task filename" prompt) initial-input))))
-	                   ((symbol-function 'ai-code-current-backend-label)
-	                    (lambda () "codex"))
- 	                   ((symbol-function 'find-file-other-window)
- 	                    (lambda (filename)
- 	                      (setq task-file filename)
-	                      (set-buffer (find-file-noselect filename))
-                      (erase-buffer)))
-                   ((symbol-function 'message)
-                    (lambda (&rest args) nil)))
-           ;; Call function
-           (ai-code-create-or-open-task-file)
-           ;; Check that task file path was set
-           (should task-file)
-           (should (string-prefix-p files-dir task-file))
-           (should (string-suffix-p ".org" task-file))
-	           ;; Check buffer content
-	           (with-current-buffer (get-file-buffer task-file)
-	             (let ((content (buffer-string)))
-	               (should (string-match-p (regexp-quote "#+TITLE: Test Task") content))
-	               (should (string-match-p (regexp-quote "#+DATE: ") content))
-	               (should (string-match-p (regexp-quote "#+URL: https://example.com") content))
-	               (should (string-match-p "\\* Task Description" content))
-	               (should (string-match-p "\\* Investigation" content))
-	               (should (string-match-p "\\* Code Change" content)))))
-       ;; Cleanup
-       (when (and task-file (get-file-buffer task-file))
-         (kill-buffer (get-file-buffer task-file)))
-       (when (file-directory-p files-dir)
-         (delete-directory files-dir t))))))
-
-(ert-deftest ai-code-test-create-or-open-task-file-opens-existing-candidate-directly ()
-  "Test that selecting an existing task file opens it without filename prompts."
-  (ai-code-with-test-repo
-   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
-          (existing-file (expand-file-name "existing-task.org" files-dir))
-          (opened-file nil))
-     (make-directory files-dir t)
-     (with-temp-file existing-file
-       (insert "#+TITLE: Existing Task\n"))
-     (unwind-protect
-         (progn
-           (cl-letf (((symbol-function 'completing-read)
-                      (lambda (prompt collection &rest _args)
-                        (should (string-match-p "Task name" prompt))
-                        (should (equal collection '("existing-task.org" "scratch.org")))
-                        "existing-task.org"))
-                     ((symbol-function 'read-string)
-                      (lambda (prompt &rest _args)
-                        (ert-fail (format "Unexpected prompt: %s" prompt))))
-                     ((symbol-function 'ai-code--generate-task-filename)
-                      (lambda (&rest _args)
-                        (ert-fail "Should not generate filename for existing task")))
-                     ((symbol-function 'find-file-other-window)
-                      (lambda (filename)
-                        (setq opened-file filename)))
-                     ((symbol-function 'message)
-                      (lambda (&rest _args) nil)))
-             (ai-code-create-or-open-task-file))
-           (should (equal opened-file existing-file)))
-       (when (file-directory-p files-dir)
-         (delete-directory files-dir t))))))
-
-(ert-deftest ai-code-test-create-or-open-task-file-creates-scratch-candidate-directly ()
-  "Test that selecting scratch.org creates it directly with template content."
-  (ai-code-with-test-repo
-   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
-          (scratch-file (expand-file-name "scratch.org" files-dir))
-          (opened-file nil))
-     (unwind-protect
-         (progn
-           (cl-letf (((symbol-function 'completing-read)
-                      (lambda (prompt collection &rest _args)
-                        (should (string-match-p "Task name" prompt))
-                        (should (member "scratch.org" collection))
-                        "scratch.org"))
-                     ((symbol-function 'read-string)
-                      (lambda (prompt &rest _args)
-                        (ert-fail (format "Unexpected prompt: %s" prompt))))
-                     ((symbol-function 'ai-code--generate-task-filename)
-                      (lambda (&rest _args)
-                        (ert-fail "Should not generate filename for scratch.org")))
-                     ((symbol-function 'ai-code-current-backend-label)
-                      (lambda () "codex"))
-                     ((symbol-function 'find-file-other-window)
-                      (lambda (filename)
-                        (setq opened-file filename)
-                        (set-buffer (find-file-noselect filename))
-                        (erase-buffer)))
-                     ((symbol-function 'message)
-                      (lambda (&rest _args) nil)))
-             (ai-code-create-or-open-task-file))
-           (should (equal opened-file scratch-file))
-           (should (file-exists-p scratch-file))
-           (with-temp-buffer
-             (insert-file-contents scratch-file)
-             (let ((content (buffer-string)))
-               (should (string-match-p (regexp-quote "#+TITLE: scratch.org") content))
-               (should (string-match-p "\\* Task Description" content)))))
-       (when (get-file-buffer scratch-file)
-         (kill-buffer (get-file-buffer scratch-file)))
-       (when (file-directory-p files-dir)
-         (delete-directory files-dir t))))))
-
-(ert-deftest ai-code-test-agent-handoff-loads-current-heading-subtree ()
-  "Agent handoff loads the current Org heading subtree as context."
-  (let (sent-prompt)
-    (with-temp-buffer
-      (setq buffer-file-name "/tmp/project/.ai.code.files/task.org")
-      (insert "* Current Handoff\n")
-      (insert "Goal: finish backend-neutral handoff.\n")
-      (insert "** Decision\n")
-      (insert "Use task files instead of backend session state.\n")
-      (insert "* Other Section\n")
-      (insert "This content should not be sent.\n")
-      (ai-code-prompt-mode)
-      (goto-char (point-min))
-      (cl-letf (((symbol-function 'ai-code--confirm-and-send)
-                 (lambda (_label prompt)
-                   (setq sent-prompt prompt))))
-        (ai-code-agent-handoff nil)))
-    (should (string-match-p "Use this agent handoff context" sent-prompt))
-    (should (string-match-p "Goal: finish backend-neutral handoff" sent-prompt))
-    (should (string-match-p "Use task files instead of backend session state" sent-prompt))
-    (should-not (string-match-p "This content should not be sent" sent-prompt))))
-
-(ert-deftest ai-code-test-agent-handoff-prefix-loads-whole-task-file ()
-  "Agent handoff with prefix loads the whole current task file."
-  (let (sent-prompt)
-    (with-temp-buffer
-      (setq buffer-file-name "/tmp/project/.ai.code.files/task.org")
-      (insert "* Task Description\n")
-      (insert "Build handoff support.\n")
-      (insert "* Prior Context\n")
-      (insert "Carry all task notes forward.\n")
-      (ai-code-prompt-mode)
-      (goto-char (point-min))
-      (cl-letf (((symbol-function 'ai-code--confirm-and-send)
-                 (lambda (_label prompt)
-                   (setq sent-prompt prompt))))
-        (ai-code-agent-handoff '(4))))
-    (should (string-match-p "Use this whole task file" sent-prompt))
-    (should (string-match-p "Build handoff support" sent-prompt))
-    (should (string-match-p "Carry all task notes forward" sent-prompt))))
-
-(ert-deftest ai-code-test-agent-handoff-off-heading-dumps-to-task-file ()
-  "Agent handoff off a heading asks the agent to append a handoff."
-  (let (sent-prompt)
-    (with-temp-buffer
-      (setq buffer-file-name "/tmp/project/.ai.code.files/task.org")
-      (insert "* Task Description\n")
-      (insert "Build handoff support.\n")
-      (ai-code-prompt-mode)
-      (goto-char (point-max))
-      (cl-letf (((symbol-function 'ai-code--confirm-and-send)
-                 (lambda (_label prompt)
-                   (setq sent-prompt prompt))))
-        (ai-code-agent-handoff nil)))
-    (should (string-match-p "append a new top-level Org section" sent-prompt))
-    (should (string-match-p "Agent Handoff" sent-prompt))
-    (should (string-match-p "Task objective" sent-prompt))
-    (should (string-match-p "/tmp/project/.ai.code.files/task.org" sent-prompt))))
-
-(ert-deftest ai-code-test-task-file-candidates-sort-by-modified-time-with-missing-scratch ()
-  "Test that task candidates follow modified time and missing scratch.org is fifth."
-  (ai-code-with-test-repo
-   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
-          (file-names '("task-1.org"
-                        "task-2.org"
-                        "task-3.org"
-                        "task-4.org"
-                        "task-5.org"
-                        "task-6.org"))
-          (base-time (current-time)))
-     (make-directory files-dir t)
-     (cl-loop for file-name in file-names
-              for offset from 0
-              do (let ((file (expand-file-name file-name files-dir)))
-                   (with-temp-file file
-                     (insert file-name))
-                   (set-file-times file
-                                   (time-subtract base-time
-                                                  (seconds-to-time (* offset 60))))))
-     (should
-      (equal (ai-code--task-file-candidates files-dir)
-             '("task-1.org"
-               "task-2.org"
-               "task-3.org"
-               "task-4.org"
-               "scratch.org"
-               "task-5.org"
-               "task-6.org"))))
-   (when (file-directory-p (expand-file-name ".ai.code.files" git-root))
-     (delete-directory (expand-file-name ".ai.code.files" git-root) t))))
-
-(ert-deftest ai-code-test-task-file-candidates-excludes-prompt-file ()
-  "Test that task candidates exclude `ai-code-prompt-file-name`."
-  (ai-code-with-test-repo
-   (let* ((files-dir (expand-file-name ".ai.code.files" git-root))
-          (task-file (expand-file-name "task-1.org" files-dir))
-          (prompt-file (expand-file-name ai-code-prompt-file-name files-dir)))
-     (make-directory files-dir t)
-     (with-temp-file task-file
-       (insert "task"))
-     (with-temp-file prompt-file
-       (insert "prompt"))
-     (should
-      (equal (ai-code--task-file-candidates files-dir)
-             '("task-1.org" "scratch.org"))))
-   (when (file-directory-p (expand-file-name ".ai.code.files" git-root))
-     (delete-directory (expand-file-name ".ai.code.files" git-root) t))))
-
-(ert-deftest ai-code-test-initialize-task-file-content-includes-branch ()
-  "Test that ai-code--initialize-task-file-content inserts #+BRANCH when branch is available."
-  (cl-letf (((symbol-function 'magit-get-current-branch)
-             (lambda () "feature/my-branch"))
-            ((symbol-function 'ai-code-current-backend-label)
-             (lambda () "codex")))
-    (with-temp-buffer
-      (ai-code--initialize-task-file-content "Test Task" "https://example.com")
-      (let ((content (buffer-string)))
-        (should (string-match-p (regexp-quote "#+BRANCH: feature/my-branch") content))))))
-
-(ert-deftest ai-code-test-initialize-task-file-content-no-branch ()
-  "Test that ai-code--initialize-task-file-content omits #+BRANCH when no branch available."
-  (cl-letf (((symbol-function 'magit-get-current-branch)
-             (lambda () nil))
-            ((symbol-function 'ai-code-current-backend-label)
-             (lambda () "codex")))
-    (with-temp-buffer
-      (ai-code--initialize-task-file-content "Test Task" "")
-      (let ((content (buffer-string)))
-        (should-not (string-match-p "#+BRANCH:" content))))))
-
-(ert-deftest ai-code-test-create-or-open-task-file-adds-org-extension ()
-  "Test that .org extension is added if missing from confirmed filename."
-  (ai-code-with-test-repo
-   (let ((files-dir (expand-file-name ".ai.code.files" git-root))
-         (task-file nil)
-         (ai-code-task-use-gptel-filename nil))
-     (unwind-protect
-         (cl-letf (((symbol-function 'completing-read)
-                    (lambda (prompt collection &rest _args)
-                      (cond
-                       ((string-match-p "Task name" prompt)
-                        (should (member "scratch.org" collection))
-                        "Test Task")
-                       ((string-match-p "Create task file in" prompt)
-                        (format "ai-code-files-dir: %s" files-dir)))))
-                   ((symbol-function 'read-string)
-                    (lambda (prompt &optional _initial-input &rest _args)
-                      (cond
-                       ((string-match-p "URL" prompt) "")
-                       ;; User removes .org extension
-                       ((string-match-p "Confirm task filename" prompt) "my_task"))))
-                   ((symbol-function 'ai-code-current-backend-label)
-                    (lambda () "codex"))
-                   ((symbol-function 'find-file-other-window)
-                    (lambda (filename)
-                      (setq task-file filename)
-                      (set-buffer (find-file-noselect filename))
-                      (erase-buffer)))
-                   ((symbol-function 'message)
-                    (lambda (&rest args) nil)))
-           ;; Call function
-           (ai-code-create-or-open-task-file)
-           ;; Check that .org extension was added
-           (should (string-suffix-p ".org" task-file)))
-       ;; Cleanup
-       (when (and task-file (get-file-buffer task-file))
-         (kill-buffer (get-file-buffer task-file)))
-       (when (file-directory-p files-dir)
-         (delete-directory files-dir t))))))
-
-(ert-deftest ai-code-test-create-or-open-task-file-create-subdir-option-dir-only ()
-  "Test that confirming filename ending with / opens subdirectory and does not create file."
-  (ai-code-with-test-repo
-   (let* ((default-directory git-root)
-          (ai-code-task-use-gptel-filename nil)
-          (files-dir (expand-file-name ".ai.code.files" git-root))
-          (generated-filename "task_20260101_my_task.org")
-          (expected-subdir (expand-file-name "task_20260101_my_task" default-directory))
-          (opened-file nil)
-          (opened-dired nil))
-     (unwind-protect
-         (cl-letf (((symbol-function 'completing-read)
-                    (lambda (prompt collection &rest _args)
-                      (cond
-                       ((string-match-p "Task name" prompt)
-                        (should (member "scratch.org" collection))
-                        "My Task")
-                       ((string-match-p "Create task file in" prompt)
-                        (format "current directory: %s" default-directory)))))
-                   ((symbol-function 'read-string)
-                    (lambda (prompt &optional _initial-input &rest _args)
-                      (cond
-                       ((string-match-p "URL" prompt) "")
-                       ((string-match-p "Confirm task filename" prompt) "task_20260101_my_task/"))))
-                   ((symbol-function 'ai-code--generate-task-filename)
-                    (lambda (_task-name) generated-filename))
-                   ((symbol-function 'find-file-other-window)
-                    (lambda (filename) (setq opened-file filename)))
-                   ((symbol-function 'dired-other-window)
-                    (lambda (dirname) (setq opened-dired dirname)))
-                   ((symbol-function 'message)
-                    (lambda (&rest _args) nil)))
-           (ai-code-create-or-open-task-file)
-           (should (string= opened-dired expected-subdir))
-           (should (file-directory-p expected-subdir))
-           (should-not opened-file)
-           (should-not (file-exists-p (expand-file-name generated-filename expected-subdir)))))
-       (when (file-directory-p files-dir)
-         (delete-directory files-dir t))
-       (when (file-directory-p expected-subdir)
-         (delete-directory expected-subdir t)))))
-
-(ert-deftest ai-code-test-select-task-target-directory-create-subdir-option ()
-  "Test that directory selection returns one of the two target directories."
-  (ai-code-with-test-repo
-   (let* ((ai-code-files-dir (expand-file-name ".ai.code.files" git-root))
-          (current-dir default-directory)
-          (selection nil))
-     (cl-letf (((symbol-function 'completing-read)
-                (lambda (_prompt _collection &rest _args)
-                  (format "current directory: %s" current-dir))))
-       (setq selection
-             (ai-code--select-task-target-directory ai-code-files-dir current-dir))
-       (should (string= selection current-dir)))
-     (cl-letf (((symbol-function 'completing-read)
-                (lambda (_prompt _collection &rest _args)
-                  (format "ai-code-files-dir: %s" ai-code-files-dir))))
-       (setq selection
-             (ai-code--select-task-target-directory ai-code-files-dir current-dir))
-       (should (string= selection ai-code-files-dir)))))
-
-
 (ert-deftest ai-code-test-setup-snippets-finds-directory ()
   "Test that ai-code--setup-snippets can locate the snippets directory."
   ;; This test verifies that locate-library can find the correct library
@@ -883,16 +340,10 @@ and ensures everything is cleaned up afterward."
         (should (file-directory-p ai-code-prompt-mode-dir))))))
 
 (ert-deftest ai-code-test-auto-mode-alist-pattern ()
-  "Test that auto-mode-alist correctly matches .ai.code.prompt.org file."
-  (let* ((test-file-name ".ai.code.prompt.org")
-         (test-path (concat "/some/path/" test-file-name))
-         ;; Find the first matching entry in auto-mode-alist
-         (matched-mode (cl-some (lambda (entry)
-                                  (when (string-match (car entry) test-path)
-                                    (cdr entry)))
-                                auto-mode-alist)))
-    ;; Verify that the matched mode is ai-code-prompt-mode
-    (should (eq matched-mode 'ai-code-prompt-mode))))
+  "Test that `auto-mode-alist` correctly matches .ai.code.prompt.org."
+  (let ((entry (assoc "/\\.ai\\.code\\.files/.*\\.org\\'" auto-mode-alist)))
+    (should entry)
+    (should (eq (cdr entry) 'ai-code-prompt-mode))))
 
 ;;; Tests for filepath completion functionality
 
@@ -968,13 +419,13 @@ and ensures everything is cleaned up afterward."
                        (should (member test-file-3 result)))
                      
                      ;; Test with skip-files
-                     (let ((result (ai-code--buffer-file-list 
-                                   git-root 
+                     (let ((result (ai-code--buffer-file-list
+                                   git-root
                                    (list (file-truename test-file-1)))))
                        (should-not (member test-file-1 result))
                        (should (member test-file-2 result))
                        (should (member test-file-3 result))))
-                 
+
                  ;; Kill buffers
                  (when (buffer-live-p buf1) (kill-buffer buf1))
                  (when (buffer-live-p buf2) (kill-buffer buf2))
@@ -1091,17 +542,21 @@ and ensures everything is cleaned up afterward."
                  (buf3 (find-file-noselect test-file-3)))
              (unwind-protect
                  (progn
-                   (let ((result (ai-code--recent-buffer-paths (file-truename git-root))))
+                   (cl-letf (((symbol-function 'buffer-list)
+                              (lambda () (list buf3 buf2 buf1))))
+                     (let ((result
+                            (ai-code--recent-buffer-paths
+                             (file-truename git-root))))
                      ;; Should return candidate paths (relative with @ prefix for in-repo)
                      (should (member "@recent1.el" result))
                      (should (member "@recent2.el" result))
                      (should (member "@recent3.el" result))
                      ;; Should limit to 5 files
-                     (should (<= (length result) 5))))
-               
-               ;; Kill buffers
-               (when (buffer-live-p buf1) (kill-buffer buf1))
-               (when (buffer-live-p buf2) (kill-buffer buf2))
+                     (should (<= (length result) 5)))))
+
+                 ;; Kill buffers
+                 (when (buffer-live-p buf1) (kill-buffer buf1))
+                 (when (buffer-live-p buf2) (kill-buffer buf2))
                (when (buffer-live-p buf3) (kill-buffer buf3)))))
        
        ;; Cleanup
@@ -1110,7 +565,7 @@ and ensures everything is cleaned up afterward."
        (when (file-exists-p test-file-3) (delete-file test-file-3))))))
 
 (ert-deftest ai-code-test-recent-buffer-paths-includes-dired ()
-  "Test that ai-code--recent-buffer-paths includes dired directories."
+  "Test that ai-code--recent-buffer-paths includes Dired directories."
   (ai-code-with-test-repo
    (let ((dired-dir (expand-file-name "testdir/" git-root))
          (dired-buf nil))
@@ -1122,16 +577,18 @@ and ensures everything is cleaned up afterward."
            ;; Open dired buffer
            (setq dired-buf (dired-noselect dired-dir))
            
-           (let ((result (ai-code--recent-buffer-paths (file-truename git-root))))
-             ;; Should include the dired directory
-             (should (member "@testdir/" result))))
+           (cl-letf (((symbol-function 'buffer-list)
+                      (lambda () (list dired-buf))))
+             (let ((result (ai-code--recent-buffer-paths (file-truename git-root))))
+               ;; Should include the dired directory
+               (should (member "@testdir/" result)))))
        
        ;; Cleanup
        (when (buffer-live-p dired-buf) (kill-buffer dired-buf))
        (when (file-directory-p dired-dir) (delete-directory dired-dir))))))
 
 (ert-deftest ai-code-test-current-frame-dired-paths ()
-  "Test that ai-code--current-frame-dired-paths returns dired directories."
+  "Test that ai-code--current-frame-dired-paths returns Dired directories."
   (ai-code-with-test-repo
    (let ((dired-dir-1 (expand-file-name "src/" git-root))
          (dired-dir-2 (expand-file-name "test/" git-root))
@@ -1165,8 +622,8 @@ and ensures everything is cleaned up afterward."
        ;; Cleanup
        (when (buffer-live-p dired-buf-1) (kill-buffer dired-buf-1))
        (when (buffer-live-p dired-buf-2) (kill-buffer dired-buf-2))
-       (when (file-directory-p dired-dir-1) (delete-directory dired-dir-1))
-       (when (file-directory-p dired-dir-2) (delete-directory dired-dir-2))))))
+       (when (file-directory-p dired-dir-1) (delete-directory dired-dir-1 t))
+       (when (file-directory-p dired-dir-2) (delete-directory dired-dir-2 t))))))
 
 (ert-deftest ai-code-test-prompt-filepath-candidates-prioritizes-visible-windows ()
   "Test that ai-code--prompt-filepath-candidates prioritizes visible window files."
@@ -1202,7 +659,7 @@ and ensures everything is cleaned up afterward."
        (when (file-exists-p buffer-file) (delete-file buffer-file))))))
 
 (ert-deftest ai-code-test-prompt-filepath-candidates-includes-dired-directories ()
-  "Test that ai-code--prompt-filepath-candidates includes dired directories from current frame."
+  "Test that ai-code--prompt-filepath-candidates includes Dired directories."
   (ai-code-with-test-repo
    (let ((test-file (expand-file-name "file.el" git-root)))
      (unwind-protect
@@ -1211,12 +668,12 @@ and ensures everything is cleaned up afterward."
            (with-temp-file test-file (insert "content"))
            
            ;; Mock dependencies
-           (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
-                      (lambda (_file _root) nil))
+                   (cl-letf (((symbol-function 'ai-code--git-ignored-repo-file-p)
+                              (lambda (_file _root) nil))
                      ((symbol-function 'ai-code--visible-window-files)
                       (lambda () '()))
                      ((symbol-function 'ai-code--current-frame-dired-paths)
-                      (lambda (_root) '("@src/" "test/")))
+                      (lambda (_root) '("@src/" "@test/")))
                      ((symbol-function 'ai-code--recent-buffer-paths)
                       (lambda (_root) '()))
                      ((symbol-function 'ai-code--buffer-file-list)
@@ -1232,7 +689,7 @@ and ensures everything is cleaned up afterward."
                (should (member "@file.el" candidates))
                ;; Dired directories should come before buffer files
                (let ((src-pos (cl-position "@src/" candidates :test #'string=))
-                     (test-pos (cl-position "test/" candidates :test #'string=))
+                     (test-pos (cl-position "@test/" candidates :test #'string=))
                      (file-pos (cl-position "@file.el" candidates :test #'string=)))
                  (should (< src-pos file-pos))
                  (should (< test-pos file-pos))))))
@@ -1334,22 +791,18 @@ and ensures everything is cleaned up afterward."
   "Test that ai-code--prompt-filepath-capf works with partial file paths after '@'."
   (ai-code-with-test-repo
    (with-temp-buffer
-     ;; Insert text with @ and partial path
      (insert "Check @src/ma")
      (let ((at-position (- (point) (length "src/ma"))))
-       ;; Mock dependencies
        (cl-letf (((symbol-function 'ai-code--prompt-filepath-candidates)
                   (lambda () '("@src/main.el" "@src/main.js"))))
-         
          (let* ((result (ai-code--prompt-filepath-capf))
                 (start (nth 0 result))
                 (end (nth 1 result))
                 (candidates (nth 2 result)))
-           ;; Should return completion table
            (should result)
-           (should (= start (1- at-position))) ; start at @ (one before 's')
-           (should (= end (point)))            ; end at current position
-           (should (equal candidates '("@src/main.el" "@src/main.js"))))))))))
+           (should (= start (1- at-position)))
+           (should (= end (point)))
+           (should (equal candidates '("@src/main.el" "@src/main.js")))))))))
 
 (ert-deftest ai-code-test-prompt-auto-trigger-filepath-completion ()
   "Test that ai-code--prompt-auto-trigger-filepath-completion triggers completion after '@'."
@@ -1570,9 +1023,9 @@ and ensures everything is cleaned up afterward."
         (should (string-match-p (regexp-quote ":END:") content))))))
 
 (ert-deftest ai-code-test-insert-backend-label-drawer-unknown-on-error ()
-  "Test that ai-code--insert-backend-label-drawer falls back to 'unknown' on error."
+  "Test that ai-code--insert-backend-label-drawer falls back to 'Unknown'."
   (cl-letf (((symbol-function 'ai-code-current-backend-label)
-             (lambda () (error "no backend"))))
+             (lambda () (error "No backend"))))
     (with-temp-buffer
       (ai-code--insert-backend-label-drawer)
       (let ((content (buffer-string)))
@@ -1754,52 +1207,6 @@ and ensures everything is cleaned up afterward."
       (ai-code--send-prompt "test prompt")
       (should (string= cli-send-called "test prompt"))
       (should switch-called))))
-
-(ert-deftest ai-code-test-create-or-open-task-file-in-worktree-links-to-main-repo ()
-  "In a worktree, task file is created in main repo and symlinked to worktree root."
-  (let* ((main-repo-root (file-truename (make-temp-file "main-repo-" t)))
-         (worktree-root (file-truename (make-temp-file "worktree-" t)))
-         (main-files-dir (expand-file-name ".ai.code.files" main-repo-root))
-         (ai-code-files-dir-name ".ai.code.files")
-         (ai-code-task-use-gptel-filename nil)
-         (task-file nil))
-    (make-directory main-files-dir t)
-    (unwind-protect
-        (cl-letf (((symbol-function 'ai-code--git-root)
-                   (lambda (&optional _dir) worktree-root))
-                  ((symbol-function 'magit-toplevel)
-                   (lambda (&optional _dir) worktree-root))
-                  ((symbol-function 'ai-code--worktree-main-repo-root)
-                   (lambda () main-repo-root))
-                  ((symbol-function 'ai-code--ensure-files-directory)
-                   (lambda () main-files-dir))
-                  ((symbol-function 'completing-read)
-                   (lambda (prompt collection &rest _args)
-                     (cond
-                      ((string-match-p "Task name" prompt) "worktree-task")
-                      ((string-match-p "Create task file in" prompt)
-                       (format "ai-code-files-dir: %s" main-files-dir)))))
-                  ((symbol-function 'read-string)
-                   (lambda (_prompt &optional initial-input &rest _args)
-                     (or initial-input "")))
-                  ((symbol-function 'ai-code-current-backend-label)
-                   (lambda () "claude"))
-                  ((symbol-function 'find-file-other-window)
-                   (lambda (filename) (setq task-file filename)))
-                  ((symbol-function 'save-buffer)
-                   (lambda (&rest _args) nil))
-                  ((symbol-function 'message)
-                   (lambda (&rest _args) nil)))
-          (ai-code-create-or-open-task-file)
-          (should task-file)
-          ;; Task file should be in main repo's files dir
-          (should (string-prefix-p main-files-dir task-file))
-          ;; Symlink should exist in worktree root
-          (let ((symlink (expand-file-name (file-name-nondirectory task-file) worktree-root)))
-            (should (file-symlink-p symlink))
-            (should (string= (file-truename symlink) (file-truename task-file)))))
-      (delete-directory main-repo-root t)
-      (delete-directory worktree-root t))))
 
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here

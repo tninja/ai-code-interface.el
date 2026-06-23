@@ -12,6 +12,7 @@
 (require 'magit)
 
 (require 'ai-code-input)
+(require 'ai-code-task)
 (require 'ai-code-prompt-mode)
 
 (declare-function helm-gtags-create-tags "helm-gtags" (dir &optional label))
@@ -51,7 +52,8 @@ Candidate values:
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--ensure-files-directory "ai-code-utils" ())
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
-(declare-function ai-code--generate-task-filename "ai-code-prompt-mode" (task-name))
+(declare-function ai-code--generate-task-filename "ai-code-task" (task-name))
+(declare-function ai-code--initialize-task-file-content "ai-code-task" (task-name task-url))
 
 (defvar ai-code-files-dir-name)
 

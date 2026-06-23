@@ -116,6 +116,7 @@
 (require 'ai-code-backends-infra)
 (require 'ai-code-session)
 (require 'ai-code-input)
+(require 'ai-code-task)
 (require 'ai-code-prompt-mode)
 (require 'ai-code-agile)
 (require 'ai-code-git)
