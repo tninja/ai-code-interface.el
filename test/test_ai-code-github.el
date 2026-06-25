@@ -30,7 +30,7 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
                      (setq completing-read-results (cdr completing-read-results))
                      selected)))
                 ((symbol-function 'ai-code-read-string)
-                 (lambda (prompt &optional initial-input _candidate-list)
+                 (lambda (prompt &optional initial-input &rest _args)
                    (if (string-match-p "URL:" prompt)
                        pr-url
                      initial-input)))
@@ -94,7 +94,7 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
               ((symbol-function 'ai-code--pull-or-review-action-choice)
                (lambda () 'github-mcp))
               ((symbol-function 'ai-code--pull-or-review-pr-with-source)
-               (lambda (_review-source)
+               (lambda (_review-source &rest _args)
                  nil)))
       (with-temp-buffer
         (ai-code-pull-or-review-diff-file))
@@ -108,7 +108,7 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
                (lambda (&rest _args)
                  (setq message-called t)))
               ((symbol-function 'ai-code--pull-or-review-pr-with-source)
-               (lambda (_review-source)
+               (lambda (_review-source &rest _args)
                  nil)))
       (with-temp-buffer
         (ai-code-pull-or-review-diff-file))
@@ -420,6 +420,35 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
     (should (string-match-p "merge" (downcase captured-prompt)))
     (should (string-match-p "conflict" (downcase captured-prompt)))
     (should-not diff-called)))
+
+(ert-deftest ai-code-test-pull-or-review-diff-file-investigate-issue-with-context ()
+  "Test that investigate issue mode can include current file context when y-or-n-p is true."
+  (let* ((captured-prompt nil)
+         (completing-read-results '("Use GitHub MCP server" "Investigate issue")))
+    (with-temp-buffer
+      (setq buffer-file-name "/path/to/my-source-file.el")
+      (insert "defun hello-world ()")
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _args)
+                   (let ((selected (car completing-read-results)))
+                     (setq completing-read-results (cdr completing-read-results))
+                     selected)))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (prompt &optional initial-input &rest _args)
+                   (if (string-match-p "URL:" prompt)
+                       "https://github.com/acme/demo/issues/42"
+                     initial-input)))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt)))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (prompt)
+                   (should (string-match-p "Include active buffer and editor context" prompt))
+                   t))
+                ((symbol-function 'ai-code--git-root) (lambda () "/path/to/")))
+        (ai-code-pull-or-review-diff-file)))
+    (should (string-match-p "Investigate issue: https://github.com/acme/demo/issues/42" captured-prompt))
+    (should (string-match-p "Local Context:" captured-prompt))
+    (should (string-match-p "Current file: /path/to/my-source-file.el" captured-prompt))))
 
 (provide 'test_ai-code-github)
 

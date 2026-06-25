@@ -11,6 +11,8 @@
 (require 'magit)
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
+(require 'which-func nil t)
+
 
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
@@ -24,6 +26,11 @@
 (declare-function ai-code--generate-branch-or-commit-diff "ai-code-git" (diff-params diff-file))
 (declare-function ai-code--open-diff-file "ai-code-git" (diff-file))
 (declare-function ai-code--explain-code-change "ai-code-discussion" (&optional review-source))
+(declare-function ai-code--get-context-files-string "ai-code-utils" ())
+(declare-function ai-code--format-repo-context-info "ai-code-utils" ())
+(declare-function ai-code--get-region-location-info "ai-code-discussion" (region-beginning region-end))
+(declare-function which-function "which-func" ())
+
 
 (defcustom ai-code-default-review-source nil
   "Default review source for pull request and issue analysis.
@@ -167,11 +174,13 @@ Feedback Check Steps:
 4. No need to make code change. Provide analysis only."
             pr-url source-instruction)))
 
-(defun ai-code--build-issue-investigation-init-prompt (review-source issue-url)
-  "Build issue investigation prompt for REVIEW-SOURCE with ISSUE-URL."
-  (let ((source-instruction
-         (ai-code--pull-or-review-source-instruction review-source 'investigate-issue)))
-    (format "Investigate issue: %s
+(defun ai-code--build-issue-investigation-init-prompt (review-source issue-url &optional include-context)
+  "Build issue investigation prompt for REVIEW-SOURCE with ISSUE-URL.
+If INCLUDE-CONTEXT is non-nil, append current editor context to the prompt."
+  (let* ((source-instruction
+          (ai-code--pull-or-review-source-instruction review-source 'investigate-issue))
+         (prompt
+          (format "Investigate issue: %s
 
 %s
 
@@ -180,7 +189,37 @@ Issue Investigation Steps:
 2. Analyze relevant code in this repository as context and identify likely root causes.
 3. Provide concrete insights on how to fix it, including likely files or areas to change.
 4. No need to make code change. Provide analysis only."
-            issue-url source-instruction)))
+                  issue-url source-instruction)))
+    (if (and include-context (or buffer-file-name (use-region-p)))
+        (let* ((region-text (when (use-region-p)
+                              (buffer-substring-no-properties (region-beginning) (region-end))))
+               (region-location-info (when region-text
+                                       (ai-code--get-region-location-info
+                                        (region-beginning)
+                                        (region-end))))
+               (function-name (which-function))
+               (files-context-string (ai-code--get-context-files-string))
+               (repo-context-string (ai-code--format-repo-context-info))
+               (context-blocks nil))
+          (push (if buffer-file-name
+                    (format "Current file: %s" buffer-file-name)
+                  (format "Current buffer: %s" (buffer-name)))
+                context-blocks)
+          (when function-name
+            (push (format "Function: %s" function-name) context-blocks))
+          (when region-text
+            (push (concat "Selected region:\n"
+                          (when region-location-info
+                            (concat region-location-info "\n"))
+                          region-text)
+                  context-blocks))
+          (when (and files-context-string (not (string-empty-p files-context-string)))
+            (push files-context-string context-blocks))
+          (when (and repo-context-string (not (string-empty-p repo-context-string)))
+            (push repo-context-string context-blocks))
+          (concat prompt "\n\nLocal Context:\n"
+                  (mapconcat #'identity (nreverse context-blocks) "\n\n")))
+      prompt)))
 
 (defun ai-code--build-pr-description-init-prompt (review-source pr-url)
   "Build PR description prompt for REVIEW-SOURCE with PR-URL."
@@ -285,11 +324,12 @@ Signal a helpful error when difftastic is unavailable."
       "Create the pull request using the backend's PR creation capability. "
       "Do not treat this as a PR review flow before the PR exists."))))
 
-(defun ai-code--build-pr-init-prompt (review-source target-url review-mode)
-  "Build initial prompt for REVIEW-SOURCE, TARGET-URL and REVIEW-MODE."
+(defun ai-code--build-pr-init-prompt (review-source target-url review-mode &optional include-context)
+  "Build initial prompt for REVIEW-SOURCE, TARGET-URL and REVIEW-MODE.
+If INCLUDE-CONTEXT is non-nil, append current editor context to the prompt."
   (pcase review-mode
     ('investigate-issue
-     (ai-code--build-issue-investigation-init-prompt review-source target-url))
+     (ai-code--build-issue-investigation-init-prompt review-source target-url include-context))
     ('check-feedback
      (ai-code--build-pr-feedback-check-init-prompt review-source target-url))
     ('review-ci-checks
@@ -301,8 +341,9 @@ Signal a helpful error when difftastic is unavailable."
     (_
      (ai-code--build-pr-review-init-prompt review-source target-url))))
 
-(defun ai-code--pull-or-review-pr-with-source (review-source)
-  "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI."
+(defun ai-code--pull-or-review-pr-with-source (review-source &optional arg)
+  "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI.
+ARG is the optional prefix argument to force including context."
   (require 'ai-code-git nil t)
   (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
     (cond
@@ -337,8 +378,13 @@ Signal a helpful error when difftastic is unavailable."
                        review-source current-branch target-branch pr-title)))
                 (let* ((url-prompt (ai-code--pull-or-review-url-prompt review-mode))
                        (region-url (ai-code--extract-url-from-region))
-                       (target-url (ai-code-read-string url-prompt region-url)))
-                  (ai-code--build-pr-init-prompt review-source target-url review-mode))))
+                       (target-url (ai-code-read-string url-prompt region-url))
+                       (has-context (or buffer-file-name (use-region-p)))
+                       (include-context (and (eq review-mode 'investigate-issue)
+                                             has-context
+                                             (or arg
+                                                 (y-or-n-p "Include active buffer and editor context? ")))))
+                  (ai-code--build-pr-init-prompt review-source target-url review-mode include-context))))
              (prompt-label (if (eq review-mode 'send-current-branch-pr)
                                "Enter PR creation prompt: "
                              "Enter review prompt: ")))
@@ -384,11 +430,12 @@ Works with GitHub, GitLab, Bitbucket, and other Git hosting services."
           (message "Opened web commit: %s" commit-url))
       (message "Unable to determine repository web URL"))))
 
-(defun ai-code-pull-or-review-diff-file ()
+(defun ai-code-pull-or-review-diff-file (&optional arg)
   "Review a diff file with AI Code or choose a PR review workflow.
 If current buffer is a .diff file, ask AI Code to review it.
-Otherwise, prompt for a review source and analysis mode."
-  (interactive)
+Otherwise, prompt for a review source and analysis mode.
+ARG is the optional prefix argument to force including context."
+  (interactive "P")
   (if (and buffer-file-name (string-match-p "\\.diff$" buffer-file-name))
       (let* ((file-name (file-name-nondirectory buffer-file-name))
              (init-prompt (format "Code review for %s. Use relevant file in repository as context.
@@ -406,7 +453,7 @@ Provide overall assessment.
     (unless ai-code-default-review-source
       (ai-code--message-review-source-config-hint))
     (let ((review-source (ai-code--pull-or-review-action-choice)))
-      (ai-code--pull-or-review-pr-with-source review-source))))
+      (ai-code--pull-or-review-pr-with-source review-source arg))))
 
 (provide 'ai-code-github)
 
