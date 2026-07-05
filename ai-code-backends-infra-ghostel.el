@@ -32,6 +32,9 @@
 (declare-function ghostel-send-string "ghostel" (string))
 (declare-function ghostel-paste-string "ghostel" (string))
 
+;; TODO: I just merged this PR: https://github.com/tninja/ai-code-interface.el/pull/414, how this impact ghostel backend user experience? Eg. I didn't see the progress related information in ghostel buffer.
+;; You can find ghostel package source code at: /home/tninja/git/ghostel
+
 (defvar ai-code-backends-infra--session-terminal-backend)
 (eval-when-compile
   (defvar ghostel-command-finish-functions)
@@ -65,7 +68,8 @@
   "Return non-nil when BUFFER is an AI Code Ghostel session buffer."
   (when (buffer-live-p (or buffer (current-buffer)))
     (with-current-buffer (or buffer (current-buffer))
-      (eq ai-code-backends-infra--session-terminal-backend 'ghostel))))
+      (and (boundp 'ai-code-backends-infra--session-terminal-backend)
+           (eq ai-code-backends-infra--session-terminal-backend 'ghostel)))))
 
 (defun ai-code-backends-infra-ghostel--update-session-metadata (buffer metadata)
   "Merge METADATA into the AI Code session associated with BUFFER."
@@ -164,6 +168,7 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
 
 (defun ai-code-backends-infra--configure-ghostel-buffer ()
   "Configure the current Ghostel buffer for AI Code sessions."
+  (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
   (setq-local ghostel-set-title-function nil)
   (setq-local ghostel-kill-buffer-on-exit nil)
   (ai-code-backends-infra-ghostel--install-lifecycle-hooks)
@@ -201,6 +206,9 @@ variables for the terminal process."
       (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
       (let ((default-directory working-dir)
             (proc (ai-code-backends-infra--start-ghostel-process buffer command)))
+        (setq-local default-directory working-dir)
+        (ai-code-backends-infra--set-session-directory buffer working-dir)
+        (ai-code-backends-infra--configure-ghostel-buffer)
         (when (processp proc)
           (ignore-errors
             (set-process-query-on-exit-flag proc nil))

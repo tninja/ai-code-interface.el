@@ -17,6 +17,46 @@
 (defvar ghostel-progress-function)
 (defvar ghostel-set-title-function)
 (defvar ghostel-kill-buffer-on-exit)
+(defvar ai-code-backends-infra--session-directory)
+
+(ert-deftest test-ai-code-backends-infra-ghostel-create-session-restores-ai-state ()
+  "Ghostel session creation should restore AI Code local state after mode reset."
+  (let* ((working-dir (file-name-as-directory
+                       (expand-file-name default-directory)))
+         (buffer-name " *ai-code-ghostel-reset-test*")
+         (buffer nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--set-session-directory)
+                   (lambda (target directory)
+                     (with-current-buffer target
+                       (setq-local ai-code-backends-infra--session-directory
+                                   (file-name-as-directory
+                                    (expand-file-name directory))))))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-input-shortcuts)
+                   (lambda () nil))
+                  ((symbol-function 'ai-code-backends-infra--install-navigation-cursor-sync)
+                   (lambda () nil))
+                  ((symbol-function 'ghostel-exec)
+                   (lambda (_buffer _program _args)
+                     (kill-local-variable
+                      'ai-code-backends-infra--session-terminal-backend)
+                     (kill-local-variable
+                      'ai-code-backends-infra--session-directory)
+                     nil)))
+          (setq buffer
+                (car (ai-code-backends-infra-ghostel-create-session
+                      buffer-name working-dir "codex" nil)))
+          (with-current-buffer buffer
+            (should (eq (and (boundp
+                              'ai-code-backends-infra--session-terminal-backend)
+                             ai-code-backends-infra--session-terminal-backend)
+                        'ghostel))
+            (should (equal ai-code-backends-infra--session-directory
+                           working-dir))
+            (should
+             (ai-code-backends-infra-ghostel--ai-session-buffer-p buffer))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel-configures-lifecycle-hooks ()
   "Ghostel AI session configuration should install lifecycle hooks locally."
