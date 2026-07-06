@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Fix: Restore Ghostel session state after startup
 - Fix: Remove citation to ghostel private function (--)
 - Feat: Track Ghostel lifecycle and progress metadata
 - Chore: Prompt for working directory on prefixed AI CLI start/resume
