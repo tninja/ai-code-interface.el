@@ -32,9 +32,6 @@
 (declare-function ghostel-send-string "ghostel" (string))
 (declare-function ghostel-paste-string "ghostel" (string))
 
-;; TODO: I just merged this PR: https://github.com/tninja/ai-code-interface.el/pull/414, how this impact ghostel backend user experience? Eg. I didn't see the progress related information in ghostel buffer.
-;; You can find ghostel package source code at: /home/tninja/git/ghostel
-
 (defvar ai-code-backends-infra--session-terminal-backend)
 (eval-when-compile
   (defvar ghostel-command-finish-functions)
