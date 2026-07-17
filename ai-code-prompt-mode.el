@@ -812,9 +812,6 @@ ARG is the prefix argument."
 (add-to-list 'auto-mode-alist
              '("/\\.ai\\.code\\.files/.*\\.org\\'" . ai-code-prompt-mode))
 
-;; Load prompt-boundary extensions after the advised function is defined.
-(require 'ai-code-grill)
-
 (provide 'ai-code-prompt-mode)
 
 ;;; ai-code-prompt-mode.el ends here

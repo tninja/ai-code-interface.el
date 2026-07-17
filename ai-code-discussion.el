@@ -13,11 +13,18 @@
 (require 'savehist)
 (require 'subr-x)
 
+(defvar ai-code--harness-loading)
+
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
-(require 'ai-code-change)
+(let ((ai-code--harness-loading t))
+  (require 'ai-code-change))
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
+(declare-function ai-code--compose-question-brief
+                  "ai-code-change" (&rest plist))
+(declare-function ai-code--detect-todo-info
+                  "ai-code-change" (region-active))
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 (declare-function ai-code--ensure-files-directory "ai-code-utils")
@@ -32,6 +39,8 @@
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 (declare-function dired-get-marked-files "dired"
                   (&optional localp arg filter distinguish-one-marked error-if-none-p))
+(declare-function ai-code-implement-todo
+                  "ai-code-change" (arg &optional default-action))
 
 (defvar ai-code--repo-context-info)
 (defvar org-roam-directory)
@@ -865,5 +874,9 @@ With prefix ARG, open the default note file in other window instead."
 
 
 (provide 'ai-code-discussion)
+
+;; Load prompt harnesses after entry commands are defined.
+(unless (bound-and-true-p ai-code--harness-loading)
+  (require 'ai-code-harness))
 
 ;;; ai-code-discussion.el ends here

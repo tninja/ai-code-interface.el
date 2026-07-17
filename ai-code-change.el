@@ -33,6 +33,7 @@
 (declare-function flycheck-error-message "flycheck")
 
 (defvar flycheck-current-errors)
+(defvar ai-code--harness-loading)
 
 (defconst ai-code-change--selected-region-note
   "Note: Please apply the code change to the selected region specified above."
@@ -846,5 +847,9 @@ or whole file.  Requires the `flycheck` package to be installed and available."
                          scope-description)))))))))
 
 (provide 'ai-code-change)
+
+;; Load prompt harnesses after entry commands are defined.
+(unless (bound-and-true-p ai-code--harness-loading)
+  (require 'ai-code-harness))
 
 ;;; ai-code-change.el ends here
