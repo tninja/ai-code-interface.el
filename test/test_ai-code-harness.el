@@ -571,22 +571,43 @@
                   "Summarize this design")))))))
 
 (ert-deftest ai-code-test-built-in-prompt-suffix-provider-order ()
-  "Built-in providers should append custom, Grill, test, then follow-up."
+  "Enabled built-in providers should preserve their configured order."
   (let ((ai-code-use-prompt-suffix t)
         (ai-code-prompt-suffix "CUSTOM")
-        (ai-code-grill-me-enabled t)
+        (ai-code-grill-me-enabled nil)
         (ai-code--prompt-origin-command 'ai-code-code-change)
         (ai-code-auto-test-type 'test-after-change)
         (ai-code-discussion-auto-follow-up-enabled 'always))
-    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _args) t))
+    (cl-letf (((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
+               (lambda (&rest _args) "AUTO"))
+              ((symbol-function 'ai-code--resolve-auto-follow-up-suffix-for-send)
+               (lambda (&rest _args) "FOLLOW")))
+      (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                     "Prompt\nCUSTOM\nAUTO\nFOLLOW")))))
+
+(ert-deftest ai-code-test-grill-accepted-skips-only-discussion-follow-up ()
+  "Accepting Grill should keep auto-test and skip discussion follow-up."
+  (let ((ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix nil)
+        (ai-code-grill-me-enabled t)
+        (ai-code--prompt-origin-command 'ai-code-ask-question)
+        (ai-code-use-gptel-classify-prompt nil)
+        (ai-code-auto-test-type 'test-after-change)
+        (ai-code-discussion-auto-follow-up-enabled 'ask-me))
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (prompt)
+                 (if (string-prefix-p "Grill me" prompt)
+                     t
+                   (ert-fail "Should not ask about discussion follow-up"))))
               ((symbol-function 'ai-code--grill-me-reference-suffix)
                (lambda () "GRILL"))
               ((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
                (lambda (&rest _args) "AUTO"))
               ((symbol-function 'ai-code--resolve-auto-follow-up-suffix-for-send)
-               (lambda (&rest _args) "FOLLOW")))
+               (lambda (&rest _args)
+                 (ert-fail "Should not resolve discussion follow-up"))))
       (should (equal (ai-code--apply-prompt-suffixes "Prompt")
-                     "Prompt\nCUSTOM\nGRILL\nAUTO\nFOLLOW")))))
+                     "Prompt\nGRILL\nAUTO")))))
 
 (ert-deftest ai-code-test-harness-reload-removes-legacy-send-advice ()
   "Reloading the harness should remove its legacy send-time advice."

@@ -13,6 +13,8 @@
 (require 'subr-x)
 
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function ai-code-prompt-context-cache
+                  "ai-code-prompt-mode" (context))
 (declare-function ai-code-prompt-context-origin-command
                   "ai-code-prompt-mode" (context))
 
@@ -36,6 +38,9 @@ acting."
     ai-code-implement-todo
     ai-code-send-command)
   "Interactive commands that offer the grill-me harness.")
+
+(defconst ai-code--grill-me-context-cache-key 'ai-code-grill-me-accepted
+  "Prompt context cache key for the current Grill decision.")
 
 (defun ai-code--grill-me-package-directory ()
   "Return the package installation directory for ai-code."
@@ -77,13 +82,22 @@ acting."
          (or ai-code--prompt-origin-command this-command)))
     (apply orig-fun args)))
 
+(defun ai-code--grill-me-accepted-p (context)
+  "Return non-nil when Grill was accepted for prompt CONTEXT."
+  (gethash ai-code--grill-me-context-cache-key
+           (ai-code-prompt-context-cache context)))
+
 (defun ai-code--grill-me-suffix-provider (context)
   "Return the optional Grill suffix for prompt CONTEXT."
-  (when (and ai-code-grill-me-enabled
-             (memq (ai-code-prompt-context-origin-command context)
-                   ai-code--grill-me-commands)
-             (y-or-n-p "Grill me before acting? "))
-    (ai-code--grill-me-reference-suffix)))
+  (let ((accepted
+         (and ai-code-grill-me-enabled
+              (memq (ai-code-prompt-context-origin-command context)
+                    ai-code--grill-me-commands)
+              (y-or-n-p "Grill me before acting? "))))
+    (puthash ai-code--grill-me-context-cache-key accepted
+             (ai-code-prompt-context-cache context))
+    (when accepted
+      (ai-code--grill-me-reference-suffix))))
 
 (add-hook 'ai-code-prompt-suffix-functions
           #'ai-code--grill-me-suffix-provider 20)

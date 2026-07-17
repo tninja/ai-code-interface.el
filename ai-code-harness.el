@@ -19,6 +19,7 @@
 (require 'ai-code-prompt-mode)
 
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function ai-code--grill-me-accepted-p "ai-code-grill" (context))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
 (declare-function ai-code-prompt-context-memoize
                   "ai-code-prompt-mode" (context key producer))
@@ -447,7 +448,9 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
 (defun ai-code--discussion-follow-up-suffix-provider (context)
   "Return the send-time discussion follow-up suffix for prompt CONTEXT."
   (when (and (bound-and-true-p ai-code-use-prompt-suffix)
-             ai-code-discussion-auto-follow-up-enabled)
+             ai-code-discussion-auto-follow-up-enabled
+             (not (and (fboundp 'ai-code--grill-me-accepted-p)
+                       (ai-code--grill-me-accepted-p context))))
     (ai-code--resolve-suffix-for-context
      context #'ai-code--resolve-auto-follow-up-suffix-for-send)))
 
