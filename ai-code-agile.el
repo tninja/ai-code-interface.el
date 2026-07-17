@@ -9,20 +9,27 @@
 
 ;;; Code:
 
+(defvar ai-code--harness-loading)
+
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
-(require 'ai-code-change)
+(let ((ai-code--harness-loading t))
+  (require 'ai-code-change))
 (require 'subr-x)
 (require 'thingatpt)
 (require 'which-func)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--compose-code-change-brief
+                  "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function dired-current-directory "dired" ())
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 (declare-function dired-get-marked-files "dired"
                   (&optional localp arg filter distinguish-one-marked error-if-none-p))
+
+(defvar ai-code-change--generic-note)
 
 (defconst ai-code--refactoring-techniques-catalog
   '((:name "Suggest Refactoring Strategy"
@@ -1003,4 +1010,9 @@ Works with both source code and test files that have been added to ai-code."
      ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name)))))
 
 (provide 'ai-code-agile)
+
+;; Load prompt harnesses after entry commands are defined.
+(unless (bound-and-true-p ai-code--harness-loading)
+  (require 'ai-code-harness))
+
 ;;; ai-code-agile.el ends here

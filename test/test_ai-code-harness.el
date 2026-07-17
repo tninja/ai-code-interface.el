@@ -49,6 +49,35 @@
    :prompt-text "prompt"
    :origin-command origin-command))
 
+(ert-deftest ai-code-test-harness-loads-after-agile-without-recursion ()
+  "Loading Agile first should install Harness without recursive loads."
+  (pcase-let
+      ((`(,exit-code ,output)
+        (ai-code-harness-test--clean-emacs-result
+         (concat
+          "(progn "
+          "(setq load-prefer-newer t) "
+          "(setq ai-code-test--agile-load-count 0) "
+          "(add-hook 'after-load-functions "
+          "(lambda (file) "
+          "(when (string= (file-name-base file) \"ai-code-agile\") "
+          "(setq ai-code-test--agile-load-count "
+          "(1+ ai-code-test--agile-load-count))))) "
+          "(require 'ai-code-agile) "
+          "(unless (= ai-code-test--agile-load-count 1) "
+          "(error \"Expected ai-code-agile to load once, got %d\" "
+          "ai-code-test--agile-load-count)) "
+          "(unless (and (featurep 'ai-code-agile) "
+          "(featurep 'ai-code-change) "
+          "(featurep 'ai-code-harness) "
+          "(memq #'ai-code--grill-me-suffix-provider "
+          "ai-code-prompt-suffix-functions) "
+          "(advice-member-p #'ai-code--with-grill-me-origin "
+          "'ai-code-code-change)) "
+          "(kill-emacs 1)))"))))
+    (should (equal exit-code 0))
+    (should-not (string-match-p "Error:" output))))
+
 (ert-deftest ai-code-test-grill-autoloaded-entry-loads-harness ()
   "Loading an autoloaded entry module should install the Grill provider."
   (pcase-let
