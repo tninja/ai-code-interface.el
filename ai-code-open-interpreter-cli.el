@@ -1,6 +1,6 @@
 ;;; ai-code-open-interpreter-cli.el --- Thin wrapper for Open Interpreter CLI  -*- lexical-binding: t; -*-
 
-;; Author: swithin chan
+;; Author: swithin chan, Kang Tu, AI coding agent
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
