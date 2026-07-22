@@ -148,10 +148,7 @@
   (let ((claude-spec (ai-code--backend-spec 'claude-code)))
     (should (equal (plist-get (cdr claude-spec) :install)
                    "npm install -g @anthropic-ai/claude-code@latest"))
-    (should-not
-     (seq-some (lambda (spec)
-                 (plist-get (cdr spec) :upgrade))
-               ai-code-backends))))
+    (should-not (plist-get (cdr claude-spec) :upgrade))))
 
 (ert-deftest ai-code-test-antigravity-backend-spec-contract ()
   "Ensure the Antigravity backend entry exposes required integration keys."
@@ -164,6 +161,9 @@
     (should (eq (plist-get (cdr spec) :resume) 'ai-code-antigravity-cli-resume))
     (should (equal (plist-get (cdr spec) :config) "~/.gemini/antigravity-cli/settings.json"))
     (should (equal (plist-get (cdr spec) :agent-file) "AGENTS.md"))
+    (should (equal (plist-get (cdr spec) :install)
+                   "curl -fsSL https://antigravity.google/cli/install.sh | bash"))
+    (should (equal (plist-get (cdr spec) :upgrade) "agy update"))
     (should (equal (plist-get (cdr spec) :cli) "agy"))))
 
 (ert-deftest ai-code-test-backend-selection-keeps-repo-session-backend ()
