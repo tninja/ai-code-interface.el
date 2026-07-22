@@ -240,8 +240,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-antigravity-cli-resume
      :config  "~/.gemini/antigravity-cli/settings.json"
      :agent-file "AGENTS.md"
-     :install "curl -fsSL https://antigravity.google/cli/install.sh | bash"
-     :upgrade "agy update"
+     :install "agy update"
+     :upgrade nil
      :install-skills nil
      :cli     "agy")
     (github-copilot-cli
