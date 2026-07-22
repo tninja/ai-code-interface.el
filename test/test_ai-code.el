@@ -276,72 +276,12 @@
     (should-not
      (search-forward ";; DONE: add a menu item: Debug your emacs runtime." nil t))))
 
-(ert-deftest ai-code-test-start-pi-activates-backend-and-starts-session ()
-  "The direct Pi launcher should activate Pi and start a new session."
-  (let ((ai-code-selected-backend 'codex)
-        (ai-code--cli-start-fn #'ignore)
-        (ai-code--cli-switch-fn #'ignore)
-        (ai-code--cli-send-fn #'ignore)
-        (ai-code--cli-resume-fn #'ignore)
-        (ai-code-cli "codex")
-        captured-options
-        captured-arg)
-    (cl-letf (((symbol-function 'ai-code-backends-infra--start-cli-session)
-               (lambda (options arg)
-                 (setq captured-options options
-                       captured-arg arg)))
-              ((symbol-function 'ai-code--git-root)
-               (lambda (&optional _dir) nil))
-              ((symbol-function 'message)
-               (lambda (&rest _args) nil)))
-      (ai-code-start-pi))
-    (should (eq ai-code-selected-backend 'pi))
-    (should (equal ai-code-cli "pi"))
-    (should (equal (plist-get captured-options :program) "pi"))
-    (should-not (plist-get captured-options :switches))
-    (should-not captured-arg)))
-
-(ert-deftest ai-code-test-start-pi-prefix-resumes-without-args-prompt ()
-  "A prefix should open Pi's resume picker without forwarding the prefix."
-  (let ((ai-code-selected-backend 'codex)
-        (ai-code--cli-start-fn #'ignore)
-        (ai-code--cli-switch-fn #'ignore)
-        (ai-code--cli-send-fn #'ignore)
-        (ai-code--cli-resume-fn #'ignore)
-        (ai-code-cli "codex")
-        captured-options
-        captured-arg
-        picker-prefix)
-    (cl-letf (((symbol-function 'ai-code-backends-infra--start-cli-session)
-               (lambda (options arg)
-                 (setq captured-options options
-                       captured-arg arg)))
-              ((symbol-function 'ai-code-backends-infra--cli-show-resume-picker)
-               (lambda (prefix)
-                 (setq picker-prefix prefix)))
-              ((symbol-function 'ai-code--git-root)
-               (lambda (&optional _dir) nil))
-              ((symbol-function 'message)
-               (lambda (&rest _args) nil)))
-      (let ((current-prefix-arg '(4)))
-        (ai-code-start-pi '(4))))
-    (should (eq ai-code-selected-backend 'pi))
-    (should (equal (plist-get captured-options :switches) '("--resume")))
-    (should-not captured-arg)
-    (should (equal picker-prefix "pi"))))
-
-(ert-deftest ai-code-test-menu-p-starts-pi-at-top-level ()
-  "Test that p is the top-level direct launcher for Pi."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "p")))
-    (should suffix)
-    (should (equal (plist-get (cdr suffix) :description)
-                   "Start Pi (C-u: resume)"))
-    (should (eq (plist-get (cdr suffix) :command)
-                'ai-code-start-pi))))
-
-(ert-deftest ai-code-test-menu-o-opens-prompt-history ()
-  "Test that prompt history moves to the available o binding."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "o")))
+(ert-deftest ai-code-test-menu-p-opens-prompt-history ()
+  "Test that p remains the top-level prompt history binding."
+  (should-error
+   (transient-get-suffix 'ai-code--menu-ai-cli-session "p")
+   :type 'error)
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "p")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-open-prompt-file))))

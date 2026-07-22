@@ -61,7 +61,6 @@ Minimal setup:
 
 First 60 seconds:
 - `C-c a a`: Start the currently selected AI CLI session
-- `C-c a p`: Select Pi and start it directly (`C-u`: resume)
 - `C-c a c`: Ask AI to change current function/region
 - `C-c a q`: Ask question only (no code change)
 - `C-c a z`: Jump back to AI session buffer
@@ -189,8 +188,8 @@ appends the destination PNG path when invoking it:
   - When a visible AI session buffer already exists, prompts can be routed to that session directly instead of opening a new one.
 - *Insert into AI Sessions*: Open the configurable `ai-code-menu` prefix (`C-c a` in the configuration examples), then press `I` to open the Insert submenu for files, Dired selections, regions, diagnostics-aware DWIM, screenshots, and clipboard images. The `I` entry always remains available. If no session is running, pressing it reports that state; if only sessions for other projects are running, it opens the submenu with just the `to...` entries for choosing one explicitly. An editor viewport associated with the destination session receives the insertion when present; otherwise AI Code inserts into that session's TUI input without submitting it. Screenshot capture may require the [[*Optional Screenshot Capture][platform-specific utility described above]].
   - Inserted TUI content is always preceded and followed by two newline characters.[fn:insert-tui-spacing] In a viewport, AI Code omits the leading two newlines when the viewport is empty, keeps them when it already contains content, and always appends two newlines. Viewport attachments follow the same spacing rule.
-- *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`o`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
-- *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), debug Emacs runtime issues (`d`), auto-fix Flycheck issues in scope (`f`), copy file paths formatted for prompts (`k`), open prompt history (`o`), capture session notes straight into Org (`n`), search notes with AI (`/`), and dictate prompts with speech-to-text (`:`).
+- *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
+- *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), debug Emacs runtime issues (`d`), auto-fix Flycheck issues in scope (`f`), copy file paths formatted for prompts (`k`), open prompt history (`p`), capture session notes straight into Org (`n`), search notes with AI (`/`), and dictate prompts with speech-to-text (`:`).
 - *Architecture Document Generation*: Derive practical architecture documents for the current repository with `C-c a A` (`ai-code-derive-architecture-document`). The command can generate architecture guardrails, a C4 PlantUML overview, a lightweight DDD context, or a test context document under `.ai.code.files/architecture/` so future AI coding sessions can reuse module boundaries, dependency rules, runtime flows, and validation expectations. See [[./docs/architecture/c4-overview.org][the C4 architecture overview for this repository]] for an example C4 diagram guide.
 - *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` by default), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized.
 - *Interactive Chat & Context Tools*: Dedicated buffers hold long-running chats, automatically enriched with file paths, diffs, and history from Magit or Git commands for richer AI responses.
@@ -508,11 +507,10 @@ To transfer development work between different AI coding backends (e.g., from Co
      Install Pi with =npm install -g --ignore-scripts @earendil-works/pi-coding-agent=,
      or use the installer documented at [[https://pi.dev/][pi.dev]].  Ensure the =pi=
      executable is on your PATH, authenticate with an API key or =/login=, and
-     select the backend with =(ai-code-set-backend 'pi)=.  Customize
+     select the backend with =C-c a s= or =(ai-code-set-backend 'pi)=.  Customize
      =ai-code-pi-program= or =ai-code-pi-program-switches= to change the
-     executable or startup flags.  =C-c a p= is a first-level shortcut that
-     selects Pi and starts it directly; use =C-u C-c a p= to open Pi's resume
-     picker.  =C-c a R= also resumes when Pi is already selected.  In Pi session buffers, Shift+Enter and
+     executable or startup flags.  Once selected, =C-c a a= starts Pi and
+     =C-c a R= resumes a session.  In Pi session buffers, Shift+Enter and
      Ctrl+Enter insert a newline, and Ctrl+Escape sends Escape to cancel the
      current operation.
 
