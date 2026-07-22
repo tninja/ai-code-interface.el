@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Add CLI-aware backend install and upgrade flow
 - Stop tracking generated autoload file (ai-code-autoloads.el is a generated artifact — tracking it breaks Elpaca updates on Emacs), by nailuoGG
 - Fix editor viewport placement and temporary recentf entries, by cxa
 
