@@ -689,10 +689,10 @@ ACTION should be the symbol `install' or `uninstall'."
          (default-prompt
           (if (eq action 'uninstall)
               (format
-               "Please read the README of %s and uninstall/remove the skills described there for %s. Follow the repository instructions to remove any installed skill files and cleanup related configuration."
+               "Please read the README of %s and uninstall/remove the skills described there for %s globally for the current user, not just for the current project. Follow the repository instructions to remove the skill files from the backend's user-level/global skills directory and clean up related global configuration. Do not remove or modify project-specific skill files or configuration."
                url label)
             (format
-             "Please read the README of %s and install/setup the skills described there for %s. Follow the installation instructions in the README."
+             "Please read the README of %s and install/setup the skills described there for %s globally for the current user so they are available to all projects. Follow the installation instructions in the README, using the backend's user-level/global skills directory. Do not install or modify skill files or configuration in the current project."
              url label)))
          (prompt (if (called-interactively-p 'interactive)
                      (ai-code-read-string
