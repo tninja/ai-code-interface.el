@@ -45,6 +45,8 @@ or nil (prompt the user)."
 (defvar ai-code-pr-title-history nil
   "Minibuffer history for optional PR titles.")
 
+(defvar ai-code--grill-me-workflow)
+
 (defun ai-code--extract-url-from-region ()
   "Return the first URL found in the active region, or nil."
   (when (use-region-p)
@@ -345,18 +347,18 @@ If INCLUDE-CONTEXT is non-nil, append current editor context to the prompt."
   "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI.
 ARG is the optional prefix argument to force including context."
   (require 'ai-code-git nil t)
-  (let* ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
+  (let ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
     (cond
      ((eq review-mode 'generate-diff-file)
       (ai-code--magit-generate-feature-branch-diff-file))
      ((eq review-mode 'review-current-branch-with-difftastic)
       (ai-code--review-current-branch-with-difftastic))
-      ((eq review-mode 'explain-code-change)
-       (unless (fboundp 'ai-code--explain-code-change)
-         (require 'ai-code-discussion nil t))
-       (unless (fboundp 'ai-code--explain-code-change)
-         (user-error "Code change explanation support is not available"))
-       (ai-code--explain-code-change review-source))
+     ((eq review-mode 'explain-code-change)
+      (unless (fboundp 'ai-code--explain-code-change)
+        (require 'ai-code-discussion nil t))
+      (unless (fboundp 'ai-code--explain-code-change)
+        (user-error "Code change explanation support is not available"))
+      (ai-code--explain-code-change review-source))
      (t
       (let* ((init-prompt
               (if (eq review-mode 'send-current-branch-pr)
@@ -388,7 +390,8 @@ ARG is the optional prefix argument to force including context."
              (prompt-label (if (eq review-mode 'send-current-branch-pr)
                                "Enter PR creation prompt: "
                              "Enter review prompt: ")))
-        (ai-code--confirm-and-send prompt-label init-prompt))))))
+        (let ((ai-code--grill-me-workflow review-mode))
+          (ai-code--confirm-and-send prompt-label init-prompt)))))))
 
 (defun ai-code--get-git-web-repo-url ()
   "Get Git repository web URL from git remote.

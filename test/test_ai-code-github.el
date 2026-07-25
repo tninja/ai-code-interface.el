@@ -12,6 +12,7 @@
 (require 'ert)
 (require 'ai-code-github)
 (require 'ai-code-git)
+(require 'ai-code-harness)
 (require 'ai-code-prompt-mode)
 
 (declare-function difftastic-magit-diff "difftastic" ())
@@ -40,6 +41,54 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
                  (lambda () (setq diff-called t))))
         (ai-code-pull-or-review-diff-file)))
     (list captured-prompt diff-called)))
+
+(defun ai-code-test--sent-prompt-for-review-mode (review-mode-choice)
+  "Return the sent prompt and Grill questions for REVIEW-MODE-CHOICE."
+  (let ((ai-code-default-review-source 'github-mcp)
+        (ai-code-grill-me-enabled t)
+        (ai-code-prompt-preprocess-filepaths nil)
+        (ai-code-prompt-suffix-functions
+         '(ai-code--grill-me-suffix-provider))
+        (this-command 'ai-code-pull-or-review-diff-file)
+        captured-prompt
+        grill-questions)
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _args) review-mode-choice))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (prompt &optional initial-input &rest _args)
+                   (if (string-match-p "URL:" prompt)
+                       "https://github.com/acme/demo/pull/123"
+                     initial-input)))
+                ((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   initial-input))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (prompt)
+                   (push prompt grill-questions)
+                   t))
+                ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+                 (lambda () nil))
+                ((symbol-function 'ai-code--send-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+        (ai-code-pull-or-review-diff-file)))
+    (list captured-prompt (nreverse grill-questions))))
+
+(ert-deftest ai-code-test-pull-or-review-diff-file-grills-only-selected-review-modes ()
+  "Only selected GitHub review modes should offer the Grill harness."
+  (dolist (review-mode-choice '("Investigate issue"
+                                "Review the PR"
+                                "Resolve merge conflict"))
+    (pcase-let ((`(,sent-prompt ,grill-questions)
+                 (ai-code-test--sent-prompt-for-review-mode
+                  review-mode-choice)))
+      (should (equal grill-questions '("Grill me before acting? ")))
+      (should (string-match-p "prompt/grilling\\.v1\\.md" sent-prompt))))
+  (pcase-let ((`(,sent-prompt ,grill-questions)
+               (ai-code-test--sent-prompt-for-review-mode
+                "Review GitHub CI checks")))
+    (should-not grill-questions)
+    (should-not (string-match-p "prompt/grilling\\.v1\\.md" sent-prompt))))
 
 (ert-deftest ai-code-test-action-choice-returns-github-mcp-when-default-set ()
   "When `ai-code-default-review-source' is `github-mcp', return it directly."
