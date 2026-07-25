@@ -591,10 +591,20 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Speech to text input"))))
 
-(ert-deftest ai-code-test-menu-actions-with-context-binds-plus-to-create-file ()
-  "Test that Actions With Context exposes file creation on +."
+(ert-deftest ai-code-test-menu-actions-with-context-binds-q-to-quick-prompt ()
+  "Test that Actions With Context exposes quick prompts on Q."
   (let ((suffix (transient-get-suffix
-                 'ai-code--menu-actions-with-context "+")))
+                 'ai-code--menu-actions-with-context "Q")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-send-quick-prompt))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Send quick prompt"))))
+
+(ert-deftest ai-code-test-menu-other-tools-binds-plus-to-create-file ()
+  "Test that Other Tools exposes file creation on +."
+  (let ((suffix (transient-get-suffix
+                 'ai-code--menu-other-tools "+")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-create-file-or-dir))
