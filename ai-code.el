@@ -571,6 +571,7 @@ Shows the current backend label to the right."
   ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
   ("/" "Search notes with AI" ai-code-search-notes-with-ai)
   ("n" "Take notes from AI session" ai-code-take-notes)
+  ("p" "Open prompt history file" ai-code-open-prompt-file)
   ("+" "Create file or dir with AI" ai-code-create-file-or-dir)
   ("." "Init projectile and gtags" ai-code-init-project)
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
@@ -578,7 +579,6 @@ Shows the current backend label to the right."
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
   ("P" "AI session checkpoint" ai-code-session-checkpoint)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
-  ("p" "Open prompt history file" ai-code-open-prompt-file)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))
 
