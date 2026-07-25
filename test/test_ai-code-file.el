@@ -613,6 +613,38 @@ everything is cleaned up afterward."
 
 ;;; Tests for ai-code-context-action with completing-read
 
+(ert-deftest ai-code-test-copy-file-context-whole-line-excludes-next-line ()
+  "A whole-line region should not include the following line in its reference."
+  (with-temp-buffer
+    (insert "first\nsecond\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 1)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "first\n in /tmp/sample.el#L1-L1")))))
+
+(ert-deftest ai-code-test-copy-file-context-narrowed-buffer-uses-absolute-lines ()
+  "A narrowed buffer should still copy absolute file line numbers."
+  (with-temp-buffer
+    (insert "first\nsecond\nthird\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (forward-line 2)
+    (narrow-to-region (point) (point-max))
+    (set-mark (point))
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "third in /tmp/sample.el#L3-L3")))))
+
 (ert-deftest ai-code-test-context-action-copies-scoped-context ()
   "Test that context actions copy function and region references."
   (let* ((repo-root (make-temp-file "ai-code-context-copy-" t))
@@ -644,6 +676,8 @@ everything is cleaned up afterward."
                          (lambda (_prompt collection &rest _args)
                            (push (copy-sequence collection) offered-actions)
                            (pop selected-actions)))
+                        ((symbol-function 'which-function)
+                         (lambda () "sample"))
                         ((symbol-function 'magit-toplevel)
                          (lambda (&optional _dir) repo-root)))
                 (ai-code-context-action nil)

@@ -65,10 +65,12 @@ active region line range, then the current function, then the file path."
               buffer-file-name)))
       (cond
        ((use-region-p)
-        (format "%s#L%d-L%d"
-                file-reference
-                (line-number-at-pos (region-beginning))
-                (line-number-at-pos (region-end))))
+        (let ((start (region-beginning))
+              (end (region-end)))
+          (format "%s#L%d-L%d"
+                  file-reference
+                  (line-number-at-pos start t)
+                  (line-number-at-pos (max start (1- end)) t))))
        (t
         (let ((function-name (when (fboundp 'which-function)
                                (which-function))))
