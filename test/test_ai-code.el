@@ -579,8 +579,8 @@
                    "Speech to text input"))))
 
 (ert-deftest ai-code-test-menu-agile-development-binds-k-to-task-file ()
-  "Test that Agile Development menu exposes task files on K."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "K")))
+  "Test that Agile Development menu exposes task files on k."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "k")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-create-or-open-task-file))
