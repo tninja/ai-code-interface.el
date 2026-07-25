@@ -298,6 +298,19 @@
   (should-error (transient-get-suffix 'ai-code--menu-actions-with-context "o")
                 :type 'error))
 
+(ert-deftest ai-code-test-menu-merges-copy-context-into-context-action ()
+  "Test that context copying stays under @ when k is reused for task files."
+  (let ((context-suffix
+         (transient-get-suffix 'ai-code--menu-actions-with-context "@"))
+        (task-suffix
+         (transient-get-suffix 'ai-code--menu-other-tools "k")))
+    (should context-suffix)
+    (should (eq (plist-get (cdr context-suffix) :command)
+                'ai-code-context-action))
+    (should task-suffix)
+    (should (eq (plist-get (cdr task-suffix) :command)
+                'ai-code-create-or-open-task-file))))
+
 (ert-deftest test-ai-code--menu-actions-with-context-opens-insert-menu ()
   "Test that the actions menu opens the independent Insert menu."
   (let ((suffix (transient-get-suffix 'ai-code--menu-actions-with-context "I")))
@@ -398,23 +411,32 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Session dashboard"))))
 
-(ert-deftest ai-code-test-menu-other-tools-includes-debug-emacs-runtime-entry ()
-  "Test that the Other Tools menu exposes Emacs runtime debugging."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "d")))
+(ert-deftest ai-code-test-menu-agile-development-includes-debug-emacs-runtime-entry ()
+  "Test that the Agile Development menu exposes Emacs runtime debugging."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "d")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-debug-emacs-runtime))
     (should (equal (plist-get (cdr suffix) :description)
                    "Debug Emacs runtime"))))
 
-(ert-deftest ai-code-test-menu-other-tools-labels-exception-as-investigation ()
-  "Test that the exception entry is labeled as investigation-first."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "e")))
+(ert-deftest ai-code-test-menu-agile-development-labels-exception-as-investigation ()
+  "Test that the Agile Development exception entry is investigation-first."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "e")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-investigate-exception))
     (should (equal (plist-get (cdr suffix) :description)
                    "Investigate exception (C-u: clipboard)"))))
+
+(ert-deftest ai-code-test-menu-agile-development-includes-flycheck-fix-entry ()
+  "Test that the Agile Development menu exposes Flycheck fixes."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "f")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-flycheck-fix-errors-in-scope))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Fix Flycheck errors in scope"))))
 
 (ert-deftest ai-code-test-menu-other-tools-removes-architecture-guardrails-entry ()
   "Test that the Other Tools menu no longer exposes a dedicated guardrails item."
@@ -445,9 +467,9 @@
     (should (equal (plist-get definition :description)
                    "AI session checkpoint"))))
 
-(ert-deftest ai-code-test-menu-agile-development-includes-agent-handoff-entry ()
-  "Test that the agile menu exposes agent handoff."
-  (let* ((suffix (transient-get-suffix 'ai-code--menu-agile-development "H"))
+(ert-deftest ai-code-test-menu-other-tools-includes-agent-handoff-entry ()
+  "Test that the Other Tools menu exposes agent handoff."
+  (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "H"))
          (definition (cdr suffix)))
     (should suffix)
     (should (eq (plist-get definition :command)
@@ -569,23 +591,52 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Speech to text input"))))
 
-(ert-deftest ai-code-test-menu-agile-development-binds-k-to-task-file ()
-  "Test that Agile Development menu exposes task files on K."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "K")))
+(ert-deftest ai-code-test-menu-actions-with-context-binds-q-to-quick-prompt ()
+  "Test that Actions With Context exposes quick prompts on Q."
+  (let ((suffix (transient-get-suffix
+                 'ai-code--menu-actions-with-context "Q")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-send-quick-prompt))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Send quick prompt"))))
+
+(ert-deftest ai-code-test-menu-other-tools-binds-plus-to-create-file ()
+  "Test that Other Tools exposes file creation on +."
+  (let ((suffix (transient-get-suffix
+                 'ai-code--menu-other-tools "+")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-create-file-or-dir))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Create file or dir with AI"))))
+
+(ert-deftest ai-code-test-menu-other-tools-binds-k-to-task-file ()
+  "Test that Other Tools exposes task files on k."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "k")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-create-or-open-task-file))
     (should (equal (plist-get (cdr suffix) :description)
                    "Create/Open task file"))))
 
-(ert-deftest ai-code-test-menu-agile-development-binds-slash-to-note-search ()
-  "Test that Agile Development menu exposes AI note search on /."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "/")))
+(ert-deftest ai-code-test-menu-other-tools-binds-slash-to-note-search ()
+  "Test that Other Tools exposes AI note search on /."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "/")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-search-notes-with-ai))
     (should (equal (plist-get (cdr suffix) :description)
                    "Search notes with AI"))))
+
+(ert-deftest ai-code-test-menu-other-tools-includes-take-notes-entry ()
+  "Test that Other Tools exposes taking notes on n."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "n")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-take-notes))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Take notes from AI session"))))
 
 (provide 'test_ai-code)
 

@@ -7,7 +7,7 @@
 ;; - ClaudeCode:Opus-4.8
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
-;; Version: 1.900
+;; Version: 1.91
 ;; Package-Requires: ((emacs "29.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
@@ -520,8 +520,8 @@ Shows the current backend label to the right."
   ("x" "Explain code in scope" ai-code-explain)
   ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
   ("I" "Insert to session..." ai-code-insert-menu)
-  ("@" "Context (add/show/clear)" ai-code-context-action)
-  ("C" "Create file or dir with AI" ai-code-create-file-or-dir)
+  ("@" "Context (copy/add/show/clear)" ai-code-context-action)
+  ("Q" "Send quick prompt" ai-code-send-quick-prompt)
   (":" "Speech to text input" ai-code-speech-to-text-input)
   ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action))
 
@@ -560,25 +560,25 @@ Shows the current backend label to the right."
   ("A" "Derive architecture document" ai-code-derive-architecture-document)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
-  ("K" "Create/Open task file" ai-code-create-or-open-task-file)
-  ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
-  ("/" "Search notes with AI" ai-code-search-notes-with-ai)
-  ("n" "Take notes from AI session" ai-code-take-notes))
+  ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
+  ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
+  ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
+  )
 
 (transient-define-group ai-code--menu-other-tools
   (ai-code--infix-toggle-auto-follow-up)
+  ("k" "Create/Open task file" ai-code-create-or-open-task-file)
+  ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
+  ("/" "Search notes with AI" ai-code-search-notes-with-ai)
+  ("n" "Take notes from AI session" ai-code-take-notes)
+  ("+" "Create file or dir with AI" ai-code-create-file-or-dir)
   ("." "Init projectile and gtags" ai-code-init-project)
-  ("P" "AI session checkpoint" ai-code-session-checkpoint)
-  ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
-  ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
-  ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
-  ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
-  ("p" "Open prompt history file" ai-code-open-prompt-file)
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
-  ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
-  ("Q" "Send quick prompt" ai-code-send-quick-prompt)
+  ("P" "AI session checkpoint" ai-code-session-checkpoint)
+  ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
+  ("p" "Open prompt history file" ai-code-open-prompt-file)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))
 
@@ -588,7 +588,7 @@ Shows the current backend label to the right."
    ["AI CLI session" ai-code--menu-ai-cli-session]
    ["AI Code Actions With Context" ai-code--menu-actions-with-context]
    ["AI Agile Development With Harness" ai-code--menu-agile-development]
-   ["Other Tools" ai-code--menu-other-tools]])
+   ["Task Management / Other Tools" ai-code--menu-other-tools]])
 
 (transient-define-prefix ai-code-menu-2-columns ()
   "Narrower two-column transient menu for AI Code Interface interactive functions."
@@ -596,7 +596,7 @@ Shows the current backend label to the right."
    ["AI CLI session" ai-code--menu-ai-cli-session]
    ["AI Code Actions With Context" ai-code--menu-actions-with-context]]
   [["AI Agile Development With Harness" ai-code--menu-agile-development]
-   ["Other Tools" ai-code--menu-other-tools]])
+   ["Task Management / Other Tools" ai-code--menu-other-tools]])
 
 (defun ai-code--menu-prefix-command ()
   "Return the transient prefix command selected by `ai-code-menu-layout`."

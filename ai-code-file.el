@@ -51,13 +51,42 @@
       (ai-code--resolve-auto-test-suffix-for-send)
     ai-code-auto-test-suffix))
 
+(defun ai-code--current-file-context-reference (&optional full-path)
+  "Return the current file context reference.
+When FULL-PATH is non-nil, use the absolute file path.  Otherwise, use
+a repository-relative path with an @ prefix when possible.  Prefer an
+active region line range, then the current function, then the file path."
+  (when buffer-file-name
+    (let* ((git-root (unless full-path
+                       (ai-code--git-root)))
+           (file-reference
+            (if (and git-root (not full-path))
+                (ai-code--process-word-for-filepath buffer-file-name git-root)
+              buffer-file-name)))
+      (cond
+       ((use-region-p)
+        (let ((start (region-beginning))
+              (end (region-end)))
+          (format "%s#L%d-L%d"
+                  file-reference
+                  (line-number-at-pos start t)
+                  (line-number-at-pos (max start (1- end)) t))))
+       (t
+        (let ((function-name (when (fboundp 'which-function)
+                               (which-function))))
+          (if (and (stringp function-name)
+                   (not (string-empty-p function-name)))
+              (format "%s#%s" file-reference function-name)
+            file-reference)))))))
+
 ;;;###autoload
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
   "Copy the current buffer's file path or selected text to clipboard.
 If in a magit status buffer, copy the current branch name.
 If in a Dired buffer, copy the file at point or directory path.
-If in a regular file buffer with selected text, copy text with file path.
-Otherwise, copy the file path of the current buffer.
+In a regular file buffer, append the selected region's line range or
+the current function name to the file path.  Preserve selected text
+before that context reference.
 With prefix argument ARG \[universal-argument], always return full path
 instead of processed path.  File paths are processed to relative paths
 with @ prefix if within git repo."
@@ -67,19 +96,17 @@ with @ prefix if within git repo."
           ;; If current buffer is a magit status buffer
           ((derived-mode-p 'magit-status-mode)
            (magit-get-current-branch))
-          ;; If current buffer is a file, use existing logic
+          ;; If current buffer is a regular file
           ((buffer-file-name)
-           (let ((git-root-truename (ai-code--git-root)))
+           (let ((context-reference
+                  (ai-code--current-file-context-reference arg)))
              (if (use-region-p)
-                 (let ((processed-file (if (and git-root-truename (not arg))
-                                           (ai-code--process-word-for-filepath (buffer-file-name) git-root-truename)
-                                         (buffer-file-name))))
-                   (format "%s in %s"
-                           (buffer-substring-no-properties (region-beginning) (region-end))
-                           processed-file))
-               (if (and git-root-truename (not arg))
-                   (ai-code--process-word-for-filepath (buffer-file-name) git-root-truename)
-                 (buffer-file-name)))))
+                 (format "%s in %s"
+                         (buffer-substring-no-properties
+                          (region-beginning)
+                          (region-end))
+                         context-reference)
+               context-reference)))
           ;; If current buffer is a dired buffer
           ((derived-mode-p 'dired-mode)
            (let* ((file-at-point (ignore-errors (dired-get-file-for-visit)))
@@ -517,20 +544,7 @@ in the form filepath#Lstart-Lend."
                    (mapconcat #'identity targets ", ")))
       (unless buffer-file-name
         (user-error "Current buffer is not visiting a file"))
-      (let ((context
-             (if (use-region-p)
-                 (let* ((start (region-beginning))
-                        (end (region-end))
-                        (start-line (line-number-at-pos (min start end)))
-                        (end-line (line-number-at-pos (max start end))))
-                   (format "%s#L%d-L%d" buffer-file-name start-line end-line))
-               (let ((function-name (when (fboundp 'which-function)
-                                      (which-function))))
-                 (if (and function-name
-                          (stringp function-name)
-                          (not (string-empty-p function-name)))
-                     (format "%s#%s" buffer-file-name function-name)
-                   buffer-file-name)))))
+      (let ((context (ai-code--current-file-context-reference t)))
         (ai-code--store-context-entry repo-root context)
         (message "Added context for %s: %s" repo-root context)))))
 
@@ -570,14 +584,22 @@ With prefix ARG, clear all repositories."
         (message "No context info stored for %s." repo-root)))))
 
 (defun ai-code-context-action (_arg)
-  "Add, show, or clear context entries via `completing-read'.
-Presents a menu with three choices: Add context, Show context, or
+  "Copy, add, show, or clear context entries via `completing-read'.
+Presents copy actions first, followed by Add context, Show context, and
 Clear context.  The prefix argument ARG is ignored."
   (interactive "P")
   (let ((action (completing-read "Context action: "
-                                 '("Add context" "Show context" "Clear context")
+                                 '("Copy context"
+                                   "Copy context with full path"
+                                   "Add context"
+                                   "Show context"
+                                   "Clear context")
                                  nil t)))
     (pcase action
+      ("Copy context"
+       (ai-code-copy-buffer-file-name-to-clipboard))
+      ("Copy context with full path"
+       (ai-code-copy-buffer-file-name-to-clipboard t))
       ("Add context"
        (call-interactively #'ai-code-add-context)
        (ai-code-list-context))

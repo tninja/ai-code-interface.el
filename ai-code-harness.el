@@ -219,10 +219,9 @@ If the harness file cannot be prepared, fall back to the inline suffix."
 (defcustom ai-code-grill-me-enabled nil
   "When non-nil, offer to clarify selected prompts before sending them.
 
-The prompt is offered for `ai-code-code-change', `ai-code-ask-question',
-`ai-code-implement-todo', and `ai-code-send-command'.  When accepted, the
-request tells the AI backend to read the bundled grilling harness before
-acting."
+The prompt is offered for commands in `ai-code--grill-me-commands' and
+workflows in `ai-code--grill-me-workflows'.  When accepted, the request
+tells the AI backend to read the bundled grilling harness before acting."
   :type 'boolean
   :group 'ai-code)
 
@@ -233,6 +232,13 @@ acting."
     ai-code-send-command
     ai-code-refactor-book-method)
   "Interactive commands that offer the grill-me harness.")
+
+(defconst ai-code--grill-me-workflows
+  '(investigate-issue review-pr resolve-merge-conflict)
+  "Non-command workflows that offer the grill-me harness.")
+
+(defvar ai-code--grill-me-workflow nil
+  "Current non-command workflow considered by the Grill provider.")
 
 (defconst ai-code--grill-me-context-cache-key 'ai-code-grill-me-accepted
   "Prompt context cache key for the current Grill decision.")
@@ -262,12 +268,17 @@ acting."
   (gethash ai-code--grill-me-context-cache-key
            (ai-code-prompt-context-cache context)))
 
+(defun ai-code--grill-me-eligible-p (context)
+  "Return non-nil when prompt CONTEXT should offer the Grill harness."
+  (or (memq (ai-code-prompt-context-origin-command context)
+            ai-code--grill-me-commands)
+      (memq ai-code--grill-me-workflow ai-code--grill-me-workflows)))
+
 (defun ai-code--grill-me-suffix-provider (context)
   "Return the optional Grill suffix for prompt CONTEXT."
   (let ((accepted
          (and ai-code-grill-me-enabled
-              (memq (ai-code-prompt-context-origin-command context)
-                    ai-code--grill-me-commands)
+              (ai-code--grill-me-eligible-p context)
               (y-or-n-p "Grill me before acting? "))))
     (puthash ai-code--grill-me-context-cache-key accepted
              (ai-code-prompt-context-cache context))

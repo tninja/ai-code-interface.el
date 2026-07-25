@@ -327,6 +327,21 @@
       "Use task files instead of backend session state" sent-prompt))
     (should-not (string-match-p "This content should not be sent" sent-prompt))))
 
+(ert-deftest ai-code-test-agent-handoff-missing-task-points-to-current-key ()
+  "A missing task file should direct the user to the current task-file key."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
+               (lambda () "/tmp/.ai.code.files/"))
+              ((symbol-function 'ai-code--task-file-candidates)
+               (lambda (_files-dir) nil))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _args) "")))
+      (let ((error-data
+             (should-error (ai-code-agent-handoff nil) :type 'user-error)))
+        (should (string-suffix-p
+                 "(C-c a k)"
+                 (error-message-string error-data)))))))
+
 (ert-deftest ai-code-test-agent-handoff-prefix-loads-whole-task-file ()
   "Agent handoff with prefix loads the whole current task file."
   (let (sent-prompt)
