@@ -2,6 +2,11 @@
 * Release history
 
 ** Main branch change
+
+** 1.91
+- Add Grill support to some github related tool and scoped context copying, re-organize menu
+- Fix: Make skill management prompts use global scope
+- Feat: add Pi coding agent backend support, by cxa
 - Add CLI-aware backend install and upgrade flow
 - Stop tracking generated autoload file (ai-code-autoloads.el is a generated artifact — tracking it breaks Elpaca updates on Emacs), by nailuoGG
 - Fix editor viewport placement and temporary recentf entries, by cxa
