@@ -613,6 +613,55 @@ everything is cleaned up afterward."
 
 ;;; Tests for ai-code-context-action with completing-read
 
+(ert-deftest ai-code-test-context-action-copies-scoped-context ()
+  "Test that context actions copy function and region references."
+  (let* ((repo-root (make-temp-file "ai-code-context-copy-" t))
+         (source-dir (expand-file-name "src" repo-root))
+         (source-file (expand-file-name "sample.el" source-dir))
+         (expected-actions '("Copy context"
+                             "Copy context with full path"
+                             "Add context"
+                             "Show context"
+                             "Clear context"))
+         (selected-actions '("Copy context"
+                             "Copy context with full path"))
+         offered-actions
+         source-buffer)
+    (unwind-protect
+        (progn
+          (make-directory source-dir t)
+          (with-temp-file source-file
+            (insert "(defun sample ()\n  (message \"hi\"))\n"))
+          (setq source-buffer (find-file-noselect source-file))
+          (with-current-buffer source-buffer
+            (emacs-lisp-mode)
+            (goto-char (point-min))
+            (search-forward "(message")
+            (let ((region-start (match-beginning 0))
+                  (kill-ring nil)
+                  (transient-mark-mode t))
+              (cl-letf (((symbol-function 'completing-read)
+                         (lambda (_prompt collection &rest _args)
+                           (push (copy-sequence collection) offered-actions)
+                           (pop selected-actions)))
+                        ((symbol-function 'magit-toplevel)
+                         (lambda (&optional _dir) repo-root)))
+                (ai-code-context-action nil)
+                (should (equal (current-kill 0 t)
+                               "@src/sample.el#sample"))
+                (goto-char region-start)
+                (set-mark (line-end-position))
+                (activate-mark)
+                (ai-code-context-action nil)
+                (should
+                 (equal
+                  (current-kill 0 t)
+                  (format "(message \"hi\")) in %s#L2-L2" source-file))))))
+          (should (equal (car (last offered-actions)) expected-actions)))
+      (when (buffer-live-p source-buffer)
+        (kill-buffer source-buffer))
+      (delete-directory repo-root t))))
+
 (ert-deftest ai-code-test-context-action-add-calls-add-context ()
   "Test that selecting 'Add context' calls `ai-code-add-context' and lists."
   (let ((add-called nil)

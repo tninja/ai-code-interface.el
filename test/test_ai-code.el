@@ -298,6 +298,15 @@
   (should-error (transient-get-suffix 'ai-code--menu-actions-with-context "o")
                 :type 'error))
 
+(ert-deftest ai-code-test-menu-merges-copy-context-into-context-action ()
+  "Test that context copying is available only through the context action."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-actions-with-context "@")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-context-action)))
+  (should-error (transient-get-suffix 'ai-code--menu-other-tools "k")
+                :type 'error))
+
 (ert-deftest test-ai-code--menu-actions-with-context-opens-insert-menu ()
   "Test that the actions menu opens the independent Insert menu."
   (let ((suffix (transient-get-suffix 'ai-code--menu-actions-with-context "I")))
