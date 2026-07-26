@@ -20,18 +20,26 @@
 
 (defvar ai-code-backends-infra--session-prefix)
 
+(defconst ai-code-backends-infra-ghostel--ai-cli-programs
+  '("aider" "claude" "codebuddy" "codex" "copilot" "cursor-agent" "eca"
+    "gemini" "goose" "grok" "interpreter" "kiro-cli" "kilo" "opencode" "pi")
+  "Bare AI CLI executable names that should be resolved before Ghostel startup.
+Generic commands are intentionally excluded so the terminal abstraction keeps
+Ghostel's normal command semantics outside AI Code backends.")
+
 (defun ai-code-backends-infra-ghostel--resolve-program (program)
-  "Resolve bare Ghostel PROGRAM names to executable paths when possible.
-Explicit paths are preserved, and unresolved bare names fall back to PROGRAM so
-Ghostel can report the startup failure in its normal way."
+  "Resolve a supported bare AI CLI PROGRAM to an executable path when possible.
+Explicit paths and non-AI commands are preserved.  An unresolved AI CLI name
+falls back to PROGRAM so Ghostel can report its normal startup error."
   (if (and (stringp program)
+           (member program ai-code-backends-infra-ghostel--ai-cli-programs)
            (not (file-name-directory program)))
       (or (executable-find program) program)
     program))
 
 (defun ai-code-backends-infra-startup--resolve-ghostel-exec
     (orig-fun buffer command)
-  "Run ORIG-FUN for BUFFER and COMMAND with resolved Ghostel executables."
+  "Run ORIG-FUN for BUFFER and COMMAND with resolved Ghostel AI executables."
   (if (not (fboundp 'ghostel-exec))
       (funcall orig-fun buffer command)
     (let ((ghostel-exec-function (symbol-function 'ghostel-exec)))
