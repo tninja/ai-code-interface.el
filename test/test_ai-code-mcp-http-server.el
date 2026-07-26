@@ -55,7 +55,9 @@
 (ert-deftest ai-code-test-mcp-http-server-notification-returns-accepted ()
   "Notification requests should return HTTP 202 with an empty body."
   (let ((captured-response nil))
-    (cl-letf (((symbol-function 'ai-code-mcp-http-server--send-response)
+    (cl-letf (((symbol-function 'ai-code-mcp-get-session-context)
+               (lambda (_session-id) '(:project-dir "/tmp")))
+              ((symbol-function 'ai-code-mcp-http-server--send-response)
                (lambda (_process code content-type body)
                  (setq captured-response
                        (list :code code
@@ -64,6 +66,7 @@
       (ai-code-mcp-http-server--handle-post
        nil
        (list :path "/mcp/session-http"
+             :headers '(("content-type" . "application/json"))
              :body (json-encode
                     '((jsonrpc . "2.0")
                       (method . "notifications/initialized")
@@ -75,7 +78,9 @@
   "JSON-RPC errors should preserve the originating request id."
   (let ((captured-payload nil)
         (captured-code nil))
-    (cl-letf (((symbol-function 'ai-code-mcp-http-server--send-json)
+    (cl-letf (((symbol-function 'ai-code-mcp-get-session-context)
+               (lambda (_session-id) '(:project-dir "/tmp")))
+              ((symbol-function 'ai-code-mcp-http-server--send-json)
                (lambda (_process code payload)
                  (setq captured-code code)
                  (setq captured-payload payload))))
@@ -83,6 +88,7 @@
        nil
        (list :method "POST"
              :path "/mcp/session-http"
+             :headers '(("content-type" . "application/json"))
              :body (json-encode
                     '((jsonrpc . "2.0")
                       (id . 17)
