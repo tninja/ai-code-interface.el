@@ -34,23 +34,26 @@
               "./bin/claude"))
       (should-not searched))))
 
-(ert-deftest test-ai-code-backends-infra-ghostel-start-process-uses-resolved-program ()
-  "Ghostel startup should pass the resolved executable to `ghostel-exec'."
+(ert-deftest test-ai-code-backends-infra-ghostel-exec-advice-uses-resolved-program ()
+  "The Ghostel startup wrapper should resolve the program passed to `ghostel-exec'."
   (with-temp-buffer
-    (let (program-seen args-seen)
-      (cl-letf (((symbol-function 'ai-code-backends-infra--configure-ghostel-buffer)
-                 #'ignore)
-                ((symbol-function 'ai-code-backends-infra-ghostel--resolve-program)
+    (let ((buffer (current-buffer))
+          program-seen
+          args-seen)
+      (cl-letf (((symbol-function 'ai-code-backends-infra-ghostel--resolve-program)
                  (lambda (program)
                    (should (equal program "claude"))
                    "/usr/local/bin/claude"))
                 ((symbol-function 'ghostel-exec)
                  (lambda (_buffer program args)
                    (setq program-seen program
-                         args-seen args)
-                   nil)))
-        (ai-code-backends-infra--start-ghostel-process
-         (current-buffer) "claude --dangerously-skip-permissions"))
+                         args-seen args))))
+        (ai-code-backends-infra-startup--resolve-ghostel-exec
+         (lambda (target-buffer _command)
+           (ghostel-exec target-buffer "claude"
+                         '("--dangerously-skip-permissions")))
+         buffer
+         "claude --dangerously-skip-permissions"))
       (should (equal program-seen "/usr/local/bin/claude"))
       (should (equal args-seen '("--dangerously-skip-permissions"))))))
 
