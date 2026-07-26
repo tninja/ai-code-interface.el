@@ -38,5 +38,6 @@ jobs:
             --eval "(progn (require 'package) (package-initialize))" \
             -l test/test_00-bootstrap.el \
             -l ert \
+            -l test/test_ai-code-backends-infra.el \
             -l test/test_ai-code-backends-infra-vterm-renderer.el \
-            -f ert-run-tests-batch-and-exit
+            --eval "(ert-run-tests-batch-and-exit \"vterm\")"
