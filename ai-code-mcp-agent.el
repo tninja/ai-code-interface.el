@@ -84,15 +84,27 @@
                               buffer backend session-id working-dir url))))))
 
 (defun ai-code-mcp-agent--make-cleanup-function (session-id runtime-files)
-  "Return an idempotent cleanup function for SESSION-ID and RUNTIME-FILES."
-  (let ((cleaned-up nil))
+  "Return a repeat-safe cleanup function for SESSION-ID and RUNTIME-FILES.
+Failed file removals are retried; session unregistration occurs at most once."
+  (let ((remaining-files (copy-sequence runtime-files))
+        (unregistered nil))
     (lambda ()
-      (unless cleaned-up
-        (setq cleaned-up t)
-        (dolist (path runtime-files)
-          (when (and (stringp path) (file-exists-p path))
-            (ignore-errors (delete-file path))))
-        (ai-code-mcp-unregister-session session-id)))))
+      (let (failed-files)
+        (dolist (path remaining-files)
+          (when (stringp path)
+            (condition-case err
+                (when (file-exists-p path)
+                  (delete-file path))
+              (error
+               (push path failed-files)
+               (display-warning
+                'ai-code-mcp-agent
+                (format "Failed to delete runtime file %s: %s"
+                        path (error-message-string err)))))))
+        (setq remaining-files (nreverse failed-files)))
+      (unless unregistered
+        (ai-code-mcp-unregister-session session-id)
+        (setq unregistered t)))))
 
 (defun ai-code-mcp-agent--make-session-id (backend)
   "Create a fresh session id for BACKEND."
