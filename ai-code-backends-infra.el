@@ -1508,7 +1508,8 @@ BUFFER-NAME is the terminal buffer name.
 PROCESS-TABLE maps session keys to processes.
 COMMAND is the shell command to run.
 ESCAPE-FN is bound to `C-<escape>' inside the session buffer when non-nil.
-CLEANUP-FN is called with no arguments when the process exits.
+CLEANUP-FN is called with no arguments when the process exits or when an
+existing session makes the prepared launch unnecessary.
 INSTANCE-NAME overrides instance selection when non-nil.
 PREFIX enables instance selection when BUFFER-NAME is nil.
 When FORCE-PROMPT is non-nil, always prompt for a new instance name.
@@ -1535,13 +1536,16 @@ session starts successfully."
          (existing-process (plist-get session-context :existing-process))
          (buffer (plist-get session-context :buffer)))
     (if (and existing-process (process-live-p existing-process) buffer)
-        (ai-code-backends-infra--reuse-existing-session
-         buffer
-         working-dir
-         prefix
-         multiline-input-sequence
-         task-file
-         source-buffer)
+        (unwind-protect
+            (ai-code-backends-infra--reuse-existing-session
+             buffer
+             working-dir
+             prefix
+             multiline-input-sequence
+             task-file
+             source-buffer)
+          (when cleanup-fn
+            (funcall cleanup-fn)))
       (ai-code-backends-infra--create-new-session
        resolved-buffer-name
        working-dir
