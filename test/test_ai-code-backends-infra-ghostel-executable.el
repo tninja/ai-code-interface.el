@@ -16,7 +16,7 @@
 
 (defvar ai-code-backends-infra--launch-program)
 
-(ert-deftest test-ai-code-backends-infra-ghostel-resolve-program-finds-bare-executable ()
+(ert-deftest test-ai-code-backends-infra-ghostel--resolve-program-finds-bare-executable ()
   "Bare executable names should be resolved before Ghostel starts them."
   (let ((ai-code-backends-infra--launch-program "claude"))
     (cl-letf (((symbol-function 'executable-find)
@@ -27,7 +27,7 @@
        (equal (ai-code-backends-infra-ghostel--resolve-program "claude")
               "/opt/homebrew/bin/claude")))))
 
-(ert-deftest test-ai-code-backends-infra-ghostel-resolve-program-preserves-explicit-path ()
+(ert-deftest test-ai-code-backends-infra-ghostel--resolve-program-preserves-explicit-path ()
   "Explicit executable paths should not be searched again."
   (let ((ai-code-backends-infra--launch-program "./bin/claude")
         searched)
@@ -40,7 +40,7 @@
               "./bin/claude"))
       (should-not searched))))
 
-(ert-deftest test-ai-code-backends-infra-ghostel-resolve-program-finds-custom-ai-cli ()
+(ert-deftest test-ai-code-backends-infra-ghostel--resolve-program-finds-custom-ai-cli ()
   "The active AI CLI program should not depend on a hardcoded registry."
   (let ((ai-code-backends-infra--launch-program "claude-nightly"))
     (cl-letf (((symbol-function 'executable-find)
@@ -52,7 +52,7 @@
         (ai-code-backends-infra-ghostel--resolve-program "claude-nightly")
         "/usr/local/bin/claude-nightly")))))
 
-(ert-deftest test-ai-code-backends-infra-ghostel-resolve-program-preserves-generic-command ()
+(ert-deftest test-ai-code-backends-infra-ghostel--resolve-program-preserves-generic-command ()
   "Commands outside the active AI CLI launch should remain unchanged."
   (let ((ai-code-backends-infra--launch-program "claude")
         searched)
@@ -65,7 +65,7 @@
               "echo"))
       (should-not searched))))
 
-(ert-deftest test-ai-code-backends-infra-ghostel-resolve-program-falls-back-when-missing ()
+(ert-deftest test-ai-code-backends-infra-ghostel--resolve-program-falls-back-when-missing ()
   "An unresolved active AI CLI should keep its original program name."
   (let ((ai-code-backends-infra--launch-program "agy"))
     (cl-letf (((symbol-function 'executable-find) (lambda (_program) nil)))
@@ -73,7 +73,7 @@
        (equal (ai-code-backends-infra-ghostel--resolve-program "agy")
               "agy")))))
 
-(ert-deftest test-ai-code-backends-infra-start-cli-session-exposes-launch-program ()
+(ert-deftest test-ai-code-backends-infra--start-cli-session-exposes-launch-program ()
   "Generic AI CLI startup should expose its program to terminal creation."
   (let (program-seen)
     (cl-letf (((symbol-function 'ai-code-backends-infra--resolve-start-command)
@@ -92,7 +92,7 @@
        nil))
     (should (equal program-seen "agy"))))
 
-(ert-deftest test-ai-code-backends-infra-ghostel-start-process-resolves-launch-program ()
+(ert-deftest test-ai-code-backends-infra-ghostel--start-ghostel-process-resolves-launch-program ()
   "Ghostel startup should pass the resolved active AI CLI to `ghostel-exec'."
   (with-temp-buffer
     (let ((buffer (current-buffer))
@@ -117,6 +117,32 @@
          buffer "agy --continue"))
       (should (equal program-seen "/usr/local/bin/agy"))
       (should (equal args-seen '("--continue"))))))
+
+(ert-deftest test-ai-code-backends-infra--create-terminal-session-resolves-ghostel-program ()
+  "The shared dispatcher should resolve the active Ghostel CLI executable."
+  (let* ((buffer-name " *test-ai-code-ghostel-dispatcher*")
+         (ai-code-backends-infra-terminal-backend 'ghostel)
+         (ai-code-backends-infra--launch-program "agy")
+         program-seen
+         args-seen)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   #'ignore)
+                  ((symbol-function 'executable-find)
+                   (lambda (program)
+                     (when (string= program "agy")
+                       "/usr/local/bin/agy")))
+                  ((symbol-function 'ghostel-exec)
+                   (lambda (_buffer program args)
+                     (setq program-seen program
+                           args-seen args)
+                     nil)))
+          (ai-code-backends-infra--create-terminal-session
+           buffer-name default-directory "agy --continue" nil)
+          (should (equal program-seen "/usr/local/bin/agy"))
+          (should (equal args-seen '("--continue"))))
+      (when (get-buffer buffer-name)
+        (kill-buffer buffer-name)))))
 
 (provide 'test_ai-code-backends-infra-ghostel-executable)
 
