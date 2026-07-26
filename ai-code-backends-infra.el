@@ -124,6 +124,12 @@ that process character-by-character input slowly."
 (defvar ai-code-backends-infra--preferred-session-buffer nil
   "Preferred session buffer to place first when prompting for session selection.")
 
+(defvar ai-code-backends-infra--launch-program nil
+  "AI CLI program associated with the terminal session currently being created.
+This is dynamically bound by `ai-code-backends-infra--start-cli-session' so
+terminal-specific startup code can identify the CLI without duplicating the
+backend registry.")
+
 (defvar ai-code-backends-infra--reflow-advised-handlers nil
   "Resize handlers currently advised with reflow filter.")
 
@@ -1305,14 +1311,64 @@ behavior."
    buffer working-dir prefix task-file)
   (ai-code-backends-infra--display-buffer-in-side-window buffer))
 
-(defun ai-code-backends-infra--handle-session-start-failure (buffer session-key process-table)
+(defun ai-code-backends-infra--last-startup-output (buffer)
+  "Return a concise tail of BUFFER output for startup diagnostics."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let* ((end (point-max))
+             (start (max (point-min) (- end 500)))
+             (output
+              (string-trim
+               (buffer-substring-no-properties start end))))
+        (unless (string-empty-p output)
+          (replace-regexp-in-string "[\r\n]+" " | " output))))))
+
+(defun ai-code-backends-infra--startup-failure-details (buffer process)
+  "Return diagnostic details for failed PROCESS associated with BUFFER."
+  (let ((backend
+         (when (buffer-live-p buffer)
+           (with-current-buffer buffer
+             ai-code-backends-infra--session-prefix)))
+        (working-directory
+         (when (buffer-live-p buffer)
+           (with-current-buffer buffer default-directory)))
+        (command (when (and process (processp process))
+                   (ignore-errors (process-command process))))
+        (status (when (and process (processp process))
+                  (ignore-errors (process-status process))))
+        (exit-status (when (and process (processp process))
+                       (ignore-errors (process-exit-status process)))))
+    (list :backend backend
+          :executable (car-safe command)
+          :command command
+          :cwd working-directory
+          :status status
+          :exit-status exit-status
+          :last-output (ai-code-backends-infra--last-startup-output buffer))))
+
+(defun ai-code-backends-infra--format-startup-failure (details)
+  "Format startup failure DETAILS as a compact user-facing message."
+  (format
+   "CLI failed to start [backend=%s executable=%s cwd=%s status=%s exit=%s]%s"
+   (or (plist-get details :backend) "unknown")
+   (or (plist-get details :executable) "unknown")
+   (or (plist-get details :cwd) "unknown")
+   (or (plist-get details :status) "unknown")
+   (or (plist-get details :exit-status) "unknown")
+   (if-let* ((output (plist-get details :last-output)))
+       (format " output: %s" output)
+     "")))
+
+(defun ai-code-backends-infra--handle-session-start-failure
+    (buffer session-key process-table)
   "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE."
-  (remhash session-key process-table)
-  (if (buffer-live-p buffer)
-      (progn
-        (pop-to-buffer buffer)
-        (message "CLI failed to start - see buffer for error details"))
-    (message "CLI failed to start - process exited immediately")))
+  (let* ((process (gethash session-key process-table))
+         (details
+          (ai-code-backends-infra--startup-failure-details buffer process)))
+    (remhash session-key process-table)
+    (when (buffer-live-p buffer)
+      (pop-to-buffer buffer))
+    (message "%s" (ai-code-backends-infra--format-startup-failure details))))
 
 (defun ai-code-backends-infra--start-cli-session (options arg)
   "Start a generic CLI session described by OPTIONS and prefix ARG.
@@ -1343,19 +1399,21 @@ When :prepare-launch is present, it may return :command, :cleanup-fn, and
          (launch-command (or (plist-get launch :command) command))
          (cleanup-fn (plist-get launch :cleanup-fn))
          (post-start-fn (plist-get launch :post-start-fn)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     (plist-get options :process-table)
-     launch-command
-     (plist-get options :escape-function)
-     cleanup-fn
-     nil
-     (plist-get options :session-prefix)
-     arg
-     (plist-get options :env-vars)
-     (plist-get options :multiline-input-sequence)
-     post-start-fn)))
+    (let ((ai-code-backends-infra--launch-program
+           (plist-get options :program)))
+      (ai-code-backends-infra--toggle-or-create-session
+       working-dir
+       nil
+       (plist-get options :process-table)
+       launch-command
+       (plist-get options :escape-function)
+       cleanup-fn
+       nil
+       (plist-get options :session-prefix)
+       arg
+       (plist-get options :env-vars)
+       (plist-get options :multiline-input-sequence)
+       post-start-fn))))
 
 (defun ai-code-backends-infra--last-accessed-session-buffer (session-prefix)
   "Return the last accessed buffer when it belongs to SESSION-PREFIX."
@@ -1508,7 +1566,8 @@ BUFFER-NAME is the terminal buffer name.
 PROCESS-TABLE maps session keys to processes.
 COMMAND is the shell command to run.
 ESCAPE-FN is bound to `C-<escape>' inside the session buffer when non-nil.
-CLEANUP-FN is called with no arguments when the process exits.
+CLEANUP-FN is called with no arguments when the process exits or when an
+existing session makes the prepared launch unnecessary.
 INSTANCE-NAME overrides instance selection when non-nil.
 PREFIX enables instance selection when BUFFER-NAME is nil.
 When FORCE-PROMPT is non-nil, always prompt for a new instance name.
@@ -1535,13 +1594,16 @@ session starts successfully."
          (existing-process (plist-get session-context :existing-process))
          (buffer (plist-get session-context :buffer)))
     (if (and existing-process (process-live-p existing-process) buffer)
-        (ai-code-backends-infra--reuse-existing-session
-         buffer
-         working-dir
-         prefix
-         multiline-input-sequence
-         task-file
-         source-buffer)
+        (unwind-protect
+            (ai-code-backends-infra--reuse-existing-session
+             buffer
+             working-dir
+             prefix
+             multiline-input-sequence
+             task-file
+             source-buffer)
+          (when cleanup-fn
+            (funcall cleanup-fn)))
       (ai-code-backends-infra--create-new-session
        resolved-buffer-name
        working-dir

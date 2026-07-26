@@ -9,7 +9,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'ai-code-backends-infra-startup)
 
 (declare-function ai-code-backends-infra--fit-side-window-body-width
                   "ai-code-backends-infra" (window))
@@ -105,7 +104,6 @@
 
 (defun ai-code-backends-infra-etc-activate ()
   "Activate side-panel resize extensions for AI session buffers."
-  (ai-code-backends-infra-startup-activate)
   (unless (advice-member-p #'ai-code-backends-infra-etc--configure-session-buffer-advice
                            #'ai-code-backends-infra--configure-session-buffer)
     (advice-add #'ai-code-backends-infra--configure-session-buffer

@@ -1891,6 +1891,32 @@ The prefix argument should also force instance-name prompting."
        (when (buffer-live-p buffer)
          (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra--toggle-or-create-session-reuse-cleans-unused-launch ()
+  "Reusing a session should clean resources prepared for the unused launch."
+  (let* ((working-dir "/tmp/ai-code-reuse-cleanup/")
+         (buffer-name "*ai-code-reuse-cleanup*")
+         (buffer (get-buffer-create buffer-name))
+         (process-table (make-hash-table :test 'equal))
+         (process 'existing-process)
+         (cleanup-count 0))
+    (unwind-protect
+        (progn
+          (puthash (cons working-dir "default") process process-table)
+          (cl-letf (((symbol-function 'process-live-p)
+                     (lambda (candidate) (eq candidate process)))
+                    ((symbol-function 'ai-code-backends-infra--reuse-existing-session)
+                     (lambda (&rest _args) nil)))
+            (ai-code-backends-infra--toggle-or-create-session
+             working-dir
+             buffer-name
+             process-table
+             "unused command"
+             nil
+             (lambda () (cl-incf cleanup-count))))
+          (should (= cleanup-count 1)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-rebinds-source-file ()
   "Starting a new session from a file buffer should reattach that file."
   (let* ((prefix "codex")
@@ -3587,7 +3613,7 @@ The prefix argument should also force instance-name prompting."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
-(ert-deftest test-ai-code-backends-infra-handle-session-start-failure-shows-live-buffer ()
+(ert-deftest test-ai-code-backends-infra--handle-session-start-failure-shows-live-buffer ()
   "Startup failure should preserve and show a live buffer with an error message."
   (let* ((session-key '("/tmp/ai-code-start-failure/" . "default"))
          (process-table (make-hash-table :test 'equal))
@@ -3609,9 +3635,16 @@ The prefix argument should also force instance-name prompting."
              session-key
              process-table)
             (should-not (gethash session-key process-table))
-            (should (equal (nreverse calls)
-                           (list (list :pop buffer)
-                                 "CLI failed to start - see buffer for error details")))))
+            (let ((ordered-calls (nreverse calls)))
+              (should (equal (car ordered-calls) (list :pop buffer)))
+              (should
+               (string-prefix-p
+                "CLI failed to start [backend=unknown executable=unknown cwd="
+                (cadr ordered-calls)))
+              (should
+               (string-suffix-p
+                "status=unknown exit=unknown]"
+                (cadr ordered-calls))))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

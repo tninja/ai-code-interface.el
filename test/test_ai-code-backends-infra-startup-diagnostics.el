@@ -12,7 +12,7 @@
 (require 'cl-lib)
 (require 'ai-code-backends-infra)
 
-(ert-deftest test-ai-code-backends-infra-startup-failure-details-include-context ()
+(ert-deftest test-ai-code-backends-infra--startup-failure-details-include-context ()
   "Startup failure details should include command, cwd, exit status, and output."
   (let ((buffer (generate-new-buffer " *ai-code-startup-failure*")))
     (unwind-protect
@@ -26,7 +26,7 @@
                     ((symbol-function 'process-status) (lambda (_process) 'exit))
                     ((symbol-function 'process-exit-status) (lambda (_process) 127)))
             (let ((details
-                   (ai-code-backends-infra-startup--failure-details
+                   (ai-code-backends-infra--startup-failure-details
                     buffer 'fake-process)))
               (should (equal (plist-get details :backend) "codex"))
               (should (equal (plist-get details :executable) "/usr/local/bin/codex"))
@@ -40,15 +40,16 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
-(ert-deftest test-ai-code-backends-infra-startup-failure-advice-preserves-cleanup ()
-  "Diagnostic advice should preserve the original startup-failure cleanup."
-  (let ((buffer (generate-new-buffer " *ai-code-startup-failure-advice*"))
+(ert-deftest test-ai-code-backends-infra--handle-session-start-failure-preserves-cleanup ()
+  "Startup diagnostics should preserve failure cleanup and show the buffer."
+  (let ((buffer (generate-new-buffer " *ai-code-startup-failure-handler*"))
+        (session-key '("/tmp/project/" . "default"))
         (process-table (make-hash-table :test 'equal))
-        original-called
+        displayed-buffer
         captured-message)
     (unwind-protect
         (progn
-          (puthash '("/tmp/project/" . "default") 'fake-process process-table)
+          (puthash session-key 'fake-process process-table)
           (with-current-buffer buffer
             (setq-local default-directory "/tmp/project/")
             (setq-local ai-code-backends-infra--session-prefix "claude-code")
@@ -58,16 +59,17 @@
                      (lambda (_process) '("/opt/bin/claude")))
                     ((symbol-function 'process-status) (lambda (_process) 'exit))
                     ((symbol-function 'process-exit-status) (lambda (_process) 126))
+                    ((symbol-function 'pop-to-buffer)
+                     (lambda (target-buffer &rest _args)
+                       (setq displayed-buffer target-buffer)))
                     ((symbol-function 'message)
                      (lambda (format-string &rest args)
                        (setq captured-message
                              (apply #'format format-string args)))))
-            (ai-code-backends-infra-startup--diagnose-start-failure
-             (lambda (&rest _args) (setq original-called t))
-             buffer
-             '("/tmp/project/" . "default")
-             process-table))
-          (should original-called)
+            (ai-code-backends-infra--handle-session-start-failure
+             buffer session-key process-table))
+          (should-not (gethash session-key process-table))
+          (should (eq displayed-buffer buffer))
           (should (string-match-p "claude-code" captured-message))
           (should (string-match-p "/opt/bin/claude" captured-message))
           (should (string-match-p "/tmp/project/" captured-message))
