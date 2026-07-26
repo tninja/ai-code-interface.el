@@ -25,7 +25,7 @@
                  (lambda (&rest _args)
                    (setq timer-scheduled t)
                    'timer)))
-        (ai-code-backends-infra--vterm-smart-renderer
+        (ai-code-backends-infra-vterm-render-queue--smart-renderer
          (lambda (_process input) (setq rendered input))
          'process
          "plain model output"))
@@ -45,8 +45,10 @@
                  (lambda (&rest _args)
                    (setq timer-count (1+ timer-count))
                    'timer)))
-        (ai-code-backends-infra--vterm-smart-renderer #'ignore 'process "\e[2Kfirst")
-        (ai-code-backends-infra--vterm-smart-renderer #'ignore 'process "second"))
+        (ai-code-backends-infra-vterm-render-queue--smart-renderer
+         #'ignore 'process "\e[2Kfirst")
+        (ai-code-backends-infra-vterm-render-queue--smart-renderer
+         #'ignore 'process "second"))
       (should (= timer-count 1))
       (should (equal ai-code-backends-infra--vterm-render-queue
                      '("second" "\e[2Kfirst"))))))
@@ -62,12 +64,21 @@
       (cl-letf (((symbol-function 'get-buffer-process)
                  (lambda (_buffer) 'process))
                 ((symbol-function 'process-live-p) (lambda (_process) t)))
-        (ai-code-backends-infra--vterm-render-queued-output
+        (ai-code-backends-infra-vterm-render-queue--render-queued-output
          (lambda (_process input) (setq rendered input))
          buffer))
       (should (equal rendered "firstsecondthird"))
       (should-not ai-code-backends-infra--vterm-render-queue)
       (should-not ai-code-backends-infra--vterm-render-timer))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-renderer-overrides-are-active ()
+  "Efficient renderer functions should be installed over the legacy helpers."
+  (should (advice-member-p
+           #'ai-code-backends-infra-vterm-render-queue--smart-renderer
+           #'ai-code-backends-infra--vterm-smart-renderer))
+  (should (advice-member-p
+           #'ai-code-backends-infra-vterm-render-queue--render-queued-output
+           #'ai-code-backends-infra--vterm-render-queued-output)))
 
 (provide 'test_ai-code-backends-infra-vterm-renderer)
 
