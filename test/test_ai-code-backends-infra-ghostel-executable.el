@@ -10,7 +10,7 @@
 
 (require 'ert)
 (require 'cl-lib)
-(require 'ai-code-backends-infra-ghostel)
+(require 'ai-code-backends-infra)
 
 (ert-deftest test-ai-code-backends-infra-ghostel-resolve-program-finds-bare-executable ()
   "Bare executable names should be resolved before Ghostel starts them."
