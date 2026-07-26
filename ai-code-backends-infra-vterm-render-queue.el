@@ -4,8 +4,9 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Efficient anti-flicker batching for AI Code vterm sessions.  Queued chunks
-;; are stored as a reverse list so enqueue is O(1), and the batch timer is
+;; Efficient anti-flicker batching for AI Code vterm sessions.  New queued
+;; chunks are stored as a reverse list so enqueue is O(1), while legacy string
+;; queues are still accepted during flush and migration.  The batch timer is
 ;; anchored to the first redraw chunk instead of being restarted continuously.
 
 ;;; Code:
@@ -26,9 +27,21 @@
 (defvar vterm-copy-mode)
 
 (defun ai-code-backends-infra-vterm-render-queue--data ()
-  "Return queued vterm chunks in arrival order as one string."
-  (when ai-code-backends-infra--vterm-render-queue
-    (apply #'concat (nreverse ai-code-backends-infra--vterm-render-queue))))
+  "Return queued vterm chunks in arrival order as one string.
+Accept the previous string queue representation so live buffers and existing
+callers can transition without losing pending output."
+  (pcase ai-code-backends-infra--vterm-render-queue
+    ((pred stringp) ai-code-backends-infra--vterm-render-queue)
+    ((pred consp)
+     (apply #'concat (nreverse ai-code-backends-infra--vterm-render-queue)))
+    (_ nil)))
+
+(defun ai-code-backends-infra-vterm-render-queue--push (input)
+  "Queue INPUT in O(1), normalizing a legacy string queue when necessary."
+  (when (stringp ai-code-backends-infra--vterm-render-queue)
+    (setq ai-code-backends-infra--vterm-render-queue
+          (list ai-code-backends-infra--vterm-render-queue)))
+  (push input ai-code-backends-infra--vterm-render-queue))
 
 (defun ai-code-backends-infra-vterm-render-queue--render-queued-output
     (orig-fun buffer)
@@ -90,7 +103,7 @@
                   (and (> escape-density 0.3) (>= clear-count 2))
                   ai-code-backends-infra--vterm-render-queue)
               (let ((buffer (current-buffer)))
-                (push input ai-code-backends-infra--vterm-render-queue)
+                (ai-code-backends-infra-vterm-render-queue--push input)
                 (unless ai-code-backends-infra--vterm-render-timer
                   (setq ai-code-backends-infra--vterm-render-timer
                         (run-at-time
@@ -113,20 +126,25 @@
           (setq ai-code-backends-infra--vterm-render-queue nil)
           (vterm--filter proc data))))))
 
+(defun ai-code-backends-infra-vterm-render-queue--add-override (target function)
+  "Add FUNCTION as an override advice for TARGET unless already present."
+  (unless (advice-member-p function target)
+    (advice-add target :override function)))
+
 (defun ai-code-backends-infra-vterm-render-queue-activate ()
   "Activate efficient render batching for vterm sessions."
-  (advice-add #'ai-code-backends-infra--vterm-render-queued-output
-              :override
-              #'ai-code-backends-infra-vterm-render-queue--render-queued-output)
-  (advice-add #'ai-code-backends-infra-vterm-flush-render-queue
-              :override
-              #'ai-code-backends-infra-vterm-render-queue--flush)
-  (advice-add #'ai-code-backends-infra--vterm-smart-renderer
-              :override
-              #'ai-code-backends-infra-vterm-render-queue--smart-renderer)
-  (advice-add #'ai-code-backends-infra--vterm-flush-on-copy-mode-exit
-              :override
-              #'ai-code-backends-infra-vterm-render-queue--flush-on-copy-mode-exit))
+  (ai-code-backends-infra-vterm-render-queue--add-override
+   #'ai-code-backends-infra--vterm-render-queued-output
+   #'ai-code-backends-infra-vterm-render-queue--render-queued-output)
+  (ai-code-backends-infra-vterm-render-queue--add-override
+   #'ai-code-backends-infra-vterm-flush-render-queue
+   #'ai-code-backends-infra-vterm-render-queue--flush)
+  (ai-code-backends-infra-vterm-render-queue--add-override
+   #'ai-code-backends-infra--vterm-smart-renderer
+   #'ai-code-backends-infra-vterm-render-queue--smart-renderer)
+  (ai-code-backends-infra-vterm-render-queue--add-override
+   #'ai-code-backends-infra--vterm-flush-on-copy-mode-exit
+   #'ai-code-backends-infra-vterm-render-queue--flush-on-copy-mode-exit))
 
 (provide 'ai-code-backends-infra-vterm-render-queue)
 
