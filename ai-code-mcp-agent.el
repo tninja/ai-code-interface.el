@@ -71,13 +71,40 @@
     (ai-code-mcp-builtins-setup)
     (let* ((port (ai-code-mcp-http-server-ensure))
            (session-id (ai-code-mcp-agent--make-session-id backend))
-           (url (ai-code-mcp-agent--make-server-url port session-id)))
-      (list :command (ai-code-mcp-agent--inject-command backend command url)
-            :cleanup-fn (lambda ()
-                          (ai-code-mcp-unregister-session session-id))
+           (url (ai-code-mcp-agent--make-server-url port session-id))
+           (command-metadata
+            (ai-code-mcp-agent--inject-command backend command url))
+           (runtime-files (plist-get command-metadata :runtime-files)))
+      (list :command (plist-get command-metadata :command)
+            :cleanup-fn
+            (ai-code-mcp-agent--make-cleanup-function
+             session-id runtime-files)
             :post-start-fn (lambda (buffer _process _instance-name)
                              (ai-code-mcp-agent--record-buffer-session
                               buffer backend session-id working-dir url))))))
+
+(defun ai-code-mcp-agent--make-cleanup-function (session-id runtime-files)
+  "Return a repeat-safe cleanup function for SESSION-ID and RUNTIME-FILES.
+Failed file removals are retried; session unregistration occurs at most once."
+  (let ((remaining-files (copy-sequence runtime-files))
+        (unregistered nil))
+    (lambda ()
+      (let (failed-files)
+        (dolist (path remaining-files)
+          (when (stringp path)
+            (condition-case err
+                (when (file-exists-p path)
+                  (delete-file path))
+              (error
+               (push path failed-files)
+               (display-warning
+                'ai-code-mcp-agent
+                (format "Failed to delete runtime file %s: %s"
+                        path (error-message-string err)))))))
+        (setq remaining-files (nreverse failed-files)))
+      (unless unregistered
+        (ai-code-mcp-unregister-session session-id)
+        (setq unregistered t)))))
 
 (defun ai-code-mcp-agent--make-session-id (backend)
   "Create a fresh session id for BACKEND."
@@ -99,33 +126,38 @@
                 ai-code-mcp-agent--server-url url)))
 
 (defun ai-code-mcp-agent--inject-command (backend command url)
-  "Inject MCP config for BACKEND into COMMAND for URL."
+  "Return launch metadata after injecting URL into COMMAND for BACKEND."
   (pcase backend
     ('codex
-     (concat command
-             " -c "
-             (shell-quote-argument
-              (format "mcp_servers.%s={ url = %s }"
-                      ai-code-mcp-agent--server-name
-                      (json-encode url)))))
+     (list :command
+           (concat command
+                   " -c "
+                   (shell-quote-argument
+                    (format "mcp_servers.%s={ url = %s }"
+                            ai-code-mcp-agent--server-name
+                            (json-encode url))))))
     ('open-interpreter
-     (concat command
-             " -c "
-             (shell-quote-argument
-              (format "mcp_servers.%s={ url = %s }"
-                      ai-code-mcp-agent--server-name
-                      (json-encode url)))))
+     (list :command
+           (concat command
+                   " -c "
+                   (shell-quote-argument
+                    (format "mcp_servers.%s={ url = %s }"
+                            ai-code-mcp-agent--server-name
+                            (json-encode url))))))
     ('github-copilot-cli
-     (concat command
-             " --additional-mcp-config "
-             (shell-quote-argument
-              (ai-code-mcp-agent--copilot-config-json url))))
+     (list :command
+           (concat command
+                   " --additional-mcp-config "
+                   (shell-quote-argument
+                    (ai-code-mcp-agent--copilot-config-json url)))))
     ('claude-code
      (let ((config-file (ai-code-mcp-agent--claude-code-config-file url)))
-       (concat command
-               " --mcp-config "
-               (shell-quote-argument config-file))))
-    (_ command)))
+       (list :command
+             (concat command
+                     " --mcp-config "
+                     (shell-quote-argument config-file))
+             :runtime-files (list config-file))))
+    (_ (list :command command))))
 
 (defun ai-code-mcp-agent--copilot-config-json (url)
   "Return a Copilot CLI MCP config JSON string for URL."
