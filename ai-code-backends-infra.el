@@ -124,6 +124,12 @@ that process character-by-character input slowly."
 (defvar ai-code-backends-infra--preferred-session-buffer nil
   "Preferred session buffer to place first when prompting for session selection.")
 
+(defvar ai-code-backends-infra--launch-program nil
+  "AI CLI program associated with the terminal session currently being created.
+This is dynamically bound by `ai-code-backends-infra--start-cli-session' so
+terminal-specific startup code can identify the CLI without duplicating the
+backend registry.")
+
 (defvar ai-code-backends-infra--reflow-advised-handlers nil
   "Resize handlers currently advised with reflow filter.")
 
@@ -1343,19 +1349,21 @@ When :prepare-launch is present, it may return :command, :cleanup-fn, and
          (launch-command (or (plist-get launch :command) command))
          (cleanup-fn (plist-get launch :cleanup-fn))
          (post-start-fn (plist-get launch :post-start-fn)))
-    (ai-code-backends-infra--toggle-or-create-session
-     working-dir
-     nil
-     (plist-get options :process-table)
-     launch-command
-     (plist-get options :escape-function)
-     cleanup-fn
-     nil
-     (plist-get options :session-prefix)
-     arg
-     (plist-get options :env-vars)
-     (plist-get options :multiline-input-sequence)
-     post-start-fn)))
+    (let ((ai-code-backends-infra--launch-program
+           (plist-get options :program)))
+      (ai-code-backends-infra--toggle-or-create-session
+       working-dir
+       nil
+       (plist-get options :process-table)
+       launch-command
+       (plist-get options :escape-function)
+       cleanup-fn
+       nil
+       (plist-get options :session-prefix)
+       arg
+       (plist-get options :env-vars)
+       (plist-get options :multiline-input-sequence)
+       post-start-fn))))
 
 (defun ai-code-backends-infra--last-accessed-session-buffer (session-prefix)
   "Return the last accessed buffer when it belongs to SESSION-PREFIX."

@@ -67,6 +67,7 @@ enabled by default because it widens the terminal's local resource access."
 
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar ai-code-backends-infra--session-directory)
+(defvar ai-code-backends-infra--launch-program)
 (defvar ai-code-session-link--path-base-regexp)
 (defvar ai-code-session-link--url-pattern-regexp)
 (defvar ai-code-session-link-inhibit-functions)
@@ -956,6 +957,21 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
   (ai-code-backends-infra--configure-session-input-shortcuts)
   (ai-code-backends-infra--install-navigation-cursor-sync))
 
+(defun ai-code-backends-infra-ghostel--resolve-program (program)
+  "Resolve the active bare AI CLI PROGRAM to an executable path when possible.
+Explicit paths and programs outside the current AI CLI launch are preserved.
+An unresolved AI CLI name falls back to PROGRAM so Ghostel can report its
+normal startup error."
+  (let ((launch-program
+         (and (boundp 'ai-code-backends-infra--launch-program)
+              ai-code-backends-infra--launch-program)))
+    (if (and (stringp program)
+             (stringp launch-program)
+             (string= program launch-program)
+             (not (file-name-directory program)))
+        (or (executable-find program) program)
+      program)))
+
 (defun ai-code-backends-infra--start-ghostel-process (buffer command)
   "Start a Ghostel session in BUFFER for COMMAND."
   (with-current-buffer buffer
@@ -981,7 +997,10 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
                       (ai-code-backends-infra-ghostel--effective-kitty-graphics-mediums)))
                  (cl-progv '(ghostel-use-native-pty)
                      (list effective-native-pty)
-                   (ghostel-exec buffer program args)))))
+                   (ghostel-exec
+                    buffer
+                    (ai-code-backends-infra-ghostel--resolve-program program)
+                    args)))))
           ;; `ghostel-exec' enters `ghostel-mode', which resets local state.
           (ai-code-backends-infra--configure-ghostel-buffer)
           proc))
