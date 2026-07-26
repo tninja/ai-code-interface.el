@@ -30,6 +30,8 @@
                     buffer 'fake-process)))
               (should (equal (plist-get details :backend) "codex"))
               (should (equal (plist-get details :executable) "/usr/local/bin/codex"))
+              (should (equal (plist-get details :command)
+                             '("/usr/local/bin/codex" "--flag")))
               (should (equal (plist-get details :cwd) "/tmp/example/"))
               (should (equal (plist-get details :status) 'exit))
               (should (= (plist-get details :exit-status) 127))
