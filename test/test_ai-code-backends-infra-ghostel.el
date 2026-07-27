@@ -1001,6 +1001,43 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-ghostel--wrap-process-filter-captures-native-exit-status ()
+  "Ghostel's native child exit marker should be retained on its event pipe."
+  (with-temp-buffer
+    (let ((buffer (current-buffer))
+          (ai-code-backends-infra-ghostel-anti-flicker nil)
+          proc
+          rendered)
+      (unwind-protect
+          (cl-letf (((symbol-function 'ghostel--events-filter)
+                     (lambda (_process output)
+                       (setq rendered output)))
+                    ((symbol-function 'ai-code-editor-viewport-filter-output)
+                     (lambda (_process output) output))
+                    ((symbol-function
+                      'ai-code-backends-infra--output-meaningful-p)
+                     (lambda (_output) nil))
+                    ((symbol-function
+                      'ai-code-session-link--schedule-linkify-recent-output)
+                     (lambda (&rest _args) nil)))
+            (setq proc
+                  (make-pipe-process
+                   :name "ai-code-ghostel-native-exit-status"
+                   :buffer buffer
+                   :noquery t
+                   :filter 'ghostel--events-filter))
+            (setq-local ai-code-backends-infra--session-terminal-backend
+                        'ghostel)
+            (ai-code-backends-infra-ghostel--wrap-process-filter buffer proc)
+            (funcall (process-filter proc) proc "(ignore)1")
+            (should
+             (= (process-get
+                 proc 'ai-code-backends-infra--child-exit-status)
+                1))
+            (should (equal rendered "(ignore)1")))
+        (when (processp proc)
+          (delete-process proc))))))
+
 (ert-deftest test-ai-code-backends-infra-ghostel--wrap-process-filter-intercepts-editor-before-render ()
   "Ghostel should remove terminal editor requests before rendering output."
   (with-temp-buffer

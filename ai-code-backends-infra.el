@@ -1170,8 +1170,11 @@ were non-nil and append that UUID to the default CLI args."
          (resolved-args (if prompt-p
                             (split-string-shell-command prompt-args)
                           switches))
+         (resolved-program (if (string-prefix-p "~" program)
+                               (expand-file-name program)
+                             program))
          (command (mapconcat #'shell-quote-argument
-                             (cons program resolved-args)
+                             (cons resolved-program resolved-args)
                              " ")))
     (list :command command :args resolved-args)))
 
@@ -1478,7 +1481,13 @@ COMMAND is the launch command supplied to the terminal backend."
          (status (when (and process (processp process))
                    (ignore-errors (process-status process))))
          (exit-status (when (and process (processp process))
-                        (ignore-errors (process-exit-status process)))))
+                        (or
+                         (ignore-errors
+                           (process-get
+                            process
+                            'ai-code-backends-infra--child-exit-status))
+                         (ignore-errors
+                           (process-exit-status process))))))
     (list :backend backend
           :executable safe-executable
           :command command-argv
@@ -1706,38 +1715,60 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
           (if (file-remote-p working-dir)
               env-vars
             (ai-code-editor-viewport-environment env-vars)))
-         (buffer-and-process
-          (ai-code-backends-infra--create-terminal-session
-           resolved-buffer-name working-dir command editor-environment))
-         (new-buffer (car buffer-and-process))
-         (process (cdr buffer-and-process)))
-    (puthash session-key process process-table)
-    ;; Wait for initialization before checking process status
-    (sleep-for ai-code-backends-infra-terminal-initialization-delay)
-    ;; Check if process is still alive after initialization delay
-    (if (and process (process-live-p process))
-        (progn
-          (ai-code-backends-infra--finalize-started-session
-           new-buffer
-           process
-           working-dir
-           resolved-buffer-name
-           process-table
-           resolved-instance
-           prefix
-           escape-fn
-           cleanup-fn
-           multiline-input-sequence
-           post-start-fn
-           task-file)
-          (ai-code-backends-infra--remember-file-session-buffer
-           prefix source-buffer new-buffer))
-      (ai-code-backends-infra--handle-session-start-failure
-       new-buffer
-       session-key
-       process-table
-       prefix
-       command))))
+         buffer-and-process
+         startup-failed)
+    (condition-case err
+        (setq buffer-and-process
+              (ai-code-backends-infra--create-terminal-session
+               resolved-buffer-name working-dir command editor-environment))
+      (error
+       (unwind-protect
+           (let ((failure-buffer (get-buffer resolved-buffer-name)))
+             (if failure-buffer
+                 (progn
+                   (ai-code-backends-infra--handle-session-start-failure
+                    failure-buffer
+                    session-key
+                    process-table
+                    prefix
+                    command)
+                   (setq startup-failed t))
+               (signal (car err) (cdr err))))
+         (when cleanup-fn
+           (funcall cleanup-fn)))))
+    (unless startup-failed
+      (let ((new-buffer (car buffer-and-process))
+            (process (cdr buffer-and-process)))
+        (puthash session-key process process-table)
+        ;; Wait for initialization before checking process status
+        (sleep-for ai-code-backends-infra-terminal-initialization-delay)
+        ;; Check if process is still alive after initialization delay
+        (if (and process (process-live-p process))
+            (progn
+              (ai-code-backends-infra--finalize-started-session
+               new-buffer
+               process
+               working-dir
+               resolved-buffer-name
+               process-table
+               resolved-instance
+               prefix
+               escape-fn
+               cleanup-fn
+               multiline-input-sequence
+               post-start-fn
+               task-file)
+              (ai-code-backends-infra--remember-file-session-buffer
+               prefix source-buffer new-buffer))
+          (unwind-protect
+              (ai-code-backends-infra--handle-session-start-failure
+               new-buffer
+               session-key
+               process-table
+               prefix
+               command)
+            (when cleanup-fn
+              (funcall cleanup-fn))))))))
 
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn

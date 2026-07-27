@@ -78,6 +78,22 @@
         (should (= (plist-get details :exit-status) 127))
         (should-not (plist-member details :last-output))))))
 
+(ert-deftest test-ai-code-backends-infra--startup-failure-prefers-child-exit-status ()
+  "Startup diagnostics should prefer a native child's recorded exit status."
+  (cl-letf (((symbol-function 'processp) (lambda (_process) t))
+            ((symbol-function 'process-status) (lambda (_process) 'closed))
+            ((symbol-function 'process-get)
+             (lambda (_process property)
+               (when (eq property
+                         'ai-code-backends-infra--child-exit-status)
+                 1)))
+            ((symbol-function 'process-exit-status) (lambda (_process) 0)))
+    (let ((details
+           (ai-code-backends-infra--startup-failure-details
+            nil 'native-event-pipe "codex" "codex")))
+      (should (eq (plist-get details :status) 'closed))
+      (should (= (plist-get details :exit-status) 1)))))
+
 (ert-deftest test-ai-code-backends-infra--startup-failure-executable-skips-environment-assignments ()
   "Startup summaries should not treat environment assignments as executables."
   (let* ((details
@@ -279,6 +295,51 @@
       (should (string-match-p "<redacted>" (buffer-string)))
       (should-not (string-match-p "/bin/sh" (buffer-string)))
       (should-not (string-match-p "stty sane" (buffer-string)))
+      (should-not (string-match-p "command-secret" (buffer-string))))))
+
+(ert-deftest test-ai-code-backends-infra--create-new-session-handles-synchronous-error ()
+  "A synchronous terminal error should use the shared failure path."
+  (with-temp-buffer
+    (rename-buffer " *ai-code-synchronous-startup-failure*" t)
+    (let ((buffer (current-buffer))
+          (session-key '("/tmp/project/" . "default"))
+          (process-table (make-hash-table :test 'equal))
+          displayed-buffer
+          captured-message
+          cleanup-count)
+      (setq-local default-directory "/tmp/project/")
+      (cl-letf (((symbol-function 'ai-code-editor-viewport-environment)
+                 (lambda (env-vars) env-vars))
+                ((symbol-function
+                  'ai-code-backends-infra--create-terminal-session)
+                 (lambda (&rest _args)
+                   (error "Searching for program: missing-secret")))
+                ((symbol-function 'pop-to-buffer)
+                 (lambda (target-buffer &rest _args)
+                   (setq displayed-buffer target-buffer)))
+                ((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (setq captured-message
+                         (apply #'format format-string args)))))
+        (ai-code-backends-infra--create-new-session
+         (buffer-name buffer)
+         "/tmp/project/"
+         "codex --api-key command-secret"
+         nil
+         session-key
+         process-table
+         "default"
+         "codex"
+         nil
+         (lambda () (setq cleanup-count (1+ (or cleanup-count 0))))
+         nil nil nil nil))
+      (should (= cleanup-count 1))
+      (should-not (gethash session-key process-table))
+      (should (eq displayed-buffer buffer))
+      (should (string-match-p "AI Code startup diagnostics" (buffer-string)))
+      (should (string-match-p "backend=codex" captured-message))
+      (should (string-match-p "executable=codex" captured-message))
+      (should-not (string-match-p "missing-secret" captured-message))
       (should-not (string-match-p "command-secret" (buffer-string))))))
 
 (provide 'test_ai-code-backends-infra-startup-diagnostics)

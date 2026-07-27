@@ -183,6 +183,18 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (should (equal (plist-get result :args) '("--resume")))
         (should (equal (plist-get result :command) "claude --resume"))))))
 
+(ert-deftest test-ai-code-backends-infra--resolve-start-command-expands-home-program ()
+  "A home-relative executable path should reach terminals as an absolute path."
+  (let* ((program "~/bin/codex")
+         (resolved
+          (ai-code-backends-infra--resolve-start-command
+           program nil nil "Codex")))
+    (should
+     (equal
+      (ai-code-backends-infra--startup-command-argv
+       (plist-get resolved :command))
+      (list (expand-file-name program))))))
+
 (ert-deftest test-ai-code-backends-infra-session-working-directory-prompts-with-prefix ()
   "A prefix argument should prompt for the working directory."
   (let (seen)

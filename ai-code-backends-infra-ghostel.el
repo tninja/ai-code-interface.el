@@ -879,6 +879,36 @@ ORIG-FILTER is Ghostel's original process filter."
         (ai-code-backends-infra-ghostel--render-output
          buffer orig-filter process output)))))
 
+(defun ai-code-backends-infra-ghostel--capture-native-child-exit-status
+    (process output)
+  "Record a native Ghostel child exit status from PROCESS OUTPUT."
+  (when (and (processp process) (stringp output))
+    (let* ((fragment
+            (or (process-get
+                 process 'ai-code-backends-infra-ghostel--event-fragment)
+                ""))
+           (input (concat fragment output))
+           (input-length (length input))
+           (offset 0)
+           pending)
+      (while (< offset input-length)
+        (let ((parsed
+               (condition-case nil
+                   (read-from-string input offset)
+                 (end-of-file nil))))
+          (if parsed
+              (progn
+                (when (numberp (car parsed))
+                  (process-put
+                   process
+                   'ai-code-backends-infra--child-exit-status
+                   (car parsed)))
+                (setq offset (cdr parsed)))
+            (setq pending (substring input offset)
+                  offset input-length))))
+      (process-put
+       process 'ai-code-backends-infra-ghostel--event-fragment pending))))
+
 (defun ai-code-backends-infra-ghostel--wrap-process-filter
     (buffer process)
   "Wrap PROCESS output for the AI Code Ghostel session in BUFFER."
@@ -896,6 +926,9 @@ ORIG-FILTER is Ghostel's original process filter."
       (set-process-filter
        process
        (lambda (proc output)
+         (when (eq orig-filter 'ghostel--events-filter)
+           (ai-code-backends-infra-ghostel--capture-native-child-exit-status
+            proc output))
          (let ((target (or (ignore-errors (process-buffer proc))
                            buffer)))
            (when (buffer-live-p target)
