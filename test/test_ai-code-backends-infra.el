@@ -3638,7 +3638,8 @@ The prefix argument should also force instance-name prompting."
              buffer
              session-key
              process-table
-             "codex")
+             "codex"
+             nil)
             (should-not (gethash session-key process-table))
             (let ((ordered-calls (nreverse calls)))
               (should (equal (car ordered-calls) (list :pop buffer)))

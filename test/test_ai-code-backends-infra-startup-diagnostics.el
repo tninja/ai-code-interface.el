@@ -20,11 +20,19 @@
      '("codex"
        "--api-key=inline-secret"
        "--token" "separate-secret"
+       "--github-token" "github-secret"
+       "--api_key" "api-secret"
+       "--header" "Authorization: Bearer bearer-secret"
+       "-H" "X-API-Key: header-secret"
        "OPENAI_API_KEY=environment-secret"
        "--model" "gpt-5"))
     '("codex"
       "--api-key=<redacted>"
       "--token" "<redacted>"
+      "--github-token" "<redacted>"
+      "--api_key" "<redacted>"
+      "--header" "<redacted>"
+      "-H" "<redacted>"
       "OPENAI_API_KEY=<redacted>"
       "--model" "gpt-5"))))
 
@@ -37,12 +45,15 @@
           (insert "initial output\nfatal: missing credential\n")
           (cl-letf (((symbol-function 'processp) (lambda (_process) t))
                     ((symbol-function 'process-command)
-                     (lambda (_process) '("/usr/local/bin/codex" "--flag")))
+                     (lambda (_process)
+                       '("/bin/sh" "-c"
+                         "stty sane && exec /usr/local/bin/codex --flag")))
                     ((symbol-function 'process-status) (lambda (_process) 'exit))
                     ((symbol-function 'process-exit-status) (lambda (_process) 127)))
             (let ((details
                    (ai-code-backends-infra--startup-failure-details
-                    buffer 'fake-process "codex")))
+                    buffer 'fake-process "codex"
+                    "/usr/local/bin/codex --flag")))
               (should (equal (plist-get details :backend) "codex"))
               (should (equal (plist-get details :executable) "/usr/local/bin/codex"))
               (should (equal (plist-get details :command)
@@ -77,8 +88,8 @@
                     ((symbol-function 'processp) (lambda (_process) t))
                     ((symbol-function 'process-command)
                      (lambda (_process)
-                       '("/opt/bin/codex" "--flag"
-                         "--api-key" "command-secret")))
+                       '("/bin/sh" "-c"
+                         "stty sane && exec /opt/bin/codex --flag --github-token command-secret")))
                     ((symbol-function 'process-status) (lambda (_process) 'exit))
                     ((symbol-function 'process-exit-status) (lambda (_process) 126))
                     ((symbol-function 'pop-to-buffer)
@@ -91,7 +102,7 @@
             (ai-code-backends-infra--create-new-session
              "*ai-code-startup-failure-handler*"
              "/tmp/project/"
-             '("/opt/bin/codex" "--flag" "--api-key" "command-secret")
+             "/opt/bin/codex --flag --github-token command-secret"
              nil
              session-key
              process-table
@@ -102,6 +113,7 @@
           (should (eq displayed-buffer buffer))
           (should (string-match-p "backend=codex" captured-message))
           (should (string-match-p "/opt/bin/codex" captured-message))
+          (should-not (string-match-p "/bin/sh" captured-message))
           (should (string-match-p "/tmp/project/" captured-message))
           (should (string-match-p "126" captured-message))
           (should-not (string-match-p "spawn failed" captured-message))
@@ -111,6 +123,8 @@
             (should (string-match-p "Command argv:" (buffer-string)))
             (should (string-match-p "--flag" (buffer-string)))
             (should (string-match-p "<redacted>" (buffer-string)))
+            (should-not (string-match-p "/bin/sh" (buffer-string)))
+            (should-not (string-match-p "stty sane" (buffer-string)))
             (should-not (string-match-p "command-secret" (buffer-string)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
