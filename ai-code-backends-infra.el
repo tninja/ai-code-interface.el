@@ -169,7 +169,9 @@ being sent for the response completion.")
   "History list for CLI args prompts.")
 
 (defconst ai-code-backends-infra--sensitive-command-options
-  '("--access-token"
+  '("--access-key"
+    "--access-key-id"
+    "--access-token"
     "--api-key"
     "--apikey"
     "--auth-token"
@@ -1157,7 +1159,7 @@ were non-nil and append that UUID to the default CLI args."
                found-resume-switch
                (ai-code-backends-infra--selected-session-id)))
          (prompt-p (or arg selected-session-id))
-         (default-args (mapconcat #'identity
+         (default-args (mapconcat #'shell-quote-argument
                                    (append switches
                                            (and selected-session-id
                                                 (list selected-session-id)))
@@ -1168,7 +1170,7 @@ were non-nil and append that UUID to the default CLI args."
          (resolved-args (if prompt-p
                             (split-string-shell-command prompt-args)
                           switches))
-         (command (mapconcat #'identity
+         (command (mapconcat #'shell-quote-argument
                              (cons program resolved-args)
                              " ")))
     (list :command command :args resolved-args)))
@@ -1333,24 +1335,32 @@ behavior."
     (mapcar
      (lambda (argument)
        (cond
-        (redact-next
-         (setq redact-next nil)
-         "<redacted>")
         ((not (stringp argument)) argument)
         ((and (> (length argument) 2)
               (string-prefix-p "-H" argument))
+         (setq redact-next nil)
          "-H<redacted>")
         ((string-match "\\`\\([^=]+\\)=.*\\'" argument)
-         (let ((name (match-string 1 argument)))
-           (if (or (ai-code-backends-infra--sensitive-command-name-p name)
-                   (ai-code-backends-infra--sensitive-environment-name-p
-                    name))
-               (concat name "=<redacted>")
-             argument)))
+         (let* ((name (match-string 1 argument))
+                (sensitive
+                 (or (ai-code-backends-infra--sensitive-command-name-p name)
+                     (ai-code-backends-infra--sensitive-environment-name-p
+                      name))))
+           (cond
+            (sensitive
+             (setq redact-next nil)
+             (concat name "=<redacted>"))
+            (redact-next
+             (setq redact-next nil)
+             "<redacted>")
+            (t argument))))
         ((and (string-prefix-p "-" argument)
               (ai-code-backends-infra--sensitive-command-name-p argument))
          (setq redact-next t)
          argument)
+        (redact-next
+         (setq redact-next nil)
+         "<redacted>")
         (t argument)))
      command)))
 
@@ -1364,7 +1374,7 @@ behavior."
           (member normalized
                   ai-code-backends-infra--sensitive-command-options)
           (string-match-p
-           "\\(?:api-?key\\|token\\|secret\\|password\\|passwd\\|credentials?\\|authorization\\|private-key\\)\\'"
+           "\\(?:api-?key\\|access-key\\(?:-id\\)?\\|token\\|secret\\|password\\|passwd\\|credentials?\\|authorization\\|private-key\\)\\'"
            normalized)))))
 
 (defun ai-code-backends-infra--sensitive-environment-name-p (name)
@@ -1376,13 +1386,34 @@ behavior."
           "\\(?:API[_-]?KEY\\|ACCESS[_-]?KEY\\|TOKEN\\|SECRET\\|PASSWORD\\|PASSWD\\|CREDENTIALS?\\|AUTHORIZATION\\|PRIVATE[_-]?KEY\\)"
           name))))
 
+(defun ai-code-backends-infra--shell-command-balanced-p (command)
+  "Return non-nil when shell COMMAND has balanced quotes and escapes."
+  (let (quote escaped)
+    (dotimes (index (length command))
+      (let ((character (aref command index)))
+        (cond
+         ((eq quote ?\')
+          (when (eq character ?\')
+            (setq quote nil)))
+         (escaped
+          (setq escaped nil))
+         ((eq character ?\\)
+          (setq escaped t))
+         ((and quote (eq character quote))
+          (setq quote nil))
+         ((and (null quote) (memq character '(?\' ?\")))
+          (setq quote character)))))
+    (and (null quote) (not escaped))))
+
 (defun ai-code-backends-infra--startup-command-argv (command)
   "Return the argv represented by startup COMMAND without shell wrappers."
   (cond
    ((stringp command)
-    (condition-case nil
-        (split-string-shell-command command)
-      (error '("<unparseable-command>"))))
+    (if (ai-code-backends-infra--shell-command-balanced-p command)
+        (condition-case nil
+            (split-string-shell-command command)
+          (error '("<unparseable-command>")))
+      '("<unparseable-command>")))
    ((listp command) (copy-sequence command))))
 
 (defun ai-code-backends-infra--environment-assignment-p (argument)

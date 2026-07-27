@@ -84,6 +84,111 @@
     (should-not (string-match-p "message-secret" summary))
     (should-not (string-match-p "OPENAI_API_KEY" summary))))
 
+(ert-deftest test-ai-code-backends-infra--startup-failure-preserves-quoted-argument-boundaries ()
+  "Startup diagnostics should redact a quoted header value as one argument."
+  (with-temp-buffer
+    (setq-local default-directory "/tmp/project/")
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (&rest _args)
+                 "--header 'Authorization: Bearer header-secret' --model gpt-5")))
+      (let* ((resolved
+              (ai-code-backends-infra--resolve-start-command
+               "codex" nil t "Codex"))
+             (details
+              (ai-code-backends-infra--startup-failure-details
+               (current-buffer) nil "codex" (plist-get resolved :command))))
+        (ai-code-backends-infra--append-startup-failure-diagnostics
+         (current-buffer) details)
+        (should
+         (equal (plist-get details :command)
+                '("codex"
+                  "--header"
+                  "Authorization: Bearer header-secret"
+                  "--model"
+                  "gpt-5")))
+        (should (string-match-p "<redacted>" (buffer-string)))
+        (should-not (string-match-p "header-secret" (buffer-string)))))))
+
+(ert-deftest test-ai-code-backends-infra--startup-failure-preserves-prompt-default-boundaries ()
+  "Accepting default CLI args should preserve a header value as one argument."
+  (with-temp-buffer
+    (setq-local default-directory "/tmp/project/")
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (_prompt initial-input &rest _args)
+                 initial-input)))
+      (let* ((resolved
+              (ai-code-backends-infra--resolve-start-command
+               "codex"
+               '("--header" "Authorization: Bearer default-header-secret")
+               t
+               "Codex"))
+             (details
+              (ai-code-backends-infra--startup-failure-details
+               (current-buffer) nil "codex" (plist-get resolved :command))))
+        (ai-code-backends-infra--append-startup-failure-diagnostics
+         (current-buffer) details)
+        (should
+         (equal (plist-get details :command)
+                '("codex"
+                  "--header"
+                  "Authorization: Bearer default-header-secret")))
+        (should (string-match-p "<redacted>" (buffer-string)))
+        (should-not
+         (string-match-p "default-header-secret" (buffer-string)))))))
+
+(ert-deftest test-ai-code-backends-infra--startup-failure-redacts-access-key-options ()
+  "Startup diagnostics should redact access-key option values."
+  (with-temp-buffer
+    (setq-local default-directory "/tmp/project/")
+    (let ((details
+           (ai-code-backends-infra--startup-failure-details
+            (current-buffer)
+            nil
+            "codex"
+            (concat "codex --access-key separate-access-secret "
+                    "--aws-access-key=inline-access-secret "
+                    "--aws-access-key-id key-id-secret"))))
+      (ai-code-backends-infra--append-startup-failure-diagnostics
+       (current-buffer) details)
+      (should (string-match-p "<redacted>" (buffer-string)))
+      (should-not (string-match-p "separate-access-secret" (buffer-string)))
+      (should-not (string-match-p "inline-access-secret" (buffer-string)))
+      (should-not (string-match-p "key-id-secret" (buffer-string))))))
+
+(ert-deftest test-ai-code-backends-infra--startup-failure-preserves-chained-sensitive-options ()
+  "Startup diagnostics should preserve chained options and redact their value."
+  (with-temp-buffer
+    (setq-local default-directory "/tmp/project/")
+    (let ((details
+           (ai-code-backends-infra--startup-failure-details
+            (current-buffer)
+            nil
+            "codex"
+            "codex --token --api-key chained-secret --model gpt-5")))
+      (ai-code-backends-infra--append-startup-failure-diagnostics
+       (current-buffer) details)
+      (should (string-match-p "--token" (buffer-string)))
+      (should (string-match-p "--api-key" (buffer-string)))
+      (should (string-match-p "<redacted>" (buffer-string)))
+      (should-not (string-match-p "chained-secret" (buffer-string))))))
+
+(ert-deftest test-ai-code-backends-infra--startup-failure-rejects-unbalanced-command ()
+  "Startup diagnostics should fail closed for an unbalanced launch command."
+  (with-temp-buffer
+    (setq-local default-directory "/tmp/project/")
+    (let ((details
+           (ai-code-backends-infra--startup-failure-details
+            (current-buffer)
+            nil
+            "codex"
+            "codex --model 'malformed-secret")))
+      (ai-code-backends-infra--append-startup-failure-diagnostics
+       (current-buffer) details)
+      (should (equal (plist-get details :command)
+                     '("<unparseable-command>")))
+      (should (string-match-p "<unparseable-command>" (buffer-string)))
+      (should-not (string-match-p "malformed-secret" (buffer-string))))))
+
 (ert-deftest test-ai-code-backends-infra--create-new-session-failure-is-actionable-and-safe ()
   "A real startup failure should show actionable details without logging output."
   (let ((buffer (generate-new-buffer " *ai-code-startup-failure-handler*"))
