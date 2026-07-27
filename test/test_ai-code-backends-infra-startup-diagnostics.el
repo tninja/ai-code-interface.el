@@ -12,13 +12,28 @@
 (require 'cl-lib)
 (require 'ai-code-backends-infra)
 
+(ert-deftest test-ai-code-backends-infra--redact-startup-command-covers-secret-forms ()
+  "Startup command diagnostics should redact common secret value forms."
+  (should
+   (equal
+    (ai-code-backends-infra--redact-startup-command
+     '("codex"
+       "--api-key=inline-secret"
+       "--token" "separate-secret"
+       "OPENAI_API_KEY=environment-secret"
+       "--model" "gpt-5"))
+    '("codex"
+      "--api-key=<redacted>"
+      "--token" "<redacted>"
+      "OPENAI_API_KEY=<redacted>"
+      "--model" "gpt-5"))))
+
 (ert-deftest test-ai-code-backends-infra--startup-failure-details-include-context ()
-  "Startup failure details should include command, cwd, exit status, and output."
+  "Startup failure details should include explicit backend and process context."
   (let ((buffer (generate-new-buffer " *ai-code-startup-failure*")))
     (unwind-protect
         (with-current-buffer buffer
           (setq-local default-directory "/tmp/example/")
-          (setq-local ai-code-backends-infra--session-prefix "codex")
           (insert "initial output\nfatal: missing credential\n")
           (cl-letf (((symbol-function 'processp) (lambda (_process) t))
                     ((symbol-function 'process-command)
@@ -27,7 +42,7 @@
                     ((symbol-function 'process-exit-status) (lambda (_process) 127)))
             (let ((details
                    (ai-code-backends-infra--startup-failure-details
-                    buffer 'fake-process)))
+                    buffer 'fake-process "codex")))
               (should (equal (plist-get details :backend) "codex"))
               (should (equal (plist-get details :executable) "/usr/local/bin/codex"))
               (should (equal (plist-get details :command)
@@ -35,13 +50,12 @@
               (should (equal (plist-get details :cwd) "/tmp/example/"))
               (should (equal (plist-get details :status) 'exit))
               (should (= (plist-get details :exit-status) 127))
-              (should (string-match-p "missing credential"
-                                      (plist-get details :last-output))))))
+              (should-not (plist-member details :last-output)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
-(ert-deftest test-ai-code-backends-infra--handle-session-start-failure-preserves-cleanup ()
-  "Startup diagnostics should preserve failure cleanup and show the buffer."
+(ert-deftest test-ai-code-backends-infra--create-new-session-failure-is-actionable-and-safe ()
+  "A real startup failure should show actionable details without logging output."
   (let ((buffer (generate-new-buffer " *ai-code-startup-failure-handler*"))
         (session-key '("/tmp/project/" . "default"))
         (process-table (make-hash-table :test 'equal))
@@ -49,14 +63,22 @@
         captured-message)
     (unwind-protect
         (progn
-          (puthash session-key 'fake-process process-table)
           (with-current-buffer buffer
             (setq-local default-directory "/tmp/project/")
-            (setq-local ai-code-backends-infra--session-prefix "claude-code")
-            (insert "spawn failed"))
-          (cl-letf (((symbol-function 'processp) (lambda (_process) t))
+            (insert "spawn failed token=super-secret"))
+          (cl-letf (((symbol-function 'ai-code-editor-viewport-environment)
+                     (lambda (env-vars) env-vars))
+                    ((symbol-function
+                      'ai-code-backends-infra--create-terminal-session)
+                     (lambda (&rest _args)
+                       (cons buffer 'fake-process)))
+                    ((symbol-function 'sleep-for) (lambda (&rest _args)))
+                    ((symbol-function 'process-live-p) (lambda (_process) nil))
+                    ((symbol-function 'processp) (lambda (_process) t))
                     ((symbol-function 'process-command)
-                     (lambda (_process) '("/opt/bin/claude")))
+                     (lambda (_process)
+                       '("/opt/bin/codex" "--flag"
+                         "--api-key" "command-secret")))
                     ((symbol-function 'process-status) (lambda (_process) 'exit))
                     ((symbol-function 'process-exit-status) (lambda (_process) 126))
                     ((symbol-function 'pop-to-buffer)
@@ -66,15 +88,30 @@
                      (lambda (format-string &rest args)
                        (setq captured-message
                              (apply #'format format-string args)))))
-            (ai-code-backends-infra--handle-session-start-failure
-             buffer session-key process-table))
+            (ai-code-backends-infra--create-new-session
+             "*ai-code-startup-failure-handler*"
+             "/tmp/project/"
+             '("/opt/bin/codex" "--flag" "--api-key" "command-secret")
+             nil
+             session-key
+             process-table
+             "default"
+             "codex"
+             nil nil nil nil nil nil))
           (should-not (gethash session-key process-table))
           (should (eq displayed-buffer buffer))
-          (should (string-match-p "claude-code" captured-message))
-          (should (string-match-p "/opt/bin/claude" captured-message))
+          (should (string-match-p "backend=codex" captured-message))
+          (should (string-match-p "/opt/bin/codex" captured-message))
           (should (string-match-p "/tmp/project/" captured-message))
           (should (string-match-p "126" captured-message))
-          (should (string-match-p "spawn failed" captured-message)))
+          (should-not (string-match-p "spawn failed" captured-message))
+          (should-not (string-match-p "super-secret" captured-message))
+          (should-not (string-match-p "--flag" captured-message))
+          (with-current-buffer buffer
+            (should (string-match-p "Command argv:" (buffer-string)))
+            (should (string-match-p "--flag" (buffer-string)))
+            (should (string-match-p "<redacted>" (buffer-string)))
+            (should-not (string-match-p "command-secret" (buffer-string)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

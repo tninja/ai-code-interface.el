@@ -168,6 +168,22 @@ being sent for the response completion.")
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
 
+(defconst ai-code-backends-infra--sensitive-command-options
+  '("--access-token"
+    "--api-key"
+    "--apikey"
+    "--auth-token"
+    "--authorization"
+    "--client-secret"
+    "--credential"
+    "--credentials"
+    "--password"
+    "--passwd"
+    "--private-key"
+    "--secret"
+    "--token")
+  "CLI options whose values must be redacted in startup diagnostics.")
+
 (defconst ai-code-backends-infra--uuid-regexp
   "[[:xdigit:]]\\{8\\}-[[:xdigit:]]\\{4\\}-[[:xdigit:]]\\{4\\}-[[:xdigit:]]\\{4\\}-[[:xdigit:]]\\{12\\}"
   "Regexp matching the general UUID 8-4-4-4-12 text structure.
@@ -1311,24 +1327,52 @@ behavior."
    buffer working-dir prefix task-file)
   (ai-code-backends-infra--display-buffer-in-side-window buffer))
 
-(defun ai-code-backends-infra--last-startup-output (buffer)
-  "Return a concise tail of BUFFER output for startup diagnostics."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (let* ((end (point-max))
-             (start (max (point-min) (- end 500)))
-             (output
-              (string-trim
-               (buffer-substring-no-properties start end))))
-        (unless (string-empty-p output)
-          (replace-regexp-in-string "[\r\n]+" " | " output))))))
+(defun ai-code-backends-infra--redact-startup-command (command)
+  "Return a copy of COMMAND with sensitive argument values redacted."
+  (let ((redact-next nil)
+        (case-fold-search t))
+    (mapcar
+     (lambda (argument)
+       (cond
+        (redact-next
+         (setq redact-next nil)
+         "<redacted>")
+        ((not (stringp argument)) argument)
+        ((string-match "\\`\\([^=]+\\)=.*\\'" argument)
+         (let ((name (match-string 1 argument)))
+           (if (or (member (downcase name)
+                           ai-code-backends-infra--sensitive-command-options)
+                   (string-match-p
+                    "\\(?:API[_-]?KEY\\|TOKEN\\|SECRET\\|PASSWORD\\|PASSWD\\|CREDENTIALS?\\|AUTHORIZATION\\)"
+                    name))
+               (concat name "=<redacted>")
+             argument)))
+        ((member (downcase argument)
+                 ai-code-backends-infra--sensitive-command-options)
+         (setq redact-next t)
+         argument)
+        (t argument)))
+     command)))
 
-(defun ai-code-backends-infra--startup-failure-details (buffer process)
-  "Return diagnostic details for failed PROCESS associated with BUFFER."
+(defun ai-code-backends-infra--format-startup-command (command)
+  "Return COMMAND as complete, redacted, and safely escaped argv text."
+  (if command
+      (let ((print-escape-control-characters t)
+            (print-escape-newlines t)
+            (print-length nil)
+            (print-level nil))
+        (prin1-to-string
+         (ai-code-backends-infra--redact-startup-command command)))
+    "unknown"))
+
+(defun ai-code-backends-infra--startup-failure-details (buffer process prefix)
+  "Return diagnostic details for failed PROCESS and backend PREFIX.
+BUFFER supplies the working directory when it is still live."
   (let ((backend
-         (when (buffer-live-p buffer)
-           (with-current-buffer buffer
-             ai-code-backends-infra--session-prefix)))
+         (or prefix
+             (when (buffer-live-p buffer)
+               (with-current-buffer buffer
+                 ai-code-backends-infra--session-prefix))))
         (working-directory
          (when (buffer-live-p buffer)
            (with-current-buffer buffer default-directory)))
@@ -1343,30 +1387,58 @@ behavior."
           :command command
           :cwd working-directory
           :status status
-          :exit-status exit-status
-          :last-output (ai-code-backends-infra--last-startup-output buffer))))
+          :exit-status exit-status)))
+
+(defun ai-code-backends-infra--append-startup-failure-diagnostics
+    (buffer details)
+  "Append safely formatted startup failure DETAILS to live BUFFER."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (save-restriction
+        (widen)
+        (let ((buffer-undo-list t)
+              (inhibit-read-only t))
+          (goto-char (point-max))
+          (unless (bolp)
+            (insert "\n"))
+          (insert
+           "\nAI Code startup diagnostics:\n"
+           (format "  Backend: %S\n" (or (plist-get details :backend) 'unknown))
+           (format "  Executable: %S\n"
+                   (or (plist-get details :executable) 'unknown))
+           (format "  Command argv: %s\n"
+                   (ai-code-backends-infra--format-startup-command
+                    (plist-get details :command)))
+           (format "  Working directory: %S\n"
+                   (or (plist-get details :cwd) 'unknown))
+           (format "  Process status: %S\n"
+                   (or (plist-get details :status) 'unknown))
+           (format "  Exit status: %S\n"
+                   (or (plist-get details :exit-status) 'unknown))))))))
 
 (defun ai-code-backends-infra--format-startup-failure (details)
   "Format startup failure DETAILS as a compact user-facing message."
   (format
-   "CLI failed to start [backend=%s executable=%s cwd=%s status=%s exit=%s]%s"
+   "CLI failed to start [backend=%s executable=%s cwd=%s status=%s exit=%s]"
    (or (plist-get details :backend) "unknown")
    (or (plist-get details :executable) "unknown")
    (or (plist-get details :cwd) "unknown")
    (or (plist-get details :status) "unknown")
-   (or (plist-get details :exit-status) "unknown")
-   (if-let* ((output (plist-get details :last-output)))
-       (format " output: %s" output)
-     "")))
+   (or (plist-get details :exit-status) "unknown")))
 
 (defun ai-code-backends-infra--handle-session-start-failure
-    (buffer session-key process-table)
-  "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE."
+    (buffer session-key process-table prefix)
+  "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE.
+PREFIX identifies the backend that attempted to start."
   (let* ((process (gethash session-key process-table))
          (details
-          (ai-code-backends-infra--startup-failure-details buffer process)))
+          (ai-code-backends-infra--startup-failure-details
+           buffer process prefix)))
     (remhash session-key process-table)
     (when (buffer-live-p buffer)
+      (ignore-errors
+        (ai-code-backends-infra--append-startup-failure-diagnostics
+         buffer details))
       (pop-to-buffer buffer))
     (message "%s" (ai-code-backends-infra--format-startup-failure details))))
 
@@ -1553,7 +1625,8 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
       (ai-code-backends-infra--handle-session-start-failure
        new-buffer
        session-key
-       process-table))))
+       process-table
+       prefix))))
 
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn

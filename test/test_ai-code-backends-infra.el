@@ -3614,7 +3614,7 @@ The prefix argument should also force instance-name prompting."
         (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra--handle-session-start-failure-shows-live-buffer ()
-  "Startup failure should preserve and show a live buffer with an error message."
+  "Startup failure should show the buffer even when diagnostics cannot append."
   (let* ((session-key '("/tmp/ai-code-start-failure/" . "default"))
          (process-table (make-hash-table :test 'equal))
          (buffer (get-buffer-create "*ai-code-start-failure*"))
@@ -3622,7 +3622,11 @@ The prefix argument should also force instance-name prompting."
     (unwind-protect
         (progn
           (puthash session-key 'mock-process process-table)
-          (cl-letf (((symbol-function 'pop-to-buffer)
+          (cl-letf (((symbol-function
+                      'ai-code-backends-infra--append-startup-failure-diagnostics)
+                     (lambda (&rest _args)
+                       (error "Cannot append terminal diagnostics")))
+                    ((symbol-function 'pop-to-buffer)
                      (lambda (target-buffer &rest _args)
                        (push (list :pop target-buffer) calls)
                        nil))
@@ -3633,13 +3637,14 @@ The prefix argument should also force instance-name prompting."
             (ai-code-backends-infra--handle-session-start-failure
              buffer
              session-key
-             process-table)
+             process-table
+             "codex")
             (should-not (gethash session-key process-table))
             (let ((ordered-calls (nreverse calls)))
               (should (equal (car ordered-calls) (list :pop buffer)))
               (should
                (string-prefix-p
-                "CLI failed to start [backend=unknown executable=unknown cwd="
+                "CLI failed to start [backend=codex executable=unknown cwd="
                 (cadr ordered-calls)))
               (should
                (string-suffix-p
