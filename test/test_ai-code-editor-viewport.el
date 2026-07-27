@@ -25,6 +25,12 @@
      (let ((,buffer (current-buffer)))
        ,@body)))
 
+(defun ai-code-editor-viewport-test--confirm-cancel ()
+  "Cancel the current viewport and confirm discarding nonblank content."
+  (cl-letf (((symbol-function 'y-or-n-p)
+             (lambda (_message) t)))
+    (ai-code-editor-viewport-cancel)))
+
 (defun ai-code-editor-viewport-test--display-from-lateral-side
     (side source-buffer viewport-buffer &optional width)
   "Display VIEWPORT-BUFFER from a SIDE SOURCE-BUFFER fixture.
@@ -75,6 +81,196 @@ Give the source side window WIDTH columns, defaulting to 40."
     (ai-code-editor-viewport-mode 1)
     (should (eq (key-binding (kbd "C-g"))
                 #'ai-code-editor-viewport-cancel))))
+
+(ert-deftest test-ai-code-editor-viewport--mode-remaps-recursive-exits-to-cancel ()
+  "Standard `recursive-edit' exits should use viewport cancellation."
+  (with-temp-buffer
+    (ai-code-editor-viewport-mode 1)
+    (dolist (command '(abort-recursive-edit
+                       exit-recursive-edit
+                       keyboard-escape-quit))
+      (should (eq (command-remapping command)
+                  #'ai-code-editor-viewport-cancel)))))
+
+(ert-deftest test-ai-code-editor-viewport--cancel-keeps-nonblank-content-when-declined ()
+  "Declining discard confirmation should keep editing nonblank content."
+  (with-temp-buffer
+    (insert "draft")
+    (ai-code-editor-viewport-mode 1)
+    (let (prompt exited)
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (message)
+                   (setq prompt message)
+                   nil))
+                ((symbol-function 'exit-recursive-edit)
+                 (lambda ()
+                   (setq exited t))))
+        (ai-code-editor-viewport-cancel))
+      (should (string-match-p "discard" (downcase prompt)))
+      (should-not exited)
+      (should (equal (buffer-string) "draft")))))
+
+(ert-deftest test-ai-code-editor-viewport--cancel-discards-nonblank-content-when-confirmed ()
+  "Confirming discard should cancel editing nonblank content."
+  (with-temp-buffer
+    (insert "draft")
+    (ai-code-editor-viewport-mode 1)
+    (let (prompt exited)
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (message)
+                   (setq prompt message)
+                   t))
+                ((symbol-function 'exit-recursive-edit)
+                 (lambda ()
+                   (setq exited t))))
+        (ai-code-editor-viewport-cancel))
+      (should (string-match-p "discard" (downcase prompt)))
+      (should exited))))
+
+(ert-deftest test-ai-code-editor-viewport--cancel-skips-confirmation-for-blank-content ()
+  "Canceling whitespace-only content should exit without confirmation."
+  (with-temp-buffer
+    (insert " \n\t ")
+    (ai-code-editor-viewport-mode 1)
+    (let (exited)
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (_message)
+                   (ert-fail "Blank viewport content should not prompt")))
+                ((symbol-function 'exit-recursive-edit)
+                 (lambda ()
+                   (setq exited t))))
+        (ai-code-editor-viewport-cancel))
+      (should exited))))
+
+(ert-deftest test-ai-code-editor-viewport--cancel-checks-content-outside-narrowing ()
+  "Canceling should confirm when nonblank content is hidden by narrowing."
+  (with-temp-buffer
+    (insert "hidden draft")
+    (narrow-to-region (point-max) (point-max))
+    (ai-code-editor-viewport-mode 1)
+    (let (prompt exited)
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (message)
+                   (setq prompt message)
+                   nil))
+                ((symbol-function 'exit-recursive-edit)
+                 (lambda ()
+                   (setq exited t))))
+        (ai-code-editor-viewport-cancel))
+      (should prompt)
+      (should-not exited))))
+
+(ert-deftest test-ai-code-editor-viewport--alternate-exit-decline-keeps-editing ()
+  "Declining an alternate recursive exit should resume viewport editing."
+  (ai-code-editor-viewport-test--with-buffer
+      (source-buffer "*ai-code-editor-alternate-exit-source*")
+    (let* ((directory (make-temp-file "ai-code-editor-alternate-exit-" t))
+           (file (expand-file-name "prompt.md" directory))
+           (answers '(nil t))
+           (recursive-calls 0))
+      (unwind-protect
+          (progn
+            (with-temp-file file
+              (insert "original"))
+            (cl-letf (((symbol-function 'ai-code-editor-viewport--display)
+                       (lambda (&rest _args) nil))
+                      ((symbol-function 'recursive-edit)
+                       (lambda ()
+                         (setq recursive-calls (1+ recursive-calls))
+                         (erase-buffer)
+                         (insert "discard me")))
+                      ((symbol-function 'y-or-n-p)
+                       (lambda (_message)
+                         (prog1 (car answers)
+                           (setq answers (cdr answers))))))
+              (should-not
+               (ai-code-editor-viewport--edit-file
+                file source-buffer)))
+            (should (= recursive-calls 2))
+            (should-not answers)
+            (with-temp-buffer
+              (insert-file-contents file)
+              (should (equal (buffer-string) "original"))))
+        (when-let* ((buffer (get-file-buffer file)))
+          (kill-buffer buffer))
+        (delete-directory directory t)))))
+
+(ert-deftest test-ai-code-editor-viewport--alternate-abort-decline-keeps-editing ()
+  "Declining an alternate recursive abort should resume viewport editing."
+  (ai-code-editor-viewport-test--with-buffer
+      (source-buffer "*ai-code-editor-alternate-abort-source*")
+    (let* ((directory (make-temp-file "ai-code-editor-alternate-abort-" t))
+           (file (expand-file-name "prompt.md" directory))
+           (answers '(nil t))
+           (recursive-calls 0))
+      (unwind-protect
+          (progn
+            (with-temp-file file
+              (insert "original"))
+            (cl-letf (((symbol-function 'ai-code-editor-viewport--display)
+                       (lambda (&rest _args) nil))
+                      ((symbol-function 'recursive-edit)
+                       (lambda ()
+                         (setq recursive-calls (1+ recursive-calls))
+                         (erase-buffer)
+                         (insert "discard me")
+                         (signal 'quit nil)))
+                      ((symbol-function 'y-or-n-p)
+                       (lambda (_message)
+                         (prog1 (car answers)
+                           (setq answers (cdr answers))))))
+              (should-not
+               (ai-code-editor-viewport--edit-file
+                file source-buffer)))
+            (should (= recursive-calls 2))
+            (should-not answers)
+            (with-temp-buffer
+              (insert-file-contents file)
+              (should (equal (buffer-string) "original"))))
+        (when-let* ((buffer (get-file-buffer file)))
+          (kill-buffer buffer))
+        (delete-directory directory t)))))
+
+(ert-deftest test-ai-code-editor-viewport--cancel-refocuses-source-input ()
+  "Canceling should focus the visible source session after closing the viewport."
+  (ai-code-editor-viewport-test--with-buffer
+      (source-buffer "*ai-code-editor-focus-source*")
+    (ai-code-editor-viewport-test--with-buffer
+        (main-buffer "*ai-code-editor-focus-main*")
+      (let* ((directory (make-temp-file "ai-code-editor-focus-" t))
+             (file (expand-file-name "prompt.md" directory)))
+        (unwind-protect
+            (progn
+              (with-temp-file file
+                (insert "draft"))
+              (save-window-excursion
+                (delete-other-windows)
+                (switch-to-buffer main-buffer)
+                (let* ((ai-code-editor-viewport-window-height 11)
+                       (source-window
+                        (display-buffer-in-side-window
+                         source-buffer
+                         '((side . right)
+                           (slot . 0)
+                           (window-width . 40))))
+                       viewport-window)
+                  (select-window source-window)
+                  (cl-letf (((symbol-function 'recursive-edit)
+                             (lambda ()
+                               (setq viewport-window (selected-window))
+                               (ai-code-editor-viewport-test--confirm-cancel)))
+                            ((symbol-function 'exit-recursive-edit)
+                             (lambda () nil)))
+                    (should-not
+                     (ai-code-editor-viewport--edit-file
+                      file source-buffer)))
+                  (should-not (window-live-p viewport-window))
+                  (should (eq (selected-window) source-window))
+                  (should (eq (window-buffer source-window)
+                              source-buffer)))))
+          (when-let* ((buffer (get-file-buffer file)))
+            (kill-buffer buffer))
+          (delete-directory directory t))))))
 
 (ert-deftest test-ai-code-editor-viewport--mode-advertises-smart-yank ()
   "The viewport header should describe the single smart paste command."
@@ -252,7 +448,7 @@ Give the source side window WIDTH columns, defaulting to 40."
                       ((symbol-function 'recursive-edit)
                        (lambda ()
                          (setq viewport-name (buffer-name))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -300,7 +496,7 @@ directory."
                        (lambda ()
                          (if finish-p
                              (ai-code-editor-viewport-finish)
-                           (ai-code-editor-viewport-cancel))))
+                           (ai-code-editor-viewport-test--confirm-cancel))))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should
@@ -391,7 +587,7 @@ directory."
                                (substring-no-properties display)))
                              (should (= (string-width display) 105)))
                            (should (equal (buffer-string) source-text)))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -529,7 +725,7 @@ directory."
                        (lambda ()
                          (erase-buffer)
                          (insert "discard me")
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -809,7 +1005,7 @@ directory."
                        (lambda ()
                          (setq seen-position
                                (list (line-number-at-pos) (current-column)))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -1628,7 +1824,7 @@ directory."
                                (should ai-code-editor-viewport-mode)
                                (ai-code-editor-viewport-finish))
                            (setq second-viewport (current-buffer))
-                           (ai-code-editor-viewport-cancel)))))
+                           (ai-code-editor-viewport-test--confirm-cancel)))))
               (should (ai-code-editor-viewport--edit-file file source-buffer)))
             (should-not inner-result)
             (should-not (eq first-viewport second-viewport)))
@@ -1657,7 +1853,7 @@ directory."
                        (lambda ()
                          (setq viewport-point (point))
                          (should (looking-at-p "beta"))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -1688,7 +1884,7 @@ directory."
                        (lambda ()
                          (should (= (point) 19))
                          (should (looking-at-p "line"))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -1719,7 +1915,7 @@ directory."
                        (lambda ()
                          (should (= (point) 8))
                          (should (looking-at-p "me"))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -1750,7 +1946,7 @@ directory."
                        (lambda ()
                          (should (= (point) 7))
                          (should (looking-at-p "\nthird"))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -1786,7 +1982,7 @@ directory."
                        (lambda ()
                          (should (= (point) 7))
                          (should (looking-at-p "beta"))
-                         (ai-code-editor-viewport-cancel)))
+                         (ai-code-editor-viewport-test--confirm-cancel)))
                       ((symbol-function 'exit-recursive-edit)
                        (lambda () nil)))
               (should-not
@@ -1822,7 +2018,7 @@ directory."
                                (setq inner-result
                                      (ai-code-editor-viewport--edit-file
                                       file source-buffer))
-                               (ai-code-editor-viewport-cancel))
+                               (ai-code-editor-viewport-test--confirm-cancel))
                            (insert " INNER")
                            (ai-code-editor-viewport-finish)))))
               (should-not
