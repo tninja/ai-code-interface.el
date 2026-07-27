@@ -1340,7 +1340,20 @@ behavior."
               (string-prefix-p "-H" argument))
          (setq redact-next nil)
          "-H<redacted>")
-        ((string-match "\\`\\([^=]+\\)=.*\\'" argument)
+        ((string-match
+          "\\`\\(\\(?:--env=\\|-e=?\\)\\)\\([A-Za-z_][A-Za-z0-9_]*\\)="
+          argument)
+         (let ((option (match-string 1 argument))
+               (name (match-string 2 argument)))
+           (cond
+            ((ai-code-backends-infra--sensitive-environment-name-p name)
+             (setq redact-next nil)
+             (concat option name "=<redacted>"))
+            (redact-next
+             (setq redact-next nil)
+             "<redacted>")
+            (t argument))))
+        ((string-match "\\`\\([^=]+\\)=" argument)
          (let* ((name (match-string 1 argument))
                 (sensitive
                  (or (ai-code-backends-infra--sensitive-command-name-p name)
@@ -1500,15 +1513,27 @@ COMMAND is the launch command supplied to the terminal backend."
            (format "  Exit status: %S\n"
                    (or (plist-get details :exit-status) 'unknown))))))))
 
+(defun ai-code-backends-infra--format-startup-failure-field (value)
+  "Return VALUE as escaped single-line startup failure text."
+  (let* ((print-escape-control-characters t)
+         (print-escape-newlines t)
+         (printed (prin1-to-string (format "%s" (or value "unknown")))))
+    (substring printed 1 -1)))
+
 (defun ai-code-backends-infra--format-startup-failure (details)
   "Format startup failure DETAILS as a compact user-facing message."
   (format
    "CLI failed to start [backend=%s executable=%s cwd=%s status=%s exit=%s]"
-   (or (plist-get details :backend) "unknown")
-   (or (plist-get details :executable) "unknown")
-   (or (plist-get details :cwd) "unknown")
-   (or (plist-get details :status) "unknown")
-   (or (plist-get details :exit-status) "unknown")))
+   (ai-code-backends-infra--format-startup-failure-field
+    (plist-get details :backend))
+   (ai-code-backends-infra--format-startup-failure-field
+    (plist-get details :executable))
+   (ai-code-backends-infra--format-startup-failure-field
+    (plist-get details :cwd))
+   (ai-code-backends-infra--format-startup-failure-field
+    (plist-get details :status))
+   (ai-code-backends-infra--format-startup-failure-field
+    (plist-get details :exit-status))))
 
 (defun ai-code-backends-infra--handle-session-start-failure
     (buffer session-key process-table prefix command)
