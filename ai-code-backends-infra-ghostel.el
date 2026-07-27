@@ -12,6 +12,7 @@
 (require 'ai-code-editor-viewport)
 (require 'ai-code-ghostel-image-preview)
 (require 'ai-code-session-link)
+(require 'ai-code-startup-diagnostics)
 
 ;; Prefer `ghostel-exec' for Ghostel backend startup when available, as
 ;; it simplifies process startup integration.
@@ -899,10 +900,8 @@ ORIG-FILTER is Ghostel's original process filter."
           (if parsed
               (progn
                 (when (numberp (car parsed))
-                  (process-put
-                   process
-                   'ai-code-backends-infra--child-exit-status
-                   (car parsed)))
+                  (ai-code-startup-diagnostics-record-child-exit-status
+                   process (car parsed)))
                 (setq offset (cdr parsed)))
             (setq pending (substring input offset)
                   offset input-length))))

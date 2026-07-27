@@ -21,6 +21,7 @@
 (require 'ai-code-editor-viewport)
 (require 'ai-code-session)
 (require 'ai-code-session-link)
+(require 'ai-code-startup-diagnostics)
 ;; Terminal-specific implementations live in dedicated modules so this
 ;; file can stay focused on shared session orchestration.
 (require 'ai-code-backends-infra-vterm)
@@ -167,24 +168,6 @@ being sent for the response completion.")
 
 (defvar ai-code-cli-args-history nil
   "History list for CLI args prompts.")
-
-(defconst ai-code-backends-infra--sensitive-command-options
-  '("--access-key"
-    "--access-key-id"
-    "--access-token"
-    "--api-key"
-    "--apikey"
-    "--auth-token"
-    "--authorization"
-    "--client-secret"
-    "--credential"
-    "--credentials"
-    "--password"
-    "--passwd"
-    "--private-key"
-    "--secret"
-    "--token")
-  "CLI options whose values must be redacted in startup diagnostics.")
 
 (defconst ai-code-backends-infra--uuid-regexp
   "[[:xdigit:]]\\{8\\}-[[:xdigit:]]\\{4\\}-[[:xdigit:]]\\{4\\}-[[:xdigit:]]\\{4\\}-[[:xdigit:]]\\{12\\}"
@@ -1332,234 +1315,19 @@ behavior."
    buffer working-dir prefix task-file)
   (ai-code-backends-infra--display-buffer-in-side-window buffer))
 
-(defun ai-code-backends-infra--redact-startup-command (command)
-  "Return a copy of COMMAND with sensitive argument values redacted."
-  (let ((redact-next nil))
-    (mapcar
-     (lambda (argument)
-       (cond
-        ((not (stringp argument)) argument)
-        ((and (> (length argument) 2)
-              (string-prefix-p "-H" argument))
-         (setq redact-next nil)
-         "-H<redacted>")
-        ((string-match
-          "\\`\\(\\(?:--env=\\|-e=?\\)\\)\\([A-Za-z_][A-Za-z0-9_]*\\)="
-          argument)
-         (let ((option (match-string 1 argument))
-               (name (match-string 2 argument)))
-           (cond
-            ((ai-code-backends-infra--sensitive-environment-name-p name)
-             (setq redact-next nil)
-             (concat option name "=<redacted>"))
-            (redact-next
-             (setq redact-next nil)
-             "<redacted>")
-            (t argument))))
-        ((string-match "\\`\\([^=]+\\)=" argument)
-         (let* ((name (match-string 1 argument))
-                (sensitive
-                 (or (ai-code-backends-infra--sensitive-command-name-p name)
-                     (ai-code-backends-infra--sensitive-environment-name-p
-                      name))))
-           (cond
-            (sensitive
-             (setq redact-next nil)
-             (concat name "=<redacted>"))
-            (redact-next
-             (setq redact-next nil)
-             "<redacted>")
-            (t argument))))
-        ((and (string-prefix-p "-" argument)
-              (ai-code-backends-infra--sensitive-command-name-p argument))
-         (setq redact-next t)
-         argument)
-        (redact-next
-         (setq redact-next nil)
-         "<redacted>")
-        (t argument)))
-     command)))
-
-(defun ai-code-backends-infra--sensitive-command-name-p (name)
-  "Return non-nil when NAME identifies a sensitive command value."
-  (when (stringp name)
-    (let ((normalized
-           (replace-regexp-in-string "_" "-" (downcase name))))
-      (or (string= name "-H")
-          (string= normalized "--header")
-          (member normalized
-                  ai-code-backends-infra--sensitive-command-options)
-          (string-match-p
-           "\\(?:api-?key\\|access-key\\(?:-id\\)?\\|token\\|secret\\|password\\|passwd\\|credentials?\\|authorization\\|private-key\\)\\'"
-           normalized)))))
-
-(defun ai-code-backends-infra--sensitive-environment-name-p (name)
-  "Return non-nil when NAME identifies a sensitive environment value."
-  (and (stringp name)
-       (string-match-p "\\`[A-Za-z_][A-Za-z0-9_]*\\'" name)
-       (let ((case-fold-search t))
-         (string-match-p
-          "\\(?:API[_-]?KEY\\|ACCESS[_-]?KEY\\|TOKEN\\|SECRET\\|PASSWORD\\|PASSWD\\|CREDENTIALS?\\|AUTHORIZATION\\|PRIVATE[_-]?KEY\\)"
-          name))))
-
-(defun ai-code-backends-infra--shell-command-balanced-p (command)
-  "Return non-nil when shell COMMAND has balanced quotes and escapes."
-  (let (quote escaped)
-    (dotimes (index (length command))
-      (let ((character (aref command index)))
-        (cond
-         ((eq quote ?\')
-          (when (eq character ?\')
-            (setq quote nil)))
-         (escaped
-          (setq escaped nil))
-         ((eq character ?\\)
-          (setq escaped t))
-         ((and quote (eq character quote))
-          (setq quote nil))
-         ((and (null quote) (memq character '(?\' ?\")))
-          (setq quote character)))))
-    (and (null quote) (not escaped))))
-
-(defun ai-code-backends-infra--startup-command-argv (command)
-  "Return the argv represented by startup COMMAND without shell wrappers."
-  (cond
-   ((stringp command)
-    (if (ai-code-backends-infra--shell-command-balanced-p command)
-        (condition-case nil
-            (split-string-shell-command command)
-          (error '("<unparseable-command>")))
-      '("<unparseable-command>")))
-   ((listp command) (copy-sequence command))))
-
-(defun ai-code-backends-infra--environment-assignment-p (argument)
-  "Return non-nil when ARGUMENT is a shell environment assignment."
-  (and (stringp argument)
-       (string-match-p "\\`[A-Za-z_][A-Za-z0-9_]*=" argument)))
-
-(defun ai-code-backends-infra--startup-command-executable (command)
-  "Return the executable token from parsed startup COMMAND argv."
-  (let ((arguments command))
-    (while (and arguments
-                (ai-code-backends-infra--environment-assignment-p
-                 (car arguments)))
-      (setq arguments (cdr arguments)))
-    (car-safe arguments)))
-
-(defun ai-code-backends-infra--format-startup-command (command)
-  "Return COMMAND as complete, redacted, and safely escaped argv text."
-  (if command
-      (let ((print-escape-control-characters t)
-            (print-escape-newlines t)
-            (print-length nil)
-            (print-level nil))
-        (prin1-to-string
-         (ai-code-backends-infra--redact-startup-command command)))
-    "unknown"))
-
-(defun ai-code-backends-infra--startup-failure-details
-    (buffer process prefix command)
-  "Return diagnostic details for failed PROCESS and backend PREFIX.
-BUFFER supplies the working directory when it is still live.
-COMMAND is the launch command supplied to the terminal backend."
-  (let* ((command-argv
-          (ai-code-backends-infra--startup-command-argv command))
-         (executable
-          (ai-code-backends-infra--startup-command-executable command-argv))
-         (safe-executable
-          (car-safe
-           (ai-code-backends-infra--redact-startup-command
-            (list executable))))
-         (backend
-          (or prefix
-              (when (buffer-live-p buffer)
-                (with-current-buffer buffer
-                  ai-code-backends-infra--session-prefix))))
-         (working-directory
-          (when (buffer-live-p buffer)
-            (with-current-buffer buffer default-directory)))
-         (status (when (and process (processp process))
-                   (ignore-errors (process-status process))))
-         (exit-status (when (and process (processp process))
-                        (or
-                         (ignore-errors
-                           (process-get
-                            process
-                            'ai-code-backends-infra--child-exit-status))
-                         (ignore-errors
-                           (process-exit-status process))))))
-    (list :backend backend
-          :executable safe-executable
-          :command command-argv
-          :cwd working-directory
-          :status status
-          :exit-status exit-status)))
-
-(defun ai-code-backends-infra--append-startup-failure-diagnostics
-    (buffer details)
-  "Append safely formatted startup failure DETAILS to live BUFFER."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (save-restriction
-        (widen)
-        (let ((buffer-undo-list t)
-              (inhibit-read-only t))
-          (goto-char (point-max))
-          (unless (bolp)
-            (insert "\n"))
-          (insert
-           "\nAI Code startup diagnostics:\n"
-           (format "  Backend: %S\n" (or (plist-get details :backend) 'unknown))
-           (format "  Executable: %S\n"
-                   (or (plist-get details :executable) 'unknown))
-           (format "  Command argv: %s\n"
-                   (ai-code-backends-infra--format-startup-command
-                    (plist-get details :command)))
-           (format "  Working directory: %S\n"
-                   (or (plist-get details :cwd) 'unknown))
-           (format "  Process status: %S\n"
-                   (or (plist-get details :status) 'unknown))
-           (format "  Exit status: %S\n"
-                   (or (plist-get details :exit-status) 'unknown))))))))
-
-(defun ai-code-backends-infra--format-startup-failure-field (value)
-  "Return VALUE as escaped single-line startup failure text."
-  (let* ((print-escape-control-characters t)
-         (print-escape-newlines t)
-         (printed (prin1-to-string (format "%s" (or value "unknown")))))
-    (substring printed 1 -1)))
-
-(defun ai-code-backends-infra--format-startup-failure (details)
-  "Format startup failure DETAILS as a compact user-facing message."
-  (format
-   "CLI failed to start [backend=%s executable=%s cwd=%s status=%s exit=%s]"
-   (ai-code-backends-infra--format-startup-failure-field
-    (plist-get details :backend))
-   (ai-code-backends-infra--format-startup-failure-field
-    (plist-get details :executable))
-   (ai-code-backends-infra--format-startup-failure-field
-    (plist-get details :cwd))
-   (ai-code-backends-infra--format-startup-failure-field
-    (plist-get details :status))
-   (ai-code-backends-infra--format-startup-failure-field
-    (plist-get details :exit-status))))
-
 (defun ai-code-backends-infra--handle-session-start-failure
     (buffer session-key process-table prefix command)
   "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE.
 PREFIX identifies the backend that attempted to start.
 COMMAND is the launch command supplied to the terminal backend."
-  (let* ((process (gethash session-key process-table))
-         (details
-          (ai-code-backends-infra--startup-failure-details
-           buffer process prefix command)))
+  (let ((process (gethash session-key process-table))
+        (backend (or prefix
+                     (when (buffer-live-p buffer)
+                       (with-current-buffer buffer
+                         ai-code-backends-infra--session-prefix)))))
     (remhash session-key process-table)
-    (when (buffer-live-p buffer)
-      (ignore-errors
-        (ai-code-backends-infra--append-startup-failure-diagnostics
-         buffer details))
-      (pop-to-buffer buffer))
-    (message "%s" (ai-code-backends-infra--format-startup-failure details))))
+    (ai-code-startup-diagnostics-report
+     buffer process backend command)))
 
 (defun ai-code-backends-infra--start-cli-session (options arg)
   "Start a generic CLI session described by OPTIONS and prefix ARG.

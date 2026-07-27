@@ -1007,6 +1007,7 @@
     (let ((buffer (current-buffer))
           (ai-code-backends-infra-ghostel-anti-flicker nil)
           proc
+          recorded
           rendered)
       (unwind-protect
           (cl-letf (((symbol-function 'ghostel--events-filter)
@@ -1014,6 +1015,10 @@
                        (setq rendered output)))
                     ((symbol-function 'ai-code-editor-viewport-filter-output)
                      (lambda (_process output) output))
+                    ((symbol-function
+                      'ai-code-startup-diagnostics-record-child-exit-status)
+                     (lambda (process exit-status)
+                       (setq recorded (list process exit-status))))
                     ((symbol-function
                       'ai-code-backends-infra--output-meaningful-p)
                      (lambda (_output) nil))
@@ -1030,10 +1035,7 @@
                         'ghostel)
             (ai-code-backends-infra-ghostel--wrap-process-filter buffer proc)
             (funcall (process-filter proc) proc "(ignore)1")
-            (should
-             (= (process-get
-                 proc 'ai-code-backends-infra--child-exit-status)
-                1))
+            (should (equal recorded (list proc 1)))
             (should (equal rendered "(ignore)1")))
         (when (processp proc)
           (delete-process proc))))))
