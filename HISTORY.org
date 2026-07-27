@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Confirm before canceling a nonblank editor viewport and refocus its source
 
 ** 1.91
 - Add Grill support to some github related tool and scoped context copying, re-organize menu
