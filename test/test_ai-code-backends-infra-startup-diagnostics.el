@@ -24,7 +24,10 @@
        "--api_key" "api-secret"
        "--header" "Authorization: Bearer bearer-secret"
        "-H" "X-API-Key: header-secret"
+       "-HAuthorization: Bearer compact-header-secret"
        "OPENAI_API_KEY=environment-secret"
+       "AWS_SECRET_ACCESS_KEY=aws-secret"
+       "MONKEY=banana"
        "--model" "gpt-5"))
     '("codex"
       "--api-key=<redacted>"
@@ -33,7 +36,10 @@
       "--api_key" "<redacted>"
       "--header" "<redacted>"
       "-H" "<redacted>"
+      "-H<redacted>"
       "OPENAI_API_KEY=<redacted>"
+      "AWS_SECRET_ACCESS_KEY=<redacted>"
+      "MONKEY=banana"
       "--model" "gpt-5"))))
 
 (ert-deftest test-ai-code-backends-infra--startup-failure-details-include-context ()
@@ -64,6 +70,19 @@
               (should-not (plist-member details :last-output)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra--startup-failure-executable-skips-environment-assignments ()
+  "Startup summaries should not treat environment assignments as executables."
+  (let* ((details
+          (ai-code-backends-infra--startup-failure-details
+           nil nil "codex"
+           "OPENAI_API_KEY=message-secret AWS_PROFILE=dev /opt/bin/codex --flag"))
+         (summary
+          (ai-code-backends-infra--format-startup-failure details)))
+    (should (equal (plist-get details :executable) "/opt/bin/codex"))
+    (should (string-match-p "executable=/opt/bin/codex" summary))
+    (should-not (string-match-p "message-secret" summary))
+    (should-not (string-match-p "OPENAI_API_KEY" summary))))
 
 (ert-deftest test-ai-code-backends-infra--create-new-session-failure-is-actionable-and-safe ()
   "A real startup failure should show actionable details without logging output."

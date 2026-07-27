@@ -1337,9 +1337,14 @@ behavior."
          (setq redact-next nil)
          "<redacted>")
         ((not (stringp argument)) argument)
+        ((and (> (length argument) 2)
+              (string-prefix-p "-H" argument))
+         "-H<redacted>")
         ((string-match "\\`\\([^=]+\\)=.*\\'" argument)
          (let ((name (match-string 1 argument)))
-           (if (ai-code-backends-infra--sensitive-command-name-p name)
+           (if (or (ai-code-backends-infra--sensitive-command-name-p name)
+                   (ai-code-backends-infra--sensitive-environment-name-p
+                    name))
                (concat name "=<redacted>")
              argument)))
         ((and (string-prefix-p "-" argument)
@@ -1362,6 +1367,15 @@ behavior."
            "\\(?:api-?key\\|token\\|secret\\|password\\|passwd\\|credentials?\\|authorization\\|private-key\\)\\'"
            normalized)))))
 
+(defun ai-code-backends-infra--sensitive-environment-name-p (name)
+  "Return non-nil when NAME identifies a sensitive environment value."
+  (and (stringp name)
+       (string-match-p "\\`[A-Za-z_][A-Za-z0-9_]*\\'" name)
+       (let ((case-fold-search t))
+         (string-match-p
+          "\\(?:API[_-]?KEY\\|ACCESS[_-]?KEY\\|TOKEN\\|SECRET\\|PASSWORD\\|PASSWD\\|CREDENTIALS?\\|AUTHORIZATION\\|PRIVATE[_-]?KEY\\)"
+          name))))
+
 (defun ai-code-backends-infra--startup-command-argv (command)
   "Return the argv represented by startup COMMAND without shell wrappers."
   (cond
@@ -1370,6 +1384,20 @@ behavior."
         (split-string-shell-command command)
       (error '("<unparseable-command>"))))
    ((listp command) (copy-sequence command))))
+
+(defun ai-code-backends-infra--environment-assignment-p (argument)
+  "Return non-nil when ARGUMENT is a shell environment assignment."
+  (and (stringp argument)
+       (string-match-p "\\`[A-Za-z_][A-Za-z0-9_]*=" argument)))
+
+(defun ai-code-backends-infra--startup-command-executable (command)
+  "Return the executable token from parsed startup COMMAND argv."
+  (let ((arguments command))
+    (while (and arguments
+                (ai-code-backends-infra--environment-assignment-p
+                 (car arguments)))
+      (setq arguments (cdr arguments)))
+    (car-safe arguments)))
 
 (defun ai-code-backends-infra--format-startup-command (command)
   "Return COMMAND as complete, redacted, and safely escaped argv text."
@@ -1387,22 +1415,28 @@ behavior."
   "Return diagnostic details for failed PROCESS and backend PREFIX.
 BUFFER supplies the working directory when it is still live.
 COMMAND is the launch command supplied to the terminal backend."
-  (let ((command-argv
-         (ai-code-backends-infra--startup-command-argv command))
-        (backend
-         (or prefix
-             (when (buffer-live-p buffer)
-               (with-current-buffer buffer
-                 ai-code-backends-infra--session-prefix))))
-        (working-directory
-         (when (buffer-live-p buffer)
-           (with-current-buffer buffer default-directory)))
-        (status (when (and process (processp process))
-                  (ignore-errors (process-status process))))
-        (exit-status (when (and process (processp process))
-                       (ignore-errors (process-exit-status process)))))
+  (let* ((command-argv
+          (ai-code-backends-infra--startup-command-argv command))
+         (executable
+          (ai-code-backends-infra--startup-command-executable command-argv))
+         (safe-executable
+          (car-safe
+           (ai-code-backends-infra--redact-startup-command
+            (list executable))))
+         (backend
+          (or prefix
+              (when (buffer-live-p buffer)
+                (with-current-buffer buffer
+                  ai-code-backends-infra--session-prefix))))
+         (working-directory
+          (when (buffer-live-p buffer)
+            (with-current-buffer buffer default-directory)))
+         (status (when (and process (processp process))
+                   (ignore-errors (process-status process))))
+         (exit-status (when (and process (processp process))
+                        (ignore-errors (process-exit-status process)))))
     (list :backend backend
-          :executable (car-safe command-argv)
+          :executable safe-executable
           :command command-argv
           :cwd working-directory
           :status status
