@@ -28,12 +28,19 @@ a more stable viewing experience when working with multiple windows."
                   "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--set-session-directory
                   "ai-code-backends-infra" (buffer directory))
+(declare-function ai-code-backends-infra--send-string-with-paste
+                  "ai-code-backends-infra"
+                  (string paste send-function paste-function paste-active-p
+                          backend-name))
 (declare-function ai-code-backends-infra--strip-alternate-screen-sequences
                   "ai-code-backends-infra" (str))
 (declare-function ai-code-backends-infra--sync-terminal-cursor
                   "ai-code-backends-infra" ())
+(declare-function ai-code-editor-viewport-filter-output
+                  "ai-code-editor-viewport-transport" (process output))
 (declare-function eat-term-send-string "eat" (&rest args))
 (declare-function eat-term-send-string-as-yank "eat" (&rest args))
+(declare-function eat--t-term-bracketed-yank "eat" (terminal))
 (declare-function eat--adjust-process-window-size "eat" (&rest args))
 (declare-function eat-mode "eat" ())
 (declare-function eat-exec "eat" (&rest args))
@@ -66,9 +73,16 @@ a more stable viewing experience when working with multiple windows."
   "Send STRING to the current Eat terminal.
 If PASTE is non-nil, send it as a pasted string."
   (when (bound-and-true-p eat-terminal)
-    (if (and paste (fboundp 'eat-term-send-string-as-yank))
-        (eat-term-send-string-as-yank eat-terminal string)
-      (eat-term-send-string eat-terminal string))))
+    (ai-code-backends-infra--send-string-with-paste
+     string paste
+     (lambda (text) (eat-term-send-string eat-terminal text))
+     (and (fboundp 'eat-term-send-string-as-yank)
+          (lambda (text)
+            (eat-term-send-string-as-yank eat-terminal (list text))))
+     (lambda ()
+       (and (fboundp 'eat--t-term-bracketed-yank)
+            (eat--t-term-bracketed-yank eat-terminal)))
+     "Eat")))
 
 (defun ai-code-backends-infra-eat-send-escape ()
   "Send escape to the current Eat terminal."
@@ -133,7 +147,7 @@ variables for the terminal process."
       (setq-local process-environment (append env-vars process-environment))
       (let ((default-directory working-dir))
         (eat-exec buffer buffer-name program nil args))
-      (when-let ((proc (get-buffer-process buffer)))
+      (when-let* ((proc (get-buffer-process buffer)))
         (let ((orig-filter (process-filter proc)))
           (set-process-filter
            proc
@@ -141,7 +155,9 @@ variables for the terminal process."
              (when (buffer-live-p buffer)
                (let ((filtered-output
                       (with-current-buffer buffer
-                        (ai-code-backends-infra--strip-alternate-screen-sequences output))))
+                        (ai-code-backends-infra--strip-alternate-screen-sequences
+                         (ai-code-editor-viewport-filter-output
+                          process output)))))
                  (when orig-filter
                    (funcall orig-filter process filtered-output))
                  (when (buffer-live-p buffer)

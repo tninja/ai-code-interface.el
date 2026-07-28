@@ -556,6 +556,7 @@
   (should (assoc 'opencode ai-code--backend-session-prefixes))
   (should (assoc 'kilo ai-code--backend-session-prefixes))
   (should (assoc 'claude-code ai-code--backend-session-prefixes))
+  (should (assoc 'pi ai-code--backend-session-prefixes))
   (should-not (assoc 'eca ai-code--backend-session-prefixes)))
 
 (ert-deftest ai-code-test-get-session-prefix ()
@@ -563,6 +564,7 @@
   (should (equal "opencode" (alist-get 'opencode ai-code--backend-session-prefixes)))
   (should (equal "kilo" (alist-get 'kilo ai-code--backend-session-prefixes)))
   (should (equal "claude" (alist-get 'claude-code ai-code--backend-session-prefixes)))
+  (should (equal "pi" (alist-get 'pi ai-code--backend-session-prefixes)))
   (should-not (alist-get 'eca ai-code--backend-session-prefixes)))
 
 (ert-deftest ai-code-test-command-preset-map ()

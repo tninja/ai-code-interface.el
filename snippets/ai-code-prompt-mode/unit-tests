@@ -6,8 +6,10 @@
 /ask
 Generate unit tests for the following function:
 ${1:function}
-Include tests for:
+Prefer a small set of high-value tests. Cover only distinct behaviors, important edge cases, or regressions that materially increase confidence. Do not add low-value or duplicate tests.
+Prioritize:
 1. Normal expected inputs
 2. Edge cases
 3. Invalid inputs
+If the tests use random values (for example random numbers or UUIDs), make them reproducible by fixing the random seed or replacing them with deterministic fixtures.
 Use ${2:preferred testing framework} syntax.

@@ -17,6 +17,221 @@
 (defvar ai-code--tdd-run-test-after-each-stage-instruction)
 (defvar ai-code-use-prompt-suffix)
 (defvar ai-code-prompt-suffix)
+(defvar ai-code-grill-me-enabled)
+(defvar ai-code--prompt-origin-command)
+
+(ert-deftest ai-code-test-grill-is-owned-by-harness ()
+  "Test that the Grill provider is implemented by the harness module."
+  (should (featurep 'ai-code-harness))
+  (should (fboundp 'ai-code--grill-me-suffix-provider))
+  (should-not (locate-library "ai-code-grill")))
+
+;;;; Grill Harness
+
+(defun ai-code-harness-test--clean-emacs-result (form)
+  "Run FORM in a clean batch Emacs and return its exit code and output."
+  (let* ((emacs (expand-file-name invocation-name invocation-directory))
+         (root (file-name-as-directory
+                (expand-file-name default-directory)))
+         (stubs (expand-file-name "test/stubs" root)))
+    (with-temp-buffer
+      (let ((exit-code
+             (call-process emacs nil (current-buffer) nil
+                           "-Q" "--batch"
+                           "-L" root
+                           "-L" stubs
+                           "--eval" form)))
+        (list exit-code (buffer-string))))))
+
+(defun ai-code-harness-test--grill-context (origin-command)
+  "Return a Grill prompt context for ORIGIN-COMMAND."
+  (ai-code--make-prompt-context
+   :prompt-text "prompt"
+   :origin-command origin-command))
+
+(ert-deftest ai-code-test-harness-loads-after-agile-without-recursion ()
+  "Loading Agile first should install Harness without recursive loads."
+  (pcase-let
+      ((`(,exit-code ,output)
+        (ai-code-harness-test--clean-emacs-result
+         (concat
+          "(progn "
+          "(setq load-prefer-newer t) "
+          "(setq ai-code-test--agile-load-count 0) "
+          "(add-hook 'after-load-functions "
+          "(lambda (file) "
+          "(when (string= (file-name-base file) \"ai-code-agile\") "
+          "(setq ai-code-test--agile-load-count "
+          "(1+ ai-code-test--agile-load-count))))) "
+          "(require 'ai-code-agile) "
+          "(unless (= ai-code-test--agile-load-count 1) "
+          "(error \"Expected ai-code-agile to load once, got %d\" "
+          "ai-code-test--agile-load-count)) "
+          "(unless (and (featurep 'ai-code-agile) "
+          "(featurep 'ai-code-change) "
+          "(featurep 'ai-code-harness) "
+          "(memq #'ai-code--grill-me-suffix-provider "
+          "ai-code-prompt-suffix-functions) "
+          "(advice-member-p #'ai-code--with-grill-me-origin "
+          "'ai-code-code-change)) "
+          "(kill-emacs 1)))"))))
+    (should (equal exit-code 0))
+    (should-not (string-match-p "Error:" output))))
+
+(ert-deftest ai-code-test-grill-autoloaded-entry-loads-harness ()
+  "Loading an autoloaded entry module should install the Grill provider."
+  (pcase-let
+      ((`(,exit-code ,output)
+        (ai-code-harness-test--clean-emacs-result
+         (concat
+          "(progn "
+          "(setq load-prefer-newer t) "
+          "(load \"ai-code-autoloads.el\" nil nil t) "
+          "(require 'ai-code-change) "
+          "(unless (and (featurep 'ai-code-harness) "
+          "(not (featurep 'ai-code-grill)) "
+          "(memq #'ai-code--grill-me-suffix-provider "
+          "ai-code-prompt-suffix-functions) "
+          "(advice-member-p #'ai-code--filter-prompt-suffix-args "
+          "'ai-code--write-prompt-to-file-and-send) "
+          "(advice-member-p #'ai-code--with-grill-me-origin "
+          "'ai-code-code-change)) "
+          "(kill-emacs 1)))"))))
+    (should (equal exit-code 0))
+    (should-not (string-match-p "Error:" output))))
+
+(ert-deftest ai-code-test-grill-harness-reload-removes-legacy-prompt-advice ()
+  "Reloading the harness should remove legacy Grill prompt advice."
+  (let ((was-fboundp (fboundp 'ai-code--with-optional-grill-me))
+        (original-function
+         (when (fboundp 'ai-code--with-optional-grill-me)
+           (symbol-function 'ai-code--with-optional-grill-me))))
+    (unwind-protect
+        (progn
+          (fset 'ai-code--with-optional-grill-me
+                (lambda (orig-fun prompt-text)
+                  (funcall orig-fun prompt-text)))
+          (advice-add 'ai-code--insert-prompt
+                      :around #'ai-code--with-optional-grill-me)
+          (load (locate-library "ai-code-harness") nil nil t)
+          (should-not
+           (advice-member-p #'ai-code--with-optional-grill-me
+                            'ai-code--insert-prompt)))
+      (advice-remove 'ai-code--insert-prompt
+                     #'ai-code--with-optional-grill-me)
+      (if was-fboundp
+          (fset 'ai-code--with-optional-grill-me original-function)
+        (fmakunbound 'ai-code--with-optional-grill-me)))))
+
+(ert-deftest ai-code-test-grill-disabled-keeps-prompt ()
+  "Disabling Grill should omit its prompt suffix."
+  (let ((ai-code-grill-me-enabled nil)
+        (context (ai-code-harness-test--grill-context
+                  'ai-code-code-change)))
+    (should-not (ai-code--grill-me-suffix-provider context))))
+
+(ert-deftest ai-code-test-grill-ignores-other-commands ()
+  "Commands outside the Grill set should not ask about clarification."
+  (let ((ai-code-grill-me-enabled t)
+        (context (ai-code-harness-test--grill-context 'ai-code-explain)))
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (&rest _args)
+                 (ert-fail "Should not ask for unrelated commands"))))
+      (should-not (ai-code--grill-me-suffix-provider context)))))
+
+(ert-deftest ai-code-test-grill-declined-keeps-prompt ()
+  "Declining Grill should omit its prompt suffix."
+  (let ((ai-code-grill-me-enabled t)
+        (context (ai-code-harness-test--grill-context
+                  'ai-code-ask-question)))
+    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _args) nil)))
+      (should-not (ai-code--grill-me-suffix-provider context)))))
+
+(ert-deftest ai-code-test-grill-accepted-returns-reference ()
+  "Accepting Grill should return its harness reference."
+  (let ((ai-code-grill-me-enabled t)
+        (context (ai-code-harness-test--grill-context
+                  'ai-code-send-command)))
+    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _args) t))
+              ((symbol-function 'ai-code--grill-me-reference-suffix)
+               (lambda () "Read @prompt/grilling.v1.md")))
+      (should (equal (ai-code--grill-me-suffix-provider context)
+                     "Read @prompt/grilling.v1.md")))))
+
+(ert-deftest ai-code-test-grill-direct-command-bypasses-question ()
+  "A direct slash command should bypass Grill unchanged."
+  (let ((ai-code-grill-me-enabled t)
+        (this-command 'ai-code-send-command)
+        executed-command)
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (&rest _args)
+                 (ert-fail "Direct commands should not ask about Grill")))
+              ((symbol-function 'ai-code--execute-command)
+               (lambda (command) (setq executed-command command))))
+      (ai-code--insert-prompt "/status")
+      (should (equal executed-command "/status")))))
+
+(ert-deftest ai-code-test-grill-preserves-origin-across-prompt-editing ()
+  "Grill should retain the entry command while the prompt is edited."
+  (let ((ai-code-grill-me-enabled t)
+        (this-command 'ai-code-ask-question)
+        asked)
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (&rest _args)
+                 (setq asked t)
+                 nil)))
+      (ai-code--with-grill-me-origin
+       (lambda ()
+         (setq this-command 'helm-maybe-exit-minibuffer)
+         (ai-code--grill-me-suffix-provider
+          (ai-code--prompt-context-for-text "prompt"))))
+      (should asked))))
+
+(ert-deftest ai-code-test-grill-installs-entry-advice-idempotently ()
+  "Installing Grill entry advice twice should still ask only once."
+  (let ((ai-code--grill-me-commands '(ai-code--test-grill-entry))
+        (ai-code-grill-me-enabled t)
+        (this-command 'ai-code--test-grill-entry)
+        (ask-count 0))
+    (unwind-protect
+        (progn
+          (fset 'ai-code--test-grill-entry
+                (lambda ()
+                  (setq this-command 'helm-maybe-exit-minibuffer)
+                  (ai-code--grill-me-suffix-provider
+                   (ai-code--prompt-context-for-text "prompt"))))
+          (ai-code--install-grill-me-command-advice)
+          (ai-code--install-grill-me-command-advice)
+          (cl-letf (((symbol-function 'y-or-n-p)
+                     (lambda (&rest _args)
+                       (cl-incf ask-count)
+                       nil)))
+            (funcall (symbol-function 'ai-code--test-grill-entry)))
+          (should (= ask-count 1)))
+      (advice-remove 'ai-code--test-grill-entry
+                     #'ai-code--with-grill-me-origin)
+      (fmakunbound 'ai-code--test-grill-entry))))
+
+(ert-deftest ai-code-test-grill-installs-entry-advice-after-late-command-loading ()
+  "Loading a Grill command later should install its entry advice."
+  (let ((was-fboundp (fboundp 'ai-code-send-command))
+        (original-function (when (fboundp 'ai-code-send-command)
+                             (symbol-function 'ai-code-send-command)))
+        (original-features features)
+        (after-load-alist (copy-tree after-load-alist))
+        (ai-code--grill-me-commands '(ai-code-send-command)))
+    (unwind-protect
+        (progn
+          (setq features (delq 'ai-code (copy-sequence features)))
+          (fset 'ai-code-send-command (lambda (&optional _arg)))
+          (provide 'ai-code)
+          (should (advice-member-p #'ai-code--with-grill-me-origin
+                                   'ai-code-send-command)))
+      (setq features original-features)
+      (advice-remove 'ai-code-send-command #'ai-code--with-grill-me-origin)
+      (if was-fboundp
+          (fset 'ai-code-send-command original-function)
+        (fmakunbound 'ai-code-send-command)))))
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-includes-strict-stage-contract ()
   "Test that TDD suffix names Red and Green stages and forbids skipping."
@@ -26,6 +241,15 @@
       (should (string-match-p "Stage 1 - Red" suffix))
       (should (string-match-p "Stage 2 - Green" suffix))
       (should (string-match-p "Do not refactor during Green" suffix)))))
+
+(ert-deftest ai-code-test-resolve-tdd-suffix-requires-reproducible-random-tests ()
+  "Test that TDD suffix requires deterministic handling of random test data."
+  (let ((suffix (ai-code--test-after-code-change--resolve-tdd-suffix)))
+    (should (string-match-p "small set of high-value tests" suffix))
+    (should (string-match-p "duplicate tests" suffix))
+    (should (string-match-p "fixing the random seed" suffix))
+    (should (string-match-p "random numbers or UUIDs" suffix))
+    (should (string-match-p "deterministic fixtures" suffix))))
 
 (ert-deftest ai-code-test-resolve-tdd-suffix-reuses-shared-each-stage-instruction ()
   "Test that TDD suffix can reuse shared each-stage instruction when available."
@@ -207,6 +431,15 @@
                        (ai-code--auto-test-harness-reference-suffix
                         'test-after-change)))))))
 
+(ert-deftest ai-code-test-auto-test-inline-test-after-change-suffix-requires-reproducible-random-tests ()
+  "Test that test-after-change suffix requires deterministic random test data."
+  (let ((suffix (ai-code--auto-test-inline-suffix-for-type 'test-after-change)))
+    (should (string-match-p "small set of high-value tests" suffix))
+    (should (string-match-p "duplicate tests" suffix))
+    (should (string-match-p "fixing the random seed" suffix))
+    (should (string-match-p "random numbers or UUIDs" suffix))
+    (should (string-match-p "deterministic fixtures" suffix))))
+
 (ert-deftest ai-code-test-auto-test-harness-prompt-path-uses-repo-relative-path ()
   "Test that harness prompt path becomes a repo-relative path."
   (let* ((temp-root (make-temp-file "ai-code-harness-root-" t))
@@ -248,8 +481,8 @@
    (string-match-p ".ai.code.files"
                    (documentation 'ai-code--auto-test-harness-directory))))
 
-(ert-deftest ai-code-test-autoloads-load-with-harness-custom-unbound ()
-  "Test that loading autoloads works before harness custom is defined."
+(ert-deftest ai-code-test-autoloads-load-with-harness-custom-omitted ()
+  "Test that loading autoloads does not bind harness-only test suffix customs."
   (let* ((autoload-file (expand-file-name "ai-code-autoloads.el" default-directory))
          (symbols '(ai-code-auto-test-suffix
                     ai-code-test-after-code-change-suffix))
@@ -270,7 +503,8 @@
                      (load autoload-file nil t)
                      'loaded)
                  (error 'failed))))
-          (should (boundp 'ai-code-test-after-code-change-suffix)))
+          (should-not (boundp 'ai-code-auto-test-suffix))
+          (should-not (boundp 'ai-code-test-after-code-change-suffix)))
       (dolist (state saved-states)
         (pcase-let ((`(,symbol ,was-bound ,value) state))
           (if was-bound
@@ -548,6 +782,116 @@
                  "The user may also[[:space:]\n]+ignore these options"
                  (ai-code--resolve-auto-follow-up-suffix-for-send
                   "Summarize this design")))))))
+
+(ert-deftest ai-code-test-built-in-prompt-suffix-provider-order ()
+  "Enabled built-in providers should preserve their configured order."
+  (let ((ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix "CUSTOM")
+        (ai-code-grill-me-enabled nil)
+        (ai-code--prompt-origin-command 'ai-code-code-change)
+        (ai-code-auto-test-type 'test-after-change)
+        (ai-code-discussion-auto-follow-up-enabled 'always))
+    (cl-letf (((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
+               (lambda (&rest _args) "AUTO"))
+              ((symbol-function 'ai-code--resolve-auto-follow-up-suffix-for-send)
+               (lambda (&rest _args) "FOLLOW")))
+      (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                     "Prompt\nCUSTOM\nAUTO\nFOLLOW")))))
+
+(ert-deftest ai-code-test-grill-accepted-skips-only-discussion-follow-up ()
+  "Accepting Grill should keep auto-test and skip discussion follow-up."
+  (let ((ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix nil)
+        (ai-code-grill-me-enabled t)
+        (ai-code--prompt-origin-command 'ai-code-ask-question)
+        (ai-code-use-gptel-classify-prompt nil)
+        (ai-code-auto-test-type 'test-after-change)
+        (ai-code-discussion-auto-follow-up-enabled 'ask-me))
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (prompt)
+                 (if (string-prefix-p "Grill me" prompt)
+                     t
+                   (ert-fail "Should not ask about discussion follow-up"))))
+              ((symbol-function 'ai-code--grill-me-reference-suffix)
+               (lambda () "GRILL"))
+              ((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
+               (lambda (&rest _args) "AUTO"))
+              ((symbol-function 'ai-code--resolve-auto-follow-up-suffix-for-send)
+               (lambda (&rest _args)
+                 (ert-fail "Should not resolve discussion follow-up"))))
+      (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                     "Prompt\nGRILL\nAUTO")))))
+
+(ert-deftest ai-code-test-harness-reload-removes-legacy-send-advice ()
+  "Reloading the harness should remove its legacy send-time advice."
+  (let ((was-fboundp (fboundp 'ai-code--with-auto-test-suffix-for-send))
+        (original-function
+         (when (fboundp 'ai-code--with-auto-test-suffix-for-send)
+           (symbol-function 'ai-code--with-auto-test-suffix-for-send))))
+    (unwind-protect
+        (progn
+          (fset 'ai-code--with-auto-test-suffix-for-send
+                (lambda (orig-fun prompt-text)
+                  (funcall orig-fun prompt-text)))
+          (advice-add 'ai-code--write-prompt-to-file-and-send
+                      :around #'ai-code--with-auto-test-suffix-for-send)
+          (load (locate-library "ai-code-harness") nil nil t)
+          (should-not
+           (advice-member-p #'ai-code--with-auto-test-suffix-for-send
+                            'ai-code--write-prompt-to-file-and-send)))
+      (advice-remove 'ai-code--write-prompt-to-file-and-send
+                     #'ai-code--with-auto-test-suffix-for-send)
+      (if was-fboundp
+          (fset 'ai-code--with-auto-test-suffix-for-send original-function)
+        (fmakunbound 'ai-code--with-auto-test-suffix-for-send)))))
+
+(ert-deftest ai-code-test-use-prompt-suffix-does-not-disable-grill ()
+  "The legacy suffix switch should not become a Grill master switch."
+  (let ((ai-code-use-prompt-suffix nil)
+        (ai-code-prompt-suffix "CUSTOM")
+        (ai-code-grill-me-enabled t)
+        (ai-code--prompt-origin-command 'ai-code-code-change)
+        (ai-code-auto-test-type 'test-after-change)
+        (ai-code-discussion-auto-follow-up-enabled 'always))
+    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _args) t))
+              ((symbol-function 'ai-code--grill-me-reference-suffix)
+               (lambda () "GRILL"))
+              ((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
+               (lambda (&rest _args)
+                 (ert-fail "Auto-test provider should be disabled")))
+              ((symbol-function 'ai-code--resolve-auto-follow-up-suffix-for-send)
+               (lambda (&rest _args)
+                 (ert-fail "Follow-up provider should be disabled"))))
+      (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                     "Prompt\nGRILL")))))
+
+(ert-deftest ai-code-test-harness-providers-share-prompt-classification ()
+  "Auto-test and follow-up providers should classify a prompt once."
+  (let ((ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix nil)
+        (ai-code-grill-me-enabled nil)
+        (ai-code-use-gptel-classify-prompt t)
+        (ai-code-auto-test-type 'ask-me)
+        (ai-code-discussion-auto-follow-up-enabled 'always)
+        (classify-count 0)
+        classifications)
+    (cl-letf (((symbol-function 'ai-code--classify-prompt-code-change)
+               (lambda (_prompt)
+                 (cl-incf classify-count)
+                 'non-code-change))
+              ((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
+               (lambda (_prompt classification)
+                 (push classification classifications)
+                 "AUTO"))
+              ((symbol-function 'ai-code--resolve-auto-follow-up-suffix-for-send)
+               (lambda (_prompt classification)
+                 (push classification classifications)
+                 "FOLLOW")))
+      (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                     "Prompt\nAUTO\nFOLLOW"))
+      (should (= classify-count 1))
+      (should (equal classifications
+                     '(non-code-change non-code-change))))))
 
 (ert-deftest ai-code-test-write-prompt-appends-follow-up-suffix-for-discussion-prompts ()
   "Test that discussion prompts can append next-step suggestions."
@@ -940,4 +1284,3 @@
 (provide 'test_ai-code-harness)
 
 ;;; test_ai-code-harness.el ends here
-

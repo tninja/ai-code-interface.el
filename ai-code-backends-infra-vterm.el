@@ -33,13 +33,20 @@
                   "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--set-session-directory
                   "ai-code-backends-infra" (buffer directory))
+(declare-function ai-code-backends-infra--send-string-with-paste
+                  "ai-code-backends-infra"
+                  (string paste send-function paste-function paste-active-p
+                          backend-name))
 (declare-function ai-code-backends-infra--strip-alternate-screen-sequences
                   "ai-code-backends-infra" (str))
 (declare-function ai-code-backends-infra--sync-terminal-cursor
                   "ai-code-backends-infra" ())
+(declare-function ai-code-editor-viewport-filter-output
+                  "ai-code-editor-viewport-transport" (process output))
 (declare-function ai-code-notifications-response-ready
                   "ai-code-notifications" (&optional backend-name))
 (declare-function vterm "vterm" (&optional buffer-name))
+(declare-function vterm--update "vterm-module")
 (declare-function vterm-send-string "vterm" (&rest args))
 (declare-function vterm-send-escape "vterm" ())
 (declare-function vterm-send-return "vterm" ())
@@ -48,6 +55,7 @@
 
 (defvar ai-code-backends-infra-strip-alternate-screen)
 (defvar ai-code-backends-infra--session-terminal-backend)
+(defvar vterm--term)
 (defvar vterm-copy-mode)
 (defvar vterm-copy-mode-hook)
 (defvar vterm-environment)
@@ -92,12 +100,28 @@ set by the subprocess, and `injected' for AI Code's ANSI gray foreground.")
   (add-hook 'vterm-copy-mode-hook
             #'ai-code-backends-infra--sync-terminal-cursor nil t))
 
+(defun ai-code-backends-infra-vterm--bracketed-paste-active-p ()
+  "Return non-nil when bracketed paste mode is active in vterm."
+  (when (and (bound-and-true-p vterm--term)
+             (fboundp 'vterm--update)
+             (fboundp 'vterm--flush-output))
+    (condition-case nil
+        (let (encoded)
+          (cl-letf (((symbol-function 'vterm--flush-output)
+                     (lambda (output)
+                       (setq encoded (concat encoded output)))))
+            (vterm--update vterm--term "<start_paste>"))
+          (and encoded (string-match-p "\e\\[200~\\'" encoded)))
+      (error nil))))
+
 (defun ai-code-backends-infra-vterm-send-string (string &optional paste)
   "Send STRING to the current vterm buffer.
 If PASTE is non-nil, send it as a pasted string."
-  (if paste
-      (vterm-send-string string paste)
-    (vterm-send-string string)))
+  (ai-code-backends-infra--send-string-with-paste
+   string paste #'vterm-send-string
+   (lambda (text) (vterm-send-string text t))
+   #'ai-code-backends-infra-vterm--bracketed-paste-active-p
+   "vterm"))
 
 (defun ai-code-backends-infra-vterm-send-escape ()
   "Send escape to the current vterm buffer."
@@ -212,19 +236,26 @@ If PASTE is non-nil, send it as a pasted string."
 When `ai-code-backends-infra-strip-alternate-screen' is non-nil,
 strip alternate screen buffer sequences from INPUT for PROCESS so that TUI
 applications write to the normal screen buffer (preserving scrollback)."
-  (let ((filtered-input
-         (if (ai-code-backends-infra--session-buffer-p (process-buffer process))
+  (let* ((session-p
+          (ai-code-backends-infra--session-buffer-p (process-buffer process)))
+         (editor-filtered-input
+          (if session-p
+              (ai-code-editor-viewport-filter-output process input)
+            input))
+         (filtered-input
+          (if session-p
              (with-current-buffer (process-buffer process)
                (ai-code-backends-infra--vterm-normalize-dim-sgr
-                (ai-code-backends-infra--strip-alternate-screen-sequences input)))
-           input)))
-    (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+                (ai-code-backends-infra--strip-alternate-screen-sequences
+                 editor-filtered-input)))
+           editor-filtered-input)))
+    (when session-p
       (with-current-buffer (process-buffer process)
         (when (ai-code-backends-infra--output-meaningful-p filtered-input)
           (ai-code-backends-infra--note-meaningful-output))))
     (prog1
         (funcall orig-fun process filtered-input)
-      (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+      (when session-p
         (ai-code-session-link--schedule-linkify-recent-output
          (process-buffer process)
          filtered-input)))))

@@ -23,6 +23,74 @@
 (defvar ai-code-use-prompt-suffix)
 (defvar org-roam-directory)
 
+(ert-deftest ai-code-test-direct-command-p-accepts-single-token-command ()
+  "A single-token slash command should use direct command routing."
+  (should (ai-code--direct-command-p "/status")))
+
+(ert-deftest ai-code-test-direct-command-p-rejects-whitespace ()
+  "Slash-prefixed text containing whitespace should be a normal prompt."
+  (dolist (prompt '("/review this file"
+                    "/review\tthis-file"
+                    "/review\nthis-file"))
+    (should-not (ai-code--direct-command-p prompt))))
+
+(ert-deftest ai-code-test-direct-command-p-rejects-normal-prompt ()
+  "Text without a slash prefix should be a normal prompt."
+  (should-not (ai-code--direct-command-p "explain this file")))
+
+(ert-deftest ai-code-test-apply-prompt-suffixes-preserves-provider-order ()
+  "Prompt suffix providers should run in hook order."
+  (let ((ai-code-prompt-suffix-functions
+         (list (lambda (_context) "FIRST")
+               (lambda (_context) nil)
+               (lambda (_context) "SECOND"))))
+    (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                   "Prompt\nFIRST\nSECOND"))))
+
+(ert-deftest ai-code-test-prompt-context-memoize-caches-nil-values ()
+  "Prompt context memoization should evaluate each key once."
+  (let ((context (ai-code--make-prompt-context :prompt-text "Prompt"))
+        (calls 0))
+    (dotimes (_ 2)
+      (should-not
+       (ai-code-prompt-context-memoize
+        context 'classification
+        (lambda ()
+          (cl-incf calls)
+          nil))))
+    (should (= calls 1))))
+
+(ert-deftest ai-code-test-custom-prompt-suffix-provider-respects-switch ()
+  "The custom suffix provider should honor the legacy suffix switch."
+  (let ((ai-code-prompt-suffix-functions
+         '(ai-code--custom-prompt-suffix-provider))
+        (ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix "CUSTOM"))
+    (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                   "Prompt\nCUSTOM"))
+    (setq ai-code-use-prompt-suffix nil)
+    (should (equal (ai-code--apply-prompt-suffixes "Prompt")
+                   "Prompt"))))
+
+(ert-deftest ai-code-test-prompt-suffix-provider-error-aborts-send ()
+  "A failing suffix provider should stop the send operation."
+  (let ((ai-code-prompt-suffix-functions
+         (list (lambda (_context) (error "Broken provider"))))
+        (ai-code-prompt-suffix nil)
+        (ai-code-auto-test-type nil)
+        (ai-code-auto-test-suffix nil)
+        (ai-code-discussion-auto-follow-up-enabled nil)
+        (ai-code-discussion-auto-follow-up-suffix nil)
+        (ai-code-use-prompt-suffix t)
+        sent-prompt)
+    (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+               (lambda () nil))
+              ((symbol-function 'ai-code--send-prompt)
+               (lambda (prompt) (setq sent-prompt prompt))))
+      (should-error (ai-code--write-prompt-to-file-and-send "Prompt")
+                    :type 'user-error)
+      (should-not sent-prompt))))
+
 ;; Helper macro to set up and tear down the test environment
 (defmacro ai-code-with-test-repo (&rest body)
   "Set up a temporary git repository environment for testing.

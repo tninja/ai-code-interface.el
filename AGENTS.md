@@ -34,7 +34,7 @@ The project uses melpazoid for CI checks. The workflow is defined in `.github/wo
 ## High-Level Architecture
 
 ### Core Design Philosophy
-This is a unified interface package for AI-assisted software development that abstracts over multiple AI coding CLI backends (Claude Code, Gemini CLI, OpenAI Codex, GitHub Copilot CLI, Opencode, Kilo, Grok CLI, Cursor CLI, CodeBuddy Code CLI, Kiro CLI). The package provides a consistent user experience across different AI tools while maintaining context-aware code actions and agile development workflows.
+This is a unified interface package for AI-assisted software development that abstracts over multiple AI coding CLI backends (Claude Code, Gemini CLI, OpenAI Codex, Pi, GitHub Copilot CLI, Opencode, Kilo, Grok CLI, Cursor CLI, CodeBuddy Code CLI, Kiro CLI). The package provides a consistent user experience across different AI tools while maintaining context-aware code actions and agile development workflows.
 
 ### Backend System Architecture
 
@@ -62,7 +62,7 @@ Backend switching is handled via `ai-code-set-backend`, which:
 3. Updates the UI to reflect the current backend
 
 Backend implementations fall into two categories:
-1. **Native backends** (in this repo): Implemented in files like `ai-code-codex-cli.el`, `ai-code-github-copilot-cli.el`, `ai-code-gemini-cli.el`, `ai-code-codebuddy-cli.el`, etc.
+1. **Native backends** (in this repo): Implemented in files like `ai-code-codex-cli.el`, `ai-code-pi.el`, `ai-code-github-copilot-cli.el`, `ai-code-gemini-cli.el`, `ai-code-codebuddy-cli.el`, etc.
 2. **External backends**: Packages like `claude-code-ide.el` and `claude-code.el` that provide backend functions
 
 ### Terminal Infrastructure
@@ -93,7 +93,7 @@ The codebase is organized into focused modules:
 - **`ai-code-prompt-mode.el`**: Prompt file management (`.ai.code.prompt.org`), @-completion, yasnippet integration
 - **`ai-code-input.el`**: User input handling, context gathering, completion utilities
 - **`ai-code-notifications.el`**: Desktop notifications for AI session completion
-- **Backend implementations**: `ai-code-codex-cli.el`, `ai-code-github-copilot-cli.el`, `ai-code-gemini-cli.el`, `ai-code-codebuddy-cli.el`, `ai-code-opencode.el`, `ai-code-kilo.el`, `ai-code-grok-cli.el`, `ai-code-cursor-cli.el`, `ai-code-kiro-cli.el`, `ai-code-claude-code.el`
+- **Backend implementations**: `ai-code-codex-cli.el`, `ai-code-pi.el`, `ai-code-github-copilot-cli.el`, `ai-code-gemini-cli.el`, `ai-code-codebuddy-cli.el`, `ai-code-opencode.el`, `ai-code-kilo.el`, `ai-code-grok-cli.el`, `ai-code-cursor-cli.el`, `ai-code-kiro-cli.el`, `ai-code-claude-code.el`
 
 ### Transient Menu System
 
@@ -203,6 +203,7 @@ Each backend requires the corresponding CLI to be installed and available on PAT
 - Claude Code: `claude`
 - Gemini CLI: `gemini`
 - OpenAI Codex: `codex`
+- Pi: `pi`
 - GitHub Copilot CLI: `copilot`
 - Opencode: `opencode`
 - Kilo: `kilo`

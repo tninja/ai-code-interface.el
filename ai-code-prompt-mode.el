@@ -19,11 +19,8 @@
 
 (defvar ai-code-use-gptel-headline nil)
 (defvar ai-code-prompt-suffix)
-(defvar ai-code-auto-test-type)
-(defvar ai-code-auto-test-suffix)
-(defvar ai-code-discussion-auto-follow-up-enabled)
-(defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
+(defvar ai-code-selected-backend)
 (defvar ai-code-backends-infra--session-terminal-backend nil
   "Buffer-local terminal backend symbol for an AI session buffer, or nil.
 This is set by `ai-code-backends-infra.el' for terminal-managed sessions
@@ -54,6 +51,89 @@ the terminal backend infrastructure.")
   "ai-code-backends-infra" (string &optional paste))
 (declare-function ai-code-backends-infra--terminal-send-return "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--display-buffer-in-side-window "ai-code-backends-infra" (buffer))
+
+(cl-defstruct (ai-code-prompt-context
+               (:constructor ai-code--make-prompt-context))
+  "Context shared by prompt suffix providers."
+  prompt-text
+  origin-command
+  backend
+  (cache (make-hash-table :test #'eq)))
+
+(defcustom ai-code-prompt-suffix-functions nil
+  "Ordered abnormal hook that returns suffixes for a prompt context.
+Each function receives one `ai-code-prompt-context` and returns either a
+non-empty string or nil.  Provider errors abort the send."
+  :type 'hook
+  :group 'ai-code)
+
+(defvar ai-code--prompt-origin-command nil
+  "Originating interactive command for the current prompt request.")
+
+(defun ai-code-prompt-context-memoize (context key producer)
+  "Return the cached value for KEY in CONTEXT, calling PRODUCER once."
+  (let* ((cache (ai-code-prompt-context-cache context))
+         (missing (make-symbol "missing"))
+         (value (gethash key cache missing)))
+    (if (eq value missing)
+        (let ((produced (funcall producer)))
+          (puthash key produced cache)
+          produced)
+      value)))
+
+(defun ai-code--prompt-suffix-from-provider (provider context)
+  "Return the validated suffix from PROVIDER for CONTEXT."
+  (condition-case err
+      (let ((suffix (funcall provider context)))
+        (cond
+         ((null suffix) nil)
+         ((not (stringp suffix))
+          (error "Returned %S instead of a string or nil" suffix))
+         ((string-empty-p suffix) nil)
+         (t suffix)))
+    (error
+     (user-error "Prompt suffix provider %S failed: %s"
+                 provider (error-message-string err)))))
+
+(defun ai-code--collect-prompt-suffixes (context)
+  "Return non-empty suffix strings produced for CONTEXT in hook order."
+  (let (suffixes)
+    (run-hook-wrapped
+     'ai-code-prompt-suffix-functions
+     (lambda (provider prompt-context)
+       (when-let ((suffix (ai-code--prompt-suffix-from-provider
+                           provider prompt-context)))
+         (push suffix suffixes))
+       nil)
+     context)
+    (nreverse suffixes)))
+
+(defun ai-code--prompt-context-for-text (prompt-text)
+  "Return a prompt suffix context for PROMPT-TEXT."
+  (ai-code--make-prompt-context
+   :prompt-text prompt-text
+   :origin-command (or ai-code--prompt-origin-command this-command)
+   :backend (and (boundp 'ai-code-selected-backend)
+                 ai-code-selected-backend)))
+
+(defun ai-code--apply-prompt-suffixes (prompt-text)
+  "Return PROMPT-TEXT with all enabled prompt suffixes appended."
+  (let* ((context (ai-code--prompt-context-for-text prompt-text))
+         (suffixes (ai-code--collect-prompt-suffixes context)))
+    (if suffixes
+        (concat prompt-text "\n" (mapconcat #'identity suffixes "\n"))
+      prompt-text)))
+
+(defun ai-code--custom-prompt-suffix-provider (_context)
+  "Return the configured custom prompt suffix when it is enabled."
+  (when (and (bound-and-true-p ai-code-use-prompt-suffix)
+             (boundp 'ai-code-prompt-suffix)
+             (stringp ai-code-prompt-suffix)
+             (not (string-empty-p ai-code-prompt-suffix)))
+    ai-code-prompt-suffix))
+
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--custom-prompt-suffix-provider 10)
 
 (defcustom ai-code-prompt-preprocess-filepaths t
   "When non-nil, preprocess the prompt to replace file paths.
@@ -302,31 +382,28 @@ backend dispatch."
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
   "Write PROMPT-TEXT to the AI prompt file."
-  (let* ((suffix-parts (delq nil (list ai-code-prompt-suffix
-                                       (when ai-code-auto-test-type
-                                         ai-code-auto-test-suffix)
-                                       (when ai-code-discussion-auto-follow-up-enabled
-                                         ai-code-discussion-auto-follow-up-suffix))))
-         (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
-                   (mapconcat #'identity suffix-parts "\n")))
-         ;; Keep the recorded prompt aligned with the exact suffixes sent to AI.
-         (stored-prompt (if suffix
-                            (concat prompt-text "\n" suffix)
-                          prompt-text))
-         (full-prompt (concat (if suffix
-                                  (concat prompt-text "\n" suffix)
-                                prompt-text) "\n"))
+  (let* ((full-prompt (concat prompt-text "\n"))
          (prompt-file (ai-code--get-ai-code-prompt-file-path))
          (original-default-directory default-directory))
     (if prompt-file
       (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
         (with-current-buffer buffer
-          (ai-code--append-prompt-to-buffer stored-prompt)
+          (ai-code--append-prompt-to-buffer prompt-text)
           (save-buffer)
           (message "Prompt added to %s" prompt-file))
         (let ((default-directory original-default-directory))
           (ai-code--send-prompt full-prompt)))
       (ai-code--send-prompt full-prompt))))
+
+(defun ai-code--filter-prompt-suffix-args (args)
+  "Return ARGS with prompt suffix providers applied to its prompt text."
+  (list (ai-code--apply-prompt-suffixes (car args))))
+
+(unless (advice-member-p #'ai-code--filter-prompt-suffix-args
+                         'ai-code--write-prompt-to-file-and-send)
+  (advice-add 'ai-code--write-prompt-to-file-and-send
+              :filter-args
+              #'ai-code--filter-prompt-suffix-args))
 
 (defun ai-code--process-word-for-filepath (word git-root-truename)
   "Process a single WORD, converting it to relative path with @ prefix.
@@ -534,14 +611,18 @@ GIT-ROOT-TRUENAME is the normalized Git root."
              (delete-char -1)  ; Remove the '#' we just typed
             (insert "#" symbol))))))))
 
+(defun ai-code--direct-command-p (prompt-text)
+  "Return non-nil when PROMPT-TEXT is a single-token slash command."
+  (and (string-prefix-p "/" prompt-text)
+       (not (string-match-p "[[:space:]]" prompt-text))))
+
 (defun ai-code--insert-prompt (prompt-text)
   "Preprocess and insert PROMPT-TEXT into the AI prompt file.
 If PROMPT-TEXT is a command (starts with /), execute it directly instead."
   (let ((processed-prompt (if ai-code-prompt-preprocess-filepaths
                               (ai-code--preprocess-prompt-text prompt-text)
                             prompt-text)))
-    (if (and (string-prefix-p "/" processed-prompt)
-             (not (string-match-p " " processed-prompt)))
+    (if (ai-code--direct-command-p processed-prompt)
         (ai-code--execute-command processed-prompt)
       (let* ((append-summary-p (and (derived-mode-p 'org-mode)
                                     (ignore-errors (save-excursion (org-back-to-heading t) t))

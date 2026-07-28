@@ -138,9 +138,17 @@
     (should (eq (plist-get (cdr spec) :switch) 'ai-code-eca-switch))
     (should (eq (plist-get (cdr spec) :send) 'ai-code-eca-send))
     (should (eq (plist-get (cdr spec) :resume) 'ai-code-eca-resume))
-    (should (eq (plist-get (cdr spec) :upgrade) 'ai-code-eca-upgrade))
+    (should (eq (plist-get (cdr spec) :install) 'ai-code-eca-upgrade))
+    (should-not (plist-get (cdr spec) :upgrade))
     (should (eq (plist-get (cdr spec) :install-skills) 'ai-code-eca-install-skills))
     (should (null (plist-get (cdr spec) :cli)))))
+
+(ert-deftest ai-code-test-backend-install-metadata-migrates-upgrade-defaults ()
+  "Ensure default upgrade commands migrate to install metadata."
+  (let ((claude-spec (ai-code--backend-spec 'claude-code)))
+    (should (equal (plist-get (cdr claude-spec) :install)
+                   "npm install -g @anthropic-ai/claude-code@latest"))
+    (should-not (plist-get (cdr claude-spec) :upgrade))))
 
 (ert-deftest ai-code-test-antigravity-backend-spec-contract ()
   "Ensure the Antigravity backend entry exposes required integration keys."
@@ -153,7 +161,27 @@
     (should (eq (plist-get (cdr spec) :resume) 'ai-code-antigravity-cli-resume))
     (should (equal (plist-get (cdr spec) :config) "~/.gemini/antigravity-cli/settings.json"))
     (should (equal (plist-get (cdr spec) :agent-file) "AGENTS.md"))
+    (should (equal (plist-get (cdr spec) :install)
+                   "curl -fsSL https://antigravity.google/cli/install.sh | bash"))
+    (should (equal (plist-get (cdr spec) :upgrade) "agy update"))
     (should (equal (plist-get (cdr spec) :cli) "agy"))))
+
+(ert-deftest ai-code-test-pi-backend-spec-contract ()
+  "Ensure the Pi backend entry exposes required integration keys."
+  (let ((spec (ai-code--backend-spec 'pi)))
+    (should spec)
+    (should (eq (plist-get (cdr spec) :require) 'ai-code-pi))
+    (should (eq (plist-get (cdr spec) :start) 'ai-code-pi-start))
+    (should (eq (plist-get (cdr spec) :switch) 'ai-code-pi-switch-to-buffer))
+    (should (eq (plist-get (cdr spec) :send) 'ai-code-pi-send-command))
+    (should (eq (plist-get (cdr spec) :resume) 'ai-code-pi-resume))
+    (should (equal (plist-get (cdr spec) :config)
+                   "~/.pi/agent/settings.json"))
+    (should (equal (plist-get (cdr spec) :agent-file) "AGENTS.md"))
+    (should (equal (plist-get (cdr spec) :install)
+                   "npm install -g --ignore-scripts @earendil-works/pi-coding-agent"))
+    (should (equal (plist-get (cdr spec) :upgrade) "pi update --self"))
+    (should (equal (plist-get (cdr spec) :cli) "pi"))))
 
 (ert-deftest ai-code-test-backend-selection-keeps-repo-session-backend ()
   "Switching backend in one repo should not overwrite started backend in another repo."
@@ -220,6 +248,124 @@
       (should (eq (car start-calls) 'backend-a))
       (should (equal (reverse start-calls)
                      '(backend-a backend-b backend-a))))))
+
+(ert-deftest ai-code-test-upgrade-backend-installs-when-cli-missing ()
+  "A missing CLI should run the backend install command."
+  (let* ((compiled-command nil)
+         (ai-code-backends '((test-backend
+                              :label "Test Backend"
+                              :install "install command"
+                              :upgrade "upgrade command"
+                              :cli "test-cli")))
+         (ai-code-selected-backend 'test-backend))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (_cli) nil))
+              ((symbol-function 'compile)
+               (lambda (command)
+                 (setq compiled-command command)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (ai-code-upgrade-backend)
+      (should (equal compiled-command "install command")))))
+
+(ert-deftest ai-code-test-upgrade-backend-upgrades-when-cli-available ()
+  "An available CLI should run the backend upgrade command."
+  (let* ((checked-cli nil)
+         (compiled-command nil)
+         (ai-code-backends '((test-backend
+                              :label "Test Backend"
+                              :install "install command"
+                              :upgrade "upgrade command"
+                              :cli "test-cli")))
+         (ai-code-selected-backend 'test-backend))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (cli)
+                 (setq checked-cli cli)
+                 "/usr/bin/test-cli"))
+              ((symbol-function 'compile)
+               (lambda (command)
+                 (setq compiled-command command)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (ai-code-upgrade-backend)
+      (should (equal checked-cli "test-cli"))
+      (should (equal compiled-command "upgrade command")))))
+
+(ert-deftest ai-code-test-upgrade-backend-falls-back-to-install-function ()
+  "An available CLI without an upgrade should call the install function."
+  (let* ((received-prefix nil)
+         (ai-code-backends '((test-backend
+                              :label "Test Backend"
+                              :install ai-code-test--install-backend
+                              :upgrade nil
+                              :cli "test-cli")))
+         (ai-code-selected-backend 'test-backend))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (_cli) "/usr/bin/test-cli"))
+              ((symbol-function 'ai-code-test--install-backend)
+               (lambda ()
+                 (interactive)
+                 (setq received-prefix current-prefix-arg)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (ai-code-upgrade-backend '(4))
+      (should (equal received-prefix '(4))))))
+
+(ert-deftest ai-code-test-upgrade-backend-installs-when-cli-is-nil ()
+  "A backend without CLI metadata should run its install command."
+  (let* ((compiled-command nil)
+         (ai-code-backends '((test-backend
+                              :label "Test Backend"
+                              :install "install command"
+                              :upgrade nil
+                              :cli nil)))
+         (ai-code-selected-backend 'test-backend))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (_cli)
+                 (ert-fail "Should not check a nil CLI")))
+              ((symbol-function 'compile)
+               (lambda (command)
+                 (setq compiled-command command)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (ai-code-upgrade-backend)
+      (should (equal compiled-command "install command")))))
+
+(ert-deftest ai-code-test-upgrade-backend-errors-without-missing-cli-install ()
+  "A missing CLI without an install command should signal an error."
+  (let* ((compiled-command nil)
+         (ai-code-backends '((test-backend
+                              :label "Test Backend"
+                              :install nil
+                              :upgrade "upgrade command"
+                              :cli "test-cli")))
+         (ai-code-selected-backend 'test-backend))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (_cli) nil))
+              ((symbol-function 'compile)
+               (lambda (command)
+                 (setq compiled-command command)))
+              ((symbol-function 'message)
+               (lambda (&rest _args) nil)))
+      (should-error (ai-code-upgrade-backend) :type 'user-error)
+      (should-not compiled-command))))
+
+(ert-deftest ai-code-test-upgrade-backend-errors-without-any-command ()
+  "A backend without install or upgrade commands should explain both keys."
+  (let* ((ai-code-backends '((test-backend
+                              :label "Test Backend"
+                              :install nil
+                              :upgrade nil
+                              :cli "test-cli")))
+         (ai-code-selected-backend 'test-backend))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (_cli) "/usr/bin/test-cli")))
+      (let ((error-data (should-error (ai-code-upgrade-backend)
+                                      :type 'user-error)))
+        (should (string-match-p ":install"
+                                (error-message-string error-data)))
+        (should (string-match-p ":upgrade"
+                                (error-message-string error-data)))))))
 
 (ert-deftest ai-code-test-install-skills-with-string-command ()
   "Backend with :install-skills string runs it via compile."

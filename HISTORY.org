@@ -2,10 +2,44 @@
 * Release history
 
 ** Main branch change
+- Confirm before canceling a nonblank editor viewport and refocus its source
+
+** 1.91
+- Add Grill support to some github related tool and scoped context copying, re-organize menu
+- Fix: Make skill management prompts use global scope
+- Feat: add Pi coding agent backend support, by cxa
+- Add CLI-aware backend install and upgrade flow
+- Stop tracking generated autoload file (ai-code-autoloads.el is a generated artifact — tracking it breaks Elpaca updates on Emacs), by nailuoGG
+- Fix editor viewport placement and temporary recentf entries, by cxa
+
+** 1.900
+- Feat: add open interpreter cli support, initial code from swithin chan, modified by ai coding agent
+- Fix editor viewport status validation after temp directory changes
+- Feat: Add native insertion into AI sessions
+- Merge Grill support into the harness module; Resolve conflict between and follow up suggestion
+- Refactor: Unify prompt suffix injection with ordered providers
+- Fix editor viewport auto-submit timing, by cxa
+- Feat: Add Emacs editor viewports for AI CLI sessions, by cxa
+- Stabilize Ghostel image previews during scrolling and redraws, by fxa
+- Feat: Add lightweight grill-me prompt flow
+- Fix Ghostel input jitter caused by inline image anchoring, by fxa
+- Support selected region as context in TDD write-test stage
+
+** 1.89
+- Fix: Avoid autoload-time evaluation of harness test suffix, reported by fxa
+- Fix Ghostel startup blocked by linum/margin overlay false positive
+- Preserve Ghostel links during animated redraws
+- Fix Ghostel IME preedit flicker, by fxa
+- Fix wrapped session link hover coverage in Ghostel, by fxa
+- Chore: Require deterministic randomness in AI-generated test prompts
+
+** 1.88
+- Fix: Fix wrapped session link underlines, by fxa
+- Feat: Add Ghostel image previews, by fxa
 - Fix: Restore Ghostel session state after startup
 - Fix: Remove citation to ghostel private function (--)
 - Feat: Track Ghostel lifecycle and progress metadata
-- Chore: Prompt for working directory on prefixed AI CLI start/resume
+- Chore: Prompt for working directory on prefixed AI CLI start/resume, reported by isoboroff
 - Fix: [codex] Normalize vterm dim SGR foreground, by cxa
 - Feat: Add C4 PlantUML architecture document derivation
 - Chore: Support optional editor context in GitHub issue investigation

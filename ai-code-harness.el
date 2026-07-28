@@ -5,24 +5,52 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Harness generation, auto-test suffix helpers, and send-time routing for ai-code.
+;; Prompt clarification, harness generation, and send-time routing for ai-code.
 
 ;;; Code:
 
 (require 'seq)
 (require 'subr-x)
 
-(require 'ai-code-agile)
-(require 'ai-code-backends)
-(require 'ai-code-change)
-(require 'ai-code-discussion)
-(require 'ai-code-prompt-mode)
+(defvar ai-code--harness-loading nil
+  "Non-nil while harness loading must be deferred to avoid dependency cycles.")
+
+(let ((ai-code--harness-loading t))
+  (require 'ai-code-agile)
+  (require 'ai-code-backends)
+  (require 'ai-code-change)
+  (require 'ai-code-discussion)
+  (require 'ai-code-prompt-mode))
 
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
+(declare-function ai-code-prompt-context-cache
+                  "ai-code-prompt-mode" (context))
+(declare-function ai-code-prompt-context-memoize
+                  "ai-code-prompt-mode" (context key producer))
+(declare-function ai-code-prompt-context-origin-command
+                  "ai-code-prompt-mode" (context))
+(declare-function ai-code-prompt-context-prompt-text
+                  "ai-code-prompt-mode" (context))
 
+(defvar ai-code--prompt-origin-command)
+(defvar ai-code--high-value-tests-instruction)
+(defvar ai-code--tdd-red-green-base-instruction)
+(defvar ai-code--tdd-red-green-tail-instruction)
+(defvar ai-code--tdd-run-test-after-each-stage-instruction)
+(defvar ai-code--tdd-test-pattern-instruction)
+(defvar ai-code--tdd-with-refactoring-extension-instruction)
+(defvar ai-code-change--generic-note)
+(defvar ai-code-change--selected-files-note)
+(defvar ai-code-change--selected-region-note)
+(defvar ai-code-discussion--exception-investigation-boundaries)
+(defvar ai-code-discussion--explain-prompt-prefixes)
+(defvar ai-code-discussion--question-only-note)
+(defvar ai-code-discussion--selected-region-note)
 (defvar ai-code-mcp-agent-enabled-backends)
+(defvar ai-code-prompt-suffix-functions)
 (defvar ai-code-selected-backend)
+(defvar ai-code-use-prompt-suffix)
 
 ;;;; Auto-Test Harness: Content and Cache
 
@@ -35,9 +63,11 @@
   (concat (downcase (substring ai-code--diagnostics-first-harness-instruction 0 1))
           (substring ai-code--diagnostics-first-harness-instruction 1)))
 
-;;;###autoload
 (defcustom ai-code-test-after-code-change-suffix
-  "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error)."
+  (concat
+   "If any program code changes, run unit-tests and follow up on the test-result (fix code if there is an error). "
+   ai-code--high-value-tests-instruction
+   " If the tests use random values (for example random numbers or UUIDs), make them reproducible by fixing the random seed or replacing them with deterministic fixtures.")
   "User-provided prompt suffix for test-after-code-change."
   :type '(choice (const nil) string)
   :group 'ai-code)
@@ -61,7 +91,7 @@
 (defun ai-code--auto-test-harness-prompt-path (file-path)
   "Return FILE-PATH formatted for prompt usage.
 When FILE-PATH is inside the current git repository, return a repo-relative
-path. Otherwise return the absolute FILE-PATH."
+path; otherwise return the absolute FILE-PATH."
   (if-let ((git-root (ai-code--git-root)))
       (let ((git-root-truename (file-name-as-directory (file-truename git-root)))
             (file-truename (file-truename file-path)))
@@ -183,6 +213,100 @@ If the harness file cannot be prepared, fall back to the inline suffix."
     ('no-test "Do not write or run any test.")
     (_ nil)))
 
+;;;; Grill Harness
+
+;;;###autoload
+(defcustom ai-code-grill-me-enabled nil
+  "When non-nil, offer to clarify selected prompts before sending them.
+
+The prompt is offered for commands in `ai-code--grill-me-commands' and
+workflows in `ai-code--grill-me-workflows'.  When accepted, the request
+tells the AI backend to read the bundled grilling harness before acting."
+  :type 'boolean
+  :group 'ai-code)
+
+(defconst ai-code--grill-me-commands
+  '(ai-code-code-change
+    ai-code-ask-question
+    ai-code-implement-todo
+    ai-code-send-command
+    ai-code-refactor-book-method)
+  "Interactive commands that offer the grill-me harness.")
+
+(defconst ai-code--grill-me-workflows
+  '(investigate-issue review-pr resolve-merge-conflict)
+  "Non-command workflows that offer the grill-me harness.")
+
+(defvar ai-code--grill-me-workflow nil
+  "Current non-command workflow considered by the Grill provider.")
+
+(defconst ai-code--grill-me-context-cache-key 'ai-code-grill-me-accepted
+  "Prompt context cache key for the current Grill decision.")
+
+(defun ai-code--grill-me-harness-file ()
+  "Return the bundled grill-me harness file path."
+  (expand-file-name "grilling.v1.md"
+                    (ai-code--auto-test-harness-directory)))
+
+(defun ai-code--grill-me-reference-suffix ()
+  "Return a short prompt suffix referencing the grill-me harness."
+  (let ((file-path (ai-code--grill-me-harness-file)))
+    (unless (file-readable-p file-path)
+      (user-error "Grill-me harness is not readable: %s" file-path))
+    (format
+     "Read the local harness file: @%s. Use its instructions for this request. Apply them without repeating their full contents."
+     (ai-code--auto-test-harness-prompt-path file-path))))
+
+(defun ai-code--with-grill-me-origin (orig-fun &rest args)
+  "Call ORIG-FUN with ARGS while preserving the entry command."
+  (let ((ai-code--prompt-origin-command
+         (or ai-code--prompt-origin-command this-command)))
+    (apply orig-fun args)))
+
+(defun ai-code--grill-me-accepted-p (context)
+  "Return non-nil when Grill was accepted for prompt CONTEXT."
+  (gethash ai-code--grill-me-context-cache-key
+           (ai-code-prompt-context-cache context)))
+
+(defun ai-code--grill-me-eligible-p (context)
+  "Return non-nil when prompt CONTEXT should offer the Grill harness."
+  (or (memq (ai-code-prompt-context-origin-command context)
+            ai-code--grill-me-commands)
+      (memq ai-code--grill-me-workflow ai-code--grill-me-workflows)))
+
+(defun ai-code--grill-me-suffix-provider (context)
+  "Return the optional Grill suffix for prompt CONTEXT."
+  (let ((accepted
+         (and ai-code-grill-me-enabled
+              (ai-code--grill-me-eligible-p context)
+              (y-or-n-p "Grill me before acting? "))))
+    (puthash ai-code--grill-me-context-cache-key accepted
+             (ai-code-prompt-context-cache context))
+    (when accepted
+      (ai-code--grill-me-reference-suffix))))
+
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--grill-me-suffix-provider 20)
+
+;; Remove the prompt-transform advice installed by pre-provider releases.
+(when (advice-member-p 'ai-code--with-optional-grill-me
+                       'ai-code--insert-prompt)
+  (advice-remove 'ai-code--insert-prompt
+                 'ai-code--with-optional-grill-me))
+
+(defun ai-code--install-grill-me-command-advice ()
+  "Install origin-preserving advice on available Grill commands."
+  (dolist (command ai-code--grill-me-commands)
+    (when (and (fboundp command)
+               (not (advice-member-p #'ai-code--with-grill-me-origin command)))
+      (advice-add command :around #'ai-code--with-grill-me-origin))))
+
+(ai-code--install-grill-me-command-advice)
+
+(dolist (feature '(ai-code-change ai-code-discussion ai-code))
+  (with-eval-after-load feature
+    (ai-code--install-grill-me-command-advice)))
+
 ;;;; Send-Time Routing: State and User Settings
 
 (defvar ai-code-auto-test-suffix ai-code-test-after-code-change-suffix
@@ -197,6 +321,10 @@ See the later `defcustom' for user-facing documentation and default.")
 
 (defvar ai-code-discussion-auto-follow-up-enabled t
   "Forward declaration for `ai-code-discussion-auto-follow-up-enabled'.
+See the later `defcustom' for user-facing documentation and default.")
+
+(defvar ai-code-discussion-auto-follow-up-on-code-change nil
+  "Forward declaration for `ai-code-discussion-auto-follow-up-on-code-change'.
 See the later `defcustom' for user-facing documentation and default.")
 
 (defconst ai-code--auto-test-type-ask-choices
@@ -408,24 +536,48 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
                  ai-code-discussion-auto-follow-up-enabled))
     (ai-code--classify-prompt-code-change prompt-text)))
 
-;;;; Send-Time Routing: Advice and Setters
+;;;; Send-Time Routing: Providers and Setters
 
-(defun ai-code--with-auto-test-suffix-for-send (orig-fun prompt-text)
-  "Resolve and bind send-time suffixes before calling ORIG-FUN with PROMPT-TEXT."
-  (let* ((classification (ai-code--classify-prompt-for-send prompt-text))
-         (ai-code-auto-test-suffix
-          (ai-code--resolve-auto-test-suffix-for-send
-           prompt-text classification))
-         (ai-code-discussion-auto-follow-up-suffix
-          (ai-code--resolve-auto-follow-up-suffix-for-send
-           prompt-text classification)))
-    (funcall orig-fun prompt-text)))
+(defun ai-code--prompt-context-classification (context)
+  "Return the shared code-change classification for prompt CONTEXT."
+  (ai-code-prompt-context-memoize
+   context
+   'code-change-classification
+   (lambda ()
+     (ai-code--classify-prompt-for-send
+      (ai-code-prompt-context-prompt-text context)))))
 
-(unless (advice-member-p #'ai-code--with-auto-test-suffix-for-send
-                         'ai-code--write-prompt-to-file-and-send)
-  (advice-add 'ai-code--write-prompt-to-file-and-send
-              :around
-              #'ai-code--with-auto-test-suffix-for-send))
+(defun ai-code--resolve-suffix-for-context (context resolver)
+  "Call RESOLVER with the prompt and shared classification from CONTEXT."
+  (funcall resolver
+           (ai-code-prompt-context-prompt-text context)
+           (ai-code--prompt-context-classification context)))
+
+(defun ai-code--auto-test-suffix-provider (context)
+  "Return the send-time auto-test suffix for prompt CONTEXT."
+  (when (and (bound-and-true-p ai-code-use-prompt-suffix)
+             ai-code-auto-test-type)
+    (ai-code--resolve-suffix-for-context
+     context #'ai-code--resolve-auto-test-suffix-for-send)))
+
+(defun ai-code--discussion-follow-up-suffix-provider (context)
+  "Return the send-time discussion follow-up suffix for prompt CONTEXT."
+  (when (and (bound-and-true-p ai-code-use-prompt-suffix)
+             ai-code-discussion-auto-follow-up-enabled
+             (not (ai-code--grill-me-accepted-p context)))
+    (ai-code--resolve-suffix-for-context
+     context #'ai-code--resolve-auto-follow-up-suffix-for-send)))
+
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--auto-test-suffix-provider 30)
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--discussion-follow-up-suffix-provider 40)
+
+;; Remove the send-time advice installed by pre-provider releases.
+(when (advice-member-p 'ai-code--with-auto-test-suffix-for-send
+                       'ai-code--write-prompt-to-file-and-send)
+  (advice-remove 'ai-code--write-prompt-to-file-and-send
+                 'ai-code--with-auto-test-suffix-for-send))
 
 (defun ai-code--test-after-code-change--set (symbol value)
   "Set SYMBOL to VALUE and update related suffix behavior."
@@ -452,7 +604,7 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
   value)
 
 (defun ai-code--cycle-discussion-auto-follow-up-value (current-val)
-  "Return the next cycled value of `ai-code-discussion-auto-follow-up-enabled` for CURRENT-VAL."
+  "Return the next cycled auto-follow-up-enabled setting for CURRENT-VAL."
   (pcase current-val
     ('nil 'ask-me)
     ((or 't 'ask-me) 'always)
