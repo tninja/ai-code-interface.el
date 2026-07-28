@@ -266,6 +266,21 @@ ARG is the prefix argument."
                                    ai-code-session-checkpoint-prompt)))
     (ai-code--insert-prompt prompt)))
 
+;;;###autoload
+(defun ai-code-cli-resume-with-session-checkpoint (&optional arg prompt-for-checkpoint)
+  "Resume the current backend's CLI session and optionally request a checkpoint.
+Argument ARG is passed to `ai-code-cli-resume'; with a prefix argument
+\\[universal-argument], it is non-nil and preserves the backend's
+interactive resume behavior.
+PROMPT-FOR-CHECKPOINT is non-nil for interactive calls that should ask
+whether to print a checkpoint after resuming.  Noninteractive callers
+normally omit it, which skips the prompt."
+  (interactive (list current-prefix-arg t))
+  (ai-code-cli-resume arg)
+  (when (and prompt-for-checkpoint
+             (y-or-n-p "Print AI session checkpoint? "))
+    (ai-code-session-checkpoint)))
+
 (defun ai-code--emacs-runtime-debug-prompt (description eval-available-p
                                                        &optional region-text
                                                        region-location-info
@@ -501,7 +516,7 @@ Shows the current backend label to the right."
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
   ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
-  ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
+  ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume-with-session-checkpoint)
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
   ("s" ai-code-select-backend :description ai-code--select-backend-description)
   ("j" "Session dashboard" ai-code-session-dashboard)
@@ -577,7 +592,7 @@ Shows the current backend label to the right."
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
-  ("P" "AI session checkpoint" ai-code-session-checkpoint)
+  ;; ("P" "AI session checkpoint" ai-code-session-checkpoint)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))
