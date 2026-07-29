@@ -161,6 +161,35 @@ Argument ARG is passed to the backend's switch function."
         (funcall ai-code--cli-switch-fn arg)
       (funcall ai-code--cli-switch-fn))))
 
+(defun ai-code--missing-session-error-p (error-data)
+  "Return non-nil when ERROR-DATA reports a missing AI session."
+  (string-match-p
+   "\\(?:\\`\\|: \\)No [^\n]+ session\\(?: for this project\\|;\\)"
+   (error-message-string error-data)))
+
+(defun ai-code--send-command-with-session-recovery (command)
+  "Send COMMAND, offering to start a missing session before one retry."
+  (let ((source-buffer (current-buffer)))
+    (condition-case err
+        (progn
+          (funcall ai-code--cli-send-fn command)
+          t)
+      (error
+       (if (not (ai-code--missing-session-error-p err))
+           (signal (car err) (cdr err))
+         (if (not (y-or-n-p
+                   (format "No %s session for this project.  Start one? "
+                           (ai-code-current-backend-label))))
+             nil
+           (ai-code-cli-start)
+           (if (not (y-or-n-p "Ready to send prompt? "))
+               nil
+             (if (buffer-live-p source-buffer)
+                 (with-current-buffer source-buffer
+                   (funcall ai-code--cli-send-fn command))
+               (funcall ai-code--cli-send-fn command))
+             t)))))))
+
 ;;;###autoload
 (defun ai-code-cli-send-command (&optional command)
   "Send COMMAND to the current backend when supported.
@@ -172,7 +201,7 @@ Noninteractive callers must supply COMMAND."
       (call-interactively ai-code--cli-send-fn)
     (if (null command)
         (user-error "COMMAND is required for noninteractive calls")
-      (funcall ai-code--cli-send-fn command))))
+      (ai-code--send-command-with-session-recovery command))))
 
 ;;;###autoload
 (defun ai-code-claude-code-el-send-command (cmd)
