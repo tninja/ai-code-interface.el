@@ -411,6 +411,15 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Session dashboard"))))
 
+(ert-deftest ai-code-test-menu-ai-cli-session-resume-uses-checkpoint-wrapper ()
+  "Test that Resume AI CLI routes through the checkpoint-aware wrapper."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "R")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-cli-resume-with-session-checkpoint))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Resume AI CLI (C-u: args)"))))
+
 (ert-deftest ai-code-test-menu-agile-development-includes-debug-emacs-runtime-entry ()
   "Test that the Agile Development menu exposes Emacs runtime debugging."
   (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "d")))
@@ -457,15 +466,44 @@
      (equal inserted-prompt
             "Please stop and output a CHECKPOINT:\n- Goal\n- Files changed\n- Current hypothesis\n- Tests/build result\n- Blockers\n- Recommended next action\nDo not continue editing after this checkpoint"))))
 
-(ert-deftest ai-code-test-menu-other-tools-includes-session-checkpoint-entry ()
-  "Test that the Other Tools menu exposes AI session checkpoint."
-  (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "P"))
-         (definition (cdr suffix)))
-    (should suffix)
-    (should (eq (plist-get definition :command)
-                'ai-code-session-checkpoint))
-    (should (equal (plist-get definition :description)
-                   "AI session checkpoint"))))
+(ert-deftest ai-code-test-cli-resume-with-session-checkpoint-prompts-and-checkpoints ()
+  "Test that resume can immediately request a session checkpoint."
+  (let (resume-arg prompt-text checkpoint-called)
+    (cl-letf (((symbol-function 'ai-code-cli-resume)
+              (lambda (&optional arg)
+                (interactive "P")
+                (setq resume-arg arg)))
+             ((symbol-function 'y-or-n-p)
+              (lambda (prompt)
+                (setq prompt-text prompt)
+                t))
+             ((symbol-function 'ai-code-session-checkpoint)
+              (lambda ()
+                (setq checkpoint-called t))))
+      (let ((current-prefix-arg '(4)))
+        (call-interactively #'ai-code-cli-resume-with-session-checkpoint)))
+    (should (equal resume-arg '(4)))
+    (should (equal prompt-text "Print AI session checkpoint? "))
+    (should checkpoint-called)))
+
+(ert-deftest ai-code-test-cli-resume-with-session-checkpoint-skips-checkpoint-when-declined ()
+  "Test that resume does not trigger a checkpoint when the user declines."
+  (let (checkpoint-called)
+    (cl-letf (((symbol-function 'ai-code-cli-resume)
+              (lambda (&optional _arg)
+                (interactive "P")))
+             ((symbol-function 'y-or-n-p)
+              (lambda (_prompt) nil))
+             ((symbol-function 'ai-code-session-checkpoint)
+              (lambda ()
+                (setq checkpoint-called t))))
+      (call-interactively #'ai-code-cli-resume-with-session-checkpoint))
+    (should-not checkpoint-called)))
+
+(ert-deftest ai-code-test-menu-other-tools-removes-session-checkpoint-entry ()
+  "Test that the Other Tools menu no longer exposes a dedicated checkpoint item."
+  (should-not (ignore-errors
+                (transient-get-suffix 'ai-code--menu-other-tools "P"))))
 
 (ert-deftest ai-code-test-menu-other-tools-includes-agent-handoff-entry ()
   "Test that the Other Tools menu exposes agent handoff."

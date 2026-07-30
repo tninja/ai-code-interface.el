@@ -46,6 +46,53 @@
     (should-error (ai-code-cli-send-command nil)
                   :type 'user-error)))
 
+(ert-deftest ai-code-test-cli-send-command-retries-after-start-confirmation ()
+  "Start a missing session and retry the original command after confirmation."
+  (let* ((backend-key 'test-missing-session)
+         (ai-code-backends
+          `((,backend-key
+             :label "Test Backend"
+             :require nil
+             :start ai-code-test-start-missing-session
+             :switch ai-code-test-switch-missing-session
+             :send ai-code-test-send-missing-session
+             :resume nil
+             :cli "test")))
+         (ai-code-selected-backend backend-key)
+         (ai-code--repo-backend-alist nil)
+         (ai-code--cli-start-fn ai-code--cli-start-fn)
+         (ai-code--cli-switch-fn ai-code--cli-switch-fn)
+         (ai-code--cli-send-fn ai-code--cli-send-fn)
+         (ai-code--cli-resume-fn ai-code--cli-resume-fn)
+         (ai-code-cli nil)
+         (attempt-count 0)
+         (answers '(t t))
+         (events nil))
+    (cl-letf (((symbol-function 'ai-code-test-start-missing-session)
+               (lambda (&optional _arg)
+                 (setq events (append events '((start))))))
+              ((symbol-function 'ai-code-test-switch-missing-session)
+               (lambda (&optional _arg)))
+              ((symbol-function 'ai-code-test-send-missing-session)
+               (lambda (command)
+                 (setq attempt-count (1+ attempt-count)
+                       events (append events (list (list 'send command))))
+                 (when (= attempt-count 1)
+                   (user-error "No Test Backend session for this project"))))
+              ((symbol-function 'y-or-n-p)
+               (lambda (question)
+                 (setq events (append events (list (list 'ask question))))
+                 (pop answers))))
+      (ai-code-set-backend backend-key)
+      (should (ai-code-cli-send-command "original prompt"))
+      (should
+       (equal events
+              '((send "original prompt")
+                (ask "No Test Backend session for this project.  Start one? ")
+                (start)
+                (ask "Ready to send prompt? ")
+                (send "original prompt")))))))
+
 (ert-deftest ai-code-test-cli-resume-preserves-prefix-arg ()
   "Ensure `current-prefix-arg' reaches backend resume when ARG is nil."
   (let* ((backend-key 'test-backend)

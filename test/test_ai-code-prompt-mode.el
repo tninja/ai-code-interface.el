@@ -38,6 +38,16 @@
   "Text without a slash prefix should be a normal prompt."
   (should-not (ai-code--direct-command-p "explain this file")))
 
+(ert-deftest ai-code-test-execute-command-skips-switch-when-send-cancelled ()
+  "Do not switch to a session after direct command sending is cancelled."
+  (let ((switch-called nil))
+    (cl-letf (((symbol-function 'ai-code-cli-send-command)
+               (lambda (_command) nil))
+              ((symbol-function 'ai-code-cli-switch-to-buffer)
+               (lambda () (setq switch-called t))))
+      (ai-code--execute-command "/status")
+      (should-not switch-called))))
+
 (ert-deftest ai-code-test-apply-prompt-suffixes-preserves-provider-order ()
   "Prompt suffix providers should run in hook order."
   (let ((ai-code-prompt-suffix-functions
@@ -1309,6 +1319,18 @@ evaluates BODY, and ensures everything is cleaned up afterward."
       (ai-code--send-prompt "test prompt")
       (should (string= cli-send-called "test prompt"))
       (should switch-called))))
+
+(ert-deftest ai-code-test-send-prompt-skips-switch-when-send-cancelled ()
+  "Do not switch to a session after prompt sending is cancelled."
+  (let ((switch-called nil))
+    (cl-letf (((symbol-function 'ai-code--prompt-choose-target-session)
+               (lambda () nil))
+              ((symbol-function 'ai-code-cli-send-command)
+               (lambda (_command) nil))
+              ((symbol-function 'ai-code-cli-switch-to-buffer)
+               (lambda () (setq switch-called t))))
+      (ai-code--send-prompt "test prompt")
+      (should-not switch-called))))
 
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here

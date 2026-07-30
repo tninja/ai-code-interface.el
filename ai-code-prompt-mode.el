@@ -203,8 +203,8 @@ If file doesn't exist, create it with sample prompt."
 (defun ai-code--execute-command (command)
   "Execute COMMAND directly without saving to prompt file."
   (message "Executing command: %s" command)
-  (ignore-errors (ai-code-cli-send-command command))
-  (ai-code-cli-switch-to-buffer))
+  (when (ignore-errors (ai-code-cli-send-command command))
+    (ai-code-cli-switch-to-buffer)))
 
 (defun ai-code--generate-prompt-headline (prompt-text)
   "Generate an Org headline for PROMPT-TEXT."
@@ -377,8 +377,8 @@ send the prompt directly to it instead of going through the default
 backend dispatch."
   (if-let ((target (ai-code--prompt-choose-target-session)))
       (ai-code--send-prompt-to-session-buffer full-prompt target)
-    (ai-code-cli-send-command full-prompt)
-    (ai-code-cli-switch-to-buffer)))
+    (when (ai-code-cli-send-command full-prompt)
+      (ai-code-cli-switch-to-buffer))))
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
   "Write PROMPT-TEXT to the AI prompt file."
