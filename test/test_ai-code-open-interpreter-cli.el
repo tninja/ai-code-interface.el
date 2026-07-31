@@ -72,7 +72,8 @@
                   ((symbol-function
                     'ai-code-backends-infra--resolve-start-command)
                    (lambda (&rest _args)
-                     (list :command "interpreter --model test")))
+                     (list :command "interpreter --model test"
+                           :argv '("interpreter" "--model" "test"))))
                   ((symbol-function 'ai-code-mcp-builtins-setup)
                    (lambda () (setq builtins-called t)))
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -102,12 +103,20 @@
           (ai-code-open-interpreter-cli)
           (should builtins-called)
           (should ensure-called)
-          (should (string-match-p
-                   "\\`interpreter --model test " captured-command))
-          (should (string-match-p
-                   "mcp_servers\\.emacs_tools" captured-command))
-          (should (string-match-p
-                   "mcp/open-interpreter-" captured-command))
+          (should
+           (equal
+            (cl-subseq captured-command 0 3)
+            '("interpreter" "--model" "test")))
+          (let ((config-args (member "-c" captured-command)))
+            (should config-args)
+            (should
+             (string-match-p
+              "mcp_servers\\.emacs_tools"
+              (cadr config-args)))
+            (should
+             (string-match-p
+              "mcp/open-interpreter-"
+              (cadr config-args))))
           (should (functionp captured-cleanup-fn))
           (should (functionp captured-post-start-fn))
           (funcall captured-post-start-fn session-buffer nil "default")

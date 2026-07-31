@@ -53,6 +53,116 @@
       (when (buffer-live-p source-buffer)
         (kill-buffer source-buffer)))))
 
+(ert-deftest ai-code-test-mcp-agent-claude-launch-preserves-argv-boundaries ()
+  "Claude MCP launch metadata should preserve every argument verbatim."
+  (let ((ai-code-mcp-agent-enabled-backends '(claude-code))
+        (config-file
+         "c:/Users/Test User/AppData/Local/Temp/ai-code-mcp-claude-code.json"))
+    (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda () 8765))
+              ((symbol-function 'ai-code-mcp-unregister-session) #'ignore)
+              ((symbol-function 'make-temp-file)
+               (lambda (&rest _args) config-file))
+              ((symbol-function 'write-region)
+               (lambda (&rest _args) nil)))
+      (let ((launch
+             (ai-code-mcp-agent-prepare-launch
+              'claude-code
+              default-directory
+              '("claude" "--model" "model with spaces"))))
+        (unwind-protect
+            (should
+             (equal
+              (plist-get launch :argv)
+              (list "claude"
+                    "--model"
+                    "model with spaces"
+                    "--mcp-config"
+                    config-file)))
+          (funcall (plist-get launch :cleanup-fn)))))))
+
+(ert-deftest ai-code-test-mcp-agent-copilot-launch-preserves-inline-config-argument ()
+  "Copilot MCP launch metadata should keep inline JSON in one argument."
+  (let ((ai-code-mcp-agent-enabled-backends '(github-copilot-cli)))
+    (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda () 8765))
+              ((symbol-function 'ai-code-mcp-unregister-session) #'ignore)
+              ((symbol-function 'format-time-string)
+               (lambda (&rest _args) "20260730223000"))
+              ((symbol-function 'random)
+               (lambda (&rest _args) 42)))
+      (let ((launch
+             (ai-code-mcp-agent-prepare-launch
+              'github-copilot-cli
+              default-directory
+              '("copilot" "--banner" "value with spaces"))))
+        (unwind-protect
+            (should
+             (equal
+              (plist-get launch :argv)
+              '("copilot"
+                "--banner"
+                "value with spaces"
+                "--additional-mcp-config"
+                "{\"mcpServers\":{\"emacs_tools\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:8765/mcp/github-copilot-cli-20260730223000-42\"}}}")))
+          (funcall (plist-get launch :cleanup-fn)))))))
+
+(ert-deftest ai-code-test-mcp-agent-codex-launch-preserves-config-override-argument ()
+  "Codex MCP launch metadata should keep its config override in one argument."
+  (let ((ai-code-mcp-agent-enabled-backends '(codex)))
+    (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda () 8765))
+              ((symbol-function 'ai-code-mcp-unregister-session) #'ignore)
+              ((symbol-function 'format-time-string)
+               (lambda (&rest _args) "20260730223000"))
+              ((symbol-function 'random)
+               (lambda (&rest _args) 42)))
+      (let ((launch
+             (ai-code-mcp-agent-prepare-launch
+              'codex
+              default-directory
+              '("codex" "--profile" "work profile"))))
+        (unwind-protect
+            (should
+             (equal
+              (plist-get launch :argv)
+              '("codex"
+                "--profile"
+                "work profile"
+                "-c"
+                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/codex-20260730223000-42\" }")))
+          (funcall (plist-get launch :cleanup-fn)))))))
+
+(ert-deftest ai-code-test-mcp-agent-open-interpreter-preserves-config-override-argument ()
+  "Open Interpreter launch metadata should keep config in one argument."
+  (let ((ai-code-mcp-agent-enabled-backends '(open-interpreter)))
+    (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda () 8765))
+              ((symbol-function 'ai-code-mcp-unregister-session) #'ignore)
+              ((symbol-function 'format-time-string)
+               (lambda (&rest _args) "20260730223000"))
+              ((symbol-function 'random)
+               (lambda (&rest _args) 42)))
+      (let ((launch
+             (ai-code-mcp-agent-prepare-launch
+              'open-interpreter
+              default-directory
+              '("interpreter" "--model" "provider/model name"))))
+        (unwind-protect
+            (should
+             (equal
+              (plist-get launch :argv)
+              '("interpreter"
+                "--model"
+                "provider/model name"
+                "-c"
+                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/open-interpreter-20260730223000-42\" }")))
+          (funcall (plist-get launch :cleanup-fn)))))))
+
 (ert-deftest ai-code-test-mcp-agent-claude-cleanup-removes-temp-config ()
   "Claude launch cleanup should remove its temporary MCP config file."
   (let ((ai-code-mcp-agent-enabled-backends '(claude-code))
@@ -65,9 +175,8 @@
               ((symbol-function 'ai-code-mcp-unregister-session) #'ignore))
       (setq launch
             (ai-code-mcp-agent-prepare-launch
-             'claude-code default-directory "claude"))
-      (let* ((args (split-string-shell-command (plist-get launch :command)))
-             (config-flag (member "--mcp-config" args)))
+             'claude-code default-directory '("claude")))
+      (let ((config-flag (member "--mcp-config" (plist-get launch :argv))))
         (should config-flag)
         (setq config-file (cadr config-flag)))
       (unwind-protect
@@ -94,9 +203,8 @@
                  (cl-incf unregister-count))))
       (setq launch
             (ai-code-mcp-agent-prepare-launch
-             'claude-code default-directory "claude"))
-      (let* ((args (split-string-shell-command (plist-get launch :command)))
-             (config-flag (member "--mcp-config" args)))
+             'claude-code default-directory '("claude")))
+      (let ((config-flag (member "--mcp-config" (plist-get launch :argv))))
         (setq config-file (cadr config-flag)))
       (unwind-protect
           (let ((cleanup-fn (plist-get launch :cleanup-fn)))
@@ -124,9 +232,8 @@
                  (cl-incf unregister-count))))
       (setq launch
             (ai-code-mcp-agent-prepare-launch
-             'claude-code default-directory "claude"))
-      (let* ((args (split-string-shell-command (plist-get launch :command)))
-             (config-flag (member "--mcp-config" args)))
+             'claude-code default-directory '("claude")))
+      (let ((config-flag (member "--mcp-config" (plist-get launch :argv))))
         (should config-flag)
         (setq config-file (cadr config-flag)))
       (unwind-protect

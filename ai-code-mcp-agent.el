@@ -65,17 +65,17 @@
    (format "Session ID: %s\n" (plist-get status :session-id))
    (format "Server URL: %s\n" (plist-get status :server-url))))
 
-(defun ai-code-mcp-agent-prepare-launch (backend working-dir command)
-  "Return MCP launch metadata for BACKEND, WORKING-DIR, and COMMAND."
+(defun ai-code-mcp-agent-prepare-launch (backend working-dir argv)
+  "Return MCP launch metadata for BACKEND, WORKING-DIR, and ARGV."
   (when (memq backend ai-code-mcp-agent-enabled-backends)
     (ai-code-mcp-builtins-setup)
     (let* ((port (ai-code-mcp-http-server-ensure))
            (session-id (ai-code-mcp-agent--make-session-id backend))
            (url (ai-code-mcp-agent--make-server-url port session-id))
-           (command-metadata
-            (ai-code-mcp-agent--inject-command backend command url))
-           (runtime-files (plist-get command-metadata :runtime-files)))
-      (list :command (plist-get command-metadata :command)
+           (launch-metadata
+            (ai-code-mcp-agent--inject-argv backend argv url))
+           (runtime-files (plist-get launch-metadata :runtime-files)))
+      (list :argv (plist-get launch-metadata :argv)
             :cleanup-fn
             (ai-code-mcp-agent--make-cleanup-function
              session-id runtime-files)
@@ -125,39 +125,24 @@ Failed file removals are retried; session unregistration occurs at most once."
                 ai-code-mcp-agent--session-id session-id
                 ai-code-mcp-agent--server-url url)))
 
-(defun ai-code-mcp-agent--inject-command (backend command url)
-  "Return launch metadata after injecting URL into COMMAND for BACKEND."
+(defun ai-code-mcp-agent--inject-argv (backend argv url)
+  "Return launch metadata after injecting URL into ARGV for BACKEND."
   (pcase backend
-    ('codex
-     (list :command
-           (concat command
-                   " -c "
-                   (shell-quote-argument
-                    (format "mcp_servers.%s={ url = %s }"
-                            ai-code-mcp-agent--server-name
-                            (json-encode url))))))
-    ('open-interpreter
-     (list :command
-           (concat command
-                   " -c "
-                   (shell-quote-argument
-                    (format "mcp_servers.%s={ url = %s }"
-                            ai-code-mcp-agent--server-name
-                            (json-encode url))))))
+    ((or 'codex 'open-interpreter)
+     (let ((config-override
+            (format "mcp_servers.%s={ url = %s }"
+                    ai-code-mcp-agent--server-name
+                    (json-encode url))))
+       (list :argv (append argv (list "-c" config-override)))))
     ('github-copilot-cli
-     (list :command
-           (concat command
-                   " --additional-mcp-config "
-                   (shell-quote-argument
-                    (ai-code-mcp-agent--copilot-config-json url)))))
+     (let ((config-json (ai-code-mcp-agent--copilot-config-json url)))
+       (list :argv
+             (append argv (list "--additional-mcp-config" config-json)))))
     ('claude-code
      (let ((config-file (ai-code-mcp-agent--claude-code-config-file url)))
-       (list :command
-             (concat command
-                     " --mcp-config "
-                     (shell-quote-argument config-file))
+       (list :argv (append argv (list "--mcp-config" config-file))
              :runtime-files (list config-file))))
-    (_ (list :command command))))
+    (_ (list :argv argv))))
 
 (defun ai-code-mcp-agent--copilot-config-json (url)
   "Return a Copilot CLI MCP config JSON string for URL."

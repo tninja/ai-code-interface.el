@@ -35,7 +35,8 @@
                    (lambda () "/tmp/test-codex"))
                   ((symbol-function 'ai-code-backends-infra--resolve-start-command)
                    (lambda (&rest _args)
-                     (list :command "codex --full-auto")))
+                     (list :command "codex --full-auto"
+                           :argv '("codex" "--full-auto"))))
                   ((symbol-function 'ai-code-mcp-builtins-setup)
                    (lambda () (setq builtins-called t)))
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -64,7 +65,12 @@
           (ai-code-codex-cli)
           (should builtins-called)
           (should ensure-called)
-          (should (string-match-p "mcp_servers\\.emacs_tools" captured-command))
+          (let ((config-args (member "-c" captured-command)))
+            (should config-args)
+            (should
+             (string-match-p
+              "mcp_servers\\.emacs_tools"
+              (cadr config-args))))
           (should (functionp captured-cleanup-fn))
           (should (functionp captured-post-start-fn))
           (funcall captured-post-start-fn session-buffer nil "default")

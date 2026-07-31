@@ -104,7 +104,8 @@
                    (lambda () "/tmp/test-copilot"))
                   ((symbol-function 'ai-code-backends-infra--resolve-start-command)
                    (lambda (&rest _args)
-                     (list :command "copilot --allow-all-tools")))
+                     (list :command "copilot --allow-all-tools"
+                           :argv '("copilot" "--allow-all-tools"))))
                   ((symbol-function 'ai-code-mcp-builtins-setup)
                    (lambda () (setq builtins-called t)))
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -137,9 +138,14 @@
             (ai-code-github-copilot-cli)
             (should builtins-called)
             (should ensure-called)
-            (should (string-match-p "--additional-mcp-config" captured-command))
-            (should (string-match-p "127\\.0\\.0\\.1" captured-command))
-            (should (string-match-p "mcp/github-copilot-cli-" captured-command))
+            (let ((config-args
+                   (member "--additional-mcp-config" captured-command)))
+              (should config-args)
+              (should (string-match-p "127\\.0\\.0\\.1" (cadr config-args)))
+              (should
+               (string-match-p
+                "mcp/github-copilot-cli-"
+                (cadr config-args))))
             (should (equal captured-env-vars '("TERM_PROGRAM=vscode")))
             (should (equal captured-sequence "\\\r\n"))
             (should (functionp captured-cleanup-fn))

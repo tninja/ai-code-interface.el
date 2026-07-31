@@ -28,6 +28,103 @@
   "123e4567-e89b-12d3-a456-426614174000"
   "UUID fixture used by resume command resolution tests.")
 
+(ert-deftest test-ai-code-backends-infra-ghostel-session-preserves-argv-boundaries ()
+  "Ghostel sessions should pass launch arguments to `ghostel-exec' verbatim."
+  (let* ((buffer-name " *ai-code-ghostel-argv*")
+         (argv
+          '("claude"
+            "--model"
+            "model with spaces"
+            "--mcp-config"
+            "c:/Users/Test User/AppData/Local/Temp/mcp.json"))
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ghostel-exec)
+                   (lambda (seen-buffer program args)
+                     (setq captured (list program args)
+                           buffer seen-buffer)
+                     nil)))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-ghostel-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            (list "claude"
+                  '("--model"
+                    "model with spaces"
+                    "--mcp-config"
+                    "c:/Users/Test User/AppData/Local/Temp/mcp.json")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-eat-session-preserves-argv-boundaries ()
+  "Eat sessions should pass launch arguments to `eat-exec' verbatim."
+  (let* ((buffer-name " *ai-code-eat-argv*")
+         (argv
+          '("copilot"
+            "--banner"
+            "value with spaces"
+            "--additional-mcp-config"
+            "{\"url\":\"http://127.0.0.1:8765/mcp/session\"}"))
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'eat-mode)
+                   (lambda () (setq major-mode 'eat-mode)))
+                  ((symbol-function 'eat-exec)
+                   (lambda (seen-buffer seen-name program start-file args)
+                     (setq captured
+                           (list seen-buffer seen-name program start-file args))
+                     nil)))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-eat-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            (list buffer
+                  buffer-name
+                  "copilot"
+                  nil
+                  '("--banner"
+                    "value with spaces"
+                    "--additional-mcp-config"
+                    "{\"url\":\"http://127.0.0.1:8765/mcp/session\"}")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-session-quotes-argv-for-shell ()
+  "Vterm sessions should quote each launch argument for their POSIX shell."
+  (let* ((buffer-name " *ai-code-vterm-argv*")
+         (argv
+          '("claude"
+            "--model"
+            "model with spaces"
+            "--mcp-config"
+            "c:/Users/Test User/AppData/Local/Temp/mcp.json"))
+         (ai-code-backends-infra--vterm-advices-installed t)
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'vterm)
+                   (lambda (seen-buffer-name)
+                     (setq captured vterm-shell)
+                     (get-buffer-create seen-buffer-name))))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-vterm-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            "claude --model model\\ with\\ spaces --mcp-config c\\:/Users/Test\\ User/AppData/Local/Temp/mcp.json")))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (defun test-ai-code-backends-infra--capture-default-binding (symbol)
   "Return SYMBOL's default binding state.
 The result is a cons of whether SYMBOL is bound and its default value."
@@ -111,6 +208,19 @@ The result is a cons of whether SYMBOL is bound and its default value."
                               forms)))
           (should form)
           (should (= (length form) 2))))))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-start-command-preserves-argv-boundaries ()
+  "Start command resolution should retain each configured switch verbatim."
+  (let ((result
+         (ai-code-backends-infra--resolve-start-command
+          "claude"
+          '("--model" "model with spaces")
+          nil
+          "Claude")))
+    (should
+     (equal
+      (plist-get result :argv)
+      '("claude" "--model" "model with spaces")))))
 
 (ert-deftest test-ai-code-backends-infra--resume-double-dash-prefills-uuid ()
   "A selected UUID should make `--resume' prompt with that id appended."
@@ -214,7 +324,8 @@ The result is a cons of whether SYMBOL is bound and its default value."
                  (should (equal switches '("--quiet")))
                  (should (eq arg 'prefix-arg))
                  (should (equal prompt-label "Codex"))
-                 '(:command "codex --quiet")))
+                 '(:command "codex --quiet"
+                   :argv ("codex" "--quiet"))))
               ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
                (lambda (&rest args)
                  (setq captured args))))
@@ -228,10 +339,10 @@ The result is a cons of whether SYMBOL is bound and its default value."
              :multiline-input-sequence "\r\n"
              :escape-function escape-fn
              :prepare-launch
-             (lambda (working-dir command)
+             (lambda (working-dir argv)
                (should (equal working-dir "/project/"))
-               (should (equal command "codex --quiet"))
-               (list :command "env MCP=1 codex --quiet"
+               (should (equal argv '("codex" "--quiet")))
+               (list :argv '("codex" "--quiet" "--mcp")
                      :cleanup-fn cleanup-fn
                      :post-start-fn post-start-fn)))
        'prefix-arg))
@@ -239,7 +350,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
                    (list "/project/"
                          nil
                          process-table
-                         "env MCP=1 codex --quiet"
+                         '("codex" "--quiet" "--mcp")
                          escape-fn
                          cleanup-fn
                          nil
@@ -281,7 +392,7 @@ The prefix argument should also force instance-name prompting."
        'prefix-arg))
     (should (equal call-order '(args dir)))
     (cl-destructuring-bind
-        (working-dir buffer-name seen-process-table command
+        (working-dir buffer-name seen-process-table argv
                      &optional escape-fn cleanup-fn instance-name prefix
                      force-prompt env-vars multiline-input-sequence
                      post-start-fn)
@@ -289,7 +400,7 @@ The prefix argument should also force instance-name prompting."
       (should (equal working-dir "/custom/"))
       (should-not buffer-name)
       (should (eq seen-process-table process-table))
-      (should (equal command "codex --quiet"))
+      (should (equal argv '("codex" "--quiet")))
       (should-not escape-fn)
       (should-not cleanup-fn)
       (should-not instance-name)
@@ -965,7 +1076,7 @@ The prefix argument should also force instance-name prompting."
       (should (equal delegated-call
                      (list buffer-name
                            default-directory
-                           "echo hi"
+                           '("echo" "hi")
                            '("FOO=1")))))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-adds-eat-cursor-sync-hook ()
