@@ -28,6 +28,7 @@
 (declare-function ai-code--resolve-auto-test-suffix-for-send "ai-code")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-run-test "ai-code-agile")
+(declare-function ai-code-flycheck-fix-errors-in-scope "ai-code-change")
 
 (defcustom ai-code-sed-command "sed"
   "GNU sed command used to apply prompts to files."
@@ -384,20 +385,31 @@ is active; otherwise run the current file."
 
 ;;;###autoload
 (defun ai-code-build-or-test-project ()
-  "Build or test the current project based on user choice.
+  "Run a build, test, lint, or Flycheck action selected by the user.
 If user chooses to build, check for build.sh in the project root
 and send to AI for execution.  Otherwise, ask AI to generate a build command.
 If user chooses to test the whole project, call `ai-code-test-project'.
 If user chooses scoped testing, call `ai-code-run-test'.
-If user chooses linting, call `ai-code-lint-current-file'."
+If user chooses linting, call `ai-code-lint-current-file'.
+If user chooses a Flycheck fix, call
+`ai-code-flycheck-fix-errors-in-scope'."
   (interactive)
-  (let ((action (completing-read "Choose action: " '("Build project" "Test project" "Test on scope" "Lint current file") nil t)))
-    (cond
-     ;; DONE add an option Lint current file. When selected, let AI to use the new added diagnosis emacs mcp tool to lint current file, and follow up with error analysis and code fix suggestions if linting errors are found.
-     ((string= action "Build project") (ai-code-build-project))
-     ((string= action "Test project") (ai-code-test-project))
-     ((string= action "Test on scope") (ai-code-run-test))
-     ((string= action "Lint current file") (ai-code-lint-current-file)))))
+  (let ((action (completing-read
+                 "Choose action: "
+                 '("Build project"
+                   "Test project"
+                   "Test on scope"
+                   "Lint current file"
+                   "Fix Flycheck errors in scope")
+                 nil t)))
+    (pcase action
+      ("Build project" (ai-code-build-project))
+      ("Test project" (ai-code-test-project))
+      ("Test on scope" (ai-code-run-test))
+      ("Lint current file" (ai-code-lint-current-file))
+      ("Fix Flycheck errors in scope"
+       (let ((this-command 'ai-code-flycheck-fix-errors-in-scope))
+         (ai-code-flycheck-fix-errors-in-scope))))))
 
 (defun ai-code--lint-current-file-follow-up ()
   "Return follow-up instructions for lint diagnostics."
