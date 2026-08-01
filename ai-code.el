@@ -538,7 +538,7 @@ Shows the current backend label to the right."
   ("@" "Context (copy/add/show/clear)" ai-code-context-action)
   ("Q" "Send quick prompt" ai-code-send-quick-prompt)
   (":" "Speech to text input" ai-code-speech-to-text-input)
-  ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action))
+  )
 
 ;;;###autoload
 (transient-define-prefix ai-code-insert-menu ()
@@ -574,10 +574,10 @@ Shows the current backend label to the right."
   ;; DONE: Move ai-code-derive-architecture-guardrails ai-code-file.el. Add a new menu item: "Derive architecture document", bind to D. It let user choose from complet-reading: Derive Architecture Guardrails, and Derive DDD Context for Repo. No need to keep other two separate menu items
   ("A" "Derive architecture document" ai-code-derive-architecture-document)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
-  ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
+  ("b" "Build/Test/Diagnostics (AI follow-up)" ai-code-build-or-test-project)
   ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
-  ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
   ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
+  ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action)
   )
 
 (transient-define-group ai-code--menu-other-tools

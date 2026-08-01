@@ -845,6 +845,34 @@ everything is cleaned up afterward."
       (should-not build-called)
       (should-not run-test-called))))
 
+(ert-deftest ai-code-test-build-or-test-project-dispatches-flycheck-fix ()
+  "Test selecting the Flycheck action dispatches to its public command."
+  (let (action-candidates
+        flycheck-fix-called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq action-candidates collection)
+                 "Fix Flycheck errors in scope"))
+              ((symbol-function 'ai-code-flycheck-fix-errors-in-scope)
+               (lambda ()
+                 (setq flycheck-fix-called t))))
+      (ai-code-build-or-test-project)
+      (should (member "Fix Flycheck errors in scope" action-candidates))
+      (should flycheck-fix-called))))
+
+(ert-deftest ai-code-test-build-or-test-project-preserves-flycheck-command-context ()
+  "Test the Flycheck action retains its command context when dispatched."
+  (let ((this-command 'ai-code-build-or-test-project)
+        dispatched-command)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Fix Flycheck errors in scope"))
+              ((symbol-function 'ai-code-flycheck-fix-errors-in-scope)
+               (lambda ()
+                 (setq dispatched-command this-command))))
+      (ai-code-build-or-test-project)
+      (should (eq dispatched-command
+                  'ai-code-flycheck-fix-errors-in-scope)))))
+
 (ert-deftest ai-code-test-test-project-builds-ai-prompt-with-at-test-and-failure-follow-up ()
   "Test `ai-code-test-project' sends a project-wide @test prompt with follow-up instructions."
   (let ((captured-initial-input nil)
@@ -855,8 +883,8 @@ everything is cleaned up afterward."
                (lambda (&optional _dir) "/tmp/demo-project/"))
               ((symbol-function 'ai-code--format-repo-context-info)
                (lambda () "Repo context goes here"))
-              ((symbol-function 'ai-code-read-string)
-               (lambda (_prompt initial-input)
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input &rest _args)
                  (setq captured-initial-input initial-input)
                  initial-input))
               ((symbol-function 'ai-code--insert-prompt)
@@ -877,8 +905,8 @@ everything is cleaned up afterward."
         (captured-prompt nil))
     (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
                (lambda () "Repo context goes here"))
-              ((symbol-function 'ai-code-read-string)
-               (lambda (_prompt initial-input)
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input &rest _args)
                  (setq captured-initial-input initial-input)
                  initial-input))
               ((symbol-function 'ai-code--insert-prompt)
