@@ -25,6 +25,14 @@ When nil, an available port is selected automatically."
                  integer)
   :group 'ai-code-mcp-http-server)
 
+(defcustom ai-code-mcp-http-server-max-body-bytes (* 1024 1024)
+  "Maximum accepted MCP HTTP request body size in bytes."
+  :type 'natnum
+  :group 'ai-code-mcp-http-server)
+
+(define-error 'ai-code-mcp-http-server-request-too-large
+  "MCP HTTP request body is too large")
+
 (defvar ai-code-mcp-http-server--server nil
   "Server process for the local MCP HTTP transport.")
 
@@ -80,12 +88,17 @@ When nil, an available port is selected automatically."
 
 (defun ai-code-mcp-http-server--filter (process chunk)
   "Accumulate CHUNK for PROCESS and handle a full request."
-  (let* ((data (concat (or (process-get process :data) "") chunk))
-         (request (ai-code-mcp-http-server--parse-request data)))
-    (process-put process :data data)
-    (when request
-      (process-put process :data nil)
-      (ai-code-mcp-http-server--handle-request process request))))
+  (let ((data (concat (or (process-get process :data) "") chunk)))
+    (condition-case err
+        (let ((request (ai-code-mcp-http-server--parse-request data)))
+          (process-put process :data data)
+          (when request
+            (process-put process :data nil)
+            (ai-code-mcp-http-server--handle-request process request)))
+      (ai-code-mcp-http-server-request-too-large
+       (process-put process :data nil)
+       (ai-code-mcp-http-server--send-response
+        process 413 "text/plain" (error-message-string err))))))
 
 (defun ai-code-mcp-http-server--parse-request (data)
   "Parse DATA when it includes a full HTTP request."
@@ -100,6 +113,11 @@ When nil, an available port is selected automatically."
            (content-length (string-to-number
                             (or (cdr (assoc "content-length" headers))
                                 "0"))))
+      (when (or (< content-length 0)
+                (> content-length ai-code-mcp-http-server-max-body-bytes))
+        (signal 'ai-code-mcp-http-server-request-too-large
+                (list (format "Request body exceeds %d bytes"
+                              ai-code-mcp-http-server-max-body-bytes))))
       (when (<= (+ body-start content-length) (string-bytes data))
         (pcase-let ((`(,method ,path)
                      (ai-code-mcp-http-server--parse-request-line request-line)))
@@ -136,28 +154,61 @@ When nil, an available port is selected automatically."
       -32603
       (format "Internal error: %s" (error-message-string err))))))
 
+(defun ai-code-mcp-http-server--json-content-type-p (request)
+  "Return non-nil when REQUEST declares JSON content."
+  (when-let* ((value (cdr (assoc "content-type" (plist-get request :headers)))))
+    (string-match-p "\\`application/json\\(?:[ \t]*;\\|\\'\\)" (downcase value))))
+
+(defun ai-code-mcp-http-server--valid-json-rpc-envelope-p (json-object)
+  "Return non-nil when JSON-OBJECT is a valid JSON-RPC request envelope."
+  (and (equal (alist-get 'jsonrpc json-object) "2.0")
+       (stringp (alist-get 'method json-object))))
+
 (defun ai-code-mcp-http-server--handle-post (process request)
   "Handle POST REQUEST on PROCESS."
-  (let ((response
-         (ai-code-mcp-http-server--json-rpc-response
-          (plist-get request :path)
-          (plist-get request :body))))
-    (if (null response)
-        (ai-code-mcp-http-server--send-accepted process)
-      (ai-code-mcp-http-server--send-json
-       process
-       200
-       response))))
+  (let* ((path (plist-get request :path))
+         (body (or (plist-get request :body) ""))
+         (session-id (ai-code-mcp-http-server--session-id-from-path path)))
+    (cond
+     ((not session-id)
+      (ai-code-mcp-http-server--send-response process 404 "text/plain" "Not Found"))
+     ((not (ai-code-mcp-get-session-context session-id))
+      (ai-code-mcp-http-server--send-response process 404 "text/plain" "Unknown MCP session"))
+     ((not (ai-code-mcp-http-server--json-content-type-p request))
+      (ai-code-mcp-http-server--send-response
+       process 415 "text/plain" "Content-Type must be application/json"))
+     ((> (string-bytes body) ai-code-mcp-http-server-max-body-bytes)
+      (ai-code-mcp-http-server--send-response process 413 "text/plain" "Request body too large"))
+     (t
+      (condition-case err
+          (let* ((json-object (json-parse-string body :object-type 'alist))
+                 (id (alist-get 'id json-object)))
+            (if (not (ai-code-mcp-http-server--valid-json-rpc-envelope-p json-object))
+                (ai-code-mcp-http-server--send-json-error
+                 process id -32600 "Invalid JSON-RPC request" 400)
+              (let ((response
+                     (ai-code-mcp-http-server--json-rpc-response
+                      path body json-object session-id)))
+                (if (null response)
+                    (ai-code-mcp-http-server--send-accepted process)
+                  (ai-code-mcp-http-server--send-json process 200 response)))))
+        (json-parse-error
+         (ai-code-mcp-http-server--send-json-error
+          process nil -32700
+          (format "Parse error: %s" (error-message-string err))
+          400)))))))
 
-(defun ai-code-mcp-http-server--json-rpc-response (path body)
+(defun ai-code-mcp-http-server--json-rpc-response (path body &optional json-object session-id)
   "Return a JSON-RPC response alist for PATH and BODY.
+JSON-OBJECT and SESSION-ID may be supplied when REQUEST was already validated.
 Returns nil for notifications."
-  (let* ((json-object (json-parse-string body :object-type 'alist))
+  (let* ((json-object (or json-object
+                          (json-parse-string body :object-type 'alist)))
          (id (alist-get 'id json-object))
          (method (alist-get 'method json-object))
          (params (alist-get 'params json-object))
          (ai-code-mcp--current-session-id
-          (ai-code-mcp-http-server--session-id-from-path path)))
+          (or session-id (ai-code-mcp-http-server--session-id-from-path path))))
     (when id
       `((jsonrpc . "2.0")
         (id . ,id)
@@ -172,15 +223,17 @@ Returns nil for notifications."
       (error nil))))
 
 (defun ai-code-mcp-http-server--session-id-from-path (path)
-  "Extract session ID from PATH."
-  (when (string-match "\\`/mcp/\\([^/?]+\\)" path)
+  "Extract session ID from exact MCP PATH."
+  (when (and (stringp path)
+             (string-match "\\`/mcp/\\([^/?]+\\)\\'" path))
     (match-string 1 path)))
 
-(defun ai-code-mcp-http-server--send-json-error (process id code message)
-  "Send a JSON-RPC error response with ID, CODE, and MESSAGE on PROCESS."
+(defun ai-code-mcp-http-server--send-json-error (process id code message &optional http-code)
+  "Send a JSON-RPC error response with ID, CODE, and MESSAGE on PROCESS.
+HTTP-CODE defaults to 500."
   (ai-code-mcp-http-server--send-json
    process
-   500
+   (or http-code 500)
    `((jsonrpc . "2.0")
      (id . ,id)
      (error . ((code . ,code)
@@ -219,7 +272,10 @@ Returns nil for notifications."
   "Return the HTTP reason phrase for CODE."
   (alist-get code '((200 . "OK")
                     (202 . "Accepted")
+                    (400 . "Bad Request")
                     (404 . "Not Found")
+                    (413 . "Payload Too Large")
+                    (415 . "Unsupported Media Type")
                     (500 . "Internal Server Error"))
              "OK"))
 
