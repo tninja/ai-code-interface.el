@@ -88,6 +88,31 @@
       (dolist (tool-name ai-code-test-mcp-debug-tools--tool-names)
         (should (member tool-name tool-names))))))
 
+(ert-deftest ai-code-test-mcp-tool-profile-hides-and-blocks-debug-tools ()
+  "A core profile should neither advertise nor execute debug tools."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--current-session-id "core-profile")
+        (buffer (generate-new-buffer " *ai-code-mcp-core-profile*")))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-register-session
+           "core-profile" default-directory buffer '(:tool-profile core))
+          (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
+                 (tool-names (mapcar (lambda (tool)
+                                       (alist-get 'name tool))
+                                     (alist-get 'tools tools-result))))
+            (should (member "editor_state" tool-names))
+            (should-not (member "get_variable_value" tool-names)))
+          (should-error
+           (ai-code-mcp-dispatch
+            "tools/call"
+            '((name . "get_variable_value")
+              (arguments . ((variable_name . "major-mode")))))
+           :type 'ai-code-mcp-protocol-error))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest ai-code-test-mcp-debug-tools-do-not-register-eval-elisp-by-default ()
   "Eval should remain opt-in even when debug tools are enabled."
   (let ((ai-code-mcp-server-tools nil)
@@ -114,6 +139,7 @@
   "Eval should register when the explicit opt-in is enabled."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t))
     (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
            (tool-names (mapcar (lambda (tool)
@@ -149,6 +175,7 @@
   "Eval tool metadata should warn about unrestricted side effects."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t))
     (let* ((tools-result (ai-code-mcp-dispatch "tools/list"))
            (eval-tool (seq-find
@@ -164,6 +191,7 @@
   "Eval should run against the requested buffer context."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t)
         (buffer (generate-new-buffer " *ai-code-mcp-eval*")))
     (unwind-protect
@@ -189,6 +217,7 @@
   "Eval should use the selected window buffer when no buffer context is given."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t)
         (ai-code-mcp--sessions (make-hash-table :test 'equal))
         (session-id "mcp-eval-session")
@@ -221,6 +250,7 @@
   "Eval should allow mutation symbols when eval is enabled."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t)
         (buffer (generate-new-buffer " *ai-code-mcp-eval-insert*")))
     (unwind-protect
@@ -240,6 +270,7 @@
   "Eval should still return JSON when the target buffer is killed."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t)
         (buffer (generate-new-buffer " *ai-code-mcp-eval-kill*")))
     (let ((payload
@@ -472,17 +503,14 @@
   "Feature load state should reject non-string feature names clearly."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t))
-    (let ((payload
-           (ai-code-test-mcp-debug-tools--read-json-payload
-            (ai-code-mcp-dispatch
-             "tools/call"
-             '((name . "get_feature_load_state")
-               (arguments . ((feature_name . 7))))))))
-      (should (equal :json-false (alist-get 'loaded payload)))
-      (should (equal "feature_name must be a non-empty string"
-                     (alist-get 'error_message payload)))
-      (should-not (alist-get 'library_path payload))
-      (should-not (alist-get 'load_path_matches payload)))))
+    (let ((err (should-error
+                (ai-code-mcp-dispatch
+                 "tools/call"
+                 '((name . "get_feature_load_state")
+                   (arguments . ((feature_name . 7)))))
+                :type 'ai-code-mcp-protocol-error)))
+      (should (= -32602 (nth 1 err)))
+      (should (string-match-p "must be string" (nth 2 err))))))
 
 (ert-deftest ai-code-test-mcp-get-recent-messages-returns-latest-messages ()
   "Recent messages should return the latest entries from `*Messages*'."
@@ -545,6 +573,7 @@
   "Eval should allow all symbols when enabled, including funcall."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t))
     (let ((payload
            (ai-code-test-mcp-debug-tools--read-json-payload
@@ -559,6 +588,7 @@
   "Eval should define a function and make it callable."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-mcp-default-tool-profile 'full)
         (ai-code-mcp-debug-tools-enable-eval-elisp t)
         (func-name "ai-code-test-mcp-eval-defined-func"))
     (unwind-protect

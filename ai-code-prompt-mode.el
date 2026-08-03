@@ -48,7 +48,9 @@ the terminal backend infrastructure.")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--session-buffer-matches-directory-p "ai-code-backends-infra" (buffer directory))
 (declare-function ai-code-backends-infra--terminal-send-string
-  "ai-code-backends-infra" (string &optional paste))
+                  "ai-code-backends-infra" (string &optional paste))
+(declare-function ai-code-mcp-agent-refresh-source-context
+                  "ai-code-mcp-agent" (agent-buffer source-buffer))
 (declare-function ai-code-backends-infra--terminal-send-return "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--display-buffer-in-side-window "ai-code-backends-infra" (buffer))
 
@@ -357,6 +359,8 @@ Return a session buffer, or nil for default backend dispatch."
 
 (defun ai-code--send-prompt-to-session-buffer (prompt buffer)
   "Send PROMPT directly to session BUFFER and display it."
+  (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
+    (ai-code-mcp-agent-refresh-source-context buffer (current-buffer)))
   (with-current-buffer buffer
     (if (and (string-match-p "\n" prompt)
              (bound-and-true-p ai-code-backends-infra-use-paste-backends)
@@ -658,7 +662,7 @@ Special commands:
 Following issue #404 behavior:
 1. If cursor is on an Org section headline, call `ai-code-implement-todo`.
 2. If there is a selected region, send the selected region to the AI session.
-3. Otherwise, fallback to the existing `org-mode` `C-c C-c` action (`org-ctrl-c-ctrl-c`)."
+3. Otherwise, fall back to the existing `org-ctrl-c-ctrl-c' action."
   (interactive)
   (cond
    ((and (derived-mode-p 'org-mode)
@@ -681,7 +685,7 @@ Following issue #404 behavior:
    (t
     (if (fboundp 'org-ctrl-c-ctrl-c)
         (call-interactively #'org-ctrl-c-ctrl-c)
-      (user-error "org-ctrl-c-ctrl-c is not defined")))))
+      (user-error "Org command org-ctrl-c-ctrl-c is not defined")))))
 
 (defun ai-code--mark-prompt-block ()
   "Mark the current prompt block.

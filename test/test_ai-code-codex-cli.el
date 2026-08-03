@@ -25,7 +25,9 @@
   (let ((captured-command nil)
         (captured-cleanup-fn nil)
         (captured-post-start-fn nil)
+        (captured-env-vars nil)
         (registered nil)
+        (attached nil)
         (unregistered nil)
         (builtins-called nil)
         (ensure-called nil)
@@ -42,9 +44,15 @@
                    (lambda ()
                      (setq ensure-called t)
                      8765))
+                  ((symbol-function 'ai-code-mcp--random-secret)
+                   (lambda () "test-codex-token"))
                   ((symbol-function 'ai-code-mcp-register-session)
-                   (lambda (session-id project-dir buffer)
-                     (setq registered (list session-id project-dir buffer))))
+                   (lambda (session-id project-dir buffer metadata)
+                     (setq registered
+                           (list session-id project-dir buffer metadata))))
+                  ((symbol-function 'ai-code-mcp-attach-agent-buffer)
+                   (lambda (session-id buffer)
+                     (setq attached (list session-id buffer))))
                   ((symbol-function 'ai-code-mcp-unregister-session)
                    (lambda (session-id)
                      (setq unregistered session-id)))
@@ -54,29 +62,36 @@
                          (_working-dir _buffer-name _process-table command
                                        &optional _escape-fn cleanup-fn
                                        _instance-name _prefix _force-prompt
-                                       _env-vars _multiline-input-sequence
+                                       env-vars _multiline-input-sequence
                                        post-start-fn)
                          args
                        (setq captured-command command)
                        (setq captured-cleanup-fn cleanup-fn)
-                       (setq captured-post-start-fn post-start-fn))
+                       (setq captured-post-start-fn post-start-fn)
+                       (setq captured-env-vars env-vars))
                      nil)))
           (ai-code-codex-cli)
           (should builtins-called)
           (should ensure-called)
           (should (string-match-p "mcp_servers\\.emacs_tools" captured-command))
+          (should (string-match-p "bearer_token_env_var" captured-command))
+          (should-not (string-match-p "test-codex-token" captured-command))
+          (should (equal captured-env-vars
+                         '("AI_CODE_MCP_BEARER_TOKEN=test-codex-token")))
           (should (functionp captured-cleanup-fn))
           (should (functionp captured-post-start-fn))
           (funcall captured-post-start-fn session-buffer nil "default")
           (should (equal "/tmp/test-codex" (nth 1 registered)))
-          (should (eq session-buffer (nth 2 registered)))
+          (should-not (eq session-buffer (nth 2 registered)))
+          (should (equal "test-codex-token"
+                         (plist-get (nth 3 registered) :token)))
+          (should (equal (list (car registered) session-buffer) attached))
           (with-current-buffer session-buffer
             (should (fboundp 'ai-code-mcp-agent-buffer-status))
             (let ((status (ai-code-mcp-agent-buffer-status)))
               (should (eq 'codex (plist-get status :backend)))
-              (should (string-match-p
-                       "^http://127\\.0\\.0\\.1:8765/mcp/"
-                       (plist-get status :server-url)))))
+              (should (equal "http://127.0.0.1:8765/mcp"
+                             (plist-get status :server-url)))))
           (funcall captured-cleanup-fn)
           (should (equal (car registered) unregistered)))
       (when (buffer-live-p session-buffer)
