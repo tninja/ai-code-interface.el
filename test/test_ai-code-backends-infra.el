@@ -232,6 +232,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
                (should (equal working-dir "/project/"))
                (should (equal command "codex --quiet"))
                (list :command "env MCP=1 codex --quiet"
+                     :env-vars '("AI_CODE_MCP_BEARER_TOKEN=secret")
                      :cleanup-fn cleanup-fn
                      :post-start-fn post-start-fn)))
        'prefix-arg))
@@ -245,7 +246,8 @@ The result is a cons of whether SYMBOL is bound and its default value."
                          nil
                          "codex"
                          'prefix-arg
-                         '("TERM_PROGRAM=vscode")
+                         '("AI_CODE_MCP_BEARER_TOKEN=secret"
+                           "TERM_PROGRAM=vscode")
                          "\r\n"
                          post-start-fn)))))
 
@@ -1292,6 +1294,41 @@ The prefix argument should also force instance-name prompting."
           (should (equal (car calls) '("line1\nline2" nil))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-send-line-refreshes-mcp-source-context ()
+  "Every resolved CLI send should snapshot its source before terminal I/O."
+  (let ((source-buffer (generate-new-buffer " *ai-code-mcp-source*"))
+        (agent-buffer (generate-new-buffer " *ai-code-mcp-agent*"))
+        refreshed
+        sent)
+    (unwind-protect
+        (cl-letf (((symbol-function
+                    'ai-code-backends-infra--resolve-session-buffer)
+                   (lambda (&rest _args) agent-buffer))
+                  ((symbol-function
+                    'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-mcp-agent-refresh-source-context)
+                   (lambda (agent source)
+                     (setq refreshed (list agent source))))
+                  ((symbol-function
+                    'ai-code-backends-infra--terminal-send-string)
+                   (lambda (line &optional _paste)
+                     (setq sent line)))
+                  ((symbol-function
+                    'ai-code-backends-infra--terminal-send-return)
+                   (lambda () nil))
+                  ((symbol-function 'sit-for)
+                   (lambda (&rest _args) nil)))
+          (with-current-buffer source-buffer
+            (ai-code-backends-infra--send-line-to-session
+             nil "missing" "inspect" "codex" "/tmp/"))
+          (should (equal (list agent-buffer source-buffer) refreshed))
+          (should (equal "inspect" sent)))
+      (when (buffer-live-p source-buffer)
+        (kill-buffer source-buffer))
+      (when (buffer-live-p agent-buffer)
+        (kill-buffer agent-buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-uses-public-api ()
   "Ghostel sessions should send input through `ghostel-send-string'."

@@ -23,8 +23,17 @@
   :type '(repeat symbol)
   :group 'ai-code-mcp-agent)
 
+(defcustom ai-code-mcp-agent-token-lifetime-seconds (* 24 60 60)
+  "Lifetime of a per-launch MCP bearer token in seconds."
+  :type 'positive-integer
+  :group 'ai-code-mcp-agent)
+
 (defconst ai-code-mcp-agent--server-name "emacs_tools"
   "Server name used in backend MCP config overrides.")
+
+(defconst ai-code-mcp-agent--token-environment-variable
+  "AI_CODE_MCP_BEARER_TOKEN"
+  "Child-process environment variable that carries the MCP bearer token.")
 
 (defconst ai-code-mcp-agent--status-buffer-name "*AI Code MCP Status*"
   "Buffer name used to display MCP status to users.")
@@ -71,17 +80,36 @@
     (ai-code-mcp-builtins-setup)
     (let* ((port (ai-code-mcp-http-server-ensure))
            (session-id (ai-code-mcp-agent--make-session-id backend))
-           (url (ai-code-mcp-agent--make-server-url port session-id))
+           (token (ai-code-mcp--random-secret))
+           (url (ai-code-mcp-agent--make-server-url port))
            (command-metadata
-            (ai-code-mcp-agent--inject-command backend command url))
+            (ai-code-mcp-agent--inject-command
+             backend command url
+             ai-code-mcp-agent--token-environment-variable))
            (runtime-files (plist-get command-metadata :runtime-files)))
+      (ai-code-mcp-register-session
+       session-id working-dir (current-buffer)
+       (list :backend backend
+             :state 'pending
+             :tool-profile ai-code-mcp-default-tool-profile
+             :token token
+             :expires-at
+             (time-add (current-time)
+                       (seconds-to-time
+                        ai-code-mcp-agent-token-lifetime-seconds))))
       (list :command (plist-get command-metadata :command)
+            :env-vars
+            (list (format "%s=%s"
+                          ai-code-mcp-agent--token-environment-variable
+                          token))
+            :mcp-session-id session-id
+            :mcp-server-url url
             :cleanup-fn
             (ai-code-mcp-agent--make-cleanup-function
              session-id runtime-files)
             :post-start-fn (lambda (buffer _process _instance-name)
                              (ai-code-mcp-agent--record-buffer-session
-                              buffer backend session-id working-dir url))))))
+                              buffer backend session-id url))))))
 
 (defun ai-code-mcp-agent--make-cleanup-function (session-id runtime-files)
   "Return a repeat-safe cleanup function for SESSION-ID and RUNTIME-FILES.
@@ -104,7 +132,9 @@ Failed file removals are retried; session unregistration occurs at most once."
         (setq remaining-files (nreverse failed-files)))
       (unless unregistered
         (ai-code-mcp-unregister-session session-id)
-        (setq unregistered t)))))
+        (setq unregistered t)
+        (when (zerop (ai-code-mcp-session-count))
+          (ai-code-mcp-http-server-stop))))))
 
 (defun ai-code-mcp-agent--make-session-id (backend)
   "Create a fresh session id for BACKEND."
@@ -113,45 +143,45 @@ Failed file removals are retried; session unregistration occurs at most once."
           (format-time-string "%Y%m%d%H%M%S")
           (random 1000000)))
 
-(defun ai-code-mcp-agent--make-server-url (port session-id)
-  "Build an MCP server URL from PORT and SESSION-ID."
-  (format "http://127.0.0.1:%d/mcp/%s" port session-id))
+(defun ai-code-mcp-agent--make-server-url (port)
+  "Build the MCP server URL for PORT."
+  (format "http://127.0.0.1:%d/mcp" port))
 
-(defun ai-code-mcp-agent--record-buffer-session (buffer backend session-id working-dir url)
-  "Record BUFFER session for BACKEND, SESSION-ID, WORKING-DIR, and URL."
-  (ai-code-mcp-register-session session-id working-dir buffer)
+(defun ai-code-mcp-agent--record-buffer-session (buffer backend session-id url)
+  "Record BUFFER session for BACKEND, SESSION-ID, and URL."
+  (ai-code-mcp-attach-agent-buffer session-id buffer)
   (with-current-buffer buffer
     (setq-local ai-code-mcp-agent--backend backend
                 ai-code-mcp-agent--session-id session-id
                 ai-code-mcp-agent--server-url url)))
 
-(defun ai-code-mcp-agent--inject-command (backend command url)
-  "Return launch metadata after injecting URL into COMMAND for BACKEND."
+(defun ai-code-mcp-agent-refresh-source-context (agent-buffer source-buffer)
+  "Refresh AGENT-BUFFER's MCP prompt origin from SOURCE-BUFFER."
+  (when (and (buffer-live-p agent-buffer)
+             (buffer-live-p source-buffer))
+    (let ((session-id
+           (buffer-local-value 'ai-code-mcp-agent--session-id agent-buffer)))
+      (when session-id
+        (ai-code-mcp-update-source-context session-id source-buffer)))))
+
+(defun ai-code-mcp-agent--inject-command (backend command url token-env-var)
+  "Inject URL and TOKEN-ENV-VAR into COMMAND for BACKEND launch metadata."
   (pcase backend
-    ('codex
+    ((or 'codex 'open-interpreter)
      (list :command
-           (concat command
-                   " -c "
-                   (shell-quote-argument
-                    (format "mcp_servers.%s={ url = %s }"
-                            ai-code-mcp-agent--server-name
-                            (json-encode url))))))
-    ('open-interpreter
-     (list :command
-           (concat command
-                   " -c "
-                   (shell-quote-argument
-                    (format "mcp_servers.%s={ url = %s }"
-                            ai-code-mcp-agent--server-name
-                            (json-encode url))))))
+           (ai-code-mcp-agent--toml-config-command
+            command url token-env-var)))
     ('github-copilot-cli
      (list :command
            (concat command
                    " --additional-mcp-config "
                    (shell-quote-argument
-                    (ai-code-mcp-agent--copilot-config-json url)))))
+                    (ai-code-mcp-agent--copilot-config-json
+                     url token-env-var)))))
     ('claude-code
-     (let ((config-file (ai-code-mcp-agent--claude-code-config-file url)))
+     (let ((config-file
+            (ai-code-mcp-agent--claude-code-config-file
+             url token-env-var)))
        (list :command
              (concat command
                      " --mcp-config "
@@ -159,23 +189,46 @@ Failed file removals are retried; session unregistration occurs at most once."
              :runtime-files (list config-file))))
     (_ (list :command command))))
 
-(defun ai-code-mcp-agent--copilot-config-json (url)
-  "Return a Copilot CLI MCP config JSON string for URL."
+(defun ai-code-mcp-agent--toml-config-command (command url token-env-var)
+  "Add a TOML MCP override for URL and TOKEN-ENV-VAR to COMMAND."
+  (concat command
+          " -c "
+          (shell-quote-argument
+           (format "mcp_servers.%s={ url = %s, bearer_token_env_var = %s }"
+                   ai-code-mcp-agent--server-name
+                   (json-encode url)
+                   (json-encode token-env-var)))))
+
+(defun ai-code-mcp-agent--authorization-template (token-env-var)
+  "Return an Authorization header template for TOKEN-ENV-VAR."
+  (format "Bearer ${%s}" token-env-var))
+
+(defun ai-code-mcp-agent--copilot-config-json (url token-env-var)
+  "Return a Copilot MCP config for URL using TOKEN-ENV-VAR."
   (json-encode
    `((mcpServers
       . ((,ai-code-mcp-agent--server-name
           . ((type . "http")
-             (url . ,url))))))))
+             (url . ,url)
+             (headers
+              . ((Authorization
+                  . ,(ai-code-mcp-agent--authorization-template
+                      token-env-var))))
+             (tools . ["*"]))))))))
 
-(defun ai-code-mcp-agent--claude-code-config-file (url)
-  "Write a Claude Code MCP config file for URL and return its path."
+(defun ai-code-mcp-agent--claude-code-config-file (url token-env-var)
+  "Write a Claude MCP config for URL using TOKEN-ENV-VAR and return its path."
   (let ((config-file (make-temp-file "ai-code-mcp-claude-code-" nil ".json")))
     (with-temp-file config-file
       (insert (json-encode
                `((mcpServers
                   . ((,ai-code-mcp-agent--server-name
                       . ((type . "http")
-                         (url . ,url)))))))))
+                         (url . ,url)
+                         (headers
+                          . ((Authorization
+                              . ,(ai-code-mcp-agent--authorization-template
+                                  token-env-var))))))))))))
     config-file))
 
 (provide 'ai-code-mcp-agent)

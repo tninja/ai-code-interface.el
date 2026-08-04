@@ -42,18 +42,21 @@
 (declare-function flycheck-error-level "flycheck" (err))
 (declare-function flycheck-error-checker "flycheck" (err))
 (declare-function flycheck-error-message "flycheck" (err))
+(declare-function flycheck-running-p "flycheck")
 (declare-function flymake-diagnostics "flymake" (&optional beg end))
 (declare-function flymake-diagnostic-beg "flymake" (diag))
 (declare-function flymake-diagnostic-end "flymake" (diag))
 (declare-function flymake-diagnostic-type "flymake" (diag))
 (declare-function flymake-diagnostic-backend "flymake" (diag))
 (declare-function flymake-diagnostic-text "flymake" (diag))
+(declare-function flymake-running-backends "flymake")
 (declare-function url-filename "url-parse" (urlobj))
 (declare-function url-generic-parse-url "url-parse" (url))
 (declare-function url-host "url-parse" (urlobj))
 (declare-function url-type "url-parse" (urlobj))
 
 (defvar flycheck-current-errors)
+(defvar flycheck-last-status-change)
 
 (defgroup ai-code-mcp-server nil
   "MCP tools core settings for AI Code Interface."
@@ -64,6 +67,14 @@
   "List of MCP tool specifications.
 Each item is a plist with at least `:function', `:name', and `:description'."
   :type '(repeat sexp)
+  :group 'ai-code-mcp-server)
+
+(defcustom ai-code-mcp-default-tool-profile 'debug
+  "Default MCP tool exposure profile.
+The `core' profile exposes editor and project tools, `debug' additionally
+exposes read-only Emacs inspection tools, and `full' also permits tools in the
+`eval' category when their own explicit feature gate is enabled."
+  :type '(choice (const core) (const debug) (const full))
   :group 'ai-code-mcp-server)
 
 (defcustom ai-code-mcp-diagnostics-backend 'auto
@@ -90,6 +101,9 @@ be a non-negative integer."
 (defvar ai-code-mcp--current-session-id nil
   "Dynamically bound MCP session id for the current tool invocation.")
 
+(defvar ai-code-mcp--current-protocol-version nil
+  "Dynamically bound MCP version for the current request.")
+
 (defvar ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to recorded diagnostics baselines.
 Each value is a hash table mapping diagnostic identity strings to counts.
@@ -97,8 +111,21 @@ The baseline lets `get_diagnostics' report only NEW diagnostics so the
 agent can verify it introduced no regressions, without tracking the
 baseline in the model context itself.")
 
-(defconst ai-code-mcp--protocol-version "2024-11-05"
-  "Protocol version reported by the MCP core.")
+(define-error 'ai-code-mcp-protocol-error "MCP protocol error")
+
+(defun ai-code-mcp-signal-protocol-error (code message &optional data)
+  "Signal an MCP protocol error with CODE, MESSAGE, and optional DATA."
+  (signal 'ai-code-mcp-protocol-error (list code message data)))
+
+(defconst ai-code-mcp--protocol-version "2025-11-25"
+  "Preferred initialization-based MCP protocol version.")
+
+(defconst ai-code-mcp--modern-protocol-version "2026-07-28"
+  "Stateless MCP protocol version supported by the server.")
+
+(defconst ai-code-mcp--legacy-protocol-versions
+  '("2025-11-25" "2025-06-18" "2025-03-26")
+  "Initialization-based MCP protocol versions supported by the server.")
 
 (defconst ai-code-mcp--builtin-tool-specs
   '((:function ai-code-mcp-project-info
@@ -226,6 +253,8 @@ Required keys are `:function', `:name', and `:description'."
         (description (plist-get slots :description))
         (args (plist-get slots :args))
         (category (plist-get slots :category))
+        (annotations (plist-get slots :annotations))
+        (output-schema (plist-get slots :output-schema))
         spec)
     (unless function
       (error "Tool :function is required"))
@@ -240,6 +269,10 @@ Required keys are `:function', `:name', and `:description'."
       (setq spec (plist-put spec :args args)))
     (when category
       (setq spec (plist-put spec :category category)))
+    (when annotations
+      (setq spec (plist-put spec :annotations annotations)))
+    (when output-schema
+      (setq spec (plist-put spec :output-schema output-schema)))
     (setq ai-code-mcp-server-tools
           (append
            (seq-remove
@@ -249,13 +282,17 @@ Required keys are `:function', `:name', and `:description'."
            (list spec)))
     spec))
 
-(defun ai-code-mcp-register-session (session-id project-dir buffer)
-  "Register MCP SESSION-ID with PROJECT-DIR and BUFFER."
-  (puthash session-id
-           (list :project-dir project-dir
-                 :buffer buffer
-                 :start-time (current-time))
-           ai-code-mcp--sessions))
+(defun ai-code-mcp-register-session (session-id project-dir buffer &optional metadata)
+  "Register MCP SESSION-ID with PROJECT-DIR, source BUFFER, and METADATA."
+  (let ((context (list :project-dir project-dir
+                       :buffer buffer
+                       :source-buffer buffer
+                       :state 'ready
+                       :start-time (current-time))))
+    (while metadata
+      (setq context (plist-put context (pop metadata) (pop metadata))))
+    (puthash session-id context ai-code-mcp--sessions)
+    (ai-code-mcp-update-source-context session-id buffer)))
 
 (defun ai-code-mcp-unregister-session (session-id)
   "Unregister MCP SESSION-ID and free its recorded diagnostics baseline."
@@ -266,6 +303,95 @@ Required keys are `:function', `:name', and `:description'."
   "Return session context for SESSION-ID or the current session."
   (gethash (or session-id ai-code-mcp--current-session-id)
            ai-code-mcp--sessions))
+
+(defun ai-code-mcp-session-count ()
+  "Return the number of registered MCP application sessions."
+  (hash-table-count ai-code-mcp--sessions))
+
+(defun ai-code-mcp-find-session-by-token (token)
+  "Return the session id and context authenticated by TOKEN."
+  (when (stringp token)
+    (catch 'found
+      (maphash
+       (lambda (session-id context)
+         (when (and (stringp (plist-get context :token))
+                    (string= token (plist-get context :token))
+                    (not (ai-code-mcp--session-expired-p context)))
+           (throw 'found (cons session-id context))))
+       ai-code-mcp--sessions)
+      nil)))
+
+(defun ai-code-mcp--session-expired-p (context)
+  "Return non-nil when CONTEXT has passed its authentication expiry."
+  (when-let ((expires-at (plist-get context :expires-at)))
+    (time-less-p expires-at (current-time))))
+
+(defun ai-code-mcp-update-source-context (session-id source-buffer)
+  "Snapshot SOURCE-BUFFER as the prompt origin for SESSION-ID."
+  (let ((context (ai-code-mcp-get-session-context session-id)))
+    (unless context
+      (error "Unknown MCP session: %s" session-id))
+    (unless (buffer-live-p source-buffer)
+      (error "MCP source buffer is not live"))
+    (let ((snapshot
+           (with-current-buffer source-buffer
+             (let ((position (ai-code-mcp--point-line-column
+                              source-buffer (point))))
+               (list :buffer source-buffer
+                     :point (point)
+                     :line (alist-get 'line position)
+                     :column (alist-get 'column position)
+                     :modification-tick (buffer-chars-modified-tick)
+                     :captured-at (current-time))))))
+      (setq context (plist-put context :buffer source-buffer))
+      (setq context (plist-put context :source-buffer source-buffer))
+      (setq context (plist-put context :source-snapshot snapshot))
+      (setq context (plist-put context :updated-at (current-time)))
+      (puthash session-id context ai-code-mcp--sessions)
+      context)))
+
+(defun ai-code-mcp-attach-agent-buffer (session-id agent-buffer)
+  "Attach AGENT-BUFFER to SESSION-ID without replacing its source."
+  (let ((context (ai-code-mcp-get-session-context session-id)))
+    (unless context
+      (error "Unknown MCP session: %s" session-id))
+    (setq context (plist-put context :agent-buffer agent-buffer))
+    (setq context (plist-put context :state 'ready))
+    (setq context (plist-put context :updated-at (current-time)))
+    (puthash session-id context ai-code-mcp--sessions)
+    context))
+
+(defun ai-code-mcp-begin-legacy-session
+    (session-id transport-session-id protocol-version client-info)
+  "Begin legacy MCP initialization for SESSION-ID.
+TRANSPORT-SESSION-ID identifies subsequent HTTP requests, while
+PROTOCOL-VERSION and CLIENT-INFO record the negotiated client metadata."
+  (let ((context (ai-code-mcp-get-session-context session-id)))
+    (unless context
+      (error "Unknown MCP session: %s" session-id))
+    (setq context (plist-put context :transport-session-id transport-session-id))
+    (setq context (plist-put context :protocol-version protocol-version))
+    (setq context (plist-put context :client-info client-info))
+    (setq context (plist-put context :state 'initializing))
+    (setq context (plist-put context :updated-at (current-time)))
+    (puthash session-id context ai-code-mcp--sessions)
+    context))
+
+(defun ai-code-mcp-complete-legacy-session
+    (session-id transport-session-id protocol-version)
+  "Complete legacy initialization for SESSION-ID.
+TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
+  (let ((context (ai-code-mcp-get-session-context session-id)))
+    (unless (and context
+                 (eq (plist-get context :state) 'initializing)
+                 (equal transport-session-id
+                        (plist-get context :transport-session-id))
+                 (equal protocol-version (plist-get context :protocol-version)))
+      (error "Invalid MCP initialized notification"))
+    (setq context (plist-put context :state 'ready))
+    (setq context (plist-put context :updated-at (current-time)))
+    (puthash session-id context ai-code-mcp--sessions)
+    context))
 
 (defmacro ai-code-mcp-with-session-context (session-id &rest body)
   "Run BODY with SESSION-ID project context."
@@ -287,18 +413,36 @@ Required keys are `:function', `:name', and `:description'."
 (defun ai-code-mcp-dispatch (method &optional params)
   "Dispatch MCP METHOD using PARAMS."
   (pcase method
-    ("initialize" (ai-code-mcp--initialize))
+    ("initialize" (ai-code-mcp--initialize params))
+    ("server/discover" (ai-code-mcp--discover))
+    ("ping" '())
     ("tools/list" (ai-code-mcp--tools-list))
     ("tools/call" (ai-code-mcp--tools-call params))
-    (_ (error "Unknown MCP method: %s" method))))
+    (_ (ai-code-mcp-signal-protocol-error
+        -32601 (format "Method not found: %s" method)))))
 
 (defun ai-code-mcp-builtins-setup ()
   "Register the built-in common Emacs MCP tools."
   (interactive)
   (dolist (tool ai-code-mcp--builtin-tool-specs)
-    (apply #'ai-code-mcp-make-tool tool))
+    (apply #'ai-code-mcp-make-tool
+           (append tool
+                   (list :category 'core
+                         :annotations
+                         (ai-code-mcp--builtin-tool-annotations
+                          (plist-get tool :name))))))
   (dolist (setup-fn ai-code-mcp-server-tool-setup-functions)
     (funcall setup-fn)))
+
+(defun ai-code-mcp--builtin-tool-annotations (name)
+  "Return effect annotations for built-in tool NAME."
+  (let ((read-only (not (member name '("diagnostics_baseline"
+                                       "notify_user")))))
+    `((title . ,(capitalize (string-replace "_" " " name)))
+      (readOnlyHint . ,(ai-code-mcp--json-bool read-only))
+      (destructiveHint . :json-false)
+      (idempotentHint . ,(ai-code-mcp--json-bool read-only))
+      (openWorldHint . :json-false))))
 
 (defun ai-code-mcp--ensure-builtins ()
   "Ensure built-in MCP tools are registered."
@@ -347,28 +491,44 @@ Required keys are `:function', `:name', and `:description'."
           (region . nil))))))
 
 (defun ai-code-mcp--editor-state-data ()
-  "Return an alist describing the selected window buffer."
-  (let* ((window (ai-code-mcp--selected-window))
-         (buffer (window-buffer window))
-         (point (window-point window))
-         (position (ai-code-mcp--point-line-column buffer point))
-         (region-state (ai-code-mcp--region-state buffer point)))
-    (with-current-buffer buffer
-      `((ok . t)
-        (buffer_name . ,(buffer-name buffer))
-        (file_path . ,(buffer-file-name buffer))
-        (major_mode . ,(symbol-name major-mode))
-        (modified . ,(ai-code-mcp--json-bool
-                      (buffer-modified-p)))
-        (read_only . ,(ai-code-mcp--json-bool buffer-read-only))
-        (narrowed . ,(ai-code-mcp--json-bool
-                      (buffer-narrowed-p)))
-        (point . ,point)
-        (line . ,(alist-get 'line position))
-        (column . ,(alist-get 'column position))
-        (region_active . ,(alist-get 'region_active region-state))
-        (region . ,(alist-get 'region region-state))
-        (default_directory . ,default-directory)))))
+  "Return an alist describing the active session source buffer."
+  (let* ((context (ai-code-mcp-get-session-context))
+         (source-buffer (plist-get context :buffer))
+         (source-snapshot (plist-get context :source-snapshot))
+         (window (ai-code-mcp--selected-window)))
+    (if (and context (not (buffer-live-p source-buffer)))
+        '((ok . :json-false)
+          (status . "unavailable")
+          (reason . "Prompt source buffer is no longer live"))
+      (let* ((buffer (if (buffer-live-p source-buffer)
+                         source-buffer
+                       (window-buffer window)))
+             (point (if (and (eq buffer source-buffer) source-snapshot)
+                        (plist-get source-snapshot :point)
+                      (window-point window)))
+             (position (if (and (eq buffer source-buffer) source-snapshot)
+                           `((line . ,(plist-get source-snapshot :line))
+                             (column . ,(plist-get source-snapshot :column)))
+                         (ai-code-mcp--point-line-column buffer point)))
+             (region-point (with-current-buffer buffer
+                             (min point (point-max))))
+             (region-state (ai-code-mcp--region-state buffer region-point)))
+        (with-current-buffer buffer
+          `((ok . t)
+            (buffer_name . ,(buffer-name buffer))
+            (file_path . ,(buffer-file-name buffer))
+            (major_mode . ,(symbol-name major-mode))
+            (modified . ,(ai-code-mcp--json-bool
+                          (buffer-modified-p)))
+            (read_only . ,(ai-code-mcp--json-bool buffer-read-only))
+            (narrowed . ,(ai-code-mcp--json-bool
+                          (buffer-narrowed-p)))
+            (point . ,point)
+            (line . ,(alist-get 'line position))
+            (column . ,(alist-get 'column position))
+            (region_active . ,(alist-get 'region_active region-state))
+            (region . ,(alist-get 'region region-state))
+            (default_directory . ,default-directory)))))))
 
 (defun ai-code-mcp-editor-state ()
   "Return a JSON payload for the current editor state."
@@ -438,25 +598,26 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
 
 (defun ai-code-mcp-get-diagnostics (&optional uri since)
   "Return a JSON diagnostics observation envelope for URI or the project.
-The envelope has `status', `summary', `files', `next_actions', and
-`artifacts' keys so the agent's verification loop reads an actionable
-signal instead of a raw list.  When SINCE is the string \"baseline\",
-report only diagnostics that are new relative to the baseline recorded by
-`ai-code-mcp-diagnostics-baseline', so the agent can confirm it introduced
-no new problems before finishing."
-  (let* ((entries (if uri
-                      (ai-code-mcp--diagnostics-for-uri uri)
-                    (ai-code-mcp--diagnostics-for-project)))
+The envelope includes coverage and freshness metadata so an unavailable or
+still-running diagnostics backend cannot be mistaken for a clean result.
+When SINCE is the string \"baseline\", report only diagnostics that are new
+relative to the baseline recorded by `ai-code-mcp-diagnostics-baseline'."
+  (let* ((observation (if uri
+                          (ai-code-mcp--diagnostics-for-uri uri)
+                        (ai-code-mcp--diagnostics-for-project)))
+         (entries (plist-get observation :entries))
          (delta (and (stringp since) (string-equal since "baseline"))))
     (json-encode
      (cond
       ((and delta (not (ai-code-mcp--diagnostics-baseline-recorded-p)))
-       (ai-code-mcp--diagnostics-no-baseline-envelope))
+       (ai-code-mcp--diagnostics-no-baseline-envelope observation))
       (delta
        (ai-code-mcp--diagnostics-envelope
-        (ai-code-mcp--diagnostics-new-since-baseline entries) 'delta))
+        (ai-code-mcp--diagnostics-new-since-baseline entries)
+        'delta
+        observation))
       (t
-       (ai-code-mcp--diagnostics-envelope entries 'current))))))
+       (ai-code-mcp--diagnostics-envelope entries 'current observation))))))
 
 (defun ai-code-mcp--diagnostics-summary (entries)
   "Return a one-line human summary string for diagnostics ENTRIES."
@@ -538,44 +699,208 @@ diagnostics -- not as a way to page through the omitted ones."
  to focus on diagnostics you introduced."
               shown total plural))))
 
-(defun ai-code-mcp--diagnostics-envelope (entries &optional context)
+(defun ai-code-mcp--diagnostics-observation-count (observation predicate)
+  "Count targets in OBSERVATION that satisfy PREDICATE."
+  (cl-count-if predicate (plist-get observation :targets)))
+
+(defun ai-code-mcp--diagnostics-observation-complete-p (observation)
+  "Return non-nil when OBSERVATION covers every requested target.
+A nil observation represents a compatibility caller that supplied diagnostic
+entries directly and is therefore treated as complete."
+  (or (null observation)
+      (let ((targets (plist-get observation :targets)))
+        (and targets
+             (cl-every (lambda (target)
+                         (eq (plist-get target :state) 'ready))
+                       targets)))))
+
+(defun ai-code-mcp--diagnostics-backend-counts (observation)
+  "Return sorted backend coverage entries for OBSERVATION."
+  (let ((counts (make-hash-table :test 'eq))
+        pairs)
+    (dolist (target (plist-get observation :targets))
+      (when-let ((backend (plist-get target :backend)))
+        (puthash backend (1+ (gethash backend counts 0)) counts)))
+    (maphash (lambda (backend count)
+               (push (cons backend count) pairs))
+             counts)
+    (vconcat
+     (mapcar (lambda (pair)
+               `((name . ,(symbol-name (car pair)))
+                 (files . ,(cdr pair))))
+             (sort pairs
+                   (lambda (left right)
+                     (string< (symbol-name (car left))
+                              (symbol-name (car right)))))))))
+
+(defun ai-code-mcp--diagnostics-coverage-data (observation)
+  "Return JSON-ready diagnostics coverage metadata for OBSERVATION."
+  (let* ((targets (plist-get observation :targets))
+         (requested (length targets))
+         (checked (ai-code-mcp--diagnostics-observation-count
+                   observation
+                   (lambda (target) (plist-get target :backend))))
+         (unavailable (ai-code-mcp--diagnostics-observation-count
+                       observation
+                       (lambda (target)
+                         (eq (plist-get target :state) 'unavailable))))
+         (running (ai-code-mcp--diagnostics-observation-count
+                   observation
+                   (lambda (target)
+                     (eq (plist-get target :state) 'running))))
+         (complete (ai-code-mcp--diagnostics-observation-complete-p
+                    observation))
+         (unavailable-targets
+          (delq nil
+                (mapcar
+                 (lambda (target)
+                   (when (eq (plist-get target :state) 'unavailable)
+                     `((uri . ,(plist-get target :uri))
+                       (reason . ,(plist-get target :reason)))))
+                 targets))))
+    (append
+     `((scope . ,(or (plist-get observation :scope) "supplied_entries"))
+       (requested_files . ,requested)
+       (checked_files . ,checked)
+       (unavailable_files . ,unavailable)
+       (running_files . ,running)
+       (complete . ,(ai-code-mcp--json-bool complete))
+       (backends . ,(ai-code-mcp--diagnostics-backend-counts observation))
+       (unavailable . ,(vconcat unavailable-targets)))
+     (when-let ((reason (plist-get observation :reason)))
+       `((reason . ,reason))))))
+
+(defun ai-code-mcp--diagnostics-freshness-data (observation)
+  "Return JSON-ready snapshot metadata for diagnostics OBSERVATION."
+  (let* ((targets (plist-get observation :targets))
+         (modified (ai-code-mcp--diagnostics-observation-count
+                    observation
+                    (lambda (target) (plist-get target :modified))))
+         (buffers
+          (mapcar
+           (lambda (target)
+             `((uri . ,(plist-get target :uri))
+               (backend . ,(if-let ((backend (plist-get target :backend)))
+                               (symbol-name backend)
+                             :null))
+               (state . ,(symbol-name (plist-get target :state)))
+               (modified . ,(ai-code-mcp--json-bool
+                              (plist-get target :modified)))
+               (modification_tick
+                . ,(or (plist-get target :modification-tick) :null))))
+           targets)))
+    `((observed_at . ,(or (plist-get observation :observed-at)
+                          (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))
+      (modified_files . ,modified)
+      (buffers . ,(vconcat buffers)))))
+
+(defun ai-code-mcp--diagnostics-coverage-summary (observation)
+  "Return a concise coverage warning for OBSERVATION, or nil."
+  (unless (ai-code-mcp--diagnostics-observation-complete-p observation)
+    (let* ((targets (plist-get observation :targets))
+           (requested (length targets))
+           (checked (ai-code-mcp--diagnostics-observation-count
+                     observation
+                     (lambda (target) (plist-get target :backend))))
+           (running (ai-code-mcp--diagnostics-observation-count
+                     observation
+                     (lambda (target)
+                       (eq (plist-get target :state) 'running)))))
+      (cond
+       ((zerop requested)
+        " Diagnostics unavailable: no open project buffers were in scope.")
+       ((zerop checked)
+        (format " Diagnostics unavailable: no active checker covered the %d requested file%s."
+                requested (if (= requested 1) "" "s")))
+       (t
+        (format " Diagnostics coverage incomplete: checked %d of %d requested file%s%s."
+                checked requested (if (= requested 1) "" "s")
+                (if (> running 0)
+                    (format "; %d checker%s still running"
+                            running (if (= running 1) " is" "s are"))
+                  "")))))))
+
+(defun ai-code-mcp--diagnostics-coverage-actions (observation)
+  "Return actions needed to complete diagnostics OBSERVATION coverage."
+  (unless (ai-code-mcp--diagnostics-observation-complete-p observation)
+    (let ((running (ai-code-mcp--diagnostics-observation-count
+                    observation
+                    (lambda (target)
+                      (eq (plist-get target :state) 'running))))
+          (unavailable (ai-code-mcp--diagnostics-observation-count
+                        observation
+                        (lambda (target)
+                          (eq (plist-get target :state) 'unavailable)))))
+      (delq nil
+            (list
+             (when (> unavailable 0)
+               "Enable Flymake or Flycheck for each unavailable buffer, then run get_diagnostics again.")
+             (when (> running 0)
+               "Wait for running diagnostics backends to finish, then run get_diagnostics again.")
+             (when (zerop (length (plist-get observation :targets)))
+               "Open the project files to inspect and enable Flymake or Flycheck before retrying."))))))
+
+(defun ai-code-mcp--diagnostics-envelope (entries &optional context observation)
   "Return a diagnostics observation envelope alist for ENTRIES.
 CONTEXT is `current' (default) or `delta'.  In the `delta' context the
 status and summary describe diagnostics that are new since the baseline
 and express the done-condition the agent must reach (new == 0).
+OBSERVATION supplies coverage and freshness metadata for the scan.
 
 The listed `files' and `next_actions' are capped at
 `ai-code-mcp-diagnostics-max-report-diagnostics' so a large project cannot
 overflow the model context; the summary always reports the true totals and
 notes any truncation."
-  (let* ((has-issues (and entries t))
-         (total (ai-code-mcp--diagnostics-total-count entries))
+  (let* ((total (ai-code-mcp--diagnostics-total-count entries))
+         (has-issues (> total 0))
+         (complete (ai-code-mcp--diagnostics-observation-complete-p
+                    observation))
+         (checked (ai-code-mcp--diagnostics-observation-count
+                   observation
+                   (lambda (target) (plist-get target :backend))))
          (capped-cell (ai-code-mcp--cap-diagnostics-entries
                        entries ai-code-mcp-diagnostics-max-report-diagnostics))
          (capped (car capped-cell))
          (shown (cdr capped-cell))
          (truncated (> total shown))
-         (status (cond ((not has-issues) "clean")
-                       ((eq context 'delta) "regression")
-                       (t "issues")))
+         (status (cond
+                  (has-issues (if (eq context 'delta) "regression" "issues"))
+                  (complete "clean")
+                  ((zerop checked) "unavailable")
+                  (t "incomplete")))
          (base-summary (cond
                         ((eq context 'delta)
-                         (if has-issues
-                             (concat (ai-code-mcp--diagnostics-summary entries)
-                                     " These are NEW versus the baseline;"
-                                     " not done until new == 0.")
+                         (cond
+                          (has-issues
+                           (concat (ai-code-mcp--diagnostics-summary entries)
+                                   " These are NEW versus the baseline;"
+                                   " not done until new == 0."))
+                          (complete
                            (concat "No new diagnostics versus the baseline;"
-                                   " done-condition met (new == 0).")))
+                                   " done-condition met (new == 0)."))
+                          (t
+                           (concat "No new diagnostics were observed versus"
+                                   " the baseline, but coverage is incomplete;"
+                                   " the done-condition is not established."))))
                         (t (ai-code-mcp--diagnostics-summary entries))))
-         (summary (if truncated
-                      (concat base-summary
-                              (ai-code-mcp--diagnostics-truncation-note
-                               shown total context))
-                    base-summary)))
+         (coverage-summary
+          (ai-code-mcp--diagnostics-coverage-summary observation))
+         (summary (concat
+                   base-summary
+                   (or coverage-summary "")
+                   (if truncated
+                       (ai-code-mcp--diagnostics-truncation-note
+                        shown total context)
+                     "")))
+         (actions (append
+                   (append (ai-code-mcp--diagnostics-next-actions capped) nil)
+                   (ai-code-mcp--diagnostics-coverage-actions observation))))
     `((status . ,status)
       (summary . ,summary)
       (files . ,(vconcat capped))
-      (next_actions . ,(ai-code-mcp--diagnostics-next-actions capped))
+      (next_actions . ,(vconcat actions))
+      (coverage . ,(ai-code-mcp--diagnostics-coverage-data observation))
+      (freshness . ,(ai-code-mcp--diagnostics-freshness-data observation))
       (artifacts . ,(vconcat nil)))))
 
 (defun ai-code-mcp--diagnostics-baseline-key ()
@@ -594,10 +919,11 @@ notes any truncation."
     (dolist (entry entries total)
       (setq total (+ total (length (alist-get 'diagnostics entry)))))))
 
-(defun ai-code-mcp--diagnostics-no-baseline-envelope ()
+(defun ai-code-mcp--diagnostics-no-baseline-envelope (&optional observation)
   "Return an envelope explaining that no diagnostics baseline was recorded.
 This avoids reporting pre-existing diagnostics as regressions when the agent
-requests `since=\"baseline\"' without first calling `diagnostics_baseline'."
+requests `since=\"baseline\"' without first calling `diagnostics_baseline'.
+OBSERVATION supplies metadata about the attempted diagnostics scan."
   `((status . "no_baseline")
     (summary . ,(concat "No diagnostics baseline recorded for this session;"
                         " current diagnostics are not reported as regressions."))
@@ -605,6 +931,8 @@ requests `since=\"baseline\"' without first calling `diagnostics_baseline'."
     (next_actions . ,(vector
                       (concat "Call the diagnostics_baseline MCP tool, then"
                               " re-run get_diagnostics with since=\"baseline\".")))
+    (coverage . ,(ai-code-mcp--diagnostics-coverage-data observation))
+    (freshness . ,(ai-code-mcp--diagnostics-freshness-data observation))
     (artifacts . ,(vconcat nil))))
 
 (defun ai-code-mcp--diagnostic-identity (uri diagnostic)
@@ -687,8 +1015,10 @@ diagnostics without listing every diagnostic."
 Return a JSON observation envelope describing what was recorded.  Later
 `get_diagnostics' calls with `since' set to \"baseline\" report only NEW
 diagnostics relative to this snapshot, which lets the agent verify it did
-not introduce new problems."
-  (let* ((entries (ai-code-mcp--diagnostics-for-project))
+not introduce new problems.  Refuse to record a baseline unless every open
+project buffer in scope has an active, idle diagnostics backend."
+  (let* ((observation (ai-code-mcp--diagnostics-for-project))
+         (entries (plist-get observation :entries))
          (counts (ai-code-mcp--diagnostics-identity-counts entries))
          (count (ai-code-mcp--diagnostics-total-count entries))
          (sources (ai-code-mcp--diagnostics-top-sources-string entries))
@@ -698,75 +1028,155 @@ not introduce new problems."
  status is \"clean\"."
                            count (if (= count 1) "" "s"))
                    (when sources (format " Top sources: %s." sources)))))
-    (puthash (ai-code-mcp--diagnostics-baseline-key) counts
-             ai-code-mcp--diagnostics-baselines)
-    (json-encode
-     `((status . "baseline_recorded")
-       (summary . ,summary)
-       ;; The baseline is recorded server-side in `counts' (via `puthash'
-       ;; above); do not echo the full diagnostics list back into the model
-       ;; context.  Returning every project diagnostic here can produce a
-       ;; payload far too large to fit in the model context, which defeats the
-       ;; purpose of keeping the baseline out of context in the first place.
-       (files . ,(vconcat nil))
-       (next_actions . ,(vector
-                         (concat "Edit, then call get_diagnostics with"
-                                 " since=\"baseline\" on the touched files and"
-                                 " finish only when status is \"clean\".")))
-       (artifacts . ,(vconcat nil))))))
+    (if (not (ai-code-mcp--diagnostics-observation-complete-p observation))
+        (json-encode
+         `((status . "baseline_unavailable")
+           (summary . ,(concat
+                        "Diagnostics baseline was not recorded because"
+                        " coverage is incomplete."
+                        (or (ai-code-mcp--diagnostics-coverage-summary
+                             observation)
+                            "")))
+           (files . ,(vconcat nil))
+           (next_actions
+            . ,(vconcat
+                (ai-code-mcp--diagnostics-coverage-actions observation)))
+           (coverage . ,(ai-code-mcp--diagnostics-coverage-data observation))
+           (freshness . ,(ai-code-mcp--diagnostics-freshness-data observation))
+           (artifacts . ,(vconcat nil))))
+      (puthash (ai-code-mcp--diagnostics-baseline-key) counts
+               ai-code-mcp--diagnostics-baselines)
+      (json-encode
+       `((status . "baseline_recorded")
+         (summary . ,summary)
+         ;; The baseline is recorded server-side in `counts' (via `puthash'
+         ;; above); do not echo the full diagnostics list back into the model
+         ;; context.  Returning every project diagnostic here can produce a
+         ;; payload far too large to fit in the model context, which defeats
+         ;; keeping the baseline out of context in the first place.
+         (files . ,(vconcat nil))
+         (next_actions . ,(vector
+                           (concat "Edit, then call get_diagnostics with"
+                                   " since=\"baseline\" on the touched files and"
+                                   " finish only when status is \"clean\".")))
+         (coverage . ,(ai-code-mcp--diagnostics-coverage-data observation))
+         (freshness . ,(ai-code-mcp--diagnostics-freshness-data observation))
+         (artifacts . ,(vconcat nil)))))))
 
 (defun ai-code-mcp--diagnostics-for-uri (uri)
-  "Return a list with diagnostics for URI, or nil when none exist.
-The entry uses the canonical file URI of the resolved buffer (via
-`ai-code-mcp--file-path-to-uri') so its identity matches the baseline that
-`ai-code-mcp-diagnostics-baseline' records from the project scan, even when
-URI is given in a non-canonical form such as a localhost or bare-path URI."
-  (when-let* ((file-path (ai-code-mcp--uri-to-file-path uri))
-              (buffer (get-file-buffer file-path))
-              (diagnostics (ai-code-mcp--buffer-diagnostics buffer)))
-    (when-let ((entry (ai-code-mcp--diagnostics-file-entry
-                       (ai-code-mcp--file-path-to-uri
-                        (or (buffer-file-name buffer) file-path))
-                       diagnostics)))
-      (list entry))))
+  "Return a diagnostics observation for URI.
+The observation records an unavailable target when the file has no open
+buffer instead of incorrectly treating the missing diagnostics as clean."
+  (let* ((file-path (ai-code-mcp--uri-to-file-path uri))
+         (buffer (and file-path (get-file-buffer file-path)))
+         (target
+          (if buffer
+              (ai-code-mcp--diagnostics-observe-buffer buffer)
+            (list :uri uri
+                  :backend nil
+                  :state 'unavailable
+                  :reason "buffer_not_open"
+                  :modified nil
+                  :modification-tick nil
+                  :diagnostics (vconcat nil)))))
+    (ai-code-mcp--make-diagnostics-observation
+     "requested_uri" (list target))))
 
 (defun ai-code-mcp--diagnostics-for-project ()
-  "Return project diagnostics for open file-visiting buffers."
+  "Return a diagnostics observation for open project file buffers."
   (let ((project-dir (ai-code-mcp--project-directory))
-        diagnostics-by-file)
-    (dolist (buffer (buffer-list) (nreverse diagnostics-by-file))
+        targets)
+    (dolist (buffer (buffer-list))
       (when-let ((file-path (buffer-file-name buffer)))
         (when (or (not project-dir)
                   (file-in-directory-p file-path project-dir))
-          (when-let ((diagnostics (ai-code-mcp--buffer-diagnostics buffer)))
-            (when-let ((entry (ai-code-mcp--diagnostics-file-entry
-                               (ai-code-mcp--file-path-to-uri file-path)
-                               diagnostics)))
-              (push entry diagnostics-by-file))))))))
+          (push (ai-code-mcp--diagnostics-observe-buffer buffer) targets))))
+    (ai-code-mcp--make-diagnostics-observation
+     "open_project_buffers"
+     (nreverse targets)
+     (when (null targets) "no_open_project_buffers"))))
 
-(defun ai-code-mcp--buffer-diagnostics (buffer)
-  "Return a vector of diagnostics for BUFFER."
+(defun ai-code-mcp--make-diagnostics-observation (scope targets
+                                                        &optional reason)
+  "Return a diagnostics observation for SCOPE and TARGETS.
+REASON explains why a scope has no targets."
+  (let (entries)
+    (dolist (target targets)
+      (when-let ((entry (ai-code-mcp--diagnostics-file-entry
+                         (plist-get target :uri)
+                         (plist-get target :diagnostics))))
+        (push entry entries)))
+    (list :scope scope
+          :targets targets
+          :entries (nreverse entries)
+          :reason reason
+          :observed-at (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t))))
+
+(defun ai-code-mcp--diagnostics-observe-buffer (buffer)
+  "Return diagnostics and coverage metadata observed from BUFFER."
+  (let* ((backend (ai-code-mcp--diagnostics-backend-for-buffer buffer))
+         (running (and backend
+                       (ai-code-mcp--diagnostics-backend-running-p
+                        buffer backend)))
+         (state (cond ((null backend) 'unavailable)
+                      (running 'running)
+                      (t 'ready))))
+    (with-current-buffer buffer
+      (list :uri (ai-code-mcp--file-path-to-uri (buffer-file-name buffer))
+            :backend backend
+            :state state
+            :reason (cond ((null backend) "no_active_backend")
+                          (running "diagnostics_running"))
+            :modified (buffer-modified-p)
+            :modification-tick (buffer-chars-modified-tick)
+            :diagnostics (if backend
+                             (ai-code-mcp--buffer-diagnostics buffer backend)
+                           (vconcat nil))))))
+
+(defun ai-code-mcp--buffer-diagnostics (buffer &optional backend)
+  "Return a vector of diagnostics for BUFFER using optional BACKEND."
   (vconcat
-   (pcase (ai-code-mcp--diagnostics-backend-for-buffer buffer)
+   (pcase (or backend (ai-code-mcp--diagnostics-backend-for-buffer buffer))
      ('flycheck (or (ai-code-mcp--flycheck-diagnostics buffer) '()))
      ('flymake (or (ai-code-mcp--flymake-diagnostics buffer) '()))
      (_ '()))))
 
+(defun ai-code-mcp--diagnostics-backend-active-p (buffer backend)
+  "Return non-nil when diagnostics BACKEND is active in BUFFER."
+  (with-current-buffer buffer
+    (pcase backend
+      ('flycheck (and (featurep 'flycheck)
+                      (bound-and-true-p flycheck-mode)))
+      ('flymake (and (featurep 'flymake)
+                     (bound-and-true-p flymake-mode)))
+      (_ nil))))
+
 (defun ai-code-mcp--diagnostics-backend-for-buffer (buffer)
-  "Return the diagnostics backend symbol to use for BUFFER."
+  "Return the active diagnostics backend symbol to use for BUFFER."
   (let ((backend ai-code-mcp-diagnostics-backend))
     (if (eq backend 'auto)
         (cond
-         ((with-current-buffer buffer
-            (and (featurep 'flycheck)
-                 (bound-and-true-p flycheck-mode)))
+         ((ai-code-mcp--diagnostics-backend-active-p buffer 'flycheck)
           'flycheck)
-         ((with-current-buffer buffer
-            (and (featurep 'flymake)
-                 (bound-and-true-p flymake-mode)))
+         ((ai-code-mcp--diagnostics-backend-active-p buffer 'flymake)
           'flymake)
          (t nil))
-      backend)))
+      (and (ai-code-mcp--diagnostics-backend-active-p buffer backend)
+           backend))))
+
+(defun ai-code-mcp--diagnostics-backend-running-p (buffer backend)
+  "Return non-nil when diagnostics BACKEND is still running in BUFFER."
+  (with-current-buffer buffer
+    (pcase backend
+      ('flycheck
+       (or (and (fboundp 'flycheck-running-p)
+                (ignore-errors (flycheck-running-p)))
+           (and (boundp 'flycheck-last-status-change)
+                (eq flycheck-last-status-change 'running))))
+      ('flymake
+       (and (fboundp 'flymake-running-backends)
+            (ignore-errors (flymake-running-backends))))
+      (_ nil))))
 
 (defun ai-code-mcp--flycheck-diagnostics (buffer)
   "Return Flycheck diagnostics for BUFFER."
@@ -996,33 +1406,104 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
                             (substring text 0 (min 80 (length text)))
                           "")))))))))))
 
-(defun ai-code-mcp--initialize ()
-  "Return the MCP initialize payload."
-  `((protocolVersion . ,ai-code-mcp--protocol-version)
+(defun ai-code-mcp--initialize (&optional params)
+  "Return the MCP initialize payload negotiated from PARAMS."
+  (let ((protocol-version
+         (ai-code-mcp-negotiate-legacy-version
+          (alist-get 'protocolVersion params))))
+    `((protocolVersion . ,protocol-version)
     (capabilities . ((tools . ((listChanged . :json-false)))))
     (serverInfo . ((name . "ai-code-mcp-tools")
-                   (version . "0.1.0")))))
+                   (version . "0.1.0"))))))
+
+(defun ai-code-mcp-negotiate-legacy-version (requested)
+  "Return the supported legacy version negotiated for REQUESTED."
+  (if (member requested ai-code-mcp--legacy-protocol-versions)
+      requested
+    ai-code-mcp--protocol-version))
+
+(defun ai-code-mcp--discover ()
+  "Return stateless MCP server discovery metadata."
+  `((resultType . "complete")
+    (supportedVersions . [,ai-code-mcp--modern-protocol-version])
+    (capabilities . ((tools . ((listChanged . :json-false)))))
+    (_meta . ,(ai-code-mcp--server-meta))
+    (instructions
+     . "Use these tools for live Emacs context and Emacs-side validation.")
+    (ttlMs . 5000)
+    (cacheScope . "private")))
+
+(defun ai-code-mcp--modern-request-p ()
+  "Return non-nil while dispatching the stateless MCP version."
+  (equal ai-code-mcp--current-protocol-version
+         ai-code-mcp--modern-protocol-version))
+
+(defun ai-code-mcp--server-meta ()
+  "Return per-response server identity metadata."
+  '((io.modelcontextprotocol/serverInfo
+     . ((name . "ai-code-mcp-tools") (version . "0.1.0")))))
+
+(defun ai-code-mcp--complete-result (fields)
+  "Add modern completion metadata to result FIELDS when required."
+  (if (ai-code-mcp--modern-request-p)
+      (append `((resultType . "complete"))
+              fields
+              `((_meta . ,(ai-code-mcp--server-meta))))
+    fields))
 
 (defun ai-code-mcp--tools-list ()
   "Return MCP tools/list response."
   (ai-code-mcp--ensure-builtins)
-  `((tools . ,(mapcar #'ai-code-mcp--tool-to-mcp
-                      ai-code-mcp-server-tools))))
+  (ai-code-mcp--complete-result
+   `((tools . ,(mapcar
+                #'ai-code-mcp--tool-to-mcp
+                (sort (seq-filter #'ai-code-mcp--tool-available-p
+                                  (copy-sequence ai-code-mcp-server-tools))
+                      (lambda (left right)
+                        (string< (plist-get left :name)
+                                 (plist-get right :name))))))
+     ,@(when (ai-code-mcp--modern-request-p)
+         '((ttlMs . 5000) (cacheScope . "private"))))))
 
 (defun ai-code-mcp--tools-call (params)
   "Return MCP tools/call response for PARAMS."
   (ai-code-mcp--ensure-builtins)
   (let* ((tool-name (alist-get 'name params))
-         (arguments (or (alist-get 'arguments params) '()))
-         (tool (ai-code-mcp--find-tool tool-name))
-         (result (ai-code-mcp--call-tool tool arguments)))
-    `((content . (((type . "text")
-                   (text . ,(ai-code-mcp--format-result result))))))))
+         (arguments-entry (assq 'arguments params))
+         (arguments (if arguments-entry (cdr arguments-entry) '()))
+         (tool (progn
+                 (unless (stringp tool-name)
+                   (ai-code-mcp-signal-protocol-error
+                    -32602 "Tool name must be a string"))
+                 (ai-code-mcp--find-tool tool-name))))
+    (condition-case err
+        (ai-code-mcp--tool-success-result
+         (ai-code-mcp--call-tool tool arguments))
+      (ai-code-mcp-protocol-error
+       (signal (car err) (cdr err)))
+      (error
+       (ai-code-mcp--tool-error-result err)))))
 
 (defun ai-code-mcp--find-tool (tool-name)
   "Return the tool spec matching TOOL-NAME."
-  (or (ai-code-mcp--find-tool-spec tool-name)
-      (error "Unknown tool: %s" tool-name)))
+  (or (let ((tool (ai-code-mcp--find-tool-spec tool-name)))
+        (and tool (ai-code-mcp--tool-available-p tool) tool))
+      (ai-code-mcp-signal-protocol-error
+       -32602 (format "Unknown tool: %s" tool-name))))
+
+(defun ai-code-mcp--active-tool-profile ()
+  "Return the tool profile for the active application session."
+  (or (plist-get (ai-code-mcp-get-session-context) :tool-profile)
+      ai-code-mcp-default-tool-profile))
+
+(defun ai-code-mcp--tool-available-p (tool)
+  "Return non-nil when TOOL belongs to the active exposure profile."
+  (let ((category (or (plist-get tool :category) 'core)))
+    (pcase (ai-code-mcp--active-tool-profile)
+      ('core (eq category 'core))
+      ('debug (memq category '(core debug)))
+      ('full (memq category '(core debug eval)))
+      (_ nil))))
 
 (defun ai-code-mcp--find-tool-spec (tool-name)
   "Return the tool spec matching TOOL-NAME, or nil."
@@ -1039,26 +1520,114 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
 
 (defun ai-code-mcp--validate-args (arguments arg-specs)
   "Return ordered ARGUMENTS validated against ARG-SPECS."
+  (unless (and (listp arguments)
+               (seq-every-p #'consp arguments))
+    (ai-code-mcp-signal-protocol-error
+     -32602 "Tool arguments must be a JSON object"))
+  (let ((allowed-names (mapcar (lambda (spec)
+                                 (plist-get spec :name))
+                               arg-specs)))
+    (dolist (entry arguments)
+      (unless (member (if (symbolp (car entry))
+                          (symbol-name (car entry))
+                        (car entry))
+                      allowed-names)
+        (ai-code-mcp-signal-protocol-error
+         -32602 (format "Unknown tool argument: %s" (car entry))))))
   (let (values)
     (dolist (spec arg-specs (nreverse values))
       (let* ((name (plist-get spec :name))
-             (entry (assq (intern name) arguments)))
+             (entry (or (assq (intern name) arguments)
+                        (assoc name arguments))))
         (when (and (not (plist-get spec :optional))
                    (null entry))
-          (error "Missing required argument: %s" name))
-        (push (cdr entry) values)))))
+          (ai-code-mcp-signal-protocol-error
+           -32602 (format "Missing required argument: %s" name)))
+        (when (and entry
+                   (not (ai-code-mcp--argument-type-p
+                         (cdr entry) (plist-get spec :type))))
+          (ai-code-mcp-signal-protocol-error
+           -32602
+           (format "Argument %s must be %s"
+                   name (plist-get spec :type))))
+        (push (if (and entry (eq (cdr entry) :null))
+                  nil
+                (cdr entry))
+              values)))))
+
+(defun ai-code-mcp--argument-type-p (value type)
+  "Return non-nil when VALUE satisfies JSON schema TYPE."
+  (pcase type
+    ('string (stringp value))
+    ('integer (integerp value))
+    ('number (numberp value))
+    ('boolean (memq value '(t :json-false :false)))
+    ('array (or (vectorp value) (listp value)))
+    ('object (or (hash-table-p value) (listp value)))
+    (_ nil)))
+
+(defun ai-code-mcp--tool-success-result (value)
+  "Return an MCP success result for tool VALUE."
+  (let* ((structured (ai-code-mcp--structured-content value))
+         (is-error (if (eq (alist-get 'ok structured) :json-false)
+                       t
+                     :json-false)))
+    (ai-code-mcp--complete-result
+     `((content . (((type . "text")
+                    (text . ,(ai-code-mcp--format-result value)))))
+       (structuredContent . ,structured)
+       (isError . ,is-error)))))
+
+(defun ai-code-mcp--tool-error-result (err)
+  "Return an MCP semantic error result for ERR."
+  (let* ((message (error-message-string err))
+         (structured
+          `((error . ((type . "tool_execution_error")
+                      (message . ,message))))))
+    (ai-code-mcp--complete-result
+     `((content . (((type . "text") (text . ,message))))
+       (structuredContent . ,structured)
+       (isError . t)))))
+
+(defun ai-code-mcp--structured-content (value)
+  "Return object-shaped structured content for tool VALUE."
+  (cond
+   ((stringp value)
+    (condition-case nil
+        (let ((parsed (json-parse-string
+                       value
+                       :object-type 'alist
+                       :array-type 'array
+                       :null-object :null
+                       :false-object :json-false)))
+          (cond
+           ((and (listp parsed) (seq-every-p #'consp parsed)) parsed)
+           ((and (null parsed)
+                 (string-match-p "\\`[[:space:]]*{" value))
+            (ai-code-mcp--empty-object))
+           (t `((value . ,parsed)))))
+      (json-parse-error `((text . ,value)))))
+   ((hash-table-p value) value)
+   ((and (listp value) (seq-every-p #'consp value)) value)
+   ((listp value) `((items . ,(vconcat value))))
+   (t `((value . ,value)))))
 
 (defun ai-code-mcp--tool-to-mcp (tool)
   "Convert TOOL spec into MCP tool metadata."
   `((name . ,(plist-get tool :name))
     (description . ,(plist-get tool :description))
+    ,@(when-let ((annotations (plist-get tool :annotations)))
+        `((annotations . ,annotations)))
     (inputSchema . ((type . "object")
+                    (additionalProperties . :json-false)
                     (properties . ,(or (ai-code-mcp--args-to-schema
                                         (plist-get tool :args))
                                        (ai-code-mcp--empty-object)))
                     (required . ,(vconcat
                                   (ai-code-mcp--required-args
-                                   (plist-get tool :args))))))))
+                                   (plist-get tool :args))))))
+    ,@(when-let ((output-schema (plist-get tool :output-schema)))
+        `((outputSchema . ,output-schema)))))
 
 (defun ai-code-mcp--empty-object ()
   "Return an empty JSON object placeholder."
