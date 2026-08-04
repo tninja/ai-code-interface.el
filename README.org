@@ -144,7 +144,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   - ai-code-task-use-gptel-filename: When non-nil, file name created by `ai-code-create-or-open-task-file` or `ai-code-create-file-or-dir` will have auto-generated filenames created by GPTel
   - ai-code-use-gptel-headline: When non-nil, prompts sent to the AI will have auto-generated headlines created by GPTel, providing better organization and readability in the prompt file
   - ai-code-use-gptel-classify-prompt: When non-nil, and `ai-code-auto-test-type` or `ai-code-discussion-auto-follow-up-enabled` is non-nil, classify whether the current prompt is about code changes so test prompts or discussion follow-up suggestions are only added when relevant
-- `flycheck`: To enable the `ai-code-flycheck-fix-errors-in-scope` command.
+- `flycheck`: To enable the =Fix Flycheck errors in scope= action under =C-c a b= and the `ai-code-flycheck-fix-errors-in-scope` command.
 - `yasnippet`: For snippet support in the prompt file. A library of snippets is included.
   - (emacs built-in) abbrev + skeleton is also a good way to expand prompt. [[./etc/prompt_expand_with_abbrev_skeleton.el][example abbrev to solve / iterate leetcode problem with tdd (need to set ai-code-auto-test-type with tdd)]], [[./examples/leetcode][example problem resolved]]
 - `projectile`: For project root initialization.
@@ -379,7 +379,7 @@ Instead of manually telling the AI what to do after every code change or discuss
 - `ai-code-next-step-suggestion-suffix`: customize the exact instruction appended for those numbered next-step suggestions.
 - `ai-code-use-gptel-classify-prompt`: when paired with the settings above, GPTel can classify prompts so code-change prompts skip discussion follow-up suggestions and discussion prompts skip test follow-up.
 - `ai-code-tdd-cycle`: run a guided TDD flow from the menu, including separate Red, Green, Blue stages or the combined one-prompt flows.
-- `ai-code-build-or-test-project`: run build/test explicitly from `C-c a b` when you want a direct verification step in the middle of the loop.
+- `ai-code-build-or-test-project`: run build, test, lint, or scoped Flycheck fixes from `C-c a b` when you want a direct verification or diagnostics step in the middle of the loop.
 - `ai-code-prompt-suffix`: add persistent project rules when needed, so repeated instructions such as response language, coding constraints, or test expectations do not have to be retyped in every prompt.
 - `ai-code-grill-me-enabled`: when non-nil, offer a one-shot clarification step (/"Grill me before acting?"/) immediately before the completed prompt is sent for `ai-code-code-change`, `ai-code-ask-question`, `ai-code-implement-todo`, and `ai-code-send-command`.  When accepted, the AI reads the bundled =prompt/grilling.v1.md= harness and asks targeted clarifying questions before acting, reducing ambiguity in the request.  The harness is adapted from [[https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md][mattpocock/skills – grilling]].  Disabled by default; enable it with:
   #+begin_src emacs-lisp

@@ -29,6 +29,8 @@
 
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
 (declare-function ai-code--session-project-root "ai-code-utils" ())
+(declare-function ai-code-mcp-agent-refresh-source-context
+                  "ai-code-mcp-agent" (agent-buffer source-buffer))
 
 ;;; Customization
 
@@ -1344,7 +1346,7 @@ OPTIONS is a plist with these keys:
 :env-vars is an optional list of environment variable strings.
 :multiline-input-sequence is an optional terminal sequence for multiline input.
 :prepare-launch is an optional function called with (WORKING-DIR ARGV).
-When :prepare-launch is present, it may return :argv, :cleanup-fn, and
+When :prepare-launch is present, it may return :argv, :env-vars, :cleanup-fn, and
 :post-start-fn entries to customize session creation.  A legacy :command
 entry is normalized to argv for compatibility."
   (let* ((resolved (ai-code-backends-infra--resolve-start-command
@@ -1366,6 +1368,7 @@ entry is normalized to argv for compatibility."
            (or (plist-get launch :argv)
                (plist-get launch :command)
                argv)))
+         (launch-env-vars (plist-get launch :env-vars))
          (cleanup-fn (plist-get launch :cleanup-fn))
          (post-start-fn (plist-get launch :post-start-fn)))
     (let ((ai-code-backends-infra--launch-program
@@ -1380,7 +1383,7 @@ entry is normalized to argv for compatibility."
        nil
        (plist-get options :session-prefix)
        arg
-       (plist-get options :env-vars)
+       (append launch-env-vars (plist-get options :env-vars))
        (plist-get options :multiline-input-sequence)
        post-start-fn))))
 
@@ -1619,6 +1622,8 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   working-dir
                   force-prompt
                   source-buffer)))
+    (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
+      (ai-code-mcp-agent-refresh-source-context buffer source-buffer))
     (with-current-buffer buffer
       (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
       (if (and (string-match-p "\n" line)

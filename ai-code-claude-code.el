@@ -82,6 +82,7 @@ With prefix ARG, prompt for CLI args using
                   (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
              (list
               :argv (plist-get mcp-launch :argv)
+              :env-vars (plist-get mcp-launch :env-vars)
               :cleanup-fn (plist-get mcp-launch :cleanup-fn)
               :post-start-fn
               ;; Preserve backend-specific rendering behavior while letting MCP

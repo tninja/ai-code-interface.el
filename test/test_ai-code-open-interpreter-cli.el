@@ -58,7 +58,9 @@
   (let ((captured-command nil)
         (captured-cleanup-fn nil)
         (captured-post-start-fn nil)
+        (captured-env-vars nil)
         (registered nil)
+        (attached nil)
         (unregistered nil)
         (builtins-called nil)
         (ensure-called nil)
@@ -80,9 +82,15 @@
                    (lambda ()
                      (setq ensure-called t)
                      8765))
+                  ((symbol-function 'ai-code-mcp--random-secret)
+                   (lambda () "test-interpreter-token"))
                   ((symbol-function 'ai-code-mcp-register-session)
-                   (lambda (session-id project-dir buffer)
-                     (setq registered (list session-id project-dir buffer))))
+                   (lambda (session-id project-dir buffer metadata)
+                     (setq registered
+                           (list session-id project-dir buffer metadata))))
+                  ((symbol-function 'ai-code-mcp-attach-agent-buffer)
+                   (lambda (session-id buffer)
+                     (setq attached (list session-id buffer))))
                   ((symbol-function 'ai-code-mcp-unregister-session)
                    (lambda (session-id)
                      (setq unregistered session-id)))
@@ -93,11 +101,12 @@
                          (_working-dir _buffer-name _process-table command
                                        &optional _escape-fn cleanup-fn
                                        _instance-name _prefix _force-prompt
-                                       _env-vars _multiline-input-sequence
+                                       env-vars _multiline-input-sequence
                                        post-start-fn)
                          args
                        (setq captured-command command
                              captured-cleanup-fn cleanup-fn
+                             captured-env-vars env-vars
                              captured-post-start-fn post-start-fn))
                      nil)))
           (ai-code-open-interpreter-cli)
@@ -115,20 +124,31 @@
               (cadr config-args)))
             (should
              (string-match-p
+              "bearer_token_env_var"
+              (cadr config-args)))
+            (should
+             (string-match-p
               "mcp/open-interpreter-"
               (cadr config-args))))
+          (should-not (string-match-p "test-interpreter-token"
+                                      (cadr (member "-c" captured-command))))
+          (should (equal
+                   '("AI_CODE_MCP_BEARER_TOKEN=test-interpreter-token")
+                   captured-env-vars))
           (should (functionp captured-cleanup-fn))
           (should (functionp captured-post-start-fn))
           (funcall captured-post-start-fn session-buffer nil "default")
           (should (string-prefix-p "open-interpreter-" (car registered)))
           (should (equal "/tmp/test-open-interpreter" (nth 1 registered)))
-          (should (eq session-buffer (nth 2 registered)))
+          (should-not (eq session-buffer (nth 2 registered)))
+          (should (equal "test-interpreter-token"
+                         (plist-get (nth 3 registered) :token)))
+          (should (equal (list (car registered) session-buffer) attached))
           (with-current-buffer session-buffer
             (let ((status (ai-code-mcp-agent-buffer-status)))
               (should (eq 'open-interpreter (plist-get status :backend)))
-              (should (string-match-p
-                       "^http://127\\.0\\.0\\.1:8765/mcp/open-interpreter-"
-                       (plist-get status :server-url)))))
+              (should (equal "http://127.0.0.1:8765/mcp"
+                             (plist-get status :server-url)))))
           (funcall captured-cleanup-fn)
           (should (equal (car registered) unregistered)))
       (when (buffer-live-p session-buffer)

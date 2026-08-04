@@ -74,7 +74,7 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
   "Initialize should expose MCP protocol metadata."
   (should (fboundp 'ai-code-mcp-dispatch))
   (let ((result (ai-code-mcp-dispatch "initialize")))
-    (should (equal "2024-11-05"
+    (should (equal "2025-11-25"
                    (alist-get 'protocolVersion result)))
     (should (alist-get 'tools (alist-get 'capabilities result)))
     (should (equal "ai-code-mcp-tools"
@@ -95,7 +95,11 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
               :type string
               :description "Trailing punctuation."
               :optional t)))
-    (let* ((tool-entry (car (alist-get 'tools (ai-code-mcp-dispatch "tools/list"))))
+    (let* ((tool-entry
+            (seq-find
+             (lambda (tool)
+               (equal "greet_user" (alist-get 'name tool)))
+             (alist-get 'tools (ai-code-mcp-dispatch "tools/list"))))
            (input-schema (alist-get 'inputSchema tool-entry))
            (properties (alist-get 'properties input-schema))
            (required (append (alist-get 'required input-schema) nil)))
@@ -127,6 +131,55 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
       '((name . "echo_name")
         (arguments . ())))
      :type 'error)))
+
+(ert-deftest ai-code-test-mcp-tools-call-rejects-extra-and-mistyped-arguments ()
+  "Tool arguments should match the advertised closed JSON schema."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-make-tool
+     :function (lambda (count enabled) (list count enabled))
+     :name "typed_tool"
+     :description "Exercise argument validation."
+     :args '((:name "count" :type integer :description "A count.")
+             (:name "enabled" :type boolean :description "A flag.")))
+    (dolist (arguments '(((count . "one") (enabled . t))
+                         ((count . 1) (enabled . t) (surprise . 2))))
+      (let ((err (should-error
+                  (ai-code-mcp-dispatch
+                   "tools/call"
+                   `((name . "typed_tool") (arguments . ,arguments)))
+                  :type 'ai-code-mcp-protocol-error)))
+        (should (= -32602 (nth 1 err)))))))
+
+(ert-deftest ai-code-test-mcp-tools-call-returns-structured-success-and-error ()
+  "Tool results should expose structured content and semantic error state."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-make-tool
+     :function (lambda () (json-encode '((ok . t) (answer . 42))))
+     :name "structured_success"
+     :description "Return structured JSON."
+     :args nil)
+    (ai-code-mcp-make-tool
+     :function (lambda () (error "Tool exploded"))
+     :name "structured_failure"
+     :description "Fail semantically."
+     :args nil)
+    (let ((success (ai-code-mcp-dispatch
+                    "tools/call"
+                    '((name . "structured_success") (arguments . ())))))
+      (should (eq :json-false (alist-get 'isError success)))
+      (should (= 42 (alist-get 'answer
+                               (alist-get 'structuredContent success)))))
+    (let ((failure (ai-code-mcp-dispatch
+                    "tools/call"
+                    '((name . "structured_failure") (arguments . ())))))
+      (should (eq t (alist-get 'isError failure)))
+      (should (string-match-p "Tool exploded"
+                              (ai-code-test-mcp--content-text failure)))
+      (should (equal "tool_execution_error"
+                     (alist-get 'type
+                                (alist-get 'error
+                                           (alist-get 'structuredContent
+                                                      failure))))))))
 
 (ert-deftest ai-code-test-mcp-session-context-roundtrip ()
   "Session registration should provide project-local execution context."
@@ -188,21 +241,26 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
       (should (equal ai-code-test-mcp--builtin-tool-names
                      tool-names)))))
 
-(ert-deftest ai-code-test-mcp-editor-state-reports-selected-buffer ()
-  "Editor state should describe the selected window buffer."
+(ert-deftest ai-code-test-mcp-editor-state-uses-prompt-origin-after-terminal-focus ()
+  "Editor state should describe the session source after terminal focus."
   (let ((ai-code-mcp-server-tools nil)
-        (buffer (generate-new-buffer " *ai-code-mcp-editor-state*")))
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (session-id "editor-state-source")
+        (source-buffer (generate-new-buffer " *ai-code-mcp-editor-source*"))
+        (terminal-buffer (generate-new-buffer " *ai-code-mcp-editor-terminal*")))
     (unwind-protect
         (save-window-excursion
-          (switch-to-buffer buffer)
-          (with-current-buffer buffer
+          (with-current-buffer source-buffer
             (emacs-lisp-mode)
             (setq-local default-directory "/tmp/")
             (insert "alpha\nbeta\n")
             (goto-char (point-min))
             (forward-line 1)
             (move-to-column 2))
-          (let* ((result (ai-code-mcp-dispatch "tools/call"
+          (ai-code-mcp-register-session session-id "/tmp/" source-buffer)
+          (switch-to-buffer terminal-buffer)
+          (let* ((ai-code-mcp--current-session-id session-id)
+                 (result (ai-code-mcp-dispatch "tools/call"
                                                '((name . "editor_state")
                                                  (arguments . ()))))
                  (payload (let ((json-object-type 'alist)
@@ -211,15 +269,71 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
                             (json-read-from-string
                              (ai-code-test-mcp--content-text result)))))
             (should (equal t (alist-get 'ok payload)))
-            (should (equal (buffer-name buffer)
+            (should (equal (buffer-name source-buffer)
                            (alist-get 'buffer_name payload)))
             (should (equal "emacs-lisp-mode"
                            (alist-get 'major_mode payload)))
             (should (equal t (alist-get 'modified payload)))
             (should (= 2 (alist-get 'line payload)))
             (should (= 2 (alist-get 'column payload)))))
-      (when (buffer-live-p buffer)
-        (kill-buffer buffer)))))
+      (when (buffer-live-p source-buffer)
+        (kill-buffer source-buffer))
+      (when (buffer-live-p terminal-buffer)
+        (kill-buffer terminal-buffer)))))
+
+(ert-deftest ai-code-test-mcp-editor-state-reports-killed-source-unavailable ()
+  "Editor state should not fall back after its prompt origin is killed."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (session-id "editor-state-killed-source")
+        (source-buffer (generate-new-buffer " *ai-code-mcp-killed-source*"))
+        (terminal-buffer (generate-new-buffer " *ai-code-mcp-killed-terminal*")))
+    (unwind-protect
+        (save-window-excursion
+          (ai-code-mcp-register-session session-id "/tmp/" source-buffer)
+          (kill-buffer source-buffer)
+          (switch-to-buffer terminal-buffer)
+          (let* ((ai-code-mcp--current-session-id session-id)
+                 (result (ai-code-mcp-dispatch
+                          "tools/call"
+                          '((name . "editor_state") (arguments . ()))))
+                 (payload (ai-code-test-mcp--read-json
+                           (ai-code-test-mcp--content-text result))))
+            (should (eq :json-false (alist-get 'ok payload)))
+            (should (equal "unavailable" (alist-get 'status payload)))
+            (should-not (equal (buffer-name terminal-buffer)
+                               (alist-get 'buffer_name payload)))))
+      (dolist (buffer (list source-buffer terminal-buffer))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest ai-code-test-mcp-editor-state-remains-at-last-prompt-snapshot ()
+  "Editor state should not drift when point moves after a prompt snapshot."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (session-id "editor-state-snapshot")
+        (source-buffer (generate-new-buffer " *ai-code-mcp-snapshot-source*"))
+        (terminal-buffer (generate-new-buffer " *ai-code-mcp-snapshot-terminal*")))
+    (unwind-protect
+        (save-window-excursion
+          (with-current-buffer source-buffer
+            (insert "first\nsecond\n")
+            (goto-char (point-min)))
+          (ai-code-mcp-register-session session-id "/tmp/" source-buffer)
+          (with-current-buffer source-buffer
+            (forward-line 1))
+          (switch-to-buffer terminal-buffer)
+          (let* ((ai-code-mcp--current-session-id session-id)
+                 (result (ai-code-mcp-dispatch
+                          "tools/call"
+                          '((name . "editor_state") (arguments . ()))))
+                 (payload (ai-code-test-mcp--read-json
+                           (ai-code-test-mcp--content-text result))))
+            (should (= 1 (alist-get 'line payload)))
+            (should (= 1 (alist-get 'point payload)))))
+      (dolist (buffer (list source-buffer terminal-buffer))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
 
 (ert-deftest ai-code-test-mcp-visible-buffers-lists-current-windows ()
   "Visible buffers should mirror the selected frame windows."
@@ -286,7 +400,31 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
       (should project-tool)
       (should (string-match-p
                "\"properties\":{}"
-               encoded)))))
+               encoded))
+      (should (eq :json-false
+                  (alist-get 'additionalProperties
+                             (alist-get 'inputSchema project-tool)))))))
+
+(ert-deftest ai-code-test-mcp-tools-list-advertises-effect-annotations ()
+  "Built-in tools should distinguish read-only queries from side effects."
+  (let* ((ai-code-mcp-server-tools nil)
+         (tools (alist-get 'tools (ai-code-mcp-dispatch "tools/list")))
+         (project-tool (seq-find
+                        (lambda (tool)
+                          (equal "project_info" (alist-get 'name tool)))
+                        tools))
+         (notify-tool (seq-find
+                       (lambda (tool)
+                         (equal "notify_user" (alist-get 'name tool)))
+                       tools)))
+    (should (eq t (alist-get 'readOnlyHint
+                             (alist-get 'annotations project-tool))))
+    (should (eq :json-false
+                (alist-get 'readOnlyHint
+                           (alist-get 'annotations notify-tool))))
+    (should (eq :json-false
+                (alist-get 'destructiveHint
+                           (alist-get 'annotations notify-tool))))))
 
 (ert-deftest ai-code-test-mcp-tools-call-runs-inside-session-context ()
   "Tool calls should run with the registered session buffer and directory."
@@ -576,6 +714,122 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
                 (should (equal "clean" (alist-get 'status envelope)))
                 (should (= 0 (length (alist-get 'files envelope))))
                 (should (= 0 (length (alist-get 'next_actions envelope))))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-reports-unavailable-without-backend ()
+  "A requested buffer without an active checker must not look clean."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-unavailable-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-unavailable*"))
+         (ai-code-mcp-diagnostics-backend 'auto)
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-unavailable")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode nil)
+            (when (boundp 'flycheck-mode)
+              (setq-local flycheck-mode nil)))
+          (ai-code-mcp-register-session
+           "session-unavailable" project-dir session-buffer)
+          (let* ((envelope (ai-code-test-mcp--read-json
+                            (ai-code-mcp-get-diagnostics file-uri)))
+                 (coverage (alist-get 'coverage envelope))
+                 (freshness (alist-get 'freshness envelope))
+                 (buffers (alist-get 'buffers freshness)))
+            (should (equal "unavailable" (alist-get 'status envelope)))
+            (should (= 1 (alist-get 'requested_files coverage)))
+            (should (= 0 (alist-get 'checked_files coverage)))
+            (should (= 1 (alist-get 'unavailable_files coverage)))
+            (should (eq :json-false (alist-get 'complete coverage)))
+            (should (stringp (alist-get 'observed_at freshness)))
+            (should (= 1 (length buffers)))
+            (should (equal "unavailable"
+                           (alist-get 'state (aref buffers 0))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-reports-incomplete-project-coverage ()
+  "A partially checked project must report incomplete coverage, not clean."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-incomplete-" t))
+         (checked-path (expand-file-name "checked.el" project-dir))
+         (unchecked-path (expand-file-name "unchecked.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-incomplete*"))
+         (ai-code-mcp-diagnostics-backend 'auto)
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-incomplete")
+         checked-buffer
+         unchecked-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file checked-path (insert "(message \"checked\")\n"))
+          (with-temp-file unchecked-path (insert "(message \"unchecked\")\n"))
+          (setq checked-buffer (find-file-noselect checked-path t)
+                unchecked-buffer (find-file-noselect unchecked-path t))
+          (with-current-buffer checked-buffer
+            (setq-local flymake-mode t))
+          (with-current-buffer unchecked-buffer
+            (setq-local flymake-mode nil)
+            (when (boundp 'flycheck-mode)
+              (setq-local flycheck-mode nil)))
+          (ai-code-mcp-register-session
+           "session-incomplete" project-dir session-buffer)
+          (ai-code-test-mcp--with-flymake-diagnostics nil
+            (let* ((envelope (ai-code-test-mcp--read-json
+                              (ai-code-mcp-get-diagnostics)))
+                   (coverage (alist-get 'coverage envelope)))
+              (should (equal "incomplete" (alist-get 'status envelope)))
+              (should (= 2 (alist-get 'requested_files coverage)))
+              (should (= 1 (alist-get 'checked_files coverage)))
+              (should (= 1 (alist-get 'unavailable_files coverage)))
+              (should (eq :json-false (alist-get 'complete coverage))))))
+      (when (buffer-live-p checked-buffer)
+        (kill-buffer checked-buffer))
+      (when (buffer-live-p unchecked-buffer)
+        (kill-buffer unchecked-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-diagnostics-baseline-rejects-incomplete-coverage ()
+  "An unavailable checker must not create a misleading empty baseline."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-baseline-unavailable-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (session-buffer
+          (generate-new-buffer " *ai-code-mcp-baseline-unavailable*"))
+         (ai-code-mcp-diagnostics-backend 'auto)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-baseline-unavailable")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(message \"alpha\")\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode nil)
+            (when (boundp 'flycheck-mode)
+              (setq-local flycheck-mode nil)))
+          (ai-code-mcp-register-session
+           "session-baseline-unavailable" project-dir session-buffer)
+          (let ((envelope (ai-code-test-mcp--read-json
+                           (ai-code-mcp-diagnostics-baseline))))
+            (should (equal "baseline_unavailable"
+                           (alist-get 'status envelope)))
+            (should-not (ai-code-mcp--diagnostics-baseline-recorded-p))))
       (when (buffer-live-p visited-buffer)
         (kill-buffer visited-buffer))
       (when (buffer-live-p session-buffer)

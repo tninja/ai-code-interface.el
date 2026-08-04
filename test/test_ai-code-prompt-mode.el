@@ -12,6 +12,7 @@
 (require 'ai-code-prompt-mode)
 (require 'ai-code-git)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 (require 'magit)
 (require 'cl-lib)
 
@@ -22,6 +23,44 @@
 (defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
 (defvar org-roam-directory)
+
+(ert-deftest ai-code-test-send-prompt-refreshes-mcp-source-before-terminal-io ()
+  "Sending a prompt should snapshot its source before terminal output."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (session-id "prompt-source-refresh")
+        (source-buffer (generate-new-buffer " *ai-code-prompt-source*"))
+        (agent-buffer (generate-new-buffer "*codex[prompt-source]*"))
+        snapshot-at-send)
+    (unwind-protect
+        (progn
+          (with-current-buffer source-buffer
+            (insert "first\nsecond\n")
+            (goto-char (point-min)))
+          (ai-code-mcp-register-session session-id "/tmp/" source-buffer)
+          (ai-code-mcp-attach-agent-buffer session-id agent-buffer)
+          (with-current-buffer agent-buffer
+            (setq-local ai-code-mcp-agent--session-id session-id))
+          (with-current-buffer source-buffer
+            (forward-line 1)
+            (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                       (lambda (&rest _args)
+                         (setq snapshot-at-send
+                               (plist-get
+                                (ai-code-mcp-get-session-context session-id)
+                                :source-snapshot))))
+                      ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                       #'ignore)
+                      ((symbol-function 'get-buffer-window)
+                       (lambda (&rest _args) nil))
+                      ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                       #'ignore)
+                      ((symbol-function 'sit-for) #'ignore))
+              (ai-code--send-prompt-to-session-buffer "Inspect this" agent-buffer)))
+          (should (eq source-buffer (plist-get snapshot-at-send :buffer)))
+          (should (= 2 (plist-get snapshot-at-send :line))))
+      (dolist (buffer (list source-buffer agent-buffer))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
 
 (ert-deftest ai-code-test-direct-command-p-accepts-single-token-command ()
   "A single-token slash command should use direct command routing."
