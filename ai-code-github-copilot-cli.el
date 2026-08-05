@@ -77,6 +77,7 @@ With prefix ARG, prompt for CLI args using
                   (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
              (list
               :command (plist-get mcp-launch :command)
+              :env-vars (plist-get mcp-launch :env-vars)
               :cleanup-fn (plist-get mcp-launch :cleanup-fn)
               :post-start-fn
               ;; Copilot redraws via alternate-screen sequences, so keep the
