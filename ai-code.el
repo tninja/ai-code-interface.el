@@ -277,9 +277,10 @@ whether to print a checkpoint after resuming.  Noninteractive callers
 normally omit it, which skips the prompt."
   (interactive (list current-prefix-arg t))
   (ai-code-cli-resume arg)
-  (when (and prompt-for-checkpoint
-             (y-or-n-p "Print AI session checkpoint? "))
-    (ai-code-session-checkpoint)))
+  ;; (when (and prompt-for-checkpoint
+  ;;            (y-or-n-p "Print AI session checkpoint? "))
+  ;;   (ai-code-session-checkpoint))
+  )
 
 (defun ai-code--emacs-runtime-debug-prompt (description eval-available-p
                                                        &optional region-text
@@ -592,7 +593,7 @@ Shows the current backend label to the right."
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
-  ;; ("P" "AI session checkpoint" ai-code-session-checkpoint)
+  ("P" "AI session checkpoint" ai-code-session-checkpoint)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))
