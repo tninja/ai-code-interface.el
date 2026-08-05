@@ -437,21 +437,25 @@ Use simple string matching first, then fall back to GPTel."
 (defun ai-code--gptel-classify-prompt-code-change (prompt-text)
   "Classify whether PROMPT-TEXT requests a code change using GPTel.
 Return one of: `code-change`, `non-code-change`, or `unknown`."
+  ;; TODO DONE: Make prompt code-change classification more strict.
   (let ((classification
          (condition-case err
              (if (require 'gptel nil t)
                  (let* ((raw-answer (ai-code-call-gptel-sync
                                      (concat "Classify whether this user prompt requests program code changes in a repository.\n"
                                              "Reply with exactly one token: CODE_CHANGE or NOT_CODE_CHANGE.\n"
+                                             "Focus only on the action explicitly requested; ignore code or files supplied as context.\n"
                                              "Return CODE_CHANGE only for changes to program code or test code.\n"
+                                             "Only return CODE_CHANGE when the prompt explicitly asks to create, modify, fix, refactor, or delete program code or test code.\n"
+                                             "Do not infer a code change merely because the prompt mentions or includes code, repository files, bugs, or implementation details.\n"
                                              "Treat documentation changes and any other non-program-code actions as NOT_CODE_CHANGE.\n"
                                              "Treat explain/summarize/discuss/review without editing as NOT_CODE_CHANGE.\n\n"
                                              "Prompt:\n" prompt-text)))
                         (answer (upcase (string-trim (or raw-answer "")))))
-                   (cond
-                    ((string-match-p "\\`CODE_CHANGE\\b" answer) 'code-change)
-                    ((string-match-p "\\`NOT_CODE_CHANGE\\b" answer) 'non-code-change)
-                    (t 'unknown)))
+                   (pcase answer
+                     ("CODE_CHANGE" 'code-change)
+                     ("NOT_CODE_CHANGE" 'non-code-change)
+                     (_ 'unknown)))
                'unknown)
            (error
             (message "GPTel prompt classification failed: %s" (error-message-string err))

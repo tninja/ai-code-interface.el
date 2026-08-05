@@ -1042,6 +1042,31 @@
         "Treat documentation changes and any other non-program-code actions as NOT_CODE_CHANGE\\."
         captured-prompt)))))
 
+(ert-deftest ai-code-test-gptel-classifier-requires-explicit-edit-intent-and-exact-token ()
+  "Test that GPTel classifies code changes only from explicit edit requests."
+  (let ((captured-prompt nil)
+        (original-require (symbol-function 'require)))
+    (cl-letf (((symbol-function 'require)
+               (lambda (feature &optional filename noerror)
+                 (if (eq feature 'gptel)
+                     t
+                   (funcall original-require feature filename noerror))))
+              ((symbol-function 'ai-code-call-gptel-sync)
+               (lambda (prompt)
+                 (setq captured-prompt prompt)
+                 "CODE_CHANGE because the prompt mentions code")))
+      (should (eq 'unknown
+                  (ai-code--gptel-classify-prompt-code-change
+                   "Explain @ai-code-harness.el.")))
+      (should
+       (string-match-p
+        "Only return CODE_CHANGE when the prompt explicitly asks to"
+        captured-prompt))
+      (should
+       (string-match-p
+        "Do not infer a code change merely because the prompt mentions or includes code"
+        captured-prompt)))))
+
 (ert-deftest ai-code-test-simple-classifier-reuses-shared-prompt-markers ()
   "Test that classifier markers reuse shared prompt-builder constants."
   (should (boundp 'ai-code-change--selected-region-note))
