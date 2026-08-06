@@ -1,0 +1,254 @@
+# Uncle Bob's AI Coding Style
+
+Use evidence-first development: surround the implementation with an executable
+specification and a gauntlet of constraints so confidence comes from auditable
+evidence instead of line-by-line review.
+
+The trust model has two primary artifacts: an executable specification approved
+before implementation, and an evidence report produced after real verification.
+The gauntlet proves only the constraints expressed by the specification, so be
+explicit about assumptions, invariants, skipped checks, and remaining risk.
+
+## Diagnostics-first constraint
+
+Before editing, record a diagnostics baseline by calling the
+`diagnostics_baseline` MCP tool. After each edit, call the `get_diagnostics` MCP
+tool with `since="baseline"` for every touched file. Do not finish until its
+status is `clean`, meaning no new diagnostics versus the baseline.
+
+## Required loop
+
+SPEC → (human approves spec, not code) → RED → GREEN → REFACTOR → GAUNTLET → EVIDENCE
+
+Repeat RED through REFACTOR for each behavior. Never weaken the gauntlet to make
+the implementation appear successful.
+
+### 1. SPEC
+
+Before changing implementation files, turn the request into executable
+acceptance criteria:
+
+- Describe concrete inputs, outputs, edge cases, and error cases as Gherkin
+  scenarios or a named test list.
+- Include negative constraints: existing behavior, public APIs, data integrity,
+  performance budgets, and anything else that must not change.
+- Include the setup plan: tools to install, files to add, git/checkpoint usage,
+  and every new dependency with a one-line justification.
+- Show the specification to the human and obtain approval before implementation.
+  In autonomous mode, proceed only if allowed, and record that approval was not
+  obtained so the final confidence claim is correspondingly weaker.
+- Treat the specification as append-only. If it is wrong, revise it visibly and
+  explain why; never let implementation silently redefine it.
+
+### 2. RED
+
+Write the smallest test for one approved behavior and run it before changing the
+implementation. Observe the expected assertion failure. A collection or import
+failure is weaker evidence; create a minimal stub when needed so the failure is
+about behavior. If the new test already passes, use a temporary mutant to prove
+the test can fail, restore the source, and record the behavior as pre-existing.
+
+### 3. GREEN
+
+Write the least implementation needed to pass the failing test, then run the
+full suite. Do not refactor or expand the feature during Green.
+
+### 4. REFACTOR
+
+With the suite green, improve naming, cohesion, duplication, and control flow
+without changing behavior. Implementation refactors must not edit tests.
+Test-structure refactors are a separate step: keep assertions unchanged, run
+the suite before and after, and rerun mutation checks. Any assertion change is a
+behavior change and returns to SPEC.
+
+### 5. GAUNTLET
+
+Run every applicable constraint layer. Scale the effort using Calibration, but
+never skip a layer silently.
+
+| Layer | Constraint |
+|---|---|
+| Full test suite | Zero new failures; record any pre-existing baseline failures verbatim. |
+| Static types | Zero new compiler or type-checker errors. |
+| Lint and format | Zero new warnings or formatting drift. |
+| Changed-line coverage | Every changed behavior-bearing line and branch is exercised; do not chase a global percentage. |
+| Mutation testing | Use a mutation tool or 3-5 scripted manual mutants; every non-equivalent mutant must be killed. |
+| Property tests | Add invariant-based tests for parsing, math, serialization, ordering, or round trips when applicable. |
+| Complexity budget | Keep new functions small, cohesive, and easy to explain. |
+| Real execution | Run the application, CLI, or endpoint once with realistic input. |
+| Supply chain and secrets | Audit dependency changes, licenses, secrets, and newly introduced capabilities. |
+| Suite health | Check determinism, randomized order where supported, and suspected flakes. |
+
+Mutation kills validate the suite as a whole unless a layer is run separately.
+Classify tool-generated equivalent mutants honestly. Hand-written mutants must
+represent real bugs and receive no equivalent-mutant exemption.
+
+### 6. EVIDENCE
+
+Finish with a reproducible report containing:
+
+- The approved specification and a scenario-to-test mapping.
+- Every gauntlet command and its actual numeric result from one fresh run after
+  the final edit.
+- A single persisted entry-point command that reruns every applicable layer,
+  with tool versions pinned or recorded.
+- The source state, using a commit SHA or a reproducible tree hash.
+- Every skipped layer and the reason.
+- Failures encountered and how they were resolved.
+- Remaining risks and limits, without claiming absolute proof.
+
+## Anti-gaming rules
+
+1. Never weaken, skip, broaden, or delete a test to make it pass.
+2. Never edit a test and its implementation in the same step on the path to
+   Green. Change one, run it, then change the other.
+3. Never mock the unit under test. Mock only true boundaries such as network,
+   clock, filesystem, or process execution.
+4. Never add vacuous tests merely to raise coverage.
+5. Never report a layer that was not run.
+6. A failing applicable gauntlet layer blocks completion. If blocked, report the
+   exact failure instead of weakening the constraint.
+
+## Calibration
+
+- Tier 1, trivial: full suite plus lint. Explain why a new test is unnecessary
+  or why existing coverage is sufficient.
+- Tier 2, normal feature or bug fix: the full SPEC, RED, GREEN, REFACTOR,
+  GAUNTLET, EVIDENCE loop. Bug fixes start with a regression test.
+- Tier 3, high stakes: first write a failure model for risks such as money,
+  authentication, data loss, concurrency, migrations, public API compatibility,
+  unbounded growth, or silent production failure. Add targeted stress, fuzz,
+  rollback, contract, observability, compatibility, or benchmark layers. Also
+  require property tests, mutation testing, and an adversarial pass.
+
+## Setup rules
+
+Prefer the repository's current tools. If essential tooling is missing, put its
+installation and every environment change in the approved SPEC. Prefer standard
+libraries and existing dependencies. Do not initialize git, install packages, or
+create checkpoint commits without authorization. If tooling is declined or
+unavailable, use the best manual layer and record the reduced confidence.
+
+# Gauntlet Tooling by Ecosystem
+
+Use project-native commands when they exist. The following are defaults only.
+
+## Python
+
+| Layer | Default |
+|---|---|
+| Tests | `pytest -q` |
+| Types | `mypy <pkg>` or pyright |
+| Lint and format | `ruff check .` and `ruff format --check .` |
+| Coverage | pytest-cov with branch coverage; use diff-cover when configured |
+| Mutation | mutmut scoped to changed modules |
+| Property tests | hypothesis |
+
+## JavaScript and TypeScript
+
+| Layer | Default |
+|---|---|
+| Tests | `npx vitest run` or `npx jest` |
+| Types | `npx tsc --noEmit` |
+| Lint | `npx eslint .` |
+| Coverage | Vitest or Jest coverage, checked against changed lines |
+| Mutation | Stryker scoped to changed files |
+| Property tests | fast-check |
+
+## Go
+
+| Layer | Default |
+|---|---|
+| Tests | `go test ./... -race` |
+| Types and build | `go build ./...` |
+| Lint | `go vet ./...` and staticcheck |
+| Coverage | `go test -coverprofile=c.out ./...` then `go tool cover -func=c.out` |
+| Mutation | scripted manual mutation |
+| Property tests | testing/quick or rapid |
+
+## Rust
+
+| Layer | Default |
+|---|---|
+| Tests | `cargo test` |
+| Types | `cargo check` |
+| Lint | `cargo clippy -- -D warnings` |
+| Coverage | cargo-llvm-cov with branch coverage |
+| Mutation | cargo-mutants scoped to changed files |
+| Property tests | proptest |
+
+## Extended layer menu
+
+Select additional layers from the failure model:
+
+- Dependency and license audit whenever dependencies change.
+- Secret scan and a manual capability diff for new network, subprocess,
+  filesystem, or environment access.
+- Randomized test order and repeated runs for suite-health concerns.
+- API compatibility checks when a public API changes.
+- Race detectors and stress tests for concurrency.
+- Benchmarks only when the SPEC states a measurable performance budget.
+- Accessibility, screenshot, and browser checks for user-facing UI.
+- Version-matrix checks when the project claims multiple supported versions.
+- Log or metric assertions when silent production failure is a risk.
+
+## Manual mutation procedure
+
+When no mutation tool is available, persist a repository script that saves the
+original source, applies one plausible bug at a time, runs the relevant suite,
+and restores the source. Use 3-5 mutants such as a flipped comparison, off-by-one
+bound, removed branch, swapped boolean operator, or constant return. Every mutant
+must fail at least one test. Verify restoration with the final diff and suite,
+then report `manual mutation: N/N killed`.
+
+## Reproducible gauntlet entry point
+
+Persist one command that removes stale artifacts, runs every applicable layer in
+sequence, and fails on the first broken layer. Pin or record development-tool
+versions. The final evidence numbers must come from one fresh execution of this
+entry point after the last edit.
+
+## Executable specification template
+
+```gherkin
+Feature: <capability in user language>
+  Scenario: <one concrete behavior>
+    Given <concrete starting state>
+    When  <concrete action with concrete input>
+    Then  <concrete observable outcome>
+
+  Scenario: <error or invariant case>
+    Given <concrete starting state>
+    When  <invalid, hostile, or boundary input>
+    Then  <exact error and state that must not change>
+```
+
+## Evidence report template
+
+```markdown
+## Evidence Report — <task name> (Tier <1|2|3>)
+
+- Spec approval: <obtained | not obtained, confidence downgraded>
+- Source state: <commit SHA | reproducible tree hash>
+- Toolchain: <versions file or recorded versions>
+- Entry point: <one command that reruns the gauntlet>
+
+### Spec to test mapping
+| Scenario or invariant | Test or layer | Status |
+|---|---|---|
+| <behavior> | <test name> | pass, fail, unverified, or n-a |
+
+### Fresh gauntlet results
+| Layer | Command | Numeric result |
+|---|---|---|
+| Tests | <command> | <passed and failed counts> |
+| Types | <command> | <error count> |
+| Lint | <command> | <warning count> |
+| Changed-line coverage | <command> | <covered/total> |
+| Mutation | <command> | <killed/total> |
+| Real execution | <command> | <observed result> |
+
+### Skipped layers and honest notes
+- <layer>: <reason>
+- <failures, fixes, and remaining risks>
+```

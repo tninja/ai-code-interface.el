@@ -177,18 +177,20 @@ When INLINE is non-nil, use the inline-formatted diagnostics instruction."
     (_ (ai-code--auto-test-inline-suffix-for-type type))))
 
 (defun ai-code--ensure-auto-test-harness-file (type)
-  "Write and return the package prompt file path for auto test TYPE."
-  (when-let ((content (ai-code--auto-test-harness-text-for-type type)))
-    (let* ((directory (ai-code--ensure-auto-test-harness-prompt-directory))
-           (file-path (expand-file-name
-                       (ai-code--auto-test-harness-file-name type)
-                       directory)))
-      (unless (file-exists-p file-path)
+  "Return the package prompt file for TYPE, generating it when needed."
+  (let* ((directory (ai-code--auto-test-harness-directory))
+         (file-path (expand-file-name
+                     (ai-code--auto-test-harness-file-name type)
+                     directory)))
+    (if (file-exists-p file-path)
+        file-path
+      (when-let ((content (ai-code--auto-test-harness-text-for-type type)))
+        (ai-code--ensure-auto-test-harness-prompt-directory)
         (with-temp-file file-path
           (insert content)
           (unless (bolp)
-            (insert "\n"))))
-      file-path)))
+            (insert "\n")))
+        file-path))))
 
 (defun ai-code--auto-test-harness-reference-suffix (type)
   "Return a short suffix that references the package prompt file for TYPE.
@@ -208,7 +210,8 @@ If the harness file cannot be prepared, fall back to the inline suffix."
 (defun ai-code--auto-test-suffix-for-type (type)
   "Return prompt suffix for auto test TYPE."
   (pcase type
-    ((or 'test-after-change 'tdd 'tdd-with-refactoring)
+    ((or 'test-after-change 'tdd 'tdd-with-refactoring
+         'uncle-bob-ai-coding-style)
      (ai-code--auto-test-harness-reference-suffix type))
     ('no-test "Do not write or run any test.")
     (_ nil)))
@@ -327,11 +330,16 @@ See the later `defcustom' for user-facing documentation and default.")
   "Forward declaration for `ai-code-discussion-auto-follow-up-on-code-change'.
 See the later `defcustom' for user-facing documentation and default.")
 
+;; TODO DONE: Given skills inside /home/tninja/git/old-coder/skills/old-coder
+;; (both SKILL.md and gauntlet.md), append a new choice: Uncle Bob's AI coding
+;; style, to integrate that skill into the auto-test harness without depend on
+;; that repo.
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("Do not write or run tests" . no-test)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
-    ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring))
+    ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
+    ("Uncle Bob's AI coding style" . uncle-bob-ai-coding-style))
   "Resolve auto test suffix choices for `ask-me` mode.")
 
 (defconst ai-code--auto-test-type-persistent-choices
