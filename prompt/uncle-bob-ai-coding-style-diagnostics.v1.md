@@ -155,6 +155,17 @@ Use project-native commands when they exist. The following are defaults only.
 | Mutation | Stryker scoped to changed files |
 | Property tests | fast-check |
 
+## Java
+
+| Layer | Default |
+|---|---|
+| Tests | `mvn test` or `./gradlew test` |
+| Types and build | `mvn -DskipTests compile` or `./gradlew classes` |
+| Lint and static analysis | Checkstyle, SpotBugs, or Error Prone, as configured |
+| Coverage | JaCoCo with changed-line and branch coverage review |
+| Mutation | PIT scoped to changed packages or classes |
+| Property tests | jqwik or QuickTheories |
+
 ## Go
 
 | Layer | Default |
@@ -176,6 +187,17 @@ Use project-native commands when they exist. The following are defaults only.
 | Coverage | cargo-llvm-cov with branch coverage |
 | Mutation | cargo-mutants scoped to changed files |
 | Property tests | proptest |
+
+## Emacs Lisp
+
+| Layer | Default |
+|---|---|
+| Tests | ERT through the project's batch test command |
+| Byte compilation | `emacs -Q --batch -L . -f batch-byte-compile *.el`; allow no new warnings |
+| Lint and documentation | checkdoc and package-lint, as configured |
+| Coverage | Undercover when configured; otherwise verify changed behavior with focused ERT and mutation |
+| Mutation | Scripted manual mutation scoped to changed forms |
+| Property tests | Deterministic generated ERT cases or the project's property library |
 
 ## Extended layer menu
 
