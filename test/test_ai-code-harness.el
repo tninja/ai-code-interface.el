@@ -1136,17 +1136,17 @@
   (should-not (assoc "Test driven development, follow up with refactoring"
                      ai-code--auto-test-type-ask-choices)))
 
-(ert-deftest ai-code-test-auto-test-type-ask-choices-include-uncle-bob-style ()
-  "Test that ask-me offers Uncle Bob's AI coding style."
-  (should (eq 'uncle-bob-ai-coding-style
-              (cdr (assoc "Uncle Bob's AI coding style"
+(ert-deftest ai-code-test-auto-test-type-ask-choices-include-uncle-bob-harness ()
+  "Test that ask-me offers Uncle Bob's coding agent harness."
+  (should (eq 'uncle-bob-coding-agent-harness
+              (cdr (assoc "Uncle Bob's coding agent harness"
                           ai-code--auto-test-type-ask-choices)))))
 
-(ert-deftest ai-code-test-uncle-bob-style-uses-self-contained-local-harness ()
-  "Test that Uncle Bob style uses bundled normal and diagnostics harnesses."
-  (dolist (case '((gemini nil "uncle-bob-ai-coding-style.v1.md" nil)
+(ert-deftest ai-code-test-uncle-bob-harness-uses-self-contained-local-prompts ()
+  "Test that Uncle Bob harness uses bundled normal and diagnostics prompts."
+  (dolist (case '((gemini nil "uncle-bob-coding-agent-harness.v1.md" nil)
                   (codex (codex)
-                         "uncle-bob-ai-coding-style-diagnostics.v1.md"
+                         "uncle-bob-coding-agent-harness-diagnostics.v1.md"
                          t)))
     (let* ((ai-code-selected-backend (nth 0 case))
            (ai-code-mcp-agent-enabled-backends (nth 1 case))
@@ -1156,14 +1156,14 @@
                        file-name
                        (ai-code--auto-test-harness-directory)))
            (suffix (ai-code--auto-test-suffix-for-type
-                    'uncle-bob-ai-coding-style)))
+                    'uncle-bob-coding-agent-harness)))
       (should (file-readable-p file-path))
       (should (string-match-p "Read the local harness file: @" suffix))
       (should (string-match-p (regexp-quote file-name) suffix))
       (with-temp-buffer
         (insert-file-contents file-path)
         (let ((content (buffer-string)))
-          (should (string-match-p "Uncle Bob's AI Coding Style" content))
+          (should (string-match-p "Uncle Bob's Coding Agent Harness" content))
           (should (string-match-p "SPEC.*RED.*GREEN.*REFACTOR.*GAUNTLET.*EVIDENCE"
                                   content))
           (should (string-match-p "Gauntlet Tooling by Ecosystem" content))

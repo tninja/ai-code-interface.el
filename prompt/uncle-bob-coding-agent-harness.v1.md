@@ -1,4 +1,4 @@
-# Uncle Bob's AI Coding Style
+# Uncle Bob's Coding Agent Harness
 
 Use evidence-first development: surround the implementation with an executable
 specification and a gauntlet of constraints so confidence comes from auditable
@@ -8,13 +8,6 @@ The trust model has two primary artifacts: an executable specification approved
 before implementation, and an evidence report produced after real verification.
 The gauntlet proves only the constraints expressed by the specification, so be
 explicit about assumptions, invariants, skipped checks, and remaining risk.
-
-## Diagnostics-first constraint
-
-Before editing, record a diagnostics baseline by calling the
-`diagnostics_baseline` MCP tool. After each edit, call the `get_diagnostics` MCP
-tool with `since="baseline"` for every touched file. Do not finish until its
-status is `clean`, meaning no new diagnostics versus the baseline.
 
 ## Required loop
 

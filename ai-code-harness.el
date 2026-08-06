@@ -211,7 +211,7 @@ If the harness file cannot be prepared, fall back to the inline suffix."
   "Return prompt suffix for auto test TYPE."
   (pcase type
     ((or 'test-after-change 'tdd 'tdd-with-refactoring
-         'uncle-bob-ai-coding-style)
+         'uncle-bob-coding-agent-harness)
      (ai-code--auto-test-harness-reference-suffix type))
     ('no-test "Do not write or run any test.")
     (_ nil)))
@@ -330,16 +330,12 @@ See the later `defcustom' for user-facing documentation and default.")
   "Forward declaration for `ai-code-discussion-auto-follow-up-on-code-change'.
 See the later `defcustom' for user-facing documentation and default.")
 
-;; TODO DONE: Given skills inside /home/tninja/git/old-coder/skills/old-coder
-;; (both SKILL.md and gauntlet.md), append a new choice: Uncle Bob's AI coding
-;; style, to integrate that skill into the auto-test harness without depend on
-;; that repo.
 (defconst ai-code--auto-test-type-ask-choices
   '(("Run tests after code change" . test-after-change)
     ("Do not write or run tests" . no-test)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
     ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
-    ("Uncle Bob's AI coding style" . uncle-bob-ai-coding-style))
+    ("Uncle Bob's coding agent harness" . uncle-bob-coding-agent-harness))
   "Resolve auto test suffix choices for `ask-me` mode.")
 
 (defconst ai-code--auto-test-type-persistent-choices
@@ -445,7 +441,6 @@ Use simple string matching first, then fall back to GPTel."
 (defun ai-code--gptel-classify-prompt-code-change (prompt-text)
   "Classify whether PROMPT-TEXT requests a code change using GPTel.
 Return one of: `code-change`, `non-code-change`, or `unknown`."
-  ;; TODO DONE: Make prompt code-change classification more strict.
   (let ((classification
          (condition-case err
              (if (require 'gptel nil t)
