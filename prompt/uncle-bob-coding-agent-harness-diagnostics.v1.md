@@ -74,6 +74,8 @@ never skip a layer silently.
 | Changed-line coverage | Every changed behavior-bearing line and branch is exercised; do not chase a global percentage. |
 | Mutation testing | Use a mutation tool or 3-5 scripted manual mutants; every non-equivalent mutant must be killed. |
 | Property tests | Add invariant-based tests for parsing, math, serialization, ordering, or round trips when applicable. |
+| Dependency boundaries | Run existing architecture or module-dependency rules; new files and imports must respect declared boundaries. |
+| Semantic modularity review | For non-trivial cross-file changes, inspect changed files and their neighbors for semantic duplication, misplaced responsibilities, inconsistent patterns, unexpected dependencies, and excessive change radius. |
 | Complexity budget | Keep new functions small, cohesive, and easy to explain. |
 | Real execution | Run the application, CLI, or endpoint once with realistic input. |
 | Supply chain and secrets | Audit dependency changes, licenses, secrets, and newly introduced capabilities. |
@@ -83,6 +85,49 @@ Mutation kills validate the suite as a whole unless a layer is run separately.
 Classify tool-generated equivalent mutants honestly. Hand-written mutants must
 represent real bugs and receive no equivalent-mutant exemption.
 
+#### Maintainability sensors
+
+Computational sensors are strongest at file- and function-level constraints.
+Cross-file modularity is more contextual, so use an inferential review rather
+than treating raw coupling or complexity numbers as verdicts.
+
+For Tier 2 work that changes multiple files, and for all Tier 3 work, perform a
+semantic modularity review of the final diff plus enough neighboring code to
+judge the design in context. Look specifically for:
+
+- Semantic duplication: repeated concepts or behavior that would require the
+  same future change in multiple places, even when the code is not textually
+  identical.
+- Responsibility placement: behavior living in a surprising layer, factory,
+  adapter, UI component, or utility where future maintainers may not look for it.
+- Consistency: a new path reimplementing an existing pattern instead of reusing
+  the established abstraction or protocol.
+- Dependency direction: imports, calls, or new files that bypass or blur existing
+  architectural boundaries.
+- Change radius: a small requirement forcing edits across many files or layers,
+  indicating that a concept may be distributed too broadly.
+
+When the repository already has dependency rules or architecture checks, run
+them and preserve their constraints. Treat coupling metrics as risk-triage
+signals, not automatic proof of bad design; legitimate hubs and contracts may
+be appropriate. Record justified exceptions instead of repeatedly flagging them.
+
+Watch for sensor conflicts. A change that satisfies one local metric can make
+another design dimension worse, such as splitting functions until data or
+properties must be threaded through many layers. Prefer the smallest refactoring
+that improves the actual design risk, and report important trade-offs instead of
+optimizing mechanically for a metric.
+
+#### Final sensor gate
+
+Do not rely on checks that happened earlier in the session. Immediately before
+EVIDENCE, check every applicable sensor against the final source state. If the
+repository provides a watch-mode, sidecar, sensor-status command, or persisted
+snapshot, use its final status rather than bypassing it with ad-hoc direct runs.
+Record whether each sensor is clean, worse than baseline, unchanged, skipped, or
+unavailable. Any applicable failing sensor blocks completion unless the human
+explicitly accepts the risk.
+
 ### 6. EVIDENCE
 
 Finish with a reproducible report containing:
@@ -90,6 +135,10 @@ Finish with a reproducible report containing:
 - The approved specification and a scenario-to-test mapping.
 - Every gauntlet command and its actual numeric result from one fresh run after
   the final edit.
+- The final sensor status for every available computational sensor, including
+  baseline or trend information when the repository exposes it.
+- A short semantic modularity review for applicable Tier 2 and Tier 3 changes,
+  including findings, justified exceptions, and important trade-offs.
 - A single persisted entry-point command that reruns every applicable layer,
   with tool versions pinned or recorded.
 - The source state, using a commit SHA or a reproducible tree hash.
@@ -105,21 +154,27 @@ Finish with a reproducible report containing:
 3. Never mock the unit under test. Mock only true boundaries such as network,
    clock, filesystem, or process execution.
 4. Never add vacuous tests merely to raise coverage.
-5. Never report a layer that was not run.
+5. Never report a layer or sensor that was not run or checked.
 6. A failing applicable gauntlet layer blocks completion. If blocked, report the
    exact failure instead of weakening the constraint.
+7. Never refactor solely to satisfy a metric when the refactoring increases
+   coupling, indirection, or change radius elsewhere.
 
 ## Calibration
 
 - Tier 1, trivial: full suite plus lint. Explain why a new test is unnecessary
   or why existing coverage is sufficient.
 - Tier 2, normal feature or bug fix: the full SPEC, RED, GREEN, REFACTOR,
-  GAUNTLET, EVIDENCE loop. Bug fixes start with a regression test.
+  GAUNTLET, EVIDENCE loop. Bug fixes start with a regression test. Add semantic
+  modularity review when the change crosses files or module boundaries.
 - Tier 3, high stakes: first write a failure model for risks such as money,
   authentication, data loss, concurrency, migrations, public API compatibility,
   unbounded growth, or silent production failure. Add targeted stress, fuzz,
   rollback, contract, observability, compatibility, or benchmark layers. Also
-  require property tests, mutation testing, and an adversarial pass.
+  require property tests, mutation testing, an adversarial pass, and a semantic
+  modularity review. When architecture risk is material, perform a second
+  independent modularity pass before completion because inferential reviews can
+  surface different issues on separate runs.
 
 ## Setup rules
 
@@ -206,6 +261,8 @@ Select additional layers from the failure model:
 - Dependency and license audit whenever dependencies change.
 - Secret scan and a manual capability diff for new network, subprocess,
   filesystem, or environment access.
+- Repository-native dependency-boundary rules for cross-module changes; prefer
+  existing rules over inventing a new architecture during implementation.
 - Randomized test order and repeated runs for suite-health concerns.
 - API compatibility checks when a public API changes.
 - Race detectors and stress tests for concurrency.
@@ -269,6 +326,18 @@ Feature: <capability in user language>
 | Changed-line coverage | <command> | <covered/total> |
 | Mutation | <command> | <killed/total> |
 | Real execution | <command> | <observed result> |
+
+### Sensor status
+| Sensor | Final status | Baseline or trend | Notes |
+|---|---|---|---|
+| <sensor> | <clean/fail/skipped/unavailable> | <same/worse/better/n-a> | <evidence> |
+
+### Maintainability review
+- Semantic duplication: <none found | findings>
+- Responsibility placement: <none found | findings>
+- Dependency direction: <preserved | findings>
+- Change radius and consistency: <acceptable | findings>
+- Sensor trade-offs or justified exceptions: <none | notes>
 
 ### Skipped layers and honest notes
 - <layer>: <reason>
