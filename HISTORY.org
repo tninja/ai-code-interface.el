@@ -2,7 +2,15 @@
 * Release history
 
 ** Main branch change
-- Confirm before canceling a nonblank editor viewport and refocus its source
+
+** 1.92
+- fix for agent-shell new api, by baohaojun
+- Feat: Add Uncle Bob's coding agent harness
+- Tighten GPTel code-change prompt classification
+- Harden and modernize Emacs MCP integration
+- Simplify agile development menu actions
+- Confirm prompt sending after starting a missing session
+- Confirm before canceling a nonblank editor viewport and refocus its source, by cxa
 
 ** 1.91
 - Add Grill support to some github related tool and scoped context copying, re-organize menu

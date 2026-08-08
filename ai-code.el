@@ -7,7 +7,7 @@
 ;; - ClaudeCode:Opus-4.8
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
-;; Version: 1.91
+;; Version: 1.92
 ;; Package-Requires: ((emacs "29.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
