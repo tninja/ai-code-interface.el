@@ -374,7 +374,7 @@ Harness engineering is about building a reliable loop around the model, so the A
 
 Instead of manually telling the AI what to do after every code change or discussion turn, you can make follow-up part of the workflow:
 
-- `ai-code-auto-test-type`: choose how code-change prompts should continue after the edit. You can ask the AI to run tests after the change, use TDD Red+Green, use Red+Green+Blue with refactoring, turn it off, or decide case by case with `ask-me`.
+- `ai-code-auto-test-type`: choose how code-change prompts should continue after the edit. You can ask the AI to run tests after the change, use TDD Red+Green, use Red+Green+Blue with refactoring, turn it off, or decide case by case with `ask-me`. The =ask-me= choices also include Uncle Bob's coding agent harness and harness+; the original keeps the evidence-first gauntlet, while harness+ adds maintainability sensors and semantic modularity checks.
 - `ai-code-discussion-auto-follow-up-enabled`: when non-nil, discussion-style prompts can offer a send-time choice to append 2-3 numbered candidate next steps. You can customize this variable directly or toggle it from the transient menu with `C-c a F`.
 - `ai-code-next-step-suggestion-suffix`: customize the exact instruction appended for those numbered next-step suggestions.
 - `ai-code-use-gptel-classify-prompt`: when paired with the settings above, GPTel can classify prompts so code-change prompts skip discussion follow-up suggestions and discussion prompts skip test follow-up.

@@ -1136,27 +1136,38 @@
   (should-not (assoc "Test driven development, follow up with refactoring"
                      ai-code--auto-test-type-ask-choices)))
 
-(ert-deftest ai-code-test-auto-test-type-ask-choices-include-uncle-bob-harness ()
-  "Test that ask-me offers Uncle Bob's coding agent harness."
-  (should (eq 'uncle-bob-coding-agent-harness
-              (cdr (assoc "Uncle Bob's coding agent harness"
-                          ai-code--auto-test-type-ask-choices)))))
+(ert-deftest ai-code-test-auto-test-type-ask-choices-include-uncle-bob-harnesses ()
+  "Test that ask-me offers both Uncle Bob coding agent harnesses."
+  (dolist (choice '(("Uncle Bob's coding agent harness"
+                     . uncle-bob-coding-agent-harness)
+                    ("Uncle Bob's coding agent harness+"
+                     . uncle-bob-coding-agent-harness-plus)))
+    (should (eq (cdr choice)
+                (cdr (assoc (car choice)
+                            ai-code--auto-test-type-ask-choices))))))
 
 (ert-deftest ai-code-test-uncle-bob-harness-uses-self-contained-local-prompts ()
-  "Test that Uncle Bob harness uses bundled normal and diagnostics prompts."
-  (dolist (case '((gemini nil "uncle-bob-coding-agent-harness.v1.md" nil)
-                  (codex (codex)
+  "Test that both Uncle Bob harnesses use their bundled prompt variants."
+  (dolist (case '((gemini nil uncle-bob-coding-agent-harness
+                         "uncle-bob-coding-agent-harness.v1.md" nil nil)
+                  (codex (codex) uncle-bob-coding-agent-harness
                          "uncle-bob-coding-agent-harness-diagnostics.v1.md"
-                         t)))
+                         t nil)
+                  (gemini nil uncle-bob-coding-agent-harness-plus
+                          "uncle-bob-coding-agent-harness-plus.v1.md" nil t)
+                  (codex (codex) uncle-bob-coding-agent-harness-plus
+                         "uncle-bob-coding-agent-harness-plus-diagnostics.v1.md"
+                         t t)))
     (let* ((ai-code-selected-backend (nth 0 case))
            (ai-code-mcp-agent-enabled-backends (nth 1 case))
-           (file-name (nth 2 case))
-           (diagnostics-p (nth 3 case))
+           (type (nth 2 case))
+           (file-name (nth 3 case))
+           (diagnostics-p (nth 4 case))
+           (maintainability-sensors-p (nth 5 case))
            (file-path (expand-file-name
                        file-name
                        (ai-code--auto-test-harness-directory)))
-           (suffix (ai-code--auto-test-suffix-for-type
-                    'uncle-bob-coding-agent-harness)))
+           (suffix (ai-code--auto-test-suffix-for-type type)))
       (should (file-readable-p file-path))
       (should (string-match-p "Read the local harness file: @" suffix))
       (should (string-match-p (regexp-quote file-name) suffix))
@@ -1171,7 +1182,10 @@
           (should-not (string-match-p "references/gauntlet\\.md" content))
           (if diagnostics-p
               (should (string-match-p "diagnostics_baseline" content))
-            (should-not (string-match-p "diagnostics_baseline" content))))))))
+            (should-not (string-match-p "diagnostics_baseline" content)))
+          (if maintainability-sensors-p
+              (should (string-match-p "Maintainability sensors" content))
+            (should-not (string-match-p "Maintainability sensors" content))))))))
 
 (ert-deftest ai-code-test-auto-test-type-custom-options-are-ask-or-off ()
   "Test that persistent auto test type choices only expose ask-me and off."
