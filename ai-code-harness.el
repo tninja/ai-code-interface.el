@@ -335,7 +335,7 @@ See the later `defcustom' for user-facing documentation and default.")
     ("Do not write or run tests" . no-test)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
     ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
-    ("Uncle Bob's coding agent harness" . uncle-bob-coding-agent-harness))
+    ("Uncle Bob's coding agent harness+" . uncle-bob-coding-agent-harness))
   "Resolve auto test suffix choices for `ask-me` mode.")
 
 (defconst ai-code--auto-test-type-persistent-choices
