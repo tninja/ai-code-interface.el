@@ -663,7 +663,7 @@ ARG controls whether clipboard context is included."
      (org-todo-section-info
       "Keep the Org headline in place and keep changes scoped to the requested implementation.")
      ((or region-text is-comment)
-      "Keep the TODO comment in place and ensure it is marked DONE after implementation; avoid unrelated cleanup.")
+      "Keep the TODO comment in place and replace TODO as DONE after implementation; avoid unrelated cleanup.")
      (t ai-code-change--brief-default-boundaries))))
 
 (defun ai-code--implement-todo--final-prompt (prompt context action-intent)
