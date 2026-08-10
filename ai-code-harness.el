@@ -211,7 +211,8 @@ If the harness file cannot be prepared, fall back to the inline suffix."
   "Return prompt suffix for auto test TYPE."
   (pcase type
     ((or 'test-after-change 'tdd 'tdd-with-refactoring
-         'uncle-bob-coding-agent-harness)
+         'uncle-bob-coding-agent-harness
+         'uncle-bob-coding-agent-harness-plus)
      (ai-code--auto-test-harness-reference-suffix type))
     ('no-test "Do not write or run any test.")
     (_ nil)))
@@ -335,7 +336,9 @@ See the later `defcustom' for user-facing documentation and default.")
     ("Do not write or run tests" . no-test)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
     ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
-    ("Uncle Bob's coding agent harness" . uncle-bob-coding-agent-harness))
+    ("Uncle Bob's coding agent harness" . uncle-bob-coding-agent-harness)
+    ("Uncle Bob's coding agent harness+"
+     . uncle-bob-coding-agent-harness-plus))
   "Resolve auto test suffix choices for `ask-me` mode.")
 
 (defconst ai-code--auto-test-type-persistent-choices
