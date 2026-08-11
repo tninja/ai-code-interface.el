@@ -2,7 +2,8 @@
 * Release history
 
 ** Main branch change
-- Feat: add Muse Code CLI backend support
+- Feat: Add Muse Code CLI backend support
+- Feat: Add maintainability sensors to Uncle Bob coding harness as plus version
 
 ** 1.92
 - fix for agent-shell new api, by baohaojun
