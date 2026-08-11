@@ -77,7 +77,9 @@ Argument ARG is passed to the start command."
   (interactive "P")
   (let ((ai-code-muse-cli-program-switches
          (append ai-code-muse-cli-program-switches '("resume"))))
-    (ai-code-muse-cli arg)))
+    (ai-code-muse-cli arg)
+    (ai-code-backends-infra--cli-show-resume-picker
+     ai-code-muse-cli--session-prefix)))
 
 (provide 'ai-code-muse-cli)
 
