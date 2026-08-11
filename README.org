@@ -13,6 +13,7 @@ An Emacs interface for AI-assisted software development. *The purpose is to prov
   - [[https://github.com/openai/codex][OpenAI Codex]]
   - [[https://pi.dev/][Pi]]
   - [[https://antigravity.google/product/antigravity-cli][Antigravity CLI]]
+  - [[https://developer.meta.com/ai/products/muse-code][Muse Code]]
   - [[https://opencode.ai/][Opencode]]
   - [[https://github.com/anthropics/claude-code][Claude Code]]
   - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]]
@@ -466,6 +467,7 @@ To transfer development work between different AI coding backends (e.g., from Co
    - [[https://github.com/openai/codex][OpenAI codex CLI]] (`[[./ai-code-codex-cli.el][ai-code-codex-cli.el]]`)
    - [[https://pi.dev/][Pi]] (`[[./ai-code-pi.el][ai-code-pi.el]]`)
    - [[https://antigravity.google/product/antigravity-cli][Antigravity CLI]] (`[[./ai-code-antigravity-cli.el][ai-code-antigravity-cli.el]]`)
+   - [[https://developer.meta.com/ai/products/muse-code][Muse Code]] (`[[./ai-code-muse-cli.el][ai-code-muse-cli.el]]`)
    - [[https://opencode.ai/][Opencode]] (`[[./ai-code-opencode.el][ai-code-opencode.el]]`)
    - [[https://github.com/anthropics/claude-code][Claude Code]] (`[[./ai-code-claude-code.el][ai-code-claude-code.el]]`)
      - Binds =Shift+Enter=/=Ctrl+Enter= inside Claude sessions to send Claude's
@@ -538,6 +540,16 @@ To transfer development work between different AI coding backends (e.g., from Co
      point at a different binary or pass additional flags. After that, select the backend through
      `ai-code-select-backend` or bind a helper in your config.
      The resume command adds =--continue= automatically.
+
+**** Muse Code setup
+     Install Muse Code on macOS or Linux with:
+     =curl -fsSL https://dev.meta.ai/install.sh | bash=
+     Review the script before piping it to your shell, then ensure the =muse=
+     executable is available to Emacs through =PATH= and =exec-path=.
+     Customize =ai-code-muse-cli-program= or
+     =ai-code-muse-cli-program-switches= to use a different executable or pass
+     additional startup flags. Select the backend with =ai-code-select-backend=.
+     The resume command runs =muse resume=.
 
 **** Open Interpreter CLI setup
      [[https://github.com/openinterpreter/openinterpreter][Open Interpreter CLI]] is treated as a Codex-compatible CLI. It can be installed with:

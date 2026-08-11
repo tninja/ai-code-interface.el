@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: add Muse Code CLI backend support
 
 ** 1.92
 - fix for agent-shell new api, by baohaojun

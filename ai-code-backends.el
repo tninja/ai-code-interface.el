@@ -273,6 +273,19 @@ so the CLI itself handles the installation details."
      :upgrade "agy update"
      :install-skills nil
      :cli     "agy")
+    (muse
+     :label "Muse Code"
+     :require ai-code-muse-cli
+     :start   ai-code-muse-cli
+     :switch  ai-code-muse-cli-switch-to-buffer
+     :send    ai-code-muse-cli-send-command
+     :resume  ai-code-muse-cli-resume
+     :config  nil
+     :agent-file nil
+     :install "curl -fsSL https://dev.meta.ai/install.sh | bash"
+     :upgrade nil
+     :install-skills nil
+     :cli     "muse")
     (github-copilot-cli
      :label "GitHub Copilot CLI"
      :require ai-code-github-copilot-cli

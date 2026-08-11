@@ -2246,6 +2246,7 @@ Call this when completely disabling ai-code-behaviors."
     (github-copilot-cli . "copilot")
     (codex . "codex")
     (pi . "pi")
+    (muse . "muse")
     (cursor . "cursor")
     (aider . "aider")
     (grok . "grok")
