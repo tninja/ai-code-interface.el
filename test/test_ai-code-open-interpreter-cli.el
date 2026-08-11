@@ -147,7 +147,8 @@
           (with-current-buffer session-buffer
             (let ((status (ai-code-mcp-agent-buffer-status)))
               (should (eq 'open-interpreter (plist-get status :backend)))
-              (should (equal "http://127.0.0.1:8765/mcp"
+              (should (equal (format "http://127.0.0.1:8765/mcp/%s"
+                                     (car registered))
                              (plist-get status :server-url)))))
           (funcall captured-cleanup-fn)
           (should (equal (car registered) unregistered)))

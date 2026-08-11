@@ -34,7 +34,7 @@
             (setq-local default-directory project-dir)
             (setq launch
                   (ai-code-mcp-agent-prepare-launch
-                   'codex project-dir '("codex")))
+                   'codex project-dir '("codex"))))
           (let* ((session-id (plist-get launch :mcp-session-id))
                  (context (and session-id
                                (ai-code-mcp-get-session-context session-id))))
@@ -139,7 +139,7 @@
                                        (alist-get 'mcpServers config))))
                          (should flag)
                          (should (equal
-                                  "******"
+                                  "Bearer ${AI_CODE_MCP_BEARER_TOKEN}"
                                   (alist-get 'Authorization
                                              (alist-get 'headers server))))))
                       ('claude-code
@@ -154,9 +154,9 @@
                                        (alist-get 'mcpServers config))))
                          (should flag)
                          (should (equal
-                                  "******"
+                                  "Bearer ${AI_CODE_MCP_BEARER_TOKEN}"
                                   (alist-get 'Authorization
-                                             (alist-get 'headers server))))))
+                                             (alist-get 'headers server)))))))
                     (should (string-prefix-p "http://127.0.0.1:8765/mcp"
                                              (plist-get launch :mcp-server-url))))
                 (funcall (plist-get launch :cleanup-fn))))))
@@ -252,7 +252,7 @@
                 "--banner"
                 "value with spaces"
                 "--additional-mcp-config"
-                "{\"mcpServers\":{\"emacs_tools\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:8765/mcp/github-copilot-cli-20260730223000-42\"}}}")))
+                "{\"mcpServers\":{\"emacs_tools\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:8765/mcp/github-copilot-cli-20260730223000-42\",\"headers\":{\"Authorization\":\"Bearer ${AI_CODE_MCP_BEARER_TOKEN}\"},\"tools\":[\"*\"]}}}")))
           (funcall (plist-get launch :cleanup-fn)))))))
 
 (ert-deftest ai-code-test-mcp-agent-codex-launch-preserves-config-override-argument ()
@@ -279,7 +279,7 @@
                 "--profile"
                 "work profile"
                 "-c"
-                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/codex-20260730223000-42\" }")))
+                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/codex-20260730223000-42\", bearer_token_env_var = \"AI_CODE_MCP_BEARER_TOKEN\" }")))
           (funcall (plist-get launch :cleanup-fn)))))))
 
 (ert-deftest ai-code-test-mcp-agent-open-interpreter-preserves-config-override-argument ()
@@ -306,7 +306,7 @@
                 "--model"
                 "provider/model name"
                 "-c"
-                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/open-interpreter-20260730223000-42\" }")))
+                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/open-interpreter-20260730223000-42\", bearer_token_env_var = \"AI_CODE_MCP_BEARER_TOKEN\" }")))
           (funcall (plist-get launch :cleanup-fn)))))))
 
 (ert-deftest ai-code-test-mcp-agent-claude-cleanup-removes-temp-config ()
