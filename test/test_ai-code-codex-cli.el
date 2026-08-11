@@ -37,7 +37,8 @@
                    (lambda () "/tmp/test-codex"))
                   ((symbol-function 'ai-code-backends-infra--resolve-start-command)
                    (lambda (&rest _args)
-                     (list :command "codex --full-auto")))
+                     (list :command "codex --full-auto"
+                           :argv '("codex" "--full-auto"))))
                   ((symbol-function 'ai-code-mcp-builtins-setup)
                    (lambda () (setq builtins-called t)))
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -73,9 +74,18 @@
           (ai-code-codex-cli)
           (should builtins-called)
           (should ensure-called)
-          (should (string-match-p "mcp_servers\\.emacs_tools" captured-command))
-          (should (string-match-p "bearer_token_env_var" captured-command))
-          (should-not (string-match-p "test-codex-token" captured-command))
+          (let ((config-args (member "-c" captured-command)))
+            (should config-args)
+            (should
+             (string-match-p
+              "mcp_servers\\.emacs_tools"
+              (cadr config-args)))
+            (should
+             (string-match-p
+              "bearer_token_env_var"
+              (cadr config-args))))
+          (should-not (string-match-p "test-codex-token"
+                                      (cadr (member "-c" captured-command))))
           (should (equal captured-env-vars
                          '("AI_CODE_MCP_BEARER_TOKEN=test-codex-token")))
           (should (functionp captured-cleanup-fn))
@@ -90,7 +100,8 @@
             (should (fboundp 'ai-code-mcp-agent-buffer-status))
             (let ((status (ai-code-mcp-agent-buffer-status)))
               (should (eq 'codex (plist-get status :backend)))
-              (should (equal "http://127.0.0.1:8765/mcp"
+              (should (equal (format "http://127.0.0.1:8765/mcp/%s"
+                                     (car registered))
                              (plist-get status :server-url)))))
           (funcall captured-cleanup-fn)
           (should (equal (car registered) unregistered)))

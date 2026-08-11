@@ -986,7 +986,9 @@ normal startup error."
                      (not native-editor-transport-p))
                 nil
               configured-native-pty))
-           (argv (split-string-shell-command command))
+           (argv (if (listp command)
+                     command
+                   (split-string-shell-command command)))
            (program (car argv))
            (args (cdr argv)))
       (cond
@@ -1010,8 +1012,8 @@ normal startup error."
 
 (defun ai-code-backends-infra-ghostel-create-session (buffer-name working-dir command env-vars)
   "Create a Ghostel session named BUFFER-NAME in WORKING-DIR.
-COMMAND is the shell command to run and ENV-VARS are extra environment
-variables for the terminal process."
+COMMAND is an argv list or a legacy shell command string.
+ENV-VARS are extra environment variables for the terminal process."
   (let* ((working-dir (file-name-as-directory (expand-file-name working-dir)))
          (buffer (get-buffer-create buffer-name))
          (editor-environment

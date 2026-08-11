@@ -105,7 +105,8 @@
                    (lambda () "/tmp/test-copilot"))
                   ((symbol-function 'ai-code-backends-infra--resolve-start-command)
                    (lambda (&rest _args)
-                     (list :command "copilot --allow-all-tools")))
+                     (list :command "copilot --allow-all-tools"
+                           :argv '("copilot" "--allow-all-tools"))))
                   ((symbol-function 'ai-code-mcp-builtins-setup)
                    (lambda () (setq builtins-called t)))
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -144,13 +145,18 @@
             (ai-code-github-copilot-cli)
             (should builtins-called)
             (should ensure-called)
-            (should (string-match-p "--additional-mcp-config" captured-command))
-            (should (string-match-p "127\\.0\\.0\\.1" captured-command))
-            (should (string-match-p "AI_CODE_MCP_BEARER_TOKEN"
-                                    captured-command))
-            (should-not (string-match-p "test-copilot-token" captured-command))
-            (should-not (string-match-p "mcp/github-copilot-cli-"
-                                        captured-command))
+            (let ((config-args
+                   (member "--additional-mcp-config" captured-command)))
+              (should config-args)
+              (should (string-match-p "127\\.0\\.0\\.1" (cadr config-args)))
+              (should
+               (string-match-p
+                "mcp/github-copilot-cli-"
+                (cadr config-args)))
+              (should (string-match-p "AI_CODE_MCP_BEARER_TOKEN"
+                                      (cadr config-args)))
+              (should-not (string-match-p "test-copilot-token"
+                                          (cadr config-args))))
             (should (equal captured-env-vars
                            '("AI_CODE_MCP_BEARER_TOKEN=test-copilot-token"
                              "TERM_PROGRAM=vscode")))
@@ -167,7 +173,8 @@
               (should (fboundp 'ai-code-mcp-agent-buffer-status))
               (let ((status (ai-code-mcp-agent-buffer-status)))
                 (should (eq 'github-copilot-cli (plist-get status :backend)))
-                (should (equal "http://127.0.0.1:8765/mcp"
+                (should (equal (format "http://127.0.0.1:8765/mcp/%s"
+                                       (car registered))
                                (plist-get status :server-url)))))
             (funcall captured-cleanup-fn)
             (should (equal (car registered) unregistered))))

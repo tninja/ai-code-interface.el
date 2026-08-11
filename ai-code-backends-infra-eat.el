@@ -126,12 +126,14 @@ when navigating between terminal and other buffers."
 
 (defun ai-code-backends-infra-eat-create-session (buffer-name working-dir command env-vars)
   "Create an Eat session named BUFFER-NAME in WORKING-DIR.
-COMMAND is the shell command to run and ENV-VARS are extra environment
-variables for the terminal process."
+COMMAND is an argv list or a legacy shell command string.
+ENV-VARS are extra environment variables for the terminal process."
   (let* ((working-dir (file-name-as-directory (expand-file-name working-dir)))
          (buffer (get-buffer-create buffer-name))
          (eat-term-name "xterm-256color")
-         (parts (split-string-shell-command command))
+         (parts (if (listp command)
+                    command
+                  (split-string-shell-command command)))
          (program (car parts))
          (args (cdr parts)))
     (ai-code-backends-infra--set-session-directory buffer working-dir)

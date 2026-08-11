@@ -72,11 +72,14 @@
                     ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
                      (lambda (&rest _args) nil))
                     ((symbol-function 'ai-code-mcp-agent-prepare-launch)
-                     (lambda (backend working-dir command)
+                     (lambda (backend working-dir argv)
                        (should (eq backend 'claude-code))
                        (should (equal working-dir "/tmp/test-claude"))
-                       (should (equal command "claude"))
-                       (list :command "claude --mcp"
+                       (should (equal argv '("claude")))
+                       (list :argv
+                             '("claude"
+                               "--mcp-config"
+                               "c:/Users/Test User/Temp/mcp.json")
                              :cleanup-fn (lambda () (setq cleanup-called t))
                              :post-start-fn
                              (lambda (buffer process instance-name)
@@ -85,10 +88,15 @@
             (ai-code-claude-code)
           (let* ((launch (funcall (plist-get captured-options :prepare-launch)
                                   "/tmp/test-claude"
-                                  "claude"))
+                                  '("claude")))
                  (post-start-fn (plist-get launch :post-start-fn))
                  (cleanup-fn (plist-get launch :cleanup-fn)))
-            (should (equal (plist-get launch :command) "claude --mcp"))
+            (should
+             (equal
+              (plist-get launch :argv)
+              '("claude"
+                "--mcp-config"
+                "c:/Users/Test User/Temp/mcp.json")))
             (should (functionp cleanup-fn))
             (should (functionp post-start-fn))
             (let ((ai-code-backends-infra-terminal-backend 'vterm))

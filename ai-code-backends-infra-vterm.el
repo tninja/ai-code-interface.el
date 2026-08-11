@@ -390,10 +390,17 @@ returns to normal terminal interaction."
 
 (defun ai-code-backends-infra-vterm-create-session (buffer-name working-dir command env-vars)
   "Create a vterm session named BUFFER-NAME in WORKING-DIR.
-COMMAND is the shell command to run and ENV-VARS are extra environment
-variables for the terminal process."
+COMMAND is an argv list or a legacy shell command string.
+ENV-VARS are extra environment variables for the terminal process."
   (let ((default-directory working-dir)
-        (vterm-shell command)
+        (vterm-shell
+         (if (listp command)
+             (mapconcat
+              (lambda (argument)
+                (shell-quote-argument argument t))
+              command
+              " ")
+           command))
         (vterm-kill-buffer-on-exit nil)
         (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
     (let ((buffer (save-window-excursion (vterm buffer-name))))

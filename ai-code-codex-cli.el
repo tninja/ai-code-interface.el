@@ -49,8 +49,8 @@ With prefix ARG, prompt for CLI args using
          :session-prefix ai-code-codex-cli--session-prefix
          :escape-function #'ai-code-codex-cli-send-escape
          :prepare-launch
-         (lambda (working-dir command)
-           (ai-code-mcp-agent-prepare-launch 'codex working-dir command)))
+         (lambda (working-dir argv)
+           (ai-code-mcp-agent-prepare-launch 'codex working-dir argv)))
    arg))
 
 ;;;###autoload

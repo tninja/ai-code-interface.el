@@ -74,19 +74,18 @@
    (format "Session ID: %s\n" (plist-get status :session-id))
    (format "Server URL: %s\n" (plist-get status :server-url))))
 
-(defun ai-code-mcp-agent-prepare-launch (backend working-dir command)
-  "Return MCP launch metadata for BACKEND, WORKING-DIR, and COMMAND."
+(defun ai-code-mcp-agent-prepare-launch (backend working-dir argv)
+  "Return MCP launch metadata for BACKEND, WORKING-DIR, and ARGV."
   (when (memq backend ai-code-mcp-agent-enabled-backends)
     (ai-code-mcp-builtins-setup)
     (let* ((port (ai-code-mcp-http-server-ensure))
            (session-id (ai-code-mcp-agent--make-session-id backend))
            (token (ai-code-mcp--random-secret))
-           (url (ai-code-mcp-agent--make-server-url port))
-           (command-metadata
-            (ai-code-mcp-agent--inject-command
-             backend command url
-             ai-code-mcp-agent--token-environment-variable))
-           (runtime-files (plist-get command-metadata :runtime-files)))
+           (url (ai-code-mcp-agent--make-server-url port session-id))
+           (launch-metadata
+            (ai-code-mcp-agent--inject-argv backend argv url
+                                            ai-code-mcp-agent--token-environment-variable))
+           (runtime-files (plist-get launch-metadata :runtime-files)))
       (ai-code-mcp-register-session
        session-id working-dir (current-buffer)
        (list :backend backend
@@ -97,7 +96,7 @@
              (time-add (current-time)
                        (seconds-to-time
                         ai-code-mcp-agent-token-lifetime-seconds))))
-      (list :command (plist-get command-metadata :command)
+      (list :argv (plist-get launch-metadata :argv)
             :env-vars
             (list (format "%s=%s"
                           ai-code-mcp-agent--token-environment-variable
@@ -143,9 +142,11 @@ Failed file removals are retried; session unregistration occurs at most once."
           (format-time-string "%Y%m%d%H%M%S")
           (random 1000000)))
 
-(defun ai-code-mcp-agent--make-server-url (port)
-  "Build the MCP server URL for PORT."
-  (format "http://127.0.0.1:%d/mcp" port))
+(defun ai-code-mcp-agent--make-server-url (port &optional session-id)
+  "Build the MCP server URL for PORT, optionally scoped by SESSION-ID."
+  (if session-id
+      (format "http://127.0.0.1:%d/mcp/%s" port session-id)
+    (format "http://127.0.0.1:%d/mcp" port)))
 
 (defun ai-code-mcp-agent--record-buffer-session (buffer backend session-id url)
   "Record BUFFER session for BACKEND, SESSION-ID, and URL."
@@ -164,40 +165,25 @@ Failed file removals are retried; session unregistration occurs at most once."
       (when session-id
         (ai-code-mcp-update-source-context session-id source-buffer)))))
 
-(defun ai-code-mcp-agent--inject-command (backend command url token-env-var)
-  "Inject URL and TOKEN-ENV-VAR into COMMAND for BACKEND launch metadata."
+(defun ai-code-mcp-agent--inject-argv (backend argv url token-env-var)
+  "Return launch metadata after injecting URL and TOKEN-ENV-VAR into ARGV for BACKEND."
   (pcase backend
     ((or 'codex 'open-interpreter)
-     (list :command
-           (ai-code-mcp-agent--toml-config-command
-            command url token-env-var)))
+     (let ((config-override
+            (format "mcp_servers.%s={ url = %s, bearer_token_env_var = %s }"
+                    ai-code-mcp-agent--server-name
+                    (json-encode url)
+                    (json-encode token-env-var))))
+       (list :argv (append argv (list "-c" config-override)))))
     ('github-copilot-cli
-     (list :command
-           (concat command
-                   " --additional-mcp-config "
-                   (shell-quote-argument
-                    (ai-code-mcp-agent--copilot-config-json
-                     url token-env-var)))))
+     (let ((config-json (ai-code-mcp-agent--copilot-config-json url token-env-var)))
+       (list :argv
+             (append argv (list "--additional-mcp-config" config-json)))))
     ('claude-code
-     (let ((config-file
-            (ai-code-mcp-agent--claude-code-config-file
-             url token-env-var)))
-       (list :command
-             (concat command
-                     " --mcp-config "
-                     (shell-quote-argument config-file))
+     (let ((config-file (ai-code-mcp-agent--claude-code-config-file url token-env-var)))
+       (list :argv (append argv (list "--mcp-config" config-file))
              :runtime-files (list config-file))))
-    (_ (list :command command))))
-
-(defun ai-code-mcp-agent--toml-config-command (command url token-env-var)
-  "Add a TOML MCP override for URL and TOKEN-ENV-VAR to COMMAND."
-  (concat command
-          " -c "
-          (shell-quote-argument
-           (format "mcp_servers.%s={ url = %s, bearer_token_env_var = %s }"
-                   ai-code-mcp-agent--server-name
-                   (json-encode url)
-                   (json-encode token-env-var)))))
+    (_ (list :argv argv))))
 
 (defun ai-code-mcp-agent--authorization-template (token-env-var)
   "Return an Authorization header template for TOKEN-ENV-VAR."

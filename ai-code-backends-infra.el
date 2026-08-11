@@ -1128,7 +1128,7 @@ DEFAULT-INSTANCE-NAME seeds the minibuffer when prompting."
         "default")))
 
 (defun ai-code-backends-infra--resolve-start-command (program switches arg &optional prompt-label)
-  "Build command string for PROGRAM.
+  "Resolve PROGRAM and its arguments into display and argv forms.
 SWITCHES is the default command-line argument list.
 Use it as default input when ARG is non-nil and CLI args are prompted.
 PROMPT-LABEL is used in the minibuffer prompt.
@@ -1157,7 +1157,18 @@ were non-nil and append that UUID to the default CLI args."
          (command (mapconcat #'identity
                              (cons program resolved-args)
                              " ")))
-    (list :command command :args resolved-args)))
+    (list :command command
+          :argv (cons program resolved-args)
+          :args resolved-args)))
+
+(defun ai-code-backends-infra--command-argv (command)
+  "Return COMMAND as an argv list.
+COMMAND may be an argv list or a legacy shell command string."
+  (cond
+   ((null command) nil)
+   ((and (listp command) (seq-every-p #'stringp command)) command)
+   ((stringp command) (split-string-shell-command command))
+   (t (error "Invalid CLI command: %S" command))))
 
 (defun ai-code-backends-infra--cleanup-session (directory buffer-name process-table
                                                           &optional instance-name prefix event)
@@ -1334,9 +1345,10 @@ OPTIONS is a plist with these keys:
 :escape-function is an optional function bound to escape in the session buffer.
 :env-vars is an optional list of environment variable strings.
 :multiline-input-sequence is an optional terminal sequence for multiline input.
-:prepare-launch is an optional function called with (WORKING-DIR COMMAND).
-When :prepare-launch is present, it may return :command, :env-vars,
-:cleanup-fn, and :post-start-fn entries to customize session creation."
+:prepare-launch is an optional function called with (WORKING-DIR ARGV).
+When :prepare-launch is present, it may return :argv, :env-vars, :cleanup-fn, and
+:post-start-fn entries to customize session creation.  A legacy :command
+entry is normalized to argv for compatibility."
   (let* ((resolved (ai-code-backends-infra--resolve-start-command
                     (plist-get options :program)
                     (plist-get options :switches)
@@ -1345,10 +1357,17 @@ When :prepare-launch is present, it may return :command, :env-vars,
          (working-dir (if arg
                           (ai-code-backends-infra--session-working-directory arg)
                         (ai-code-backends-infra--session-working-directory)))
-         (command (plist-get resolved :command))
+         (argv
+          (ai-code-backends-infra--command-argv
+           (or (plist-get resolved :argv)
+               (plist-get resolved :command))))
          (launch (when-let* ((prepare-launch (plist-get options :prepare-launch)))
-                   (funcall prepare-launch working-dir command)))
-         (launch-command (or (plist-get launch :command) command))
+                   (funcall prepare-launch working-dir argv)))
+         (launch-argv
+          (ai-code-backends-infra--command-argv
+           (or (plist-get launch :argv)
+               (plist-get launch :command)
+               argv)))
          (launch-env-vars (plist-get launch :env-vars))
          (cleanup-fn (plist-get launch :cleanup-fn))
          (post-start-fn (plist-get launch :post-start-fn)))
@@ -1358,7 +1377,7 @@ When :prepare-launch is present, it may return :command, :env-vars,
        working-dir
        nil
        (plist-get options :process-table)
-       launch-command
+       launch-argv
        (plist-get options :escape-function)
        cleanup-fn
        nil
@@ -1469,6 +1488,7 @@ refresh session state and preserve file-to-session binding."
                                                    task-file source-buffer)
   "Create and finalize a new session buffer.
 RESOLVED-BUFFER-NAME, WORKING-DIR, COMMAND, and ENV-VARS create the terminal.
+COMMAND is an argv list or a legacy shell command string.
 SESSION-KEY and PROCESS-TABLE register the process.
 RESOLVED-INSTANCE, PREFIX, ESCAPE-FN, CLEANUP-FN,
 MULTILINE-INPUT-SEQUENCE, and POST-START-FN configure startup behavior.
@@ -1517,7 +1537,7 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
 WORKING-DIR is the directory for the session.
 BUFFER-NAME is the terminal buffer name.
 PROCESS-TABLE maps session keys to processes.
-COMMAND is the shell command to run.
+COMMAND is an argv list or a legacy shell command string.
 ESCAPE-FN is bound to `C-<escape>' inside the session buffer when non-nil.
 CLEANUP-FN is called with no arguments when the process exits or when an
 existing session makes the prepared launch unnecessary.
@@ -1620,20 +1640,21 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
   "Generic function to create a terminal session.
 BUFFER-NAME is the name for the buffer.
 WORKING-DIR is the directory.
-COMMAND is the shell command to run.
+COMMAND is an argv list or a legacy shell command string.
 ENV-VARS is a list of environment variables."
-  (ai-code-backends-infra--terminal-ensure-backend)
-  (pcase ai-code-backends-infra-terminal-backend
-    ('vterm
-     (ai-code-backends-infra-vterm-create-session
-      buffer-name working-dir command env-vars))
-    ('eat
-     (ai-code-backends-infra-eat-create-session
-      buffer-name working-dir command env-vars))
-    ('ghostel
-     (ai-code-backends-infra-ghostel-create-session
-      buffer-name working-dir command env-vars))
-    (_ (error "Unknown backend"))))
+  (let ((argv (ai-code-backends-infra--command-argv command)))
+    (ai-code-backends-infra--terminal-ensure-backend)
+    (pcase ai-code-backends-infra-terminal-backend
+      ('vterm
+       (ai-code-backends-infra-vterm-create-session
+        buffer-name working-dir argv env-vars))
+      ('eat
+       (ai-code-backends-infra-eat-create-session
+        buffer-name working-dir argv env-vars))
+      ('ghostel
+       (ai-code-backends-infra-ghostel-create-session
+        buffer-name working-dir argv env-vars))
+      (_ (error "Unknown backend")))))
 
 (defun ai-code-backends-infra--cleanup-dead-processes (table)
   "Clean up dead processes from TABLE."

@@ -74,7 +74,8 @@
                   ((symbol-function
                     'ai-code-backends-infra--resolve-start-command)
                    (lambda (&rest _args)
-                     (list :command "interpreter --model test")))
+                     (list :command "interpreter --model test"
+                           :argv '("interpreter" "--model" "test"))))
                   ((symbol-function 'ai-code-mcp-builtins-setup)
                    (lambda () (setq builtins-called t)))
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -111,15 +112,26 @@
           (ai-code-open-interpreter-cli)
           (should builtins-called)
           (should ensure-called)
-          (should (string-match-p
-                   "\\`interpreter --model test " captured-command))
-          (should (string-match-p
-                   "mcp_servers\\.emacs_tools" captured-command))
-          (should (string-match-p "bearer_token_env_var" captured-command))
+          (should
+           (equal
+            (cl-subseq captured-command 0 3)
+            '("interpreter" "--model" "test")))
+          (let ((config-args (member "-c" captured-command)))
+            (should config-args)
+            (should
+             (string-match-p
+              "mcp_servers\\.emacs_tools"
+              (cadr config-args)))
+            (should
+             (string-match-p
+              "bearer_token_env_var"
+              (cadr config-args)))
+            (should
+             (string-match-p
+              "mcp/open-interpreter-"
+              (cadr config-args))))
           (should-not (string-match-p "test-interpreter-token"
-                                      captured-command))
-          (should-not (string-match-p
-                       "mcp/open-interpreter-" captured-command))
+                                      (cadr (member "-c" captured-command))))
           (should (equal
                    '("AI_CODE_MCP_BEARER_TOKEN=test-interpreter-token")
                    captured-env-vars))
@@ -135,7 +147,8 @@
           (with-current-buffer session-buffer
             (let ((status (ai-code-mcp-agent-buffer-status)))
               (should (eq 'open-interpreter (plist-get status :backend)))
-              (should (equal "http://127.0.0.1:8765/mcp"
+              (should (equal (format "http://127.0.0.1:8765/mcp/%s"
+                                     (car registered))
                              (plist-get status :server-url)))))
           (funcall captured-cleanup-fn)
           (should (equal (car registered) unregistered)))
