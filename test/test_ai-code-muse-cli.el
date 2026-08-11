@@ -17,7 +17,7 @@
     (should spec)
     (should (equal (plist-get (cdr spec) :label) "Muse Code"))
     (should (eq (plist-get (cdr spec) :require) 'ai-code-muse-cli))
-    (should (eq (plist-get (cdr spec) :cli) "muse"))))
+    (should (equal (plist-get (cdr spec) :cli) "muse"))))
 
 (ert-deftest ai-code-test-muse-cli-start-uses-generic-helper ()
   "Muse startup should delegate generic session setup to the shared helper."
