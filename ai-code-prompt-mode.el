@@ -167,6 +167,36 @@ This is the file name without path."
   :type 'string
   :group 'ai-code)
 
+;;;###autoload
+(defcustom ai-code-prompt-fallback-directory
+  (expand-file-name ".ai.code.files" "~")
+  "Fallback directory for the AI prompt history file.
+This directory is used when the preferred location returned by
+`ai-code--get-files-directory' cannot be created or written.  When nil,
+skip prompt history if the preferred location is unavailable.  Prompt
+sending continues even when neither location can be written."
+  :type '(choice (const :tag "Disable fallback" nil)
+                 (directory :tag "Fallback directory"))
+  :group 'ai-code)
+
+(defun ai-code--writable-prompt-file-path (directory)
+  "Return a writable prompt file path under DIRECTORY, or nil.
+Create the prompt file's parent directory when necessary."
+  (when directory
+    (condition-case nil
+        (let* ((prompt-file
+                (expand-file-name ai-code-prompt-file-name directory))
+               (prompt-directory (file-name-directory prompt-file)))
+          (unless (file-directory-p prompt-directory)
+            (make-directory prompt-directory t))
+          (when (and (file-directory-p prompt-directory)
+                     (file-writable-p prompt-directory)
+                     (not (file-directory-p prompt-file))
+                     (or (not (file-exists-p prompt-file))
+                         (file-writable-p prompt-file)))
+            prompt-file))
+      (file-error nil))))
+
 (defun ai-code--setup-snippets ()
   "Setup YASnippet directories for `ai-code-prompt-mode`."
   (condition-case _err
@@ -182,25 +212,32 @@ This is the file name without path."
 
 ;;;###autoload
 (defun ai-code-open-prompt-file ()
-  "Open AI prompt file under .ai.code.files/ directory.
-If file doesn't exist, create it with sample prompt."
+  "Open the writable AI prompt history file.
+Use `ai-code-prompt-fallback-directory' when the preferred location is
+unavailable.  If the file doesn't exist, create it with sample prompt."
   (interactive)
-  (let* ((files-dir (ai-code--ensure-files-directory))
-         (prompt-file (expand-file-name ai-code-prompt-file-name files-dir)))
-    (find-file-other-window prompt-file)
-    (unless (file-exists-p prompt-file)
-      ;; Insert initial content for new file
-      (insert "# AI Prompt File\n")
-      (insert "# This file is for storing AI prompts and instructions\n")
-      (insert "# Use this file to save reusable prompts for your AI assistant\n\n")
-      (insert "* Sample prompt:\n\n")
-      (insert "Explain the architecture of this codebase\n")
-      (save-buffer))))
+  (if-let ((prompt-file (ai-code--get-ai-code-prompt-file-path)))
+      (progn
+        (find-file-other-window prompt-file)
+        (unless (file-exists-p prompt-file)
+          ;; Insert initial content for new file
+          (insert "# AI Prompt File\n")
+          (insert "# This file is for storing AI prompts and instructions\n")
+          (insert "# Use this file to save reusable prompts for your AI assistant\n\n")
+          (insert "* Sample prompt:\n\n")
+          (insert "Explain the architecture of this codebase\n")
+          (save-buffer)))
+    (user-error "No writable AI prompt history directory is available")))
 
 (defun ai-code--get-ai-code-prompt-file-path ()
-  "Get the path to the AI prompt file in the .ai.code.files/ directory."
-  (let ((files-dir (ai-code--get-files-directory)))
-    (expand-file-name ai-code-prompt-file-name files-dir)))
+  "Return a writable path for the AI prompt history file.
+Prefer the project-local files directory, then try
+`ai-code-prompt-fallback-directory'.  Return nil when neither location is
+writable."
+  (or (ai-code--writable-prompt-file-path
+       (ai-code--get-files-directory))
+      (ai-code--writable-prompt-file-path
+       ai-code-prompt-fallback-directory)))
 
 (defun ai-code--execute-command (command)
   "Execute COMMAND directly without saving to prompt file."
@@ -385,18 +422,25 @@ backend dispatch."
       (ai-code-cli-switch-to-buffer))))
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
-  "Write PROMPT-TEXT to the AI prompt file."
+  "Record PROMPT-TEXT in prompt history and send it to the AI.
+If prompt history cannot be written, report the problem and continue
+sending the prompt."
   (let* ((full-prompt (concat prompt-text "\n"))
          (prompt-file (ai-code--get-ai-code-prompt-file-path))
          (original-default-directory default-directory))
     (if prompt-file
-      (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
-        (with-current-buffer buffer
-          (ai-code--append-prompt-to-buffer prompt-text)
-          (save-buffer)
-          (message "Prompt added to %s" prompt-file))
-        (let ((default-directory original-default-directory))
-          (ai-code--send-prompt full-prompt)))
+        (condition-case err
+            (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
+              (with-current-buffer buffer
+                (atomic-change-group
+                  (ai-code--append-prompt-to-buffer prompt-text)
+                  (save-buffer))
+                (message "Prompt added to %s" prompt-file)))
+          ((buffer-read-only file-error)
+           (message "Could not save prompt history to %s: %s; sending without history"
+                    prompt-file (error-message-string err))))
+      (message "No writable prompt history directory; sending without history"))
+    (let ((default-directory original-default-directory))
       (ai-code--send-prompt full-prompt))))
 
 (defun ai-code--filter-prompt-suffix-args (args)
