@@ -95,6 +95,7 @@
         (captured-sequence :unset)
         (captured-env-vars :unset)
         (registered nil)
+        (attached nil)
         (unregistered nil)
         (builtins-called nil)
         (ensure-called nil)
@@ -104,16 +105,23 @@
                    (lambda () "/tmp/test-copilot"))
                   ((symbol-function 'ai-code-backends-infra--resolve-start-command)
                    (lambda (&rest _args)
-                     (list :command "copilot --allow-all-tools")))
+                     (list :command "copilot --allow-all-tools"
+                           :argv '("copilot" "--allow-all-tools"))))
                   ((symbol-function 'ai-code-mcp-builtins-setup)
                    (lambda () (setq builtins-called t)))
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
                    (lambda ()
                      (setq ensure-called t)
                      8765))
+                  ((symbol-function 'ai-code-mcp--random-secret)
+                   (lambda () "test-copilot-token"))
                   ((symbol-function 'ai-code-mcp-register-session)
-                   (lambda (session-id project-dir buffer)
-                     (setq registered (list session-id project-dir buffer))))
+                   (lambda (session-id project-dir buffer metadata)
+                     (setq registered
+                           (list session-id project-dir buffer metadata))))
+                  ((symbol-function 'ai-code-mcp-attach-agent-buffer)
+                   (lambda (session-id buffer)
+                     (setq attached (list session-id buffer))))
                   ((symbol-function 'ai-code-mcp-unregister-session)
                    (lambda (session-id)
                      (setq unregistered session-id)))
@@ -137,23 +145,37 @@
             (ai-code-github-copilot-cli)
             (should builtins-called)
             (should ensure-called)
-            (should (string-match-p "--additional-mcp-config" captured-command))
-            (should (string-match-p "127\\.0\\.0\\.1" captured-command))
-            (should (string-match-p "mcp/github-copilot-cli-" captured-command))
-            (should (equal captured-env-vars '("TERM_PROGRAM=vscode")))
+            (let ((config-args
+                   (member "--additional-mcp-config" captured-command)))
+              (should config-args)
+              (should (string-match-p "127\\.0\\.0\\.1" (cadr config-args)))
+              (should
+               (string-match-p
+                "mcp/github-copilot-cli-"
+                (cadr config-args)))
+              (should (string-match-p "AI_CODE_MCP_BEARER_TOKEN"
+                                      (cadr config-args)))
+              (should-not (string-match-p "test-copilot-token"
+                                          (cadr config-args))))
+            (should (equal captured-env-vars
+                           '("AI_CODE_MCP_BEARER_TOKEN=test-copilot-token"
+                             "TERM_PROGRAM=vscode")))
             (should (equal captured-sequence "\\\r\n"))
             (should (functionp captured-cleanup-fn))
             (should (functionp captured-post-start-fn))
             (funcall captured-post-start-fn session-buffer nil "default")
             (should (equal "/tmp/test-copilot" (nth 1 registered)))
-            (should (eq session-buffer (nth 2 registered)))
+            (should-not (eq session-buffer (nth 2 registered)))
+            (should (equal "test-copilot-token"
+                           (plist-get (nth 3 registered) :token)))
+            (should (equal (list (car registered) session-buffer) attached))
             (with-current-buffer session-buffer
               (should (fboundp 'ai-code-mcp-agent-buffer-status))
               (let ((status (ai-code-mcp-agent-buffer-status)))
                 (should (eq 'github-copilot-cli (plist-get status :backend)))
-                (should (string-match-p
-                         "^http://127\\.0\\.0\\.1:8765/mcp/"
-                         (plist-get status :server-url)))))
+                (should (equal (format "http://127.0.0.1:8765/mcp/%s"
+                                       (car registered))
+                               (plist-get status :server-url)))))
             (funcall captured-cleanup-fn)
             (should (equal (car registered) unregistered))))
       (when (buffer-live-p session-buffer)

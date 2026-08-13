@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is **ai-code-interface.el**, an Emacs package that provides a uniform interface for AI-assisted software development across different AI backends (Claude Code, Gemini CLI, OpenAI Codex, GitHub Copilot CLI).
+This is **ai-code-interface.el**, an Emacs package that provides a uniform interface for AI-assisted software development across pluggable AI coding backends.
 
 ## Language and Technology
 
@@ -80,7 +80,7 @@ The package uses a pluggable backend system:
 - Backends are registered in `ai-code-backends.el`
 - Each backend provides functions for: start, resume, switch-to-buffer, send-command
 - Backend selection is dynamic via `ai-code-set-backend`
-- Supported backends: Claude Code, Claude Code IDE, Gemini CLI, Codex CLI, GitHub Copilot CLI
+- Supported backends are registered in `ai-code-backends.el`, which is the source of truth for the current backend list.
 
 ## Key Features to Preserve
 

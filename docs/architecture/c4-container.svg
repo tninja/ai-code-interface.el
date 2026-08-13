@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="1791px" preserveAspectRatio="none" style="width:1363px;height:1791px;" version="1.1" viewBox="0 0 1363 1791" width="1363px" zoomAndPan="magnify"><defs/><g><!--MD5=[dcfb2e6af98f05fce5f6ed6506946972]
+cluster aiCode--><rect fill="#FFFFFF" height="1281" style="stroke: #444444; stroke-width: 1.0; stroke-dasharray: 7.0,7.0;" width="681" x="22" y="153"/><text fill="#444444" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="263" x="231" y="172.104">AI Code Interface Emacs package</text><text fill="#444444" font-family="sans-serif" font-size="12" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="52" x="336.5" y="189.6201">[System]</text><!--MD5=[9744c4a24114b98c6dc9b9d948acc457]
+entity commandHub--><rect fill="#438DD5" height="137.132" style="stroke: #3C7FC0; stroke-width: 1.5;" width="199" x="239.5" y="251"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="173" x="250.5" y="278.104">Interactive command</text><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="32" x="323" y="299.8961">hub</text><text fill="#FFFFFF" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="122" x="278" y="317.4122">[Emacs Lisp / transient]</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="341" y="335.8941"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="175" x="249.5" y="354.9621">Exposes the unified menu</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="170" x="254" y="374.03">and top-level commands.</text><!--MD5=[7265a41eef17fecd3055220e08be3a82]
+entity promptContext--><rect fill="#438DD5" height="175.2678" style="stroke: #3C7FC0; stroke-width: 1.5;" width="190" x="244" y="503"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="160" x="257" y="530.104">Prompt and context</text><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="75" x="301.5" y="551.8961">assembly</text><text fill="#FFFFFF" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="95" x="291.5" y="569.4122">[Emacs Lisp / Org]</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="341" y="587.8941"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="137" x="268.5" y="606.9621">Builds code-change,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="159" x="257.5" y="626.03">discussion, prompt-file,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="166" x="254" y="645.0979">filepath-completion, and</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="80" x="299" y="664.1658">suffix flows.</text><!--MD5=[33aa3d6451e156569779dcbbbec11540]
+entity backendLayer--><rect fill="#438DD5" height="156.1999" style="stroke: #3C7FC0; stroke-width: 1.5;" width="220" x="229" y="757"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="170" x="252" y="784.104">Backend registry and</text><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="71" x="303.5" y="805.8961">adapters</text><text fill="#FFFFFF" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="307" y="823.4122">[Emacs Lisp]</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="341" y="841.8941"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="177" x="250.5" y="860.9621">Normalizes backend start/</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="200" x="239" y="880.03">resume/switch/send behavior</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="4" x="337" y="899.0979">.</text><!--MD5=[a44df75eb1835faba3fa5a9f696b76dc]
+entity sessionInfra--><rect fill="#438DD5" height="156.1999" style="stroke: #3C7FC0; stroke-width: 1.5;" width="217" x="228.5" y="1028"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="135" x="267.5" y="1055.104">Terminal session</text><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="114" x="280" y="1076.8961">infrastructure</text><text fill="#FFFFFF" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="305" y="1094.4122">[Emacs Lisp]</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="339" y="1112.8941"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="172" x="249" y="1131.9621">Creates, selects, displays,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="197" x="238.5" y="1151.03">and sends input to native CLI</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="61" x="306.5" y="1170.0979">sessions.</text><!--MD5=[ccae301ee4b148b6399837a24fc12e98]
+entity sessionRegistry--><rect fill="#438DD5" height="137.132" style="stroke: #3C7FC0; stroke-width: 1.5;" width="201" x="460.5" y="1281"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="161" x="478.5" y="1308.104">Session registry and</text><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="102" x="510" y="1329.8961">session links</text><text fill="#FFFFFF" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="529" y="1347.4122">[Emacs Lisp]</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="563" y="1365.8941"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="177" x="470.5" y="1384.9621">Tracks active sessions and</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="159" x="481.5" y="1404.03">linkifies session output.</text><!--MD5=[2046a64bbddb2b3fba7379e1ca2b97c1]
+entity mcpTools--><rect fill="#438DD5" height="134.4078" style="stroke: #3C7FC0; stroke-width: 1.5;" width="206" x="481" y="1039"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="125" x="521.5" y="1066.104">Local MCP tools</text><text fill="#FFFFFF" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="155" x="506.5" y="1083.6201">[Emacs Lisp / HTTP JSON-RPC]</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="586" y="1102.1021"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="155" x="506.5" y="1121.17">Exposes editor/project/</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="182" x="491" y="1140.2379">diagnostic tools to enabled</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="122" x="523" y="1159.3058">backend sessions.</text><!--MD5=[5633ad960301abe792ac335d34927325]
+entity workflowDocs--><rect fill="#438DD5" height="156.1999" style="stroke: #3C7FC0; stroke-width: 1.5;" width="217" x="469.5" y="512.5"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="112" x="520" y="539.604">Workflow and</text><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="162" x="497" y="561.3961">architecture helpers</text><text fill="#FFFFFF" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="546" y="578.9122">[Emacs Lisp]</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="580" y="597.3941"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="197" x="479.5" y="616.4621">Provides TDD/refactoring/git/</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="172" x="490" y="635.53">task/document derivation</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="71" x="542.5" y="654.5979">workflows.</text><!--MD5=[8fc3522a43f8c7199df5e09e5bb0188e]
+entity user--><rect fill="#08427B" height="79.9279" style="stroke: #073B6F; stroke-width: 1.5;" width="181" x="248.5" y="8"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="90" x="294" y="35.104">Emacs user</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="341" y="54.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="161" x="258.5" y="73.8259">Developer using Emacs.</text><!--MD5=[41b557b1f769efd6f5e89935dc6c37f6]
+entity backends--><rect fill="#999999" height="98.9958" style="stroke: #8A8A8A; stroke-width: 1.5;" width="195" x="858.5" y="1056.5"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="155" x="878.5" y="1083.604">AI coding backends</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="958" y="1103.258"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="169" x="869.5" y="1122.3259">CLI processes or external</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="175" x="868.5" y="1141.3938">Emacs backend packages.</text><!--MD5=[ae38f3df50bbf8acf027574e6a8bac37]
+entity repo--><rect fill="#999999" height="98.9958" style="stroke: #8A8A8A; stroke-width: 1.5;" width="208" x="903" y="1535"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="188" x="913" y="1562.104">Local project repository</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="1009" y="1581.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="177" x="916.5" y="1600.8259">Source files, Git metadata,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="118" x="948" y="1619.8938">prompt/task files.</text><!--MD5=[68c2524f63967db36858801348a342e4]
+entity terminalPackages--><rect fill="#999999" height="118.0637" style="stroke: #8A8A8A; stroke-width: 1.5;" width="217" x="719.5" y="1290.5"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="151" x="752.5" y="1317.604">Terminal packages</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="830" y="1337.258"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="185" x="733.5" y="1356.3259">vterm, eat, or ghostel when</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="197" x="729.5" y="1375.3938">native CLI backends are used</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="4" x="826" y="1394.4617">.</text><!--MD5=[25ea374c087310ad7bb6b9e6a14deb5a]
+link user to commandHub--><path d="M339,88.19 C339,129.33 339,194.96 339,245.65 " fill="none" id="user-&gt;commandHub" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="339,250.82,343,241.82,339,245.82,335,241.82,339,250.82" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="51" x="340" y="132.897">Invokes</text><!--MD5=[3e701a746a7542b15f9facf65bee9606]
+link commandHub to promptContext--><path d="M339,388.03 C339,421.11 339,461.45 339,497.31 " fill="none" id="commandHub-&gt;promptContext" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="339,502.57,343,493.57,339,497.57,335,493.57,339,502.57" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="125" x="340" y="441.897">Delegates context-</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="92" x="356.5" y="459.603">aware actions</text><!--MD5=[cd2de09b9ab0e258c4751cf615858ef8]
+link commandHub to backendLayer--><path d="M239.36,364.97 C184.49,395.29 121.32,441.21 90,503 C54.83,572.37 52.33,609.95 90,678 C118.96,730.31 173.6,767.43 224.33,792.29 " fill="none" id="commandHub-&gt;backendLayer" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="228.91,794.51,222.562,786.9798,224.4125,792.3255,219.0668,794.1759,228.91,794.51" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="131" x="91" y="586.897">Selects and controls</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="110" x="103" y="604.603">current backend</text><!--MD5=[62fd0174ea0d88f112afb855b7d948b3]
+link commandHub to workflowDocs--><path d="M438.74,385.38 C451.29,395.55 463.41,406.53 474,418 C498.53,444.59 520.28,477.84 537.46,507.97 " fill="none" id="commandHub-&gt;workflowDocs" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="539.97,512.39,539.0333,502.5858,537.5139,508.0348,532.0649,506.5155,539.97,512.39" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="133" x="516" y="432.897">Runs agile, Git, task,</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="131" x="517" y="450.603">and documentation</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="49" x="559.5" y="468.309">helpers</text><!--MD5=[715310aa29eaba4b7324e4c9ce2f8e22]
+link promptContext to repo--><path d="M434.26,668.86 C440.11,672.2 446.04,675.28 452,678 C608.87,749.54 1212,661.59 1212,834 C1212,834 1212,834 1212,1350.5 C1212,1427.17 1148.67,1490.59 1092.4,1531.81 " fill="none" id="promptContext-&gt;repo" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="1088.02,1534.98,1097.6539,1532.9335,1092.0674,1532.0442,1092.9567,1526.4577,1088.02,1534.98" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="126" x="1213" y="1093.397">Reads files/context</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="121" x="1215.5" y="1111.103">and writes prompt</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="46" x="1254.5" y="1128.809">history</text><!--MD5=[5d8a9f217682fcbeada4165ff58c5013]
+link promptContext to backendLayer--><path d="M339,678.02 C339,702.02 339,728.01 339,751.75 " fill="none" id="promptContext-&gt;backendLayer" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="339,756.79,343,747.79,339,751.79,335,747.79,339,756.79" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="123" x="340" y="722.897">Sends final prompt</text><!--MD5=[8cfdcb2f31aabe7df415d5a9a9b32155]
+link backendLayer to sessionInfra--><path d="M338.43,913.08 C338.17,947.41 337.87,987.89 337.61,1022.8 " fill="none" id="backendLayer-&gt;sessionInfra" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="337.57,1027.9,341.647,1018.9346,337.6129,1022.9002,333.6473,1018.866,337.57,1027.9" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="120" x="340" y="966.897">Uses for native CLI</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="62" x="370.5" y="984.603">backends</text><!--MD5=[a2fff50fe2e733c7e62d71a833392f52]
+link sessionInfra to terminalPackages--><path d="M445.72,1176.7 C451.47,1179.35 457.25,1181.81 463,1184 C532.65,1210.55 558.95,1185.94 628,1214 C672.33,1232.01 716.96,1260.77 752.78,1287.08 " fill="none" id="sessionInfra-&gt;terminalPackages" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="757.11,1290.27,752.2414,1281.7086,753.0862,1287.3021,747.4927,1288.1468,757.11,1290.27" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="111" x="699" y="1228.897">Creates terminal</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="80" x="716" y="1246.603">buffers with</text><!--MD5=[268164a660f83d6fee4a684669726cee]
+link sessionInfra to backends--><path d="M445.53,1036.6 C544.31,982.64 693.19,924.58 817,974 C856.79,989.88 891.7,1023.16 916.59,1052.33 " fill="none" id="sessionInfra-&gt;backends" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="919.88,1056.24,917.1566,1046.7752,916.665,1052.4106,911.0296,1051.9191,919.88,1056.24" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="137" x="676" y="966.897">Starts CLI commands</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="104" x="694" y="984.603">and sends input</text><!--MD5=[0fe24f8761071f0bf7c848b0f321f6b9]
+link sessionInfra to sessionRegistry--><path d="M408.49,1184.08 C436.06,1213.8 467.42,1247.61 494.5,1276.8 " fill="none" id="sessionInfra-&gt;sessionRegistry" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="498.12,1280.71,494.9396,1271.3888,494.7227,1277.0415,489.07,1276.8245,498.12,1280.71" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="145" x="471" y="1228.897">Registers and resolves</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="53" x="518.5" y="1246.603">sessions</text><!--MD5=[f9448fcdbe91d5ff74fb1feed504abe9]
+link sessionRegistry to repo--><path d="M661.61,1418.22 C675.02,1426.52 688.72,1434.66 702,1442 C765.48,1477.09 839.2,1511.46 898.25,1537.53 " fill="none" id="sessionRegistry-&gt;repo" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="902.84,1539.55,896.2086,1532.2682,898.2622,1537.5392,892.9912,1539.5928,902.84,1539.55" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="124" x="830.5" y="1464.897">Associates sessions</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="133" x="826" y="1482.603">with repository/task</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="52" x="868" y="1500.309">context</text><!--MD5=[5283bf225a431f1020d963ccbf1b1170]
+link backendLayer to backends--><path d="M449.07,839.63 C552.98,847.58 709.63,871.67 825,943 C868.16,969.69 903.36,1015.78 926.36,1051.99 " fill="none" id="backendLayer-&gt;backends" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="929.1,1056.36,927.6984,1046.6114,926.4397,1052.1264,920.9247,1050.8678,929.1,1056.36" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="143" x="885" y="957.897">Delegates to external</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="120" x="896.5" y="975.603">backend packages</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="112" x="902" y="993.309">when configured</text><!--MD5=[15713f6d8739eb8b005b449a8a680f2c]
+link backendLayer to mcpTools--><path d="M441.23,913.11 C452.03,922.74 462.51,932.8 472,943 C497.74,970.68 522.14,1004.67 541.55,1034.36 " fill="none" id="backendLayer-&gt;mcpTools" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="544.38,1038.7,542.8161,1028.9761,541.6495,1034.5114,536.1143,1033.3449,544.38,1038.7" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="107" x="536" y="957.897">Prepares launch</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="143" x="518" y="975.603">metadata for enabled</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="62" x="560" y="993.309">backends</text><!--MD5=[f7fcb704e5ece44165e800014eb03686]
+link backends to mcpTools--><path d="M858.43,1106 C807.37,1106 744.72,1106 692.18,1106 " fill="none" id="backends-&gt;mcpTools" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="687.13,1106,696.13,1110,692.13,1106,696.13,1102,687.13,1106" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="132" x="705.25" y="1080.897">Calls local MCP HTTP</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="60" x="742.75" y="1098.603">endpoint</text><!--MD5=[f8cd9ebd66fe7fdbfaa9ccf6bf49a8d2]
+link mcpTools to repo--><path d="M687.06,1127.21 C772.57,1149.65 890.12,1194.71 954,1281 C1008.26,1354.3 1013.67,1464.69 1011.29,1529.88 " fill="none" id="mcpTools-&gt;repo" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="1011.09,1534.89,1015.4465,1526.0571,1011.2898,1529.894,1007.4529,1525.7373,1011.09,1534.89" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="147" x="1009" y="1345.897">Reads project files and</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="129" x="1019.5" y="1363.603">diagnostics context</text><rect fill="#DDDDDD" height="128.4075" rx="5" ry="5" style="stroke: #000000; stroke-width: 1.0;" width="182" x="1170" y="1652"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="0" x="1232" y="1673.9659"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="33" x="1236" y="1673.9659">Type</text><rect fill="#08427B" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="1176" y="1678.0679"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="1200" y="1693.0339"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="47" x="1236" y="1693.0339">person</text><rect fill="#686868" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="1176" y="1697.1358"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="1200" y="1712.1018"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="106" x="1236" y="1712.1018">external person</text><rect fill="#1168BD" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="1176" y="1716.2038"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="1188" y="1731.1697"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="47" x="1236" y="1731.1697">system</text><rect fill="#999999" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="1176" y="1735.2717"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="1200" y="1750.2376"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="106" x="1236" y="1750.2376">external system</text><rect fill="#438DD5" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="1176" y="1754.3396"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="1188" y="1769.3055"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="64" x="1236" y="1769.3055">container</text><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1346" y1="1659" y2="1659"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1346" y1="1678.0679" y2="1678.0679"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1346" y1="1697.1358" y2="1697.1358"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1346" y1="1716.2038" y2="1716.2038"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1346" y1="1735.2717" y2="1735.2717"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1346" y1="1754.3396" y2="1754.3396"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1346" y1="1773.4075" y2="1773.4075"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1176" x2="1176" y1="1659" y2="1773.4075"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1232" x2="1232" y1="1659" y2="1773.4075"/><line style="stroke: #000000; stroke-width: 1.0;" x1="1346" x2="1346" y1="1659" y2="1773.4075"/><!--MD5=[a7608954c72b81c466f0ca5d8203d892]
+@startuml
+
+
+
+
+
+skinparam defaultTextAlignment center
+
+skinparam wrapWidth 200
+skinparam maxMessageSize 150
+
+skinparam rectangle {
+    StereotypeFontSize 12
+    shadowing false
+}
+
+skinparam database {
+    StereotypeFontSize 12
+    shadowing false
+}
+
+skinparam Arrow {
+    Color #666666
+    FontColor #666666
+    FontSize 12
+}
+
+skinparam rectangle<<boundary>> {
+    Shadowing false
+    StereotypeFontSize 0
+    FontColor #444444
+    BorderColor #444444
+    BorderStyle dashed
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+skinparam rectangle<<person>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #08427B
+    BorderColor #073B6F
+}
+
+skinparam rectangle<<external_person>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #686868
+    BorderColor #8A8A8A
+}
+
+skinparam rectangle<<system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #1168BD
+    BorderColor #3C7FC0
+}
+
+skinparam rectangle<<external_system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #999999
+    BorderColor #8A8A8A
+}
+
+skinparam database<<system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #1168BD
+    BorderColor #3C7FC0
+}
+
+skinparam database<<external_system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #999999
+    BorderColor #8A8A8A
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+skinparam rectangle<<container>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #438DD5
+    BorderColor #3C7FC0
+}
+
+skinparam database<<container>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #438DD5
+    BorderColor #3C7FC0
+}
+
+
+
+
+
+
+
+
+hide stereotype
+legend right
+|=              |= Type |
+|<#08427B>      | person |
+|<#686868>      | external person |
+|<#1168BD>   | system |
+|<#999999>      | external system |
+|<#438DD5>   | container |
+endlegend
+
+rectangle "==Emacs user\n\n Developer using Emacs." <<person>> as user
+rectangle "==AI coding backends\n\n CLI processes or external Emacs backend packages." <<external_system>> as backends
+rectangle "==Local project repository\n\n Source files, Git metadata, prompt/task files." <<external_system>> as repo
+rectangle "==Terminal packages\n\n vterm, eat, or ghostel when native CLI backends are used." <<external_system>> as terminalPackages
+
+rectangle "==AI Code Interface Emacs package\n<size:12>[System]</size>" <<boundary>> as aiCode {
+  rectangle "==Interactive command hub\n//<size:12>[Emacs Lisp / transient]</size>//\n\n Exposes the unified menu and top-level commands." <<container>> as commandHub
+  rectangle "==Prompt and context assembly\n//<size:12>[Emacs Lisp / Org]</size>//\n\n Builds code-change, discussion, prompt-file, filepath-completion, and suffix flows." <<container>> as promptContext
+  rectangle "==Backend registry and adapters\n//<size:12>[Emacs Lisp]</size>//\n\n Normalizes backend start/resume/switch/send behavior." <<container>> as backendLayer
+  rectangle "==Terminal session infrastructure\n//<size:12>[Emacs Lisp]</size>//\n\n Creates, selects, displays, and sends input to native CLI sessions." <<container>> as sessionInfra
+  rectangle "==Session registry and session links\n//<size:12>[Emacs Lisp]</size>//\n\n Tracks active sessions and linkifies session output." <<container>> as sessionRegistry
+  rectangle "==Local MCP tools\n//<size:12>[Emacs Lisp / HTTP JSON-RPC]</size>//\n\n Exposes editor/project/diagnostic tools to enabled backend sessions." <<container>> as mcpTools
+  rectangle "==Workflow and architecture helpers\n//<size:12>[Emacs Lisp]</size>//\n\n Provides TDD/refactoring/git/task/document derivation workflows." <<container>> as workflowDocs
+}
+
+user - -> commandHub : "===Invokes"
+commandHub - -> promptContext : "===Delegates context-aware actions"
+commandHub - -> backendLayer : "===Selects and controls current backend"
+commandHub - -> workflowDocs : "===Runs agile, Git, task, and documentation helpers"
+promptContext - -> repo : "===Reads files/context and writes prompt history"
+promptContext - -> backendLayer : "===Sends final prompt"
+backendLayer - -> sessionInfra : "===Uses for native CLI backends"
+sessionInfra - -> terminalPackages : "===Creates terminal buffers with"
+sessionInfra - -> backends : "===Starts CLI commands and sends input"
+sessionInfra - -> sessionRegistry : "===Registers and resolves sessions"
+sessionRegistry - -> repo : "===Associates sessions with repository/task context"
+backendLayer - -> backends : "===Delegates to external backend packages when configured"
+backendLayer - -> mcpTools : "===Prepares launch metadata for enabled backends"
+backends - -> mcpTools : "===Calls local MCP HTTP endpoint"
+mcpTools - -> repo : "===Reads project files and diagnostics context"
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 02:22:07 PST 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 11.0.31+11-post-1ubuntu1-24.04.2-Ubuntu
+Operating System: Linux
+Default Encoding: UTF-8
+Language: en
+Country: US
+--></g></svg>

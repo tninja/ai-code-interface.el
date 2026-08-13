@@ -1125,6 +1125,76 @@
     (when (buffer-live-p opened-buffer)
       (kill-buffer opened-buffer))))
 
+(ert-deftest ai-code-test-session-navigate-link-at-point-keeps-ghostel-image-after-open ()
+  "Image session links in Ghostel should open files and keep inline previews."
+  (let* ((root (make-temp-file "ai-code-session-link-image-nav-" t))
+         (image-file (expand-file-name "screenshot.png" root))
+         opened-file
+         opened-buffer
+         session-buffer
+         navigation-timer-called)
+    (unwind-protect
+        (progn
+          (with-temp-file image-file
+            (insert "fake image bytes"))
+          (cl-letf (((symbol-function 'display-images-p)
+                     (lambda (&optional _display) t))
+                    ((symbol-function 'create-image)
+                     (lambda (file &rest args)
+                       (list :image file :args args)))
+                    ((symbol-function 'find-file-other-window)
+                     (lambda (file)
+                       (setq opened-file file)
+                       (setq opened-buffer
+                             (get-buffer-create " *ai-code-opened-image*"))
+                       (set-buffer opened-buffer)
+                       opened-buffer))
+                    ((symbol-function 'run-at-time)
+                     (lambda (&rest _args)
+                       (setq navigation-timer-called t)))
+                    ((symbol-function 'message)
+                     (lambda (&rest _args) nil)))
+            (with-temp-buffer
+              (setq session-buffer (current-buffer))
+              (setq-local ai-code-backends-infra--session-directory root)
+              (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+              (insert "Saved screenshot.png\n")
+              (ai-code-session-link--linkify-session-region
+               (point-min) (point-max))
+              (goto-char (point-min))
+              (search-forward "screenshot.png")
+              (ai-code-session-navigate-link-at-point)
+              (should (equal opened-file image-file))
+              (should-not navigation-timer-called)
+              (with-current-buffer session-buffer
+                (should
+                 (= (length
+                     (cl-remove-if-not
+                      (lambda (overlay)
+                        (overlay-get overlay 'ai-code-session-image-preview))
+                      (overlays-in (point-min) (point-max))))
+                    1)))
+              (setq opened-file nil)
+              (with-current-buffer session-buffer
+                (goto-char (point-min))
+                (search-forward "screenshot.png")
+                (end-of-line)
+                (ai-code-session-navigate-link-at-point))
+              (should (equal opened-file image-file))
+              (should-not navigation-timer-called)
+              (with-current-buffer session-buffer
+                (should
+                 (= (length
+                     (cl-remove-if-not
+                      (lambda (overlay)
+                        (overlay-get overlay 'ai-code-session-image-preview))
+                      (overlays-in (point-min) (point-max))))
+                    1))))))
+      (when (get-buffer " *ai-code-opened-image*")
+        (kill-buffer " *ai-code-opened-image*"))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 (ert-deftest ai-code-test-parse-session-link-file-with-line-and-column ()
   "Session link parsing should keep file, line, and column metadata."
   (should (equal (ai-code--parse-session-link "src/Foo.java:42:8")
@@ -1385,4 +1455,3 @@
 
 (provide 'test_ai-code-input)
 ;;; test_ai-code-input.el ends here
-

@@ -90,8 +90,8 @@ If current buffer belongs to a project, start in the project's root
 directory.  Otherwise start in the directory of the current buffer file,
 or the current value of `default-directory' if no project and no buffer file.
 
-With double prefix ARG (\\[universal-argument] \\[universal-argument]),
-prompt for the project directory."
+With prefix ARG (\\[universal-argument]), keep the existing CLI-args prompt
+and then prompt for the working directory."
   (interactive "P")
   (let ((ai-code-opencode-program-switches
          (append ai-code-opencode-program-switches '("--continue"))))

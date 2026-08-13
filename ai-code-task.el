@@ -23,6 +23,7 @@
 (declare-function ai-code--confirm-and-send "ai-code-input"
                   (prompt-label initial-prompt))
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
+(declare-function ai-code--set-session-project-root "ai-code-utils" (root))
 
 ;;;###autoload
 (defcustom ai-code-task-use-gptel-filename nil
@@ -123,14 +124,16 @@ TASK-NAME and TASK-URL are used to initialize new files."
   (message "Opened task file: %s" task-file))
 
 (defun ai-code--maybe-symlink-task-to-worktree (task-file)
-  "Symlink TASK-FILE into the worktree root when inside a git worktree."
+  "Symlink TASK-FILE and bind its buffer to the current worktree."
   (when-let* ((worktree-root (ai-code--git-root))
               (main-repo-root (ai-code--worktree-main-repo-root)))
     (let ((symlink-path (expand-file-name (file-name-nondirectory task-file)
                                           worktree-root)))
       (unless (file-exists-p symlink-path)
         (make-symbolic-link task-file symlink-path)
-        (message "Linked task file to worktree: %s" symlink-path)))))
+        (message "Linked task file to worktree: %s" symlink-path))
+      (ai-code--set-session-project-root worktree-root)
+      symlink-path)))
 
 (defun ai-code--select-task-target-directory (ai-code-files-dir current-dir)
   "Prompt user to select target directory.
@@ -256,7 +259,7 @@ Return the relevant file paths, matched excerpts, and a concise summary."
              (choice (completing-read "Task file for handoff: "
                                       candidates nil t)))
         (when (string-empty-p choice)
-          (user-error "Task file is required for agent handoff.  Please create one first using `ai-code-create-or-open-task-file' (C-c a K)"))
+          (user-error "Task file is required for agent handoff.  Please create one first using `ai-code-create-or-open-task-file' (C-c a k)"))
         (expand-file-name choice files-dir))))
 
 (defun ai-code--agent-handoff-read-file-or-buffer (task-file)
@@ -282,10 +285,9 @@ Return the relevant file paths, matched excerpts, and a concise summary."
   "Build a prompt to load handoff CONTENT.
 WHOLE-FILE-P controls whether CONTENT came from the whole task file."
   (format
-   "Use this %s as portable agent handoff context for the current task.\n\
-Continue from the state described here.  Treat it as backend-neutral context,
-not as a transcript to replay.  Before making changes, restate the next action
-you plan to take.\n\n%s"
+   "Load this %s as portable agent handoff context for future work on the current task.\n\
+Continue from the state described here.  Treat it as backend-neutral reference
+context, not as a transcript to replay. Do not make any code change.\n\n%s"
    (if whole-file-p "whole task file" "agent handoff context")
    content))
 

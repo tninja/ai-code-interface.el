@@ -33,6 +33,7 @@
 (declare-function flycheck-error-message "flycheck")
 
 (defvar flycheck-current-errors)
+(defvar ai-code--harness-loading)
 
 (defconst ai-code-change--selected-region-note
   "Note: Please apply the code change to the selected region specified above."
@@ -662,7 +663,7 @@ ARG controls whether clipboard context is included."
      (org-todo-section-info
       "Keep the Org headline in place and keep changes scoped to the requested implementation.")
      ((or region-text is-comment)
-      "Keep the TODO comment in place and ensure it is marked DONE after implementation; avoid unrelated cleanup.")
+      "Keep the TODO comment in place and replace TODO as DONE after implementation; avoid unrelated cleanup.")
      (t ai-code-change--brief-default-boundaries))))
 
 (defun ai-code--implement-todo--final-prompt (prompt context action-intent)
@@ -846,5 +847,9 @@ or whole file.  Requires the `flycheck` package to be installed and available."
                          scope-description)))))))))
 
 (provide 'ai-code-change)
+
+;; Load prompt harnesses after entry commands are defined.
+(unless (bound-and-true-p ai-code--harness-loading)
+  (require 'ai-code-harness))
 
 ;;; ai-code-change.el ends here

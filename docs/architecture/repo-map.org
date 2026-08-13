@@ -1,0 +1,173 @@
+#+TITLE: Repository Map
+
+* Purpose
+This document is a lightweight navigation guide for quickly reading this repository. It is meant for new human contributors and AI coding agents, and it should be reviewed by maintainers because several directory purposes are inferred from source layout and tests rather than explicitly documented.
+
+* What This Repository Does
+- Provides a uniform Emacs interface for multiple AI coding backends through [[file:../../ai-code.el::ai-code-menu][ai-code-menu]] and the backend registry in [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends]].
+- Runs native CLI backends through shared terminal/session infrastructure in [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra--start-cli-session]] and adapter files such as [[file:../../ai-code-codex-cli.el::ai-code-codex-cli][ai-code-codex-cli]].
+- Builds context-aware prompts for code changes, questions, TODO implementation, git review, prompt files, task files, and harness follow-ups via modules such as [[file:../../ai-code-change.el::ai-code-code-change][ai-code-change]], [[file:../../ai-code-discussion.el::ai-code-ask-question][ai-code-discussion]], [[file:../../ai-code-prompt-mode.el::ai-code--insert-prompt][ai-code-prompt-mode]], and [[file:../../ai-code-harness.el::ai-code-auto-test-type][ai-code-harness]].
+- Exposes Emacs editor/project state to agents through MCP tools in [[file:../../ai-code-mcp-server.el::ai-code-mcp-builtins-setup][ai-code-mcp-server]] and backend launch adapters in [[file:../../ai-code-mcp-agent.el::ai-code-mcp-agent-prepare-launch][ai-code-mcp-agent]].
+- Ships ERT tests, prompt harness files, snippets, examples, CI workflows, and generated/user-facing documentation alongside the package.
+
+* Top-Level Directory and File Map
+| Path | Purpose | Importance | First-read? |
+| [[file:../../README.org::1][README.org]] | User-facing overview, install docs, supported backends, feature list, workflows, and dependency notes. | High | Yes |
+| [[file:../../ai-code.el::1][ai-code.el]] | Package entry file; loads core modules and defines the transient menu, including [[file:../../ai-code.el::ai-code-menu][ai-code-menu]]. | Critical | Yes |
+| [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends.el]] | Backend registry and dispatch aliases such as [[file:../../ai-code-backends.el::ai-code-cli-start][ai-code-cli-start]] and [[file:../../ai-code-backends.el::ai-code-set-backend][ai-code-set-backend]]. | Critical | Yes |
+| [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra.el]] | Shared terminal/session lifecycle for native CLI backends. | Critical | Yes |
+| [[file:../../ai-code-backends-infra-vterm.el::ai-code-backends-infra-vterm-create-session][ai-code-backends-infra-vterm.el]], [[file:../../ai-code-backends-infra-eat.el::ai-code-backends-infra-eat-create-session][ai-code-backends-infra-eat.el]], [[file:../../ai-code-backends-infra-ghostel.el::ai-code-backends-infra-ghostel-create-session][ai-code-backends-infra-ghostel.el]], [[file:../../ai-code-backends-infra-etc.el::ai-code-backends-infra-etc-grow-panel][ai-code-backends-infra-etc.el]] | Terminal backend adapters and side-panel resize extras. | Medium | After shared infra |
+| [[file:../../ai-code-codex-cli.el::ai-code-codex-cli][ai-code-codex-cli.el]] and sibling thin wrappers | Native CLI backend wrappers. Most call the shared infra with program, switches, prefix, process table, and send/resume commands. | Medium | Skim one first |
+| [[file:../../ai-code-eca.el::ai-code-eca-start][ai-code-eca.el]], [[file:../../ai-code-agent-shell.el::ai-code-agent-shell][ai-code-agent-shell.el]], [[file:../../ai-code-gptel-agent.el::ai-code-gptel-agent][ai-code-gptel-agent.el]] | External package backend bridges. [[file:../../ai-code-eca.el::ai-code-eca-start][ai-code-eca.el]] is much deeper than the thin CLI wrappers. | Medium/High | Only when editing those backends |
+| [[file:../../ai-code-change.el::ai-code-code-change][ai-code-change.el]] | Code-change, TODO, Org TODO, and Flycheck prompt workflows. | High | Yes |
+| [[file:../../ai-code-discussion.el::ai-code-ask-question][ai-code-discussion.el]] | Question, explanation, exception investigation, and discussion-style prompt workflows. | High | Yes |
+| [[file:../../ai-code-agile.el::ai-code-refactor-book-method][ai-code-agile.el]] | Refactoring catalog and TDD workflow commands including [[file:../../ai-code-agile.el::ai-code-tdd-cycle][ai-code-tdd-cycle]]. | High | Yes |
+| [[file:../../ai-code-prompt-mode.el::ai-code-prompt-mode][ai-code-prompt-mode.el]] | Org prompt history mode, prompt insertion/sending, snippet setup, path completion, and session target selection. | High | Yes |
+| [[file:../../ai-code-input.el::ai-code-read-string][ai-code-input.el]] | Input abstraction, optional Helm integration, speech input, filepath/symbol completion, and session link navigation. | High | Yes |
+| [[file:../../ai-code-file.el::ai-code-context-action][ai-code-file.el]] | File helpers, prompt-on-file, repo context actions, build/test/lint AI prompts, file creation helpers. | High | Yes |
+| [[file:../../ai-code-git.el::ai-code-magit-setup-transients][ai-code-git.el]] and [[file:../../ai-code-github.el::ai-code-pull-or-review-diff-file][ai-code-github.el]] | Git/Magit helpers, branch/worktree helpers, diff/review workflows, and GitHub PR actions. | Medium/High | For review features |
+| [[file:../../ai-code-task.el::ai-code-create-or-open-task-file][ai-code-task.el]] and [[file:../../ai-code-session.el::ai-code-session-dashboard][ai-code-session.el]] | Task files, handoff logs, session registry, and session dashboard. | Medium | For workflow/session changes |
+| [[file:../../ai-code-mcp-server.el::ai-code-mcp-make-tool][ai-code-mcp-server.el]], [[file:../../ai-code-mcp-debug-tools.el::ai-code-mcp-debug-tools-setup][ai-code-mcp-debug-tools.el]], [[file:../../ai-code-mcp-agent.el::ai-code-mcp-agent-prepare-launch][ai-code-mcp-agent.el]], [[file:../../ai-code-mcp-http-server.el::ai-code-mcp-http-server-ensure][ai-code-mcp-http-server.el]], [[file:../../ai-code-mcp-common.el::ai-code-mcp--json-bool][ai-code-mcp-common.el]] | MCP tool definitions, optional runtime debugging tools, HTTP transport, and backend launch injection. | High for MCP work | Conditional |
+| [[file:../../ai-code-harness.el::ai-code-auto-test-type][ai-code-harness.el]] and [[file:../../prompt/test-after-change.v1.md::1][prompt/]] | Prompt harness selection, auto-test suffixes, discussion follow-up suffixes, and bundled harness prompts. | Medium/High | For prompt behavior changes |
+| [[file:../../ai-code-behaviors.el::ai-code-behaviors-agent-shell-setup][ai-code-behaviors.el]] | Behavior preset and constraint injection system, including optional integrations with gptel and agent-shell. | High-risk | Later |
+| [[file:../../ai-code-doc.el::ai-code-derive-architecture-document][ai-code-doc.el]] | Generates architecture/repo/test context prompts and target files under the architecture directory. | Medium | For doc-generation features |
+| [[file:../../ai-code-utils.el::ai-code--ensure-files-directory][ai-code-utils.el]] | Shared filesystem/git/context helpers used by several modules. | Medium | Early skim |
+| [[file:../../test/test_00-bootstrap.el::1][test/]] | ERT test suite plus stubs for optional packages. Most source modules have matching tests. | Critical | Yes |
+| [[file:../../.github/workflows/unit-tests.yml::1][.github/workflows/]] | CI for ERT and melpazoid package checks. | High | Yes |
+| [[file:../../snippets/ai-code-prompt-mode/add-comments::1][snippets/ai-code-prompt-mode/]] | Yasnippet prompt templates. | Low/Medium | Later |
+| [[file:../../examples/README.org::1][examples/]] | Example projects and generated problem-solving samples. Purpose is inferred from names and README files. | Low | No |
+| [[file:../../docs/architecture/c4-overview.org::1][docs/]] | Documentation, diagrams, image assets, and an existing C4 overview. Some files appear generated. | Low/Medium | Later |
+| [[file:../../ai-code-autoloads.el::1][ai-code-autoloads.el]] | Generated autoload file; tests check loadability, but contributors should usually edit source files instead. | Low | No |
+| [[file:../../AGENTS.md::1][AGENTS.md]] | Repository instructions for agents. | High | Yes |
+| [[file:../../HISTORY.org::1][HISTORY.org]] and [[file:../../LICENSE::1][LICENSE]] | Changelog/history and license. | Medium | Skim |
+
+* Suggested Reading Order
+1. Start with [[file:../../README.org::1][README.org]] to understand the user-facing workflows, supported backends, dependencies, and keybinding model.
+2. Read [[file:../../AGENTS.md::1][AGENTS.md]] for repository-local coding and verification expectations.
+3. Read [[file:../../ai-code.el::ai-code-menu][ai-code-menu]] and the surrounding transient groups in [[file:../../ai-code.el::1][ai-code.el]] to see the public command surface.
+4. Read [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends]] and [[file:../../ai-code-backends.el::ai-code--apply-backend][ai-code--apply-backend]] to understand backend selection and dispatch.
+5. Read [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra--start-cli-session]], then skim one wrapper such as [[file:../../ai-code-codex-cli.el::ai-code-codex-cli][ai-code-codex-cli]] before reading more backend files.
+6. Read the prompt-building path: [[file:../../ai-code-change.el::ai-code-code-change][ai-code-code-change]], [[file:../../ai-code-discussion.el::ai-code-ask-question][ai-code-ask-question]], [[file:../../ai-code-prompt-mode.el::ai-code--insert-prompt][ai-code--insert-prompt]], and [[file:../../ai-code-utils.el::ai-code--get-context-files-string][ai-code--get-context-files-string]].
+7. Read [[file:../../ai-code-agile.el::ai-code--refactoring-techniques-catalog][ai-code--refactoring-techniques-catalog]] and [[file:../../ai-code-harness.el::ai-code--resolve-auto-test-suffix-for-send][ai-code--resolve-auto-test-suffix-for-send]] if editing refactoring, TDD, test-after-change, or follow-up prompts.
+8. Read [[file:../../ai-code-mcp-server.el::ai-code-mcp-builtins-setup][ai-code-mcp-builtins-setup]] and [[file:../../ai-code-mcp-agent.el::ai-code-mcp-agent-prepare-launch][ai-code-mcp-agent-prepare-launch]] only after the backend/session path is clear.
+9. Use matching tests under [[file:../../test/test_00-bootstrap.el::1][test/]] as executable examples before changing behavior.
+
+* Important Entry Points
+| Entry point | Kind | Where to read |
+| [[file:../../ai-code.el::ai-code-menu][ai-code-menu]] | Main interactive transient command | [[file:../../ai-code.el::ai-code--menu-ai-cli-session][menu groups in ai-code.el]] |
+| [[file:../../ai-code-backends.el::ai-code-set-backend][ai-code-set-backend]] and [[file:../../ai-code-backends.el::ai-code-select-backend][ai-code-select-backend]] | Backend selection | [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends registry]] |
+| [[file:../../ai-code-backends.el::ai-code-cli-start][ai-code-cli-start]], [[file:../../ai-code-backends.el::ai-code-cli-send-command][ai-code-cli-send-command]], [[file:../../ai-code-backends.el::ai-code-cli-resume][ai-code-cli-resume]] | Backend dispatch APIs | [[file:../../ai-code-backends.el::ai-code--apply-backend][ai-code--apply-backend]] |
+| [[file:../../ai-code-change.el::ai-code-code-change][ai-code-code-change]], [[file:../../ai-code-change.el::ai-code-implement-todo][ai-code-implement-todo]], [[file:../../ai-code-discussion.el::ai-code-ask-question][ai-code-ask-question]] | Context-aware prompt commands | [[file:../../ai-code-change.el::ai-code--compose-code-change-brief][structured code-change brief]] and [[file:../../ai-code-discussion.el::ai-code-ask-question][discussion prompt path]] |
+| [[file:../../ai-code-prompt-mode.el::ai-code-open-prompt-file][ai-code-open-prompt-file]] and [[file:../../ai-code-prompt-mode.el::ai-code-prompt-send-block][ai-code-prompt-send-block]] | Prompt history workflow | [[file:../../ai-code-prompt-mode.el::ai-code-prompt-mode][ai-code-prompt-mode]] |
+| [[file:../../ai-code-file.el::ai-code-context-action][ai-code-context-action]] | Manual repo context curation | [[file:../../ai-code-utils.el::ai-code--format-repo-context-info][repo context formatting]] |
+| [[file:../../ai-code-agile.el::ai-code-refactor-book-method][ai-code-refactor-book-method]] and [[file:../../ai-code-agile.el::ai-code-tdd-cycle][ai-code-tdd-cycle]] | Agile/refactoring/TDD commands | [[file:../../ai-code-agile.el::ai-code--refactoring-techniques-catalog][refactoring catalog]] |
+| [[file:../../ai-code-github.el::ai-code-pull-or-review-diff-file][ai-code-pull-or-review-diff-file]] and [[file:../../ai-code-git.el::ai-code-magit-setup-transients][ai-code-magit-setup-transients]] | Git/GitHub integration | [[file:../../ai-code-git.el::1][git helpers]] and [[file:../../ai-code-github.el::1][GitHub workflow helpers]] |
+| [[file:../../ai-code-doc.el::ai-code-derive-architecture-document][ai-code-derive-architecture-document]] | Generated architecture/repo-map prompts | [[file:../../ai-code-doc.el::ai-code--derive-repo-map-prompt][repo-map prompt template]] |
+| [[file:../../ai-code-mcp-server.el::ai-code-mcp-dispatch][ai-code-mcp-dispatch]] and [[file:../../ai-code-mcp-http-server.el::ai-code-mcp-http-server-ensure][ai-code-mcp-http-server-ensure]] | MCP JSON-RPC and HTTP transport | [[file:../../ai-code-mcp-server.el::ai-code-mcp-builtins-setup][tool registration]] |
+| [[file:../../.github/workflows/unit-tests.yml::1][unit-tests workflow]] and [[file:../../.github/workflows/melpazoid.yml::1][melpazoid workflow]] | CI entry points | [[file:../../test/test_00-bootstrap.el::1][test bootstrap]] |
+
+* Core Concepts
+| Concept | Practical meaning | Primary code |
+| Backend registry | A backend is a plist entry with label, feature, start/switch/send/resume functions, config path, agent file, upgrade command, and CLI name. | [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends]] |
+| Backend dispatch aliases | Public commands call function variables that are rebound when a backend is selected. | [[file:../../ai-code-backends.el::ai-code--apply-backend][ai-code--apply-backend]] |
+| Native CLI session | A terminal buffer started by shared infra, keyed by working directory and instance name, with process/session maps. | [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra--start-cli-session]] |
+| Terminal backend | The low-level emulator can be vterm, eat, or ghostel through [[file:../../ai-code-backends-infra.el::ai-code-backends-infra-terminal-backend][ai-code-backends-infra-terminal-backend]]. | [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--terminal-dispatch][ai-code-backends-infra--terminal-dispatch]] |
+| Prompt file | Org prompt history stored under the AI Code files directory and edited through [[file:../../ai-code-prompt-mode.el::ai-code-prompt-mode][ai-code-prompt-mode]]. | [[file:../../ai-code-prompt-mode.el::ai-code-prompt-file-name][ai-code-prompt-file-name]] |
+| Context engineering | Prompt commands combine current file/function/region, visible files, repo context, optional clipboard text, and harness suffixes. | [[file:../../ai-code-utils.el::ai-code--get-context-files-string][ai-code--get-context-files-string]], [[file:../../ai-code-utils.el::ai-code--format-repo-context-info][ai-code--format-repo-context-info]] |
+| Harness prompts | Bundled prompt instructions under [[file:../../prompt/test-after-change.v1.md::1][prompt/]] can be copied/referenced by [[file:../../ai-code-harness.el::ai-code--auto-test-harness-reference-suffix][ai-code-harness]]. | [[file:../../ai-code-harness.el::ai-code--auto-test-harness-file-name][ai-code--auto-test-harness-file-name]] |
+| MCP tools | Built-in tools expose project/editor state, diagnostics, buffers, xref, imenu, and treesit data to agents. | [[file:../../ai-code-mcp-server.el::ai-code-mcp-builtins-setup][ai-code-mcp-builtins-setup]] |
+| Behavior presets | Optional prompt behavior/constraint injection using external prompt files and classification. This area is broad and should be read only when needed. | [[file:../../ai-code-behaviors.el::ai-code--process-behaviors][ai-code--process-behaviors]] |
+
+* Module / File Relationship Sketch
+#+begin_src plantuml :file repo-map-module-sketch.svg :exports both
+@startuml
+skinparam componentStyle rectangle
+component "Main menu" as menu
+component "Backend registry" as registry
+component "Native terminal infra" as infra
+component "CLI wrappers" as wrappers
+component "Prompt/context actions" as prompts
+component "Prompt history" as history
+component "Harness prompts" as harness
+component "MCP tools" as mcp
+component "Tests" as tests
+
+menu --> registry
+menu --> prompts
+registry --> wrappers
+wrappers --> infra
+wrappers --> mcp
+prompts --> history
+prompts --> harness
+prompts --> mcp
+tests --> menu
+tests --> registry
+tests --> infra
+tests --> prompts
+tests --> mcp
+@enduml
+#+end_src
+
+Diagram labels map to these source anchors: Main menu is [[file:../../ai-code.el::ai-code-menu][ai-code-menu]], backend registry is [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends]], native terminal infra is [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra--start-cli-session]], CLI wrappers include [[file:../../ai-code-codex-cli.el::ai-code-codex-cli][ai-code-codex-cli]], prompt/context actions include [[file:../../ai-code-change.el::ai-code-code-change][ai-code-code-change]] and [[file:../../ai-code-file.el::ai-code-context-action][ai-code-context-action]], prompt history is [[file:../../ai-code-prompt-mode.el::ai-code--insert-prompt][ai-code--insert-prompt]], harness prompts are managed by [[file:../../ai-code-harness.el::ai-code--auto-test-harness-reference-suffix][ai-code--auto-test-harness-reference-suffix]], MCP tools are registered by [[file:../../ai-code-mcp-server.el::ai-code-mcp-builtins-setup][ai-code-mcp-builtins-setup]], and tests live under [[file:../../test/test_00-bootstrap.el::1][test/]].
+
+* Files Usually Changed Together
+| Change area | Consider together |
+| Add or change a backend | [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends]], one wrapper such as [[file:../../ai-code-codex-cli.el::ai-code-codex-cli][ai-code-codex-cli]], matching tests such as [[file:../../test/test_ai-code-codex-cli.el::1][test_ai-code-codex-cli.el]], [[file:../../README.org::1][README.org]], and possibly [[file:../../ai-code-mcp-agent.el::ai-code-mcp-agent-enabled-backends][ai-code-mcp-agent-enabled-backends]]. |
+| Change session lifecycle or terminal behavior | [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra]], terminal adapters, [[file:../../ai-code-session.el::ai-code-session-dashboard][ai-code-session]], [[file:../../ai-code-session-link.el::ai-code-session-link--schedule-linkify-recent-output][ai-code-session-link]], and tests such as [[file:../../test/test_ai-code-backends-infra.el::1][test_ai-code-backends-infra.el]]. |
+| Change code/question prompt text | [[file:../../ai-code-change.el::ai-code--compose-code-change-brief][ai-code-change]], [[file:../../ai-code-discussion.el::ai-code-ask-question][ai-code-discussion]], [[file:../../ai-code-harness.el::ai-code--resolve-auto-test-suffix-for-send][ai-code-harness]], [[file:../../prompt/discussion-follow-up.v1.md::1][discussion follow-up harness]], and related tests. |
+| Change prompt history or file completion | [[file:../../ai-code-prompt-mode.el::ai-code-prompt-mode][ai-code-prompt-mode]], [[file:../../ai-code-input.el::ai-code--comment-filepath-capf][ai-code-input]], [[file:../../ai-code-utils.el::ai-code--get-context-files-string][ai-code-utils]], snippets under [[file:../../snippets/ai-code-prompt-mode/add-comments::1][snippets/ai-code-prompt-mode/]], and [[file:../../test/test_ai-code-prompt-mode.el::1][test_ai-code-prompt-mode.el]]. |
+| Change MCP tools | [[file:../../ai-code-mcp-server.el::ai-code-mcp-make-tool][ai-code-mcp-server]], [[file:../../ai-code-mcp-common.el::ai-code-mcp--json-bool][ai-code-mcp-common]], [[file:../../ai-code-mcp-debug-tools.el::ai-code-mcp-debug-tools-setup][ai-code-mcp-debug-tools]], [[file:../../ai-code-mcp-http-server.el::ai-code-mcp-http-server-ensure][ai-code-mcp-http-server]], [[file:../../ai-code-mcp-agent.el::ai-code-mcp-agent-prepare-launch][ai-code-mcp-agent]], and MCP tests. |
+| Change doc generation prompts | [[file:../../ai-code-doc.el::ai-code-derive-architecture-document][ai-code-doc]], generated targets under [[file:../../.ai.code.files/architecture/][.ai.code.files/architecture/]], and [[file:../../test/test_ai-code-doc.el::1][test_ai-code-doc.el]]. |
+| Change task/handoff workflow | [[file:../../ai-code-task.el::ai-code-agent-handoff][ai-code-task]], [[file:../../ai-code-prompt-mode.el::ai-code--insert-prompt][ai-code-prompt-mode]], [[file:../../ai-code-session.el::ai-code-session-dashboard][ai-code-session]], and [[file:../../test/test_ai-code-task.el::1][test_ai-code-task.el]]. |
+
+* High-Risk or High-Churn Areas
+| Area | Why it is risky | Evidence |
+| [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra.el]] | Central process/session/window logic with many buffer-local variables and terminal dispatch behavior; changes can affect every native backend. | Large source file and dense tests in [[file:../../test/test_ai-code-backends-infra.el::1][test_ai-code-backends-infra.el]]. |
+| [[file:../../ai-code-behaviors.el::ai-code--process-behaviors][ai-code-behaviors.el]] | Very large optional behavior system with external repo loading, classification, caching, gptel, agent-shell, and mode-line integration. | Long file with many defcustoms and integrations around [[file:../../ai-code-behaviors.el::ai-code-behaviors-agent-shell-setup][ai-code-behaviors-agent-shell-setup]]. |
+| [[file:../../ai-code-mcp-server.el::ai-code-mcp-dispatch][ai-code-mcp-server.el]] and [[file:../../ai-code-mcp-debug-tools.el::ai-code-mcp-debug-tools-setup][ai-code-mcp-debug-tools.el]] | Tool registration, diagnostics, editor state, xref, and optional eval/debug tools have security and runtime side-effect concerns. | Debug tools explicitly gate setup through [[file:../../ai-code-mcp-debug-tools.el::ai-code-mcp-debug-tools-enabled][ai-code-mcp-debug-tools-enabled]]. |
+| [[file:../../ai-code-prompt-mode.el::ai-code--insert-prompt][ai-code-prompt-mode.el]] and [[file:../../ai-code-harness.el::ai-code--with-auto-test-suffix-for-send][ai-code-harness.el]] | Prompt send path is shared by many commands and can alter user-visible AI behavior. | Extensive tests in [[file:../../test/test_ai-code-prompt-mode.el::1][test_ai-code-prompt-mode.el]] and [[file:../../test/test_ai-code-harness.el::1][test_ai-code-harness.el]]. |
+| [[file:../../ai-code-eca.el::ai-code-eca-start][ai-code-eca.el]] | Unlike thin wrappers, this bridge manages sessions, workspaces, temp context files, upgrade checks, and external ECA hooks. | Multiple responsibilities in [[file:../../ai-code-eca.el::ai-code-eca-list-sessions][session]] and [[file:../../ai-code-eca.el::ai-code-eca-chat-add-file-context][context]] functions. |
+
+* Low-Signal Areas to Ignore Initially
+| Area | Why to skip first |
+| [[file:../../ai-code-autoloads.el::1][ai-code-autoloads.el]] | Generated package autoloads; edit source files instead. |
+| [[file:../../.ai.code.files/architecture/][.ai.code.files/architecture/]] | Generated/local architecture documents; useful as prompts or notes, not source of package behavior. |
+| [[file:../../.ai.code.files/.ai.code.prompt.org::1][.ai.code.files/]] | Local prompt/task/notes state created by this package; not the first place to understand source behavior. |
+| [[file:../../docs/architecture/c4-overview.org::1][docs/architecture/]] | Existing generated architecture diagrams are useful later, but this repository map is the faster reading path. |
+| [[file:../../examples/README.org::1][examples/]] | Example projects and generated problem-solving artifacts; helpful for demonstrations, not package internals. |
+| [[file:../../snippets/ai-code-prompt-mode/add-comments::1][snippets/ai-code-prompt-mode/]] | Repetitive prompt templates; read only when editing snippet behavior or content. |
+| [[file:../../transient_menu.png::1][image assets]] | Screenshots and icons support README/docs but do not explain control flow. |
+| [[file:../../.antigravitycli/9c34cda2-9e55-4405-a05e-2f85da49fa50.json::1][.antigravitycli/]] | Appears to be local/backend state. It is present in git status and needs human confirmation before treating it as intentional source. |
+
+* Common Change Scenarios
+| Task | Inspect first |
+| Add a new CLI backend | [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends]], a thin wrapper such as [[file:../../ai-code-codex-cli.el::ai-code-codex-cli][ai-code-codex-cli]], [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra--start-cli-session]], and a matching backend test. |
+| Fix prompt context or selected files | [[file:../../ai-code-utils.el::ai-code--get-context-files-string][ai-code--get-context-files-string]], [[file:../../ai-code-file.el::ai-code-context-action][ai-code-context-action]], [[file:../../ai-code-prompt-mode.el::ai-code--prompt-filepath-candidates][prompt filepath candidates]], and [[file:../../test/test_ai-code-prompt-mode.el::1][prompt-mode tests]]. |
+| Change code-change/TODO behavior | [[file:../../ai-code-change.el::ai-code-code-change][ai-code-code-change]], [[file:../../ai-code-change.el::ai-code-implement-todo][ai-code-implement-todo]], and [[file:../../test/test_ai-code-change.el::1][test_ai-code-change.el]]. |
+| Change discussion/follow-up behavior | [[file:../../ai-code-discussion.el::ai-code-ask-question][ai-code-ask-question]], [[file:../../ai-code-harness.el::ai-code-discussion-auto-follow-up-enabled][ai-code-discussion-auto-follow-up-enabled]], [[file:../../prompt/discussion-follow-up.v1.md::1][discussion-follow-up.v1.md]], and [[file:../../test/test_ai-code-harness.el::1][harness tests]]. |
+| Change terminal rendering or session switching | [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--terminal-dispatch][terminal dispatch]], the relevant adapter, [[file:../../ai-code-session.el::ai-code-session-dashboard][session dashboard]], and [[file:../../test/test_ai-code-backends-infra.el::1][infra tests]]. |
+| Add or modify MCP tool output | [[file:../../ai-code-mcp-server.el::ai-code-mcp-make-tool][ai-code-mcp-make-tool]], [[file:../../ai-code-mcp-server.el::ai-code-mcp--format-result][result formatting]], [[file:../../ai-code-mcp-common.el::ai-code-mcp--message-lines][shared helpers]], and [[file:../../test/test_ai-code-mcp-server.el::1][MCP server tests]]. |
+| Change docs generated by AI Code | [[file:../../ai-code-doc.el::ai-code--architecture-document-choices][architecture document choices]], the specific prompt builder, and [[file:../../test/test_ai-code-doc.el::1][doc tests]]. |
+| Update CI or verification | [[file:../../.github/workflows/unit-tests.yml::1][unit-tests workflow]], [[file:../../.github/workflows/melpazoid.yml::1][melpazoid workflow]], [[file:../../test/test_00-bootstrap.el::1][test bootstrap]], and package metadata in [[file:../../ai-code.el::1][ai-code.el]]. |
+
+* Open Questions
+- Should [[file:../../.antigravitycli/9c34cda2-9e55-4405-a05e-2f85da49fa50.json::1][.antigravitycli/]] be committed package data or ignored local backend state? It is currently present in git status.
+- Are local state directories such as [[file:../../.ai.code.files/][.ai.code.files/]], [[file:../../.ai-behaviors/][.ai-behaviors/]], and [[file:../../.omx/][.omx/]] intended to be contributor-visible examples or should they remain out of normal onboarding?
+- [[file:../../ai-code-behaviors.el::ai-code-behaviors-repo-url][ai-code-behaviors-repo-url]] points to an external behavior repository; maintainers should confirm how much of that external contract should be documented here.
+- The boundary between [[file:../../ai-code-git.el::ai-code-magit-setup-transients][ai-code-git]] and [[file:../../ai-code-github.el::ai-code-pull-or-review-diff-file][ai-code-github]] is inferred from filenames and functions; maintainers should confirm whether GitHub-specific review should stay separate from general Magit/git helpers.
+
+* Source Evidence
+| Claim | Evidence |
+| Repository is an Emacs package for a uniform AI coding interface | [[file:../../ai-code.el::1][ai-code.el package header]] and [[file:../../README.org::1][README.org overview]] |
+| The public UI is centered on one transient menu | [[file:../../ai-code.el::ai-code-menu][ai-code-menu]] and [[file:../../ai-code.el::ai-code--menu-ai-cli-session][transient menu groups]] |
+| Backends are registered as metadata plists | [[file:../../ai-code-backends.el::ai-code-backends][ai-code-backends]] |
+| Backend selection rebinds dispatch functions | [[file:../../ai-code-backends.el::ai-code--apply-backend][ai-code--apply-backend]] |
+| Native CLI wrappers reuse shared terminal infrastructure | [[file:../../ai-code-codex-cli.el::ai-code-codex-cli][ai-code-codex-cli]] calls [[file:../../ai-code-backends-infra.el::ai-code-backends-infra--start-cli-session][ai-code-backends-infra--start-cli-session]] |
+| Terminal backend selection supports vterm/eat/ghostel | [[file:../../ai-code-backends-infra.el::ai-code-backends-infra-terminal-backend][ai-code-backends-infra-terminal-backend]] plus adapter create-session functions |
+| Code-change and TODO workflows are in one module | [[file:../../ai-code-change.el::ai-code-code-change][ai-code-code-change]] and [[file:../../ai-code-change.el::ai-code-implement-todo][ai-code-implement-todo]] |
+| Prompt history is Org-mode based | [[file:../../ai-code-prompt-mode.el::ai-code-prompt-mode][ai-code-prompt-mode]] and [[file:../../ai-code-prompt-mode.el::ai-code-open-prompt-file][ai-code-open-prompt-file]] |
+| Harness prompts are bundled and selected at send time | [[file:../../ai-code-harness.el::ai-code--resolve-auto-test-suffix-for-send][ai-code--resolve-auto-test-suffix-for-send]] and [[file:../../prompt/test-after-change.v1.md::1][test-after-change.v1.md]] |
+| MCP tools expose project/editor state | [[file:../../ai-code-mcp-server.el::ai-code-mcp-builtins-setup][ai-code-mcp-builtins-setup]] and tool functions such as [[file:../../ai-code-mcp-server.el::ai-code-mcp-project-info][ai-code-mcp-project-info]] |
+| Some backends receive automatic MCP launch injection | [[file:../../ai-code-mcp-agent.el::ai-code-mcp-agent-enabled-backends][ai-code-mcp-agent-enabled-backends]] and [[file:../../ai-code-mcp-agent.el::ai-code-mcp-agent-prepare-launch][ai-code-mcp-agent-prepare-launch]] |
+| Unit tests run through ERT in CI | [[file:../../.github/workflows/unit-tests.yml::1][unit-tests workflow]] and [[file:../../test/test_00-bootstrap.el::1][test bootstrap]] |
+| MELPA-style package checks run in CI | [[file:../../.github/workflows/melpazoid.yml::1][melpazoid workflow]] |

@@ -613,6 +613,89 @@ everything is cleaned up afterward."
 
 ;;; Tests for ai-code-context-action with completing-read
 
+(ert-deftest ai-code-test-copy-file-context-whole-line-excludes-next-line ()
+  "A whole-line region should not include the following line in its reference."
+  (with-temp-buffer
+    (insert "first\nsecond\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 1)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "first\n in /tmp/sample.el#L1-L1")))))
+
+(ert-deftest ai-code-test-copy-file-context-narrowed-buffer-uses-absolute-lines ()
+  "A narrowed buffer should still copy absolute file line numbers."
+  (with-temp-buffer
+    (insert "first\nsecond\nthird\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (forward-line 2)
+    (narrow-to-region (point) (point-max))
+    (set-mark (point))
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "third in /tmp/sample.el#L3-L3")))))
+
+(ert-deftest ai-code-test-context-action-copies-scoped-context ()
+  "Test that context actions copy function and region references."
+  (let* ((repo-root (make-temp-file "ai-code-context-copy-" t))
+         (source-dir (expand-file-name "src" repo-root))
+         (source-file (expand-file-name "sample.el" source-dir))
+         (expected-actions '("Copy context"
+                             "Copy context with full path"
+                             "Add context"
+                             "Show context"
+                             "Clear context"))
+         (selected-actions '("Copy context"
+                             "Copy context with full path"))
+         offered-actions
+         source-buffer)
+    (unwind-protect
+        (progn
+          (make-directory source-dir t)
+          (with-temp-file source-file
+            (insert "(defun sample ()\n  (message \"hi\"))\n"))
+          (setq source-buffer (find-file-noselect source-file))
+          (with-current-buffer source-buffer
+            (emacs-lisp-mode)
+            (goto-char (point-min))
+            (search-forward "(message")
+            (let ((region-start (match-beginning 0))
+                  (kill-ring nil)
+                  (transient-mark-mode t))
+              (cl-letf (((symbol-function 'completing-read)
+                         (lambda (_prompt collection &rest _args)
+                           (push (copy-sequence collection) offered-actions)
+                           (pop selected-actions)))
+                        ((symbol-function 'which-function)
+                         (lambda () "sample"))
+                        ((symbol-function 'magit-toplevel)
+                         (lambda (&optional _dir) repo-root)))
+                (ai-code-context-action nil)
+                (should (equal (current-kill 0 t)
+                               "@src/sample.el#sample"))
+                (goto-char region-start)
+                (set-mark (line-end-position))
+                (activate-mark)
+                (ai-code-context-action nil)
+                (should
+                 (equal
+                  (current-kill 0 t)
+                  (format "(message \"hi\")) in %s#L2-L2" source-file))))))
+          (should (equal (car (last offered-actions)) expected-actions)))
+      (when (buffer-live-p source-buffer)
+        (kill-buffer source-buffer))
+      (delete-directory repo-root t))))
+
 (ert-deftest ai-code-test-context-action-add-calls-add-context ()
   "Test that selecting 'Add context' calls `ai-code-add-context' and lists."
   (let ((add-called nil)
@@ -762,6 +845,34 @@ everything is cleaned up afterward."
       (should-not build-called)
       (should-not run-test-called))))
 
+(ert-deftest ai-code-test-build-or-test-project-dispatches-flycheck-fix ()
+  "Test selecting the Flycheck action dispatches to its public command."
+  (let (action-candidates
+        flycheck-fix-called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq action-candidates collection)
+                 "Fix Flycheck errors in scope"))
+              ((symbol-function 'ai-code-flycheck-fix-errors-in-scope)
+               (lambda ()
+                 (setq flycheck-fix-called t))))
+      (ai-code-build-or-test-project)
+      (should (member "Fix Flycheck errors in scope" action-candidates))
+      (should flycheck-fix-called))))
+
+(ert-deftest ai-code-test-build-or-test-project-preserves-flycheck-command-context ()
+  "Test the Flycheck action retains its command context when dispatched."
+  (let ((this-command 'ai-code-build-or-test-project)
+        dispatched-command)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Fix Flycheck errors in scope"))
+              ((symbol-function 'ai-code-flycheck-fix-errors-in-scope)
+               (lambda ()
+                 (setq dispatched-command this-command))))
+      (ai-code-build-or-test-project)
+      (should (eq dispatched-command
+                  'ai-code-flycheck-fix-errors-in-scope)))))
+
 (ert-deftest ai-code-test-test-project-builds-ai-prompt-with-at-test-and-failure-follow-up ()
   "Test `ai-code-test-project' sends a project-wide @test prompt with follow-up instructions."
   (let ((captured-initial-input nil)
@@ -772,8 +883,8 @@ everything is cleaned up afterward."
                (lambda (&optional _dir) "/tmp/demo-project/"))
               ((symbol-function 'ai-code--format-repo-context-info)
                (lambda () "Repo context goes here"))
-              ((symbol-function 'ai-code-read-string)
-               (lambda (_prompt initial-input)
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input &rest _args)
                  (setq captured-initial-input initial-input)
                  initial-input))
               ((symbol-function 'ai-code--insert-prompt)
@@ -794,8 +905,8 @@ everything is cleaned up afterward."
         (captured-prompt nil))
     (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
                (lambda () "Repo context goes here"))
-              ((symbol-function 'ai-code-read-string)
-               (lambda (_prompt initial-input)
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input &rest _args)
                  (setq captured-initial-input initial-input)
                  initial-input))
               ((symbol-function 'ai-code--insert-prompt)
@@ -815,8 +926,8 @@ everything is cleaned up afterward."
 
 ;;; --- ai-code--session-project-root tests ---
 
-(ert-deftest test-ai-code-session-project-root-prefers-project-el ()
-  "Should return project.el root when available."
+(ert-deftest test-ai-code-session-project-root-prefers-git-root ()
+  "Should return Git root when project.el reports a nested root."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir)
@@ -826,7 +937,7 @@ everything is cleaned up afterward."
               ((symbol-function 'magit-toplevel)
                (lambda (&optional _dir) "/git/bar/")))
       (should (equal (ai-code--session-project-root)
-                     "/projects/foo/")))))
+                     "/git/bar/")))))
 
 (ert-deftest test-ai-code-session-project-root-falls-back-to-git-root ()
   "Should fall back to git root when project.el returns nil."

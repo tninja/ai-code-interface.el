@@ -55,7 +55,7 @@
                    (file-truename "/git/root/")))))
 
 (ert-deftest test-ai-code-utils-session-project-root-cascade ()
-  "session-project-root should cascade: project.el -> git -> default-directory."
+  "session-project-root should cascade: override, Git, project, then default."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir) nil))

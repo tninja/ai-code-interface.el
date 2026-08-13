@@ -74,14 +74,15 @@ With prefix ARG, prompt for CLI args using
                              (list "CLAUDE_CODE_NO_FLICKER=1")))
          :multiline-input-sequence ai-code-claude-code-multiline-input-sequence
          :prepare-launch
-         (lambda (working-dir command)
+         (lambda (working-dir argv)
            (let* ((mcp-launch
                    (ai-code-mcp-agent-prepare-launch 'claude-code
                                                      working-dir
-                                                     command))
+                                                     argv))
                   (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
              (list
-              :command (plist-get mcp-launch :command)
+              :argv (plist-get mcp-launch :argv)
+              :env-vars (plist-get mcp-launch :env-vars)
               :cleanup-fn (plist-get mcp-launch :cleanup-fn)
               :post-start-fn
               ;; Preserve backend-specific rendering behavior while letting MCP

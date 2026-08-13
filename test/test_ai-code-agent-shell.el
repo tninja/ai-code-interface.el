@@ -50,7 +50,7 @@
         (kill-buffer shell-buffer)))))
 
 (ert-deftest ai-code-test-agent-shell-send-command-queues-request ()
-  "Ensure send command delegates to `agent-shell-queue-request'."
+  "Ensure send command delegates to `agent-shell-prompt-queue'."
   (let ((shell-buffer (get-buffer-create " *ai-code-agent-shell-send*"))
         (queued-text nil))
     (unwind-protect
@@ -58,7 +58,7 @@
                    (lambda ()))
                   ((symbol-function 'agent-shell--shell-buffer)
                    (lambda (&rest _keys) shell-buffer))
-                  ((symbol-function 'agent-shell-queue-request)
+                  ((symbol-function 'agent-shell-prompt-queue)
                    (lambda (prompt)
                      (setq queued-text prompt))))
           (ai-code-agent-shell-send-command "hello")

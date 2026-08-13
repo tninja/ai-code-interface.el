@@ -45,10 +45,11 @@
    (t nil)))
 
 (defun ai-code-session--normalize-directory (directory)
-  "Return DIRECTORY normalized as an absolute directory path."
+  "Return DIRECTORY as a canonical absolute directory path."
   (when (and (stringp directory)
              (not (string-empty-p directory)))
-    (file-name-as-directory (expand-file-name directory))))
+    (file-name-as-directory
+     (file-truename (expand-file-name directory)))))
 
 (defun ai-code-session--normalize-file (file)
   "Return FILE normalized as an absolute file path."

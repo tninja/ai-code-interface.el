@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="1018px" preserveAspectRatio="none" style="width:551px;height:1018px;" version="1.1" viewBox="0 0 551 1018" width="551px" zoomAndPan="magnify"><defs/><g><!--MD5=[8fc3522a43f8c7199df5e09e5bb0188e]
+entity user--><rect fill="#08427B" height="98.9958" style="stroke: #073B6F; stroke-width: 1.5;" width="218" x="108" y="8"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="90" x="172" y="35.104">Emacs user</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="219" y="54.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="198" x="118" y="73.8259">Developer using Emacs for AI</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="185" x="124.5" y="92.8938">-assisted coding workflows.</text><!--MD5=[4bafee3d85c66a0c302dca6a7373bf64]
+entity aiCode--><rect fill="#1168BD" height="175.2675" style="stroke: #3C7FC0; stroke-width: 1.5;" width="220" x="107" y="455"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="137" x="148.5" y="482.104">AI Code Interface</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="219" y="501.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="196" x="117" y="520.8259">Emacs package that provides</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="166" x="132" y="539.8938">a unified command hub,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="159" x="135.5" y="558.9617">prompt/context tooling,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="186" x="122" y="578.0296">backend selection, terminal</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="178" x="126" y="597.0976">session management, and</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="129" x="152.5" y="616.1655">optional MCP tools.</text><!--MD5=[34bed34d348c31c97df61004a15123d3]
+entity emacs--><rect fill="#999999" height="137.1316" style="stroke: #8A8A8A; stroke-width: 1.5;" width="209" x="112.5" y="186"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="176" x="129" y="213.104">Emacs editor/runtime</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="219" y="232.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="149" x="140.5" y="251.8259">Host runtime, buffers,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="185" x="122.5" y="270.8938">windows, packages, project</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="181" x="124.5" y="289.9617">files, diagnostics, and user</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="110" x="162" y="309.0296">interaction APIs.</text><!--MD5=[41b557b1f769efd6f5e89935dc6c37f6]
+entity backends--><rect fill="#999999" height="118.0637" style="stroke: #8A8A8A; stroke-width: 1.5;" width="196" x="6" y="762"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="155" x="26.5" y="789.104">AI coding backends</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="106" y="808.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="172" x="16" y="827.8259">Configured local CLI tools</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="159" x="22.5" y="846.8938">and supported external</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="175" x="16.5" y="865.9617">Emacs backend packages.</text><!--MD5=[ae38f3df50bbf8acf027574e6a8bac37]
+entity repo--><rect fill="#999999" height="118.0637" style="stroke: #8A8A8A; stroke-width: 1.5;" width="208" x="299" y="762"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="188" x="309" y="789.104">Local project repository</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="405" y="808.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="177" x="312.5" y="827.8259">Source files, Git metadata,</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="175" x="313.5" y="846.8938">prompt/task artifacts, and</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="165" x="320.5" y="865.9617">architecture documents.</text><!--MD5=[b3b6185c715eb2169a236c0649077e79]
+link user to emacs--><path d="M217,107.2 C217,129.43 217,156.2 217,180.74 " fill="none" id="user-&gt;emacs" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="217,185.94,221,176.94,217,180.94,213,176.94,217,185.94" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="30" x="218" y="151.897">Uses</text><!--MD5=[477a4ae99e69b6be5340333324718343]
+link emacs to aiCode--><path d="M144.5,323.11 C137.83,332.5 132.06,342.53 128,353 C116.43,382.84 117.75,394.69 128,425 C130.92,433.65 134.78,442.16 139.24,450.4 " fill="none" id="emacs-&gt;aiCode" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="141.78,454.95,140.9058,445.14,139.3518,450.5792,133.9126,449.0252,141.78,454.95" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="118" x="133.5" y="385.397">Loads and invokes</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="130" x="129" y="403.103">package commands</text><!--MD5=[374c0ad3fd8bd3b44aecfa6e79ba1f71]
+link aiCode to emacs--><path d="M256.13,454.81 C259.35,444.92 262.09,434.85 264,425 C270.1,393.59 271.13,384.2 264,353 C262.11,344.73 259.43,336.35 256.29,328.15 " fill="none" id="aiCode-&gt;emacs" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="254.28,323.07,253.8825,332.9108,256.1246,327.7173,261.3182,329.9594,254.28,323.07" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="108" x="286" y="367.897">Uses editor APIs,</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="126" x="277" y="385.603">terminal packages,</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="142" x="269" y="403.309">diagnostics, windows,</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="47" x="318" y="421.0151">buffers</text><!--MD5=[419499d3bee4847342076cf563970843]
+link aiCode to repo--><path d="M327.12,624.55 C337.87,635.6 347.81,647.49 356,660 C374.96,688.97 386.46,725.8 393.34,756.81 " fill="none" id="aiCode-&gt;repo" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="394.4,761.74,396.4062,752.0976,393.3426,756.8531,388.5871,753.7895,394.4,761.74" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="122" x="396" y="683.397">Reads context and</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="131" x="393" y="701.103">writes prompt/task/</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="143" x="387" y="718.809">architecture artifacts</text><!--MD5=[1cbb99cb90fdb7da42a27aed43e59a8e]
+link aiCode to backends--><path d="M106.68,591.83 C79.73,609.23 54.28,631.73 39,660 C23.78,688.15 28.99,701.61 39,732 C41.86,740.68 45.93,749.2 50.67,757.32 " fill="none" id="aiCode-&gt;backends" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="53.37,761.79,52.1311,752.0194,50.7807,757.5127,45.2874,756.1622,53.37,761.79" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="124" x="43" y="674.897">Starts, switches to,</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="123" x="43.5" y="692.603">and sends prompts</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="130" x="40" y="710.309">through configured</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="116" x="48.5" y="728.0151">backend contract</text><!--MD5=[dc0a84a18fafab50374d65fed282959b]
+link backends to aiCode--><path d="M159.63,761.7 C166.61,752.28 173.03,742.24 178,732 C192.47,702.17 201.58,667.16 207.31,635.46 " fill="none" id="backends-&gt;aiCode" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="208.2,630.4,202.6941,638.5661,207.3294,635.3236,210.5719,639.959,208.2,630.4" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="118" x="214.5" y="683.397">May call local MCP</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="141" x="203" y="701.103">tools over HTTP when</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="53" x="248.5" y="718.809">enabled</text><rect fill="#DDDDDD" height="109.3396" rx="5" ry="5" style="stroke: #000000; stroke-width: 1.0;" width="182" x="358" y="898"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="0" x="420" y="919.9659"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="33" x="424" y="919.9659">Type</text><rect fill="#08427B" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="364" y="924.0679"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="388" y="939.0339"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="47" x="424" y="939.0339">person</text><rect fill="#686868" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="364" y="943.1358"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="388" y="958.1018"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="106" x="424" y="958.1018">external person</text><rect fill="#1168BD" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="364" y="962.2038"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="376" y="977.1697"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="47" x="424" y="977.1697">system</text><rect fill="#999999" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="364" y="981.2717"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="388" y="996.2376"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="106" x="424" y="996.2376">external system</text><line style="stroke: #000000; stroke-width: 1.0;" x1="364" x2="534" y1="905" y2="905"/><line style="stroke: #000000; stroke-width: 1.0;" x1="364" x2="534" y1="924.0679" y2="924.0679"/><line style="stroke: #000000; stroke-width: 1.0;" x1="364" x2="534" y1="943.1358" y2="943.1358"/><line style="stroke: #000000; stroke-width: 1.0;" x1="364" x2="534" y1="962.2038" y2="962.2038"/><line style="stroke: #000000; stroke-width: 1.0;" x1="364" x2="534" y1="981.2717" y2="981.2717"/><line style="stroke: #000000; stroke-width: 1.0;" x1="364" x2="534" y1="1000.3396" y2="1000.3396"/><line style="stroke: #000000; stroke-width: 1.0;" x1="364" x2="364" y1="905" y2="1000.3396"/><line style="stroke: #000000; stroke-width: 1.0;" x1="420" x2="420" y1="905" y2="1000.3396"/><line style="stroke: #000000; stroke-width: 1.0;" x1="534" x2="534" y1="905" y2="1000.3396"/><!--MD5=[6d8fa260cdf1661994d1ae82c97aaf29]
+@startuml
+
+
+
+
+
+skinparam defaultTextAlignment center
+
+skinparam wrapWidth 200
+skinparam maxMessageSize 150
+
+skinparam rectangle {
+    StereotypeFontSize 12
+    shadowing false
+}
+
+skinparam database {
+    StereotypeFontSize 12
+    shadowing false
+}
+
+skinparam Arrow {
+    Color #666666
+    FontColor #666666
+    FontSize 12
+}
+
+skinparam rectangle<<boundary>> {
+    Shadowing false
+    StereotypeFontSize 0
+    FontColor #444444
+    BorderColor #444444
+    BorderStyle dashed
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+skinparam rectangle<<person>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #08427B
+    BorderColor #073B6F
+}
+
+skinparam rectangle<<external_person>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #686868
+    BorderColor #8A8A8A
+}
+
+skinparam rectangle<<system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #1168BD
+    BorderColor #3C7FC0
+}
+
+skinparam rectangle<<external_system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #999999
+    BorderColor #8A8A8A
+}
+
+skinparam database<<system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #1168BD
+    BorderColor #3C7FC0
+}
+
+skinparam database<<external_system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #999999
+    BorderColor #8A8A8A
+}
+
+
+
+
+
+
+
+
+
+
+
+
+hide stereotype
+legend right
+|=              |= Type |
+|<#08427B>      | person |
+|<#686868>      | external person |
+|<#1168BD>   | system |
+|<#999999>      | external system |
+endlegend
+
+rectangle "==Emacs user\n\n Developer using Emacs for AI-assisted coding workflows." <<person>> as user
+rectangle "==AI Code Interface\n\n Emacs package that provides a unified command hub, prompt/context tooling, backend selection, terminal session management, and optional MCP tools." <<system>> as aiCode
+rectangle "==Emacs editor/runtime\n\n Host runtime, buffers, windows, packages, project files, diagnostics, and user interaction APIs." <<external_system>> as emacs
+rectangle "==AI coding backends\n\n Configured local CLI tools and supported external Emacs backend packages." <<external_system>> as backends
+rectangle "==Local project repository\n\n Source files, Git metadata, prompt/task artifacts, and architecture documents." <<external_system>> as repo
+
+user - -> emacs : "===Uses"
+emacs - -> aiCode : "===Loads and invokes package commands"
+aiCode - -> repo : "===Reads context and writes prompt/task/architecture artifacts"
+aiCode - -> backends : "===Starts, switches to, and sends prompts through configured backend contract"
+backends - -> aiCode : "===May call local MCP tools over HTTP when enabled"
+aiCode - -> emacs : "===Uses editor APIs, terminal packages, diagnostics, windows, buffers"
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 02:22:07 PST 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 11.0.31+11-post-1ubuntu1-24.04.2-Ubuntu
+Operating System: Linux
+Default Encoding: UTF-8
+Language: en
+Country: US
+--></g></svg>

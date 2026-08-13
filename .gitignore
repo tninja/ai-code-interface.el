@@ -7,6 +7,7 @@ GPATH
 .ai.code.files/
 __pycache__/
 *.elc
+/ai-code-autoloads.el
 .ai-behaviors/
 .omx/
 flycheck_*

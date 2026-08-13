@@ -14,19 +14,116 @@
 (require 'ai-code-backends-infra)
 (require 'ai-code-notifications)
 
-(declare-function ghostel--window-adjust-process-window-size "ghostel" (process windows))
-
 (defvar vterm-copy-mode-hook)
+(defvar vterm--term)
 (defvar eat-term-name)
 (defvar ghostel-set-title-function)
 (defvar ghostel-kill-buffer-on-exit)
 (defvar ghostel--copy-mode-active)
 (defvar ghostel--input-mode)
 (defvar ghostel--process)
+(defvar ghostel--term)
 
 (defconst test-ai-code-backends-infra-valid-uuid
   "123e4567-e89b-12d3-a456-426614174000"
   "UUID fixture used by resume command resolution tests.")
+
+(ert-deftest test-ai-code-backends-infra-ghostel-session-preserves-argv-boundaries ()
+  "Ghostel sessions should pass launch arguments to `ghostel-exec' verbatim."
+  (let* ((buffer-name " *ai-code-ghostel-argv*")
+         (argv
+          '("claude"
+            "--model"
+            "model with spaces"
+            "--mcp-config"
+            "c:/Users/Test User/AppData/Local/Temp/mcp.json"))
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ghostel-exec)
+                   (lambda (seen-buffer program args)
+                     (setq captured (list program args)
+                           buffer seen-buffer)
+                     nil)))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-ghostel-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            (list "claude"
+                  '("--model"
+                    "model with spaces"
+                    "--mcp-config"
+                    "c:/Users/Test User/AppData/Local/Temp/mcp.json")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-eat-session-preserves-argv-boundaries ()
+  "Eat sessions should pass launch arguments to `eat-exec' verbatim."
+  (let* ((buffer-name " *ai-code-eat-argv*")
+         (argv
+          '("copilot"
+            "--banner"
+            "value with spaces"
+            "--additional-mcp-config"
+            "{\"url\":\"http://127.0.0.1:8765/mcp/session\"}"))
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'eat-mode)
+                   (lambda () (setq major-mode 'eat-mode)))
+                  ((symbol-function 'eat-exec)
+                   (lambda (seen-buffer seen-name program start-file args)
+                     (setq captured
+                           (list seen-buffer seen-name program start-file args))
+                     nil)))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-eat-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            (list buffer
+                  buffer-name
+                  "copilot"
+                  nil
+                  '("--banner"
+                    "value with spaces"
+                    "--additional-mcp-config"
+                    "{\"url\":\"http://127.0.0.1:8765/mcp/session\"}")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-session-quotes-argv-for-shell ()
+  "Vterm sessions should quote each launch argument for their POSIX shell."
+  (let* ((buffer-name " *ai-code-vterm-argv*")
+         (argv
+          '("claude"
+            "--model"
+            "model with spaces"
+            "--mcp-config"
+            "c:/Users/Test User/AppData/Local/Temp/mcp.json"))
+         (ai-code-backends-infra--vterm-advices-installed t)
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'vterm)
+                   (lambda (seen-buffer-name)
+                     (setq captured vterm-shell)
+                     (get-buffer-create seen-buffer-name))))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-vterm-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            "claude --model model\\ with\\ spaces --mcp-config c\\:/Users/Test\\ User/AppData/Local/Temp/mcp.json")))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (defun test-ai-code-backends-infra--capture-default-binding (symbol)
   "Return SYMBOL's default binding state.
@@ -112,6 +209,19 @@ The result is a cons of whether SYMBOL is bound and its default value."
           (should form)
           (should (= (length form) 2))))))))
 
+(ert-deftest test-ai-code-backends-infra-resolve-start-command-preserves-argv-boundaries ()
+  "Start command resolution should retain each configured switch verbatim."
+  (let ((result
+         (ai-code-backends-infra--resolve-start-command
+          "claude"
+          '("--model" "model with spaces")
+          nil
+          "Claude")))
+    (should
+     (equal
+      (plist-get result :argv)
+      '("claude" "--model" "model with spaces")))))
+
 (ert-deftest test-ai-code-backends-infra--resume-double-dash-prefills-uuid ()
   "A selected UUID should make `--resume' prompt with that id appended."
   (let ((uuid test-ai-code-backends-infra-valid-uuid)
@@ -183,6 +293,22 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (should (equal (plist-get result :args) '("--resume")))
         (should (equal (plist-get result :command) "claude --resume"))))))
 
+(ert-deftest test-ai-code-backends-infra-session-working-directory-prompts-with-prefix ()
+  "A prefix argument should prompt for the working directory."
+  (let (seen)
+    (cl-letf (((symbol-function 'ai-code--session-project-root)
+               (lambda () "/project/"))
+              ((symbol-function 'read-directory-name)
+               (lambda (&rest args)
+                 (setq seen args)
+                 "/custom/")))
+      (should (equal (ai-code-backends-infra--session-working-directory 'prefix-arg)
+                     "/custom/")))
+    (should (equal (nth 0 seen) "Working directory: "))
+    (should (equal (nth 1 seen) "/project/"))
+    (should (equal (nth 2 seen) "/project/"))
+    (should (eq (nth 3 seen) t))))
+
 (ert-deftest test-ai-code-backends-infra-start-cli-session-forwards-options ()
   "Generic CLI startup should resolve and forward backend options."
   (let ((process-table (make-hash-table :test 'equal))
@@ -191,14 +317,15 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (post-start-fn (lambda (_buffer _process _instance) nil))
         captured)
     (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
-               (lambda () "/project/"))
+               (lambda (&optional _prompt-p) "/project/"))
               ((symbol-function 'ai-code-backends-infra--resolve-start-command)
                (lambda (program switches arg prompt-label)
                  (should (equal program "codex"))
                  (should (equal switches '("--quiet")))
                  (should (eq arg 'prefix-arg))
                  (should (equal prompt-label "Codex"))
-                 '(:command "codex --quiet")))
+                 '(:command "codex --quiet"
+                   :argv ("codex" "--quiet"))))
               ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
                (lambda (&rest args)
                  (setq captured args))))
@@ -212,10 +339,11 @@ The result is a cons of whether SYMBOL is bound and its default value."
              :multiline-input-sequence "\r\n"
              :escape-function escape-fn
              :prepare-launch
-             (lambda (working-dir command)
+             (lambda (working-dir argv)
                (should (equal working-dir "/project/"))
-               (should (equal command "codex --quiet"))
-               (list :command "env MCP=1 codex --quiet"
+               (should (equal argv '("codex" "--quiet")))
+               (list :argv '("codex" "--quiet" "--mcp")
+                     :env-vars '("AI_CODE_MCP_BEARER_TOKEN=secret")
                      :cleanup-fn cleanup-fn
                      :post-start-fn post-start-fn)))
        'prefix-arg))
@@ -223,22 +351,73 @@ The result is a cons of whether SYMBOL is bound and its default value."
                    (list "/project/"
                          nil
                          process-table
-                         "env MCP=1 codex --quiet"
+                         '("codex" "--quiet" "--mcp")
                          escape-fn
                          cleanup-fn
                          nil
                          "codex"
-                         nil
-                         '("TERM_PROGRAM=vscode")
+                         'prefix-arg
+                         '("AI_CODE_MCP_BEARER_TOKEN=secret"
+                           "TERM_PROGRAM=vscode")
                          "\r\n"
                          post-start-fn)))))
+
+(ert-deftest test-ai-code-backends-infra-start-cli-session-prompts-dir-after-args ()
+  "Working directory prompting should happen after CLI args prompting.
+The prefix argument should also force instance-name prompting."
+  (let ((process-table (make-hash-table :test 'equal))
+        call-order
+        captured)
+    (cl-letf (((symbol-function 'ai-code--session-project-root)
+               (lambda () "/project/"))
+              ((symbol-function 'ai-code-backends-infra--resolve-start-command)
+               (lambda (program switches arg prompt-label)
+                 (setq call-order (append call-order '(args)))
+                 (should (equal program "codex"))
+                 (should (equal switches '("--quiet")))
+                 (should (eq arg 'prefix-arg))
+                 (should (equal prompt-label "Codex"))
+                 '(:command "codex --quiet")))
+              ((symbol-function 'read-directory-name)
+               (lambda (&rest _args)
+                 (setq call-order (append call-order '(dir)))
+                 "/custom/"))
+              ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
+               (lambda (&rest args)
+                 (setq captured args))))
+      (ai-code-backends-infra--start-cli-session
+       (list :program "codex"
+             :switches '("--quiet")
+             :label "Codex"
+             :process-table process-table
+             :session-prefix "codex")
+       'prefix-arg))
+    (should (equal call-order '(args dir)))
+    (cl-destructuring-bind
+        (working-dir buffer-name seen-process-table argv
+                     &optional escape-fn cleanup-fn instance-name prefix
+                     force-prompt env-vars multiline-input-sequence
+                     post-start-fn)
+        captured
+      (should (equal working-dir "/custom/"))
+      (should-not buffer-name)
+      (should (eq seen-process-table process-table))
+      (should (equal argv '("codex" "--quiet")))
+      (should-not escape-fn)
+      (should-not cleanup-fn)
+      (should-not instance-name)
+      (should (equal prefix "codex"))
+      (should (eq force-prompt 'prefix-arg))
+      (should-not env-vars)
+      (should-not multiline-input-sequence)
+      (should-not post-start-fn))))
 
 (ert-deftest test-ai-code-backends-infra-cli-switch-and-send-use-project-session ()
   "CLI wrapper switch and send helpers should resolve project sessions."
   (let (switch-args
         send-args)
     (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
-               (lambda () "/project/"))
+               (lambda (&optional _prompt-p) "/project/"))
               ((symbol-function 'ai-code-backends-infra--switch-to-session-buffer)
                (lambda (&rest args)
                  (setq switch-args args)))
@@ -254,13 +433,45 @@ The result is a cons of whether SYMBOL is bound and its default value."
                    '(nil "No Codex session for this project"
                          "hello" "codex" "/project/")))))
 
+(ert-deftest test-ai-code-backends-infra-cli-show-resume-picker-prefers-last-accessed-buffer ()
+  "Resume picker helper should reuse the last accessed matching session buffer."
+  (let ((buffer (generate-new-buffer "*codex[test-last]*"))
+        (ai-code-backends-infra--last-accessed-buffer nil)
+        sent
+        select-called)
+    (unwind-protect
+        (progn
+          (setq ai-code-backends-infra--last-accessed-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-prefix "codex")
+            (insert "prompt")
+            (goto-char (point-max)))
+          (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+                     (lambda (&optional _prompt-p) "/project/"))
+                    ((symbol-function 'ai-code-backends-infra--select-session-buffer)
+                     (lambda (&rest _args)
+                       (setq select-called t)
+                       nil))
+                    ((symbol-function 'sit-for)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (string)
+                       (setq sent string))))
+            (ai-code-backends-infra--cli-show-resume-picker "codex")
+            (with-current-buffer buffer
+              (should (equal sent ""))
+              (should (= (point) (point-min))))
+            (should-not select-called)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-cli-show-resume-picker-pokes-buffer ()
   "Resume picker helper should poke the selected session buffer."
   (let ((buffer (generate-new-buffer "*codex[test]*"))
         sent)
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
-                   (lambda () "/project/"))
+                   (lambda (&optional _prompt-p) "/project/"))
                   ((symbol-function 'ai-code-backends-infra--select-session-buffer)
                    (lambda (prefix working-dir)
                      (should (equal prefix "codex"))
@@ -345,6 +556,120 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (kill-buffer buffer))
       (when (file-directory-p root)
         (delete-directory root t)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-normalize-dim-sgr-uses-ansi-gray ()
+  "SGR dim text without a foreground should use standard ANSI gray."
+  (with-temp-buffer
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[2mtext\e[22m")
+                   "\e[2;90mtext\e[22;39m"))
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[2;4mtext\e[22m")
+                   "\e[2;4;90mtext\e[22;39m"))
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[2;31mtext\e[22m")
+                   "\e[2;31mtext\e[22m"))
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[38;2;1;2;3mtext\e[39m")
+                   "\e[38;2;1;2;3mtext\e[39m"))
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[48;2;1;2;3mtext\e[49m")
+                   "\e[48;2;1;2;3mtext\e[49m"))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-normalize-dim-sgr-preserves-explicit-foreground ()
+  "SGR dim should not override an explicit foreground from an earlier sequence."
+  (with-temp-buffer
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[31mred\e[2mdim\e[22mred")
+                   "\e[31mred\e[2mdim\e[22mred"))
+    (should-not ai-code-backends-infra--vterm-dim-foreground-active)))
+
+(ert-deftest test-ai-code-backends-infra-vterm-normalize-dim-sgr-empty-param-resets ()
+  "Empty SGR parameters should be treated as reset parameters."
+  (with-temp-buffer
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[2;mtext")
+                   "\e[2;mtext"))
+    (should-not ai-code-backends-infra--vterm-dim-foreground-active)))
+
+(ert-deftest test-ai-code-backends-infra-vterm-normalize-dim-sgr-cross-chunk ()
+  "Injected gray foreground should be reset when SGR dim ends later."
+  (with-temp-buffer
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[2mtext")
+                   "\e[2;90mtext"))
+    (should ai-code-backends-infra--vterm-dim-foreground-active)
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    " more")
+                   " more"))
+    (should (equal (ai-code-backends-infra--vterm-normalize-dim-sgr
+                    "\e[22m")
+                   "\e[22;39m"))
+    (should-not ai-code-backends-infra--vterm-dim-foreground-active)))
+
+(ert-deftest test-ai-code-backends-infra-vterm-notification-tracker-normalizes-dim-sgr ()
+  "Vterm session output should normalize dim SGR before rendering."
+  (let ((buffer (generate-new-buffer "*codex[dim-sgr]*"))
+        (process 'fake-process)
+        rendered)
+    (unwind-protect
+        (cl-letf (((symbol-function 'process-buffer)
+                   (lambda (_process) buffer))
+                  ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-session-link--schedule-linkify-recent-output)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--vterm-notification-tracker
+           (lambda (_process input)
+             (setq rendered input))
+           process
+           "\e[2mplaceholder\e[22m")
+          (should (equal rendered "\e[2;90mplaceholder\e[22;39m")))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra--vterm-notification-tracker-intercepts-editor-before-render ()
+  "Vterm should remove terminal editor requests before rendering output."
+  (with-temp-buffer
+    (rename-buffer (generate-new-buffer-name "*codex[editor-request]*"))
+    (let ((buffer (current-buffer))
+          (process 'fake-process)
+          intercepted
+          rendered)
+      (cl-letf (((symbol-function 'process-buffer)
+                 (lambda (_process) buffer))
+                ((symbol-function 'ai-code-editor-viewport-filter-output)
+                 (lambda (seen-process output)
+                   (setq intercepted (list seen-process output))
+                   "visible"))
+                ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
+                 (lambda (&rest _args) nil))
+                ((symbol-function 'ai-code-session-link--schedule-linkify-recent-output)
+                 (lambda (&rest _args) nil)))
+        (ai-code-backends-infra--vterm-notification-tracker
+         (lambda (_process input)
+           (setq rendered input))
+         process
+         "frame")
+        (should (equal intercepted (list process "frame")))
+        (should (equal rendered "visible"))))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-notification-tracker-ignores-non-session ()
+  "Non-AI vterm output should pass through unchanged."
+  (let ((buffer (generate-new-buffer "*vterm*"))
+        (process 'fake-process)
+        rendered)
+    (unwind-protect
+        (cl-letf (((symbol-function 'process-buffer)
+                   (lambda (_process) buffer)))
+          (ai-code-backends-infra--vterm-notification-tracker
+           (lambda (_process input)
+             (setq rendered input))
+           process
+           "\e[2mplaceholder\e[22m")
+          (should (equal rendered "\e[2mplaceholder\e[22m")))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-response-seen-visible ()
   "Mark responses as seen without notifying when visible."
@@ -478,18 +803,17 @@ The result is a cons of whether SYMBOL is bound and its default value."
           (advice-remove handler #'ai-code-backends-infra--terminal-reflow-filter))
         (fmakunbound handler)))))
 
-(ert-deftest test-ai-code-backends-infra-sync-terminal-dimensions-uses-ghostel-handler ()
-  "Ghostel dimension sync should update Ghostel's terminal model before PTY size."
-  (let ((adjust-calls nil)
-        (set-size-calls nil))
+(ert-deftest test-ai-code-backends-infra-sync-terminal-dimensions-ghostel-uses-generic-pty-resize ()
+  "Ghostel dimension sync should not call removed Ghostel private handlers."
+  (let ((set-size-calls nil))
     (cl-letf (((symbol-function 'get-buffer-process)
                (lambda (_buffer) 'ghostel-proc))
               ((symbol-function 'window-live-p)
                (lambda (_window) t))
-              ((symbol-function 'ghostel--window-adjust-process-window-size)
-               (lambda (process windows)
-                 (push (list process windows) adjust-calls)
-                 '(90 . 24)))
+              ((symbol-function 'window-body-height)
+               (lambda (_window) 24))
+              ((symbol-function 'window-body-width)
+               (lambda (_window) 90))
               ((symbol-function 'set-process-window-size)
                (lambda (process height width)
                  (push (list process height width) set-size-calls))))
@@ -498,7 +822,6 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (ai-code-backends-infra--sync-terminal-dimensions
          (current-buffer)
          'mock-window)))
-    (should (equal adjust-calls '((ghostel-proc (mock-window)))))
     (should (equal set-size-calls '((ghostel-proc 24 90))))))
 
 (ert-deftest test-ai-code-backends-infra-display-buffer-in-side-window-uses-body-width ()
@@ -524,6 +847,29 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (should (functionp (cdr (assq 'window-width captured-entry))))
         (funcall (cdr (assq 'window-width captured-entry)) 'fake-window)
         (should (equal resize-call '(fake-window 4 t)))))))
+
+(ert-deftest test-ai-code-backends-infra-display-buffer-linkifies-visible-ghostel-images ()
+  "Displaying a Ghostel session should scan only visible text for images."
+  (let ((ai-code-backends-infra-use-side-window nil)
+        (ai-code-backends-infra-focus-on-open nil)
+        displayed-buffer
+        display-linkified-window)
+    (with-temp-buffer
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (cl-letf (((symbol-function 'display-buffer)
+                 (lambda (buffer &rest _args)
+                   (setq displayed-buffer buffer)
+                   (selected-window)))
+                ((symbol-function 'ai-code-backends-infra--sync-terminal-dimensions)
+                 (lambda (&rest _args) nil))
+                ((symbol-function
+                  'ai-code-ghostel-image-preview-schedule-visible-linkify)
+                 (lambda (window)
+                   (setq display-linkified-window window))))
+        (ai-code-backends-infra--display-buffer-in-side-window
+         (current-buffer))
+        (should (eq displayed-buffer (current-buffer)))
+        (should (eq display-linkified-window (selected-window)))))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-reflow-filter-ignores-non-ai-vterm-buffer ()
   "The reflow filter should pass through non-session vterm buffers."
@@ -732,7 +1078,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (should (equal delegated-call
                      (list buffer-name
                            default-directory
-                           "echo hi"
+                           '("echo" "hi")
                            '("FOO=1")))))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-adds-eat-cursor-sync-hook ()
@@ -875,6 +1221,48 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra--create-terminal-session-eat-intercepts-editor-output ()
+  "Eat should remove terminal editor requests before rendering output."
+  (with-temp-buffer
+    (rename-buffer
+     (generate-new-buffer-name "*test-ai-code-eat-editor-request*"))
+    (let ((buffer-name (buffer-name))
+          (buffer (current-buffer))
+          (ai-code-backends-infra-terminal-backend 'eat)
+          wrapped-filter
+          intercepted
+          rendered)
+      (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                 (lambda () nil))
+                ((symbol-function 'eat-mode) (lambda () nil))
+                ((symbol-function 'eat-exec) (lambda (&rest _args) nil))
+                ((symbol-function 'get-buffer-process)
+                 (lambda (_buffer) 'eat-proc))
+                ((symbol-function 'process-filter)
+                 (lambda (_process)
+                   (lambda (_process output)
+                     (setq rendered output))))
+                ((symbol-function 'set-process-filter)
+                 (lambda (_process filter)
+                   (setq wrapped-filter filter)))
+                ((symbol-function 'process-buffer)
+                 (lambda (_process) buffer))
+                ((symbol-function 'ai-code-editor-viewport-filter-output)
+                 (lambda (process output)
+                   (setq intercepted (list process output))
+                   "visible"))
+                ((symbol-function 'ai-code-backends-infra--strip-alternate-screen-sequences)
+                 #'identity)
+                ((symbol-function 'ai-code-backends-infra--output-meaningful-p)
+                 (lambda (_output) nil))
+                ((symbol-function 'ai-code-session-link--linkify-recent-output)
+                 (lambda (&rest _args) nil)))
+        (ai-code-backends-infra--create-terminal-session
+         buffer-name default-directory "echo hi" nil)
+        (funcall wrapped-filter 'eat-proc "frame")
+        (should (equal intercepted '(eat-proc "frame")))
+        (should (equal rendered "visible"))))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-delegates-to-vterm-module ()
   "Terminal send should delegate vterm specifics to the vterm module."
   (let ((buffer (generate-new-buffer " *ai-code-terminal-send-delegate*"))
@@ -891,6 +1279,88 @@ The result is a cons of whether SYMBOL is bound and its default value."
           (should (equal delegated-string "hello")))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra--vterm-send-string-requires-bracketed-paste ()
+  "Vterm paste should fail closed when bracketed paste mode is inactive."
+  (let (sent)
+    (with-temp-buffer
+      (setq-local vterm--term 'terminal)
+      (cl-letf (((symbol-function 'vterm--update)
+                 (lambda (_terminal _event)
+                   (funcall (symbol-function 'vterm--flush-output) "")))
+                ((symbol-function 'vterm--flush-output) #'ignore)
+                ((symbol-function 'vterm-send-string)
+                 (lambda (&rest arguments)
+                   (setq sent arguments))))
+        (should-error
+         (ai-code-backends-infra-vterm-send-string "one\ntwo" t)
+         :type 'user-error)
+        (should-not sent)))))
+
+(ert-deftest test-ai-code-backends-infra--vterm-send-string-detects-bracketed-paste ()
+  "Vterm paste should probe for and use the bracketed paste sequence."
+  (let (events sent)
+    (with-temp-buffer
+      (setq-local vterm--term 'terminal)
+      (cl-letf (((symbol-function 'vterm--update)
+                 (lambda (_terminal event)
+                   (push event events)
+                   (funcall (symbol-function 'vterm--flush-output)
+                            "\e[200~")))
+                ((symbol-function 'vterm--flush-output) #'ignore)
+                ((symbol-function 'vterm-send-string)
+                 (lambda (&rest arguments)
+                   (setq sent arguments))))
+        (ai-code-backends-infra-vterm-send-string "one\ntwo" t)
+        (should (equal events '("<start_paste>")))
+        (should (equal sent '("one\ntwo" t)))))))
+
+(ert-deftest test-ai-code-backends-infra--vterm-send-string-probe-error-fails-closed ()
+  "Vterm paste should fail closed when its mode probe signals an error."
+  (with-temp-buffer
+    (setq-local vterm--term 'terminal)
+    (cl-letf (((symbol-function 'vterm--update)
+               (lambda (&rest _arguments) (error "Probe failed")))
+              ((symbol-function 'vterm--flush-output) #'ignore)
+              ((symbol-function 'vterm-send-string)
+               (lambda (&rest _arguments)
+                 (ert-fail "Unsafe multiline input must not be sent"))))
+      (should-error
+       (ai-code-backends-infra-vterm-send-string "one\ntwo" t)
+       :type 'user-error))))
+
+(ert-deftest test-ai-code-backends-infra--vterm-send-string-missing-probe-fails-closed ()
+  "Vterm paste should fail closed when its mode probe is unavailable."
+  (let ((original
+         (and (fboundp 'vterm--update)
+              (symbol-function 'vterm--update))))
+    (unwind-protect
+        (progn
+          (when original
+            (fmakunbound 'vterm--update))
+          (with-temp-buffer
+            (setq-local vterm--term 'terminal)
+            (cl-letf (((symbol-function 'vterm-send-string)
+                       (lambda (&rest _arguments)
+                         (ert-fail
+                          "Unsafe multiline input must not be sent"))))
+              (should-error
+               (ai-code-backends-infra-vterm-send-string "one\ntwo" t)
+               :type 'user-error))))
+      (when original
+        (fset 'vterm--update original)))))
+
+(ert-deftest test-ai-code-backends-infra--vterm-send-string-skips-probe-for-plain-input ()
+  "Vterm ordinary input should not require bracketed paste mode."
+  (let (sent)
+    (cl-letf (((symbol-function 'vterm--update)
+               (lambda (&rest _arguments)
+                 (ert-fail "Ordinary input must not probe paste mode")))
+              ((symbol-function 'vterm-send-string)
+               (lambda (&rest arguments)
+                 (setq sent arguments))))
+      (ai-code-backends-infra-vterm-send-string "one" nil)
+      (should (equal sent '("one"))))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-prefers-session-backend ()
   "Send should use session-local backend even after global backend changes."
@@ -936,6 +1406,41 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-send-line-refreshes-mcp-source-context ()
+  "Every resolved CLI send should snapshot its source before terminal I/O."
+  (let ((source-buffer (generate-new-buffer " *ai-code-mcp-source*"))
+        (agent-buffer (generate-new-buffer " *ai-code-mcp-agent*"))
+        refreshed
+        sent)
+    (unwind-protect
+        (cl-letf (((symbol-function
+                    'ai-code-backends-infra--resolve-session-buffer)
+                   (lambda (&rest _args) agent-buffer))
+                  ((symbol-function
+                    'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-mcp-agent-refresh-source-context)
+                   (lambda (agent source)
+                     (setq refreshed (list agent source))))
+                  ((symbol-function
+                    'ai-code-backends-infra--terminal-send-string)
+                   (lambda (line &optional _paste)
+                     (setq sent line)))
+                  ((symbol-function
+                    'ai-code-backends-infra--terminal-send-return)
+                   (lambda () nil))
+                  ((symbol-function 'sit-for)
+                   (lambda (&rest _args) nil)))
+          (with-current-buffer source-buffer
+            (ai-code-backends-infra--send-line-to-session
+             nil "missing" "inspect" "codex" "/tmp/"))
+          (should (equal (list agent-buffer source-buffer) refreshed))
+          (should (equal "inspect" sent)))
+      (when (buffer-live-p source-buffer)
+        (kill-buffer source-buffer))
+      (when (buffer-live-p agent-buffer)
+        (kill-buffer agent-buffer)))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-uses-public-api ()
   "Ghostel sessions should send input through `ghostel-send-string'."
   (let ((calls nil))
@@ -947,6 +1452,57 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (ai-code-backends-infra--terminal-send-string "hello"))
       (should (equal calls '("hello"))))))
 
+(ert-deftest test-ai-code-backends-infra--eat-send-string-rejects-unsafe-paste-fallback ()
+  "Eat paste should error instead of sending multiline input as raw keys."
+  (let ((original
+         (and (fboundp 'eat-term-send-string-as-yank)
+              (symbol-function 'eat-term-send-string-as-yank))))
+    (unwind-protect
+        (progn
+          (when (fboundp 'eat-term-send-string-as-yank)
+            (fmakunbound 'eat-term-send-string-as-yank))
+          (with-temp-buffer
+            (setq-local eat-terminal 'terminal)
+            (cl-letf (((symbol-function 'eat-term-send-string)
+                       (lambda (&rest _args)
+                         (ert-fail "Raw multiline input must not be sent"))))
+              (should-error
+               (ai-code-backends-infra-eat-send-string "one\ntwo" t)
+               :type 'user-error))))
+      (when original
+        (fset 'eat-term-send-string-as-yank original)))))
+
+(ert-deftest test-ai-code-backends-infra--eat-send-string-requires-bracketed-paste ()
+  "Eat paste should fail closed when bracketed paste mode is inactive."
+  (let (yanked)
+    (with-temp-buffer
+      (setq-local eat-terminal 'terminal)
+      (cl-letf (((symbol-function 'eat-term-send-string)
+                 (lambda (&rest _arguments)
+                   (ert-fail "Raw multiline input must not be sent")))
+                ((symbol-function 'eat--t-term-bracketed-yank)
+                 (lambda (_terminal) nil))
+                ((symbol-function 'eat-term-send-string-as-yank)
+                 (lambda (_terminal arguments)
+                   (setq yanked arguments))))
+        (should-error
+         (ai-code-backends-infra-eat-send-string "one\ntwo" t)
+         :type 'user-error)
+        (should-not yanked)))))
+
+(ert-deftest test-ai-code-backends-infra--eat-send-string-pastes-one-argument ()
+  "Eat paste should pass text as one argument when bracketed paste is active."
+  (let (yanked)
+    (with-temp-buffer
+      (setq-local eat-terminal 'terminal)
+      (cl-letf (((symbol-function 'eat--t-term-bracketed-yank)
+                 (lambda (_terminal) t))
+                ((symbol-function 'eat-term-send-string-as-yank)
+                 (lambda (_terminal arguments)
+                   (setq yanked arguments))))
+        (ai-code-backends-infra-eat-send-string "one\ntwo" t)
+        (should (equal yanked '("one\ntwo")))))))
+
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-supports-paste ()
   "Ghostel sessions should send paste input through `ghostel-paste-string' when paste is non-nil."
   (let ((send-calls nil)
@@ -956,15 +1512,55 @@ The result is a cons of whether SYMBOL is bound and its default value."
                  (push string send-calls)))
               ((symbol-function 'ghostel-paste-string)
                (lambda (string)
-                 (push string paste-calls))))
+                 (push string paste-calls)))
+              ((symbol-function 'ghostel--mode-enabled)
+               (lambda (terminal mode)
+                 (and (eq terminal 'terminal) (= mode 2004)))))
       (with-temp-buffer
         (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+        (setq-local ghostel--term 'terminal)
         ;; Send without paste
         (ai-code-backends-infra--terminal-send-string "hello" nil)
         ;; Send with paste
         (ai-code-backends-infra--terminal-send-string "world" t))
       (should (equal send-calls '("hello")))
       (should (equal paste-calls '("world"))))))
+
+(ert-deftest test-ai-code-backends-infra--ghostel-send-string-requires-bracketed-paste ()
+  "Ghostel paste should fail closed when bracketed paste mode is inactive."
+  (let (pasted)
+    (with-temp-buffer
+      (setq-local ghostel--term 'terminal)
+      (cl-letf (((symbol-function 'ghostel-send-string)
+                 (lambda (&rest _arguments)
+                   (ert-fail "Raw multiline input must not be sent")))
+                ((symbol-function 'ghostel-paste-string)
+                 (lambda (string)
+                   (setq pasted string)))
+                ((symbol-function 'ghostel--mode-enabled)
+                 (lambda (_terminal _mode) nil)))
+        (should-error
+         (ai-code-backends-infra-ghostel-send-string "one\ntwo" t)
+         :type 'user-error)
+        (should-not pasted)))))
+
+(ert-deftest test-ai-code-backends-infra--ghostel-send-string-rejects-unsafe-paste-fallback ()
+  "Ghostel paste should error instead of sending multiline input as raw keys."
+  (let ((original
+         (and (fboundp 'ghostel-paste-string)
+              (symbol-function 'ghostel-paste-string))))
+    (unwind-protect
+        (progn
+          (when (fboundp 'ghostel-paste-string)
+            (fmakunbound 'ghostel-paste-string))
+          (cl-letf (((symbol-function 'ghostel-send-string)
+                     (lambda (&rest _args)
+                       (ert-fail "Raw multiline input must not be sent"))))
+            (should-error
+             (ai-code-backends-infra-ghostel-send-string "one\ntwo" t)
+             :type 'user-error)))
+      (when original
+        (fset 'ghostel-paste-string original)))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-send-special-keys-ghostel-uses-public-api ()
   "Ghostel sessions should send special keys through `ghostel-send-key'."
@@ -991,11 +1587,10 @@ The result is a cons of whether SYMBOL is bound and its default value."
                (lambda () t)))
       (should (ai-code-backends-infra--terminal-navigation-mode-p)))))
 
-(ert-deftest test-ai-code-backends-infra-terminal-resize-handler-supports-ghostel ()
-  "Ghostel backend should expose its resize handler."
+(ert-deftest test-ai-code-backends-infra-terminal-resize-handler-skips-ghostel ()
+  "Ghostel backend should not expose removed private resize handlers."
   (let ((ai-code-backends-infra-terminal-backend 'ghostel))
-    (should (eq (ai-code-backends-infra--terminal-resize-handler)
-                #'ghostel--window-adjust-process-window-size))))
+    (should-not (ai-code-backends-infra--terminal-resize-handler))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-resize-handler-delegates-to-eat-module ()
   "Resize handler lookup should delegate eat specifics to the eat module."
@@ -1256,7 +1851,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
        saved-default))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-ghostel-wraps-output-filter ()
-  "Ghostel session creation should track meaningful output and linkify output."
+  "Ghostel session creation should track output and schedule linkification."
   (let* ((buffer-name "*test-ai-code-ghostel-output*")
          (buffer (get-buffer-create buffer-name))
          (proc (make-process :name "ai-code-ghostel-output"
@@ -1265,13 +1860,13 @@ The result is a cons of whether SYMBOL is bound and its default value."
                              :noquery t))
          (orig-outputs nil)
          (meaningful-outputs nil)
-         (linkify-outputs nil)
+         (scheduled-outputs nil)
          (ai-code-backends-infra-terminal-backend 'ghostel)
          (note-advice (lambda (&rest _args)
                         (push 'noted meaningful-outputs)))
-         (linkify-advice (lambda (orig-fun output)
-                           (push output linkify-outputs)
-                           (funcall orig-fun output))))
+         (schedule-advice (lambda (_orig-fun target-buffer output &optional delay)
+                            (push (list target-buffer output delay)
+                                  scheduled-outputs))))
     (unwind-protect
         (progn
           (set-process-filter
@@ -1280,8 +1875,8 @@ The result is a cons of whether SYMBOL is bound and its default value."
              (push output orig-outputs)))
           (advice-add 'ai-code-backends-infra--note-meaningful-output
                       :before note-advice)
-          (advice-add 'ai-code-session-link--linkify-recent-output
-                      :around linkify-advice)
+          (advice-add 'ai-code-session-link--schedule-linkify-recent-output
+                      :around schedule-advice)
           (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
                      (lambda () nil))
                     ((symbol-function 'ghostel-exec)
@@ -1297,9 +1892,11 @@ The result is a cons of whether SYMBOL is bound and its default value."
           (funcall (process-filter proc) proc "src/foo.el:12\n")
           (should (equal orig-outputs '("src/foo.el:12\n")))
           (should (equal meaningful-outputs '(noted)))
-          (should (equal linkify-outputs '("src/foo.el:12\n"))))
+          (should (equal scheduled-outputs
+                         (list (list buffer "src/foo.el:12\n" 0.05)))))
       (advice-remove 'ai-code-backends-infra--note-meaningful-output note-advice)
-      (advice-remove 'ai-code-session-link--linkify-recent-output linkify-advice)
+      (advice-remove 'ai-code-session-link--schedule-linkify-recent-output
+                     schedule-advice)
       (when (process-live-p proc)
         (delete-process proc))
       (when (buffer-live-p buffer)
@@ -1311,7 +1908,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
          (buffer (get-buffer-create buffer-name))
          (orig-filter-called nil)
          (note-called nil)
-         (linkify-called nil)
+         (schedule-called nil)
          (wrapped-filter nil)
          (ai-code-backends-infra-terminal-backend 'ghostel))
     (unwind-protect
@@ -1337,14 +1934,18 @@ The result is a cons of whether SYMBOL is bound and its default value."
                     ((symbol-function 'processp)
                      (lambda (proc)
                        (eq proc 'ghostel-proc)))
+                    ((symbol-function 'process-get)
+                     (lambda (_process _property) nil))
+                    ((symbol-function 'process-put)
+                     (lambda (_process _property _value) nil))
                     ((symbol-function 'process-buffer)
                      (lambda (_process) buffer))
                     ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
                      (lambda (&rest _args)
                        (setq note-called t)))
-                    ((symbol-function 'ai-code-session-link--linkify-recent-output)
+                    ((symbol-function 'ai-code-session-link--schedule-linkify-recent-output)
                      (lambda (&rest _args)
-                       (setq linkify-called t))))
+                       (setq schedule-called t))))
             (ai-code-backends-infra--create-terminal-session
              buffer-name
              default-directory
@@ -1359,7 +1960,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
              (error t)))
           (should-not orig-filter-called)
           (should-not note-called)
-          (should-not linkify-called))
+          (should-not schedule-called))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
@@ -1406,6 +2007,32 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (ignore-errors
         (delete-directory root t)))))
 
+(ert-deftest test-ai-code-backends-infra-session-key-canonicalizes-directory-aliases ()
+  "Use one process-table key for real and symlinked workspace paths."
+  (let* ((root (make-temp-file "ai-code-session-key-root-" t))
+         (alias-parent (make-temp-file "ai-code-session-key-alias-" t))
+         (alias-root (expand-file-name "repo" alias-parent)))
+    (unwind-protect
+        (progn
+          (make-symbolic-link root alias-root)
+          (dolist (instance '(nil "" "default" "feature/test"))
+            (let ((expected
+                   (ai-code-backends-infra--session-key root instance)))
+              (dolist (candidate
+                       (list root
+                             (file-name-as-directory root)
+                             (expand-file-name "./" root)
+                             alias-root
+                             (file-name-as-directory alias-root)
+                             (expand-file-name "./" alias-root)))
+                (should
+                 (equal expected
+                        (ai-code-backends-infra--session-key
+                         candidate
+                         instance)))))))
+      (ignore-errors (delete-directory alias-parent t))
+      (ignore-errors (delete-directory root t)))))
+
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-default-process-table ()
   "Fallback to global process table when PROCESS-TABLE is nil."
   (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))
@@ -1437,6 +2064,32 @@ The result is a cons of whether SYMBOL is bound and its default value."
                       'mock-process)))
        (when (buffer-live-p buffer)
          (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra--toggle-or-create-session-reuse-cleans-unused-launch ()
+  "Reusing a session should clean resources prepared for the unused launch."
+  (let* ((working-dir "/tmp/ai-code-reuse-cleanup/")
+         (buffer-name "*ai-code-reuse-cleanup*")
+         (buffer (get-buffer-create buffer-name))
+         (process-table (make-hash-table :test 'equal))
+         (process 'existing-process)
+         (cleanup-count 0))
+    (unwind-protect
+        (progn
+          (puthash (cons working-dir "default") process process-table)
+          (cl-letf (((symbol-function 'process-live-p)
+                     (lambda (candidate) (eq candidate process)))
+                    ((symbol-function 'ai-code-backends-infra--reuse-existing-session)
+                     (lambda (&rest _args) nil)))
+            (ai-code-backends-infra--toggle-or-create-session
+             working-dir
+             buffer-name
+             process-table
+             "unused command"
+             nil
+             (lambda () (cl-incf cleanup-count))))
+          (should (= cleanup-count 1)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-rebinds-source-file ()
   "Starting a new session from a file buffer should reattach that file."
@@ -1493,6 +2146,125 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (dolist (buf (list source old-session new-session))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra--current-buffer-session-finds-attachment ()
+  "Current-buffer lookup should return its attached live session."
+  (let* ((source (generate-new-buffer " *ai-code-current-source*"))
+         (session (generate-new-buffer " *ai-code-current-target*")))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--file-session-map)
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-current-source/main.el"))
+          (with-current-buffer session
+            (setq-local ai-code-backends-infra--session-terminal-backend 'vterm))
+          (ai-code-backends-infra--remember-file-session-buffer
+           "codex" source session)
+          (cl-letf (((symbol-function 'get-buffer-process)
+                     (lambda (buffer)
+                       (and (eq buffer session) 'session-process)))
+                    ((symbol-function 'process-live-p)
+                     (lambda (process) (eq process 'session-process))))
+            (should (eq (ai-code-backends-infra-current-buffer-session source)
+                        session))))
+      (clrhash ai-code-backends-infra--file-session-map)
+      (kill-buffer source)
+      (kill-buffer session))))
+
+(ert-deftest test-ai-code-backends-infra--current-buffer-session-finds-project-session ()
+  "Current-buffer lookup should use one unambiguous session in its project."
+  (let* ((root (make-temp-file "ai-code-current-project-" t))
+         (source (generate-new-buffer " *ai-code-project-source*"))
+         (session (generate-new-buffer " *ai-code-project-session*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer source
+            (setq default-directory root
+                  buffer-file-name (expand-file-name "other.el" root)))
+          (cl-letf (((symbol-function 'ai-code--session-project-root)
+                     (lambda () root))
+                    ((symbol-function
+                      'ai-code-backends-infra-session-buffers)
+                     (lambda () (list session)))
+                    ((symbol-function
+                      'ai-code-backends-infra-session-directory)
+                     (lambda (buffer)
+                       (and (eq buffer session)
+                            (file-name-as-directory
+                             (file-truename root))))))
+            (should
+             (eq (ai-code-backends-infra-current-buffer-session source)
+                 session))))
+      (kill-buffer source)
+      (kill-buffer session)
+      (delete-directory root t))))
+
+(ert-deftest test-ai-code-backends-infra--current-buffer-session-avoids-ambiguity ()
+  "Current-buffer lookup should not choose arbitrarily among attachments."
+  (let* ((source (generate-new-buffer " *ai-code-ambiguous-source*"))
+         (session-a (generate-new-buffer " *ai-code-ambiguous-a*"))
+         (session-b (generate-new-buffer " *ai-code-ambiguous-b*"))
+         (ai-code-backends-infra--last-accessed-buffer nil))
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--file-session-map)
+          (with-current-buffer source
+            (setq buffer-file-name "/tmp/ai-code-ambiguous/main.el"))
+          (dolist (session (list session-a session-b))
+            (with-current-buffer session
+              (setq-local ai-code-backends-infra--session-terminal-backend
+                          'vterm)))
+          (ai-code-backends-infra--remember-file-session-buffer
+           "codex" source session-a)
+          (ai-code-backends-infra--remember-file-session-buffer
+           "gemini" source session-b)
+          (cl-letf (((symbol-function 'get-buffer-process)
+                     (lambda (buffer)
+                       (cond
+                        ((eq buffer session-a) 'process-a)
+                        ((eq buffer session-b) 'process-b))))
+                    ((symbol-function 'process-live-p)
+                     (lambda (process) (memq process '(process-a process-b)))))
+            (should-not
+             (ai-code-backends-infra-current-buffer-session source))
+            (setq ai-code-backends-infra--last-accessed-buffer session-b)
+            (should (eq (ai-code-backends-infra-current-buffer-session source)
+                        session-b))))
+      (clrhash ai-code-backends-infra--file-session-map)
+      (dolist (buffer (list source session-a session-b))
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra--session-buffers-finds-global-sessions ()
+  "Global lookup should find live managed sessions after they are renamed."
+  (with-temp-buffer
+    (let ((ordinary (current-buffer)))
+      (with-temp-buffer
+        (rename-buffer (format "*renamed-ai-session-%s*" (gensym "global-")))
+        (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+        (let ((session (current-buffer)))
+          (cl-letf (((symbol-function 'buffer-list)
+                     (lambda (&optional _frame) (list ordinary session)))
+                    ((symbol-function 'get-buffer-process)
+                     (lambda (buffer)
+                       (and (eq buffer session) 'session-process)))
+                    ((symbol-function 'process-live-p)
+                     (lambda (process) (eq process 'session-process))))
+            (should (equal (ai-code-backends-infra-session-buffers)
+                           (list session)))))))))
+
+(ert-deftest test-ai-code-backends-infra--session-buffers-excludes-stopped-sessions ()
+  "Global lookup should exclude terminal buffers whose process has stopped."
+  (with-temp-buffer
+    (rename-buffer (format "*codex[%s]*" (gensym "stopped-")))
+    (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+    (let ((session (current-buffer)))
+      (cl-letf (((symbol-function 'buffer-list)
+                 (lambda (&optional _frame) (list session)))
+                ((symbol-function 'get-buffer-process)
+                 (lambda (_buffer) 'stopped-process))
+                ((symbol-function 'process-live-p)
+                 (lambda (_process) nil)))
+        (should-not (ai-code-backends-infra-session-buffers))))))
 
 (ert-deftest test-ai-code-backends-infra-reuse-session-window-refreshes-hidden-buffer ()
   "Reusing a hidden session should refresh its state and display it."
@@ -2390,13 +3162,14 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
-(ert-deftest test-ai-code-backends-infra-switch-reuses-live-attached-session-despite-working-dir-mismatch ()
-  "Reuse a live attached session even when WORKING-DIR no longer matches it."
+(ert-deftest test-ai-code-backends-infra-switch-rejects-attached-session-on-working-dir-mismatch ()
+  "Reject a live attached session when WORKING-DIR does not match it."
   (let* ((prefix "codex")
          (session-dir "/tmp/ai-code-file-attached-root/")
          (working-dir "/tmp/ai-code-file-attached-root/subdir/")
          (source (generate-new-buffer " *ai-code-source-attached-live*"))
          (attached (get-buffer-create "*codex[file-attached-root:attached]*"))
+         (select-called nil)
          (displayed nil))
     (unwind-protect
         (progn
@@ -2414,8 +3187,9 @@ The result is a cons of whether SYMBOL is bound and its default value."
           (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
                      (lambda (_prefix _dir) nil))
                     ((symbol-function 'ai-code-backends-infra--select-session-buffer)
-                     (lambda (&rest _args)
-                       (ert-fail "Should reuse the live attached session without prompting.")))
+                     (lambda (_prefix _directory &optional force-prompt)
+                       (setq select-called force-prompt)
+                       nil))
                     ((symbol-function 'get-buffer-window)
                      (lambda (&rest _args) nil))
                     ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
@@ -2423,25 +3197,29 @@ The result is a cons of whether SYMBOL is bound and its default value."
                        (setq displayed buffer)
                        nil)))
             (with-current-buffer source
-              (ai-code-backends-infra--switch-to-session-buffer
-               nil
-               "missing"
-               prefix
-               working-dir
-               nil)))
+              (should-error
+               (ai-code-backends-infra--switch-to-session-buffer
+                nil
+                "missing"
+                prefix
+                working-dir
+                nil)
+               :type 'user-error)))
 
-          (should (eq displayed attached))
-          (should (eq (gethash
-                       (ai-code-backends-infra--file-session-map-key prefix source)
-                       ai-code-backends-infra--file-session-map)
-                      attached)))
+          (should select-called)
+          (should-not displayed)
+          (should-not
+           (gethash
+            (ai-code-backends-infra--file-session-map-key prefix source)
+            ai-code-backends-infra--file-session-map)))
       (dolist (buf (list source attached))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-passes-env-vars ()
   "ENV-VARS are forwarded to `ai-code-backends-infra--create-terminal-session'."
-  (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))
+  (let* ((ai-code-editor-viewport-enabled nil)
+         (ai-code-backends-infra--processes (make-hash-table :test 'equal))
          (working-dir "/tmp/ai-code-env-vars/")
          (buffer-name "*ai-code-env-vars*")
          (buffer (get-buffer-create buffer-name))
@@ -2511,6 +3289,65 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra--toggle-or-create-session-injects-editor-environment ()
+  "A new native CLI session should receive its viewport editor environment."
+  (with-temp-buffer
+    (rename-buffer (generate-new-buffer-name "*codex[project]*"))
+    (let ((process-table (make-hash-table :test 'equal))
+          (buffer-name (buffer-name))
+          (buffer (current-buffer))
+          environment-call
+          captured-environment)
+      (cl-letf (((symbol-function 'ai-code-backends-infra--cleanup-dead-processes)
+                 (lambda (_table) nil))
+                ((symbol-function 'ai-code-editor-viewport-environment)
+                 (lambda (environment)
+                   (setq environment-call environment)
+                   '("EDITOR=/tmp/ai-code-editor-helper")))
+                ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                 (lambda (_name _directory _command environment)
+                   (setq captured-environment environment)
+                   (cons buffer 'mock-process)))
+                ((symbol-function 'sleep-for) (lambda (&rest _args) nil))
+                ((symbol-function 'process-live-p) (lambda (&rest _args) t))
+                ((symbol-function 'set-process-sentinel) (lambda (&rest _args) nil))
+                ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                 (lambda (&rest _args) nil)))
+        (ai-code-backends-infra--toggle-or-create-session
+         "/tmp/project/" buffer-name process-table "codex"
+         nil nil nil "codex" nil '("TERM_PROGRAM=emacs"))
+        (should (equal environment-call '("TERM_PROGRAM=emacs")))
+        (should (equal captured-environment
+                       '("EDITOR=/tmp/ai-code-editor-helper")))))))
+
+(ert-deftest test-ai-code-backends-infra--remote-session-preserves-editor-environment ()
+  "A remote CLI session should retain its remote editor environment."
+  (with-temp-buffer
+    (rename-buffer (generate-new-buffer-name "*codex[remote]*"))
+    (let ((process-table (make-hash-table :test 'equal))
+          (buffer-name (buffer-name))
+          (buffer (current-buffer))
+          (environment '("EDITOR=vim" "TERM_PROGRAM=emacs"))
+          captured-environment)
+      (cl-letf (((symbol-function 'ai-code-editor-viewport-environment)
+                 (lambda (_environment)
+                   (ert-fail "Remote sessions should not inject a local editor")))
+                ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                 (lambda (_name _directory _command seen-environment)
+                   (setq captured-environment seen-environment)
+                   (cons buffer 'mock-process)))
+                ((symbol-function 'sleep-for) (lambda (&rest _args) nil))
+                ((symbol-function 'process-live-p) (lambda (&rest _args) t))
+                ((symbol-function 'ai-code-backends-infra--finalize-started-session)
+                 (lambda (&rest _args) nil))
+                ((symbol-function 'ai-code-backends-infra--remember-file-session-buffer)
+                 (lambda (&rest _args) nil)))
+        (ai-code-backends-infra--create-new-session
+         buffer-name "/ssh:example:/tmp/project/" "codex" environment
+         'session-key process-table nil "codex"
+         nil nil nil nil nil nil)
+        (should (equal captured-environment environment))))))
+
 (ert-deftest test-ai-code-backends-infra-configure-session-buffer-keeps-multiline-local ()
   "Multiline keybindings should not leak through shared mode maps."
   (let ((shared-map (make-sparse-keymap))
@@ -2548,6 +3385,16 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (kill-buffer configured))
       (when (buffer-live-p unconfigured)
         (kill-buffer unconfigured)))))
+
+(ert-deftest test-ai-code-backends-infra--configure-session-buffer-installs-editor-submit ()
+  "Configured terminal sessions should submit completed editor input."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'ai-code-session-link--linkify-session-region)
+               (lambda (&rest _args) nil)))
+      (ai-code-backends-infra--configure-session-buffer (current-buffer))
+      (should
+       (eq ai-code-editor-viewport--submit-function
+           #'ai-code-backends-infra--terminal-send-return)))))
 
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-calls-post-start-hook ()
   "POST-START-FN should receive the created buffer, process, and instance."
@@ -3092,8 +3939,8 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/git/repo/")))))
 
-(ert-deftest test-ai-code-backends-infra-session-working-directory-returns-project-root ()
-  "Session working directory should return project.el root when available."
+(ert-deftest test-ai-code-backends-infra-session-working-directory-prefers-git-root ()
+  "Session working directory should prefer the Git worktree root."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir)
@@ -3102,6 +3949,20 @@ The result is a cons of whether SYMBOL is bound and its default value."
                (lambda (_project) "/projects/myapp/"))
               ((symbol-function 'magit-toplevel)
                (lambda (&optional _dir) "/git/other/")))
+      (should (equal (ai-code-backends-infra--session-working-directory)
+                     (file-name-as-directory
+                      (file-truename "/git/other/")))))))
+
+(ert-deftest test-ai-code-backends-infra-session-working-directory-uses-project-outside-git ()
+  "Session working directory should use project.el outside Git."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir)
+                 '(transient . "/projects/myapp/")))
+              ((symbol-function 'project-root)
+               (lambda (_project) "/projects/myapp/"))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) nil)))
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/projects/myapp/")))))
 

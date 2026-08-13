@@ -16,6 +16,9 @@
 (defvar ai-code-cli)
 (defvar claude-code-terminal-backend)
 
+(eval-when-compile
+  (defvar ai-code-selected-backend))
+
 (declare-function claude-code--do-send-command "claude-code" (cmd))
 (declare-function claude-code--term-send-string "claude-code" (backend string))
 (declare-function ai-code--validate-git-repository "ai-code-git" ())
@@ -115,7 +118,11 @@ Argument _ARG is ignored."
 ;;;###autoload
 (defun ai-code-cli-start (&optional arg)
   "Start the current backend's CLI session when supported.
-Argument ARG is passed to the backend's start function."
+Argument ARG is passed to the backend's start function.
+When called interactively, any prefix argument is forwarded via
+`current-prefix-arg', and it is up to the backend how to interpret
+it (for example, native CLI backends may use a non-nil prefix to
+prompt for CLI arguments and a working directory)."
   (interactive "P")
   (ai-code--activate-effective-backend)
   (prog1
@@ -133,7 +140,7 @@ Noninteractive callers pass ARG to the backend resume function.
 When called interactively, any prefix argument is forwarded via
 `current-prefix-arg', and it is up to the backend how to interpret
 it (for example, some backends may use a non-nil prefix to prompt for
-additional CLI arguments)."
+additional CLI arguments and a working directory)."
   (interactive "P")
   (ai-code--activate-effective-backend)
   (prog1
@@ -156,6 +163,35 @@ Argument ARG is passed to the backend's switch function."
         (funcall ai-code--cli-switch-fn arg)
       (funcall ai-code--cli-switch-fn))))
 
+(defun ai-code--missing-session-error-p (error-data)
+  "Return non-nil when ERROR-DATA reports a missing AI session."
+  (string-match-p
+   "\\(?:\\`\\|: \\)No [^\n]+ session\\(?: for this project\\|;\\)"
+   (error-message-string error-data)))
+
+(defun ai-code--send-command-with-session-recovery (command)
+  "Send COMMAND, offering to start a missing session before one retry."
+  (let ((source-buffer (current-buffer)))
+    (condition-case err
+        (progn
+          (funcall ai-code--cli-send-fn command)
+          t)
+      (error
+       (if (not (ai-code--missing-session-error-p err))
+           (signal (car err) (cdr err))
+         (if (not (y-or-n-p
+                   (format "No %s session for this project.  Start one? "
+                           (ai-code-current-backend-label))))
+             nil
+           (ai-code-cli-start)
+           (if (not (y-or-n-p "Ready to send prompt? "))
+               nil
+             (if (buffer-live-p source-buffer)
+                 (with-current-buffer source-buffer
+                   (funcall ai-code--cli-send-fn command))
+               (funcall ai-code--cli-send-fn command))
+             t)))))))
+
 ;;;###autoload
 (defun ai-code-cli-send-command (&optional command)
   "Send COMMAND to the current backend when supported.
@@ -167,7 +203,7 @@ Noninteractive callers must supply COMMAND."
       (call-interactively ai-code--cli-send-fn)
     (if (null command)
         (user-error "COMMAND is required for noninteractive calls")
-      (funcall ai-code--cli-send-fn command))))
+      (ai-code--send-command-with-session-recovery command))))
 
 ;;;###autoload
 (defun ai-code-claude-code-el-send-command (cmd)
@@ -209,7 +245,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-claude-code-resume
      :config  "~/.claude.json"
      :agent-file "CLAUDE.md"
-     :upgrade "npm install -g @anthropic-ai/claude-code@latest"
+     :install "npm install -g @anthropic-ai/claude-code@latest"
+     :upgrade nil
      :install-skills nil
      :cli     "claude")
     (gemini
@@ -221,7 +258,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-gemini-cli-resume
      :config  "~/.gemini/settings.json"
      :agent-file "GEMINI.md"
-     :upgrade "npm install -g @google/gemini-cli"
+     :install "npm install -g @google/gemini-cli"
+     :upgrade nil
      :install-skills nil
      :cli     "gemini")
     (antigravity
@@ -233,9 +271,23 @@ so the CLI itself handles the installation details."
      :resume  ai-code-antigravity-cli-resume
      :config  "~/.gemini/antigravity-cli/settings.json"
      :agent-file "AGENTS.md"
-     :upgrade "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+     :install "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+     :upgrade "agy update"
      :install-skills nil
      :cli     "agy")
+    (muse
+     :label "Muse Code"
+     :require ai-code-muse-cli
+     :start   ai-code-muse-cli
+     :switch  ai-code-muse-cli-switch-to-buffer
+     :send    ai-code-muse-cli-send-command
+     :resume  ai-code-muse-cli-resume
+     :config  nil
+     :agent-file nil
+     :install "curl -fsSL https://dev.meta.ai/install.sh | bash"
+     :upgrade nil
+     :install-skills nil
+     :cli     "muse")
     (github-copilot-cli
      :label "GitHub Copilot CLI"
      :require ai-code-github-copilot-cli
@@ -245,7 +297,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-github-copilot-cli-resume
      :config  "~/.copilot/mcp-config.json"
      :agent-file nil
-     :upgrade "npm install -g @github/copilot"
+     :install "npm install -g @github/copilot"
+     :upgrade nil
      :install-skills nil
      :cli     "copilot")
     (codex
@@ -257,9 +310,36 @@ so the CLI itself handles the installation details."
      :resume  ai-code-codex-cli-resume
      :config  "~/.codex/config.toml"
      :agent-file "AGENTS.md"
-     :upgrade "npm install -g @openai/codex@latest"
+     :install "npm install -g @openai/codex@latest"
+     :upgrade nil
      :install-skills nil
      :cli     "codex")
+    (pi
+     :label "Pi"
+     :require ai-code-pi
+     :start   ai-code-pi-start
+     :switch  ai-code-pi-switch-to-buffer
+     :send    ai-code-pi-send-command
+     :resume  ai-code-pi-resume
+     :config  "~/.pi/agent/settings.json"
+     :agent-file "AGENTS.md"
+     :install "npm install -g --ignore-scripts @earendil-works/pi-coding-agent"
+     :upgrade "pi update --self"
+     :install-skills nil
+     :cli     "pi")
+    (open-interpreter
+     :label "Open Interpreter CLI"
+     :require ai-code-open-interpreter-cli
+     :start   ai-code-open-interpreter-cli
+     :switch  ai-code-open-interpreter-cli-switch-to-buffer
+     :send    ai-code-open-interpreter-cli-send-command
+     :resume  ai-code-open-interpreter-cli-resume
+     :config  "~/.openinterpreter/config.toml"
+     :agent-file "AGENTS.md"
+     :install nil
+     :upgrade nil
+     :install-skills nil
+     :cli     "interpreter")
     (opencode
      :label "Opencode"
      :require ai-code-opencode
@@ -269,7 +349,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-opencode-resume
      :config  "~/.config/opencode/opencode.jsonc"
      :agent-file nil
-     :upgrade "npm i -g opencode-ai@latest"
+     :install "npm i -g opencode-ai@latest"
+     :upgrade nil
      :install-skills nil
      :cli     "opencode")
     (kilo
@@ -281,7 +362,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-kilo-resume
      :config  "~/.config/kilo/kilo.json"
      :agent-file nil
-     :upgrade "npm install -g kilo@latest"
+     :install "npm install -g kilo@latest"
+     :upgrade nil
      :install-skills nil
      :cli     "kilo")
     (grok
@@ -293,7 +375,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-grok-cli-resume
      :config  "~/.config/grok/config.json"
      :agent-file nil
-     :upgrade "bun add -g @vibe-kit/grok-cli"
+     :install "bun add -g @vibe-kit/grok-cli"
+     :upgrade nil
      :install-skills nil
      :cli     "grok")
     (cursor
@@ -305,7 +388,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-cursor-cli-resume
      :config  "~/.cursor"
      :agent-file nil
-     :upgrade "cursor-agent update"
+     :install "cursor-agent update"
+     :upgrade nil
      :install-skills nil
      :cli     "cursor-agent")
     (kiro
@@ -317,7 +401,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-kiro-cli-resume
      :config  "~/.kiro/settings/cli.json"
      :agent-file nil
-     :upgrade "kiro-cli update"
+     :install "kiro-cli update"
+     :upgrade nil
      :install-skills nil
      :cli     "kiro-cli")
     (codebuddy
@@ -329,7 +414,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-codebuddy-cli-resume
      :config  "~/.codebuddy"
      :agent-file nil
-     :upgrade "codebuddy update"
+     :install "codebuddy update"
+     :upgrade nil
      :install-skills nil
      :cli     "codebuddy")
     (aider
@@ -341,10 +427,11 @@ so the CLI itself handles the installation details."
      :resume  nil
      :config  "~/.aider.conf.yml"
      :agent-file nil
+     :install nil
      :upgrade nil
      :install-skills nil
      :cli     "aider")
-    (eca              ; external backend, requires eca package
+    (eca                      ; external backend, requires eca package
      :label "ECA (Editor Code Assistant)"
      :require ai-code-eca
      :start   ai-code-eca-start
@@ -353,7 +440,8 @@ so the CLI itself handles the installation details."
      :resume  ai-code-eca-resume
      :config  "~/.config/eca/config.json"
      :agent-file "AGENTS.md"
-     :upgrade ai-code-eca-upgrade
+     :install ai-code-eca-upgrade
+     :upgrade nil
      :install-skills ai-code-eca-install-skills
      :cli     nil)
     (agent-shell      ; external backend, requires agent-shell package
@@ -365,6 +453,7 @@ so the CLI itself handles the installation details."
      :resume  ai-code-agent-shell-resume
      :config  nil
      :agent-file nil
+     :install nil
      :upgrade nil
      :install-skills nil
      :cli     "agent-shell")
@@ -377,6 +466,7 @@ so the CLI itself handles the installation details."
      :resume  nil
      :config  nil
      :agent-file nil
+     :install nil
      :upgrade nil
      :install-skills nil
      :cli     nil)
@@ -389,7 +479,8 @@ so the CLI itself handles the installation details."
      :resume  claude-code-ide-resume
      :config  "~/.claude.json"
      :agent-file "CLAUDE.md"
-     :upgrade "npm install -g @anthropic-ai/claude-code@latest"
+     :install "npm install -g @anthropic-ai/claude-code@latest"
+     :upgrade nil
      :install-skills nil
      :cli     "claude")
     (claude-code-el ; external backend, requires claude-code.el package
@@ -401,12 +492,13 @@ so the CLI itself handles the installation details."
      :resume  claude-code-resume
      :config  "~/.claude.json"
      :agent-file "CLAUDE.md"
-     :upgrade "npm install -g @anthropic-ai/claude-code@latest"
+     :install "npm install -g @anthropic-ai/claude-code@latest"
+     :upgrade nil
      :install-skills nil
      :cli     "claude"))
   "Available AI backends and their integration metadata.
 Each entry is a plist with backend labels, command functions,
-configuration paths, upgrade commands, and skill-install commands."
+configuration paths, install and upgrade commands, and skill-install commands."
   :type '(repeat (list (symbol :tag "Key")
                        (const :label) (string :tag "Label")
                        (const :require) (symbol :tag "Feature to require")
@@ -415,7 +507,11 @@ configuration paths, upgrade commands, and skill-install commands."
                        (const :send) (symbol :tag "Send function")
                        (const :resume) (choice (symbol :tag "Resume function")
                                                (const :tag "Not supported" nil))
+                       (const :install) (choice (string :tag "Install command")
+                                                (symbol :tag "Install function")
+                                                (const :tag "Not supported" nil))
                        (const :upgrade) (choice (string :tag "Upgrade command")
+                                                (symbol :tag "Upgrade function")
                                                 (const :tag "Not supported" nil))
                        (const :cli) (string :tag "CLI name")
                        (const :agent-file) (choice (string :tag "Agent file name")
@@ -636,32 +732,44 @@ invoke `ai-code-cli-resume'; otherwise call `ai-code-cli-start'."
 
 ;;;###autoload
 (defun ai-code-upgrade-backend (&optional arg)
-  "Run the upgrade command for the currently selected backend.
-If the backend defines an :upgrade property, use it:
-  - string: run as a shell command via `compile'.
-  - symbol: call the function with prefix arg forwarded.
-ARG is the prefix argument to pass to the upgrade function."
+  "Install or upgrade the currently selected backend's CLI.
+When the declared CLI is unavailable, use :install.  Otherwise, use
+:upgrade when defined and fall back to :install.  String commands run
+via `compile'; function symbols receive prefix ARG interactively."
   (interactive "P")
   (let* ((spec (ai-code--backend-spec ai-code-selected-backend)))
     (if (not spec)
         (user-error "No backend is currently selected")
-      (let* ((plist   (cdr spec))
+      (let* ((plist (cdr spec))
+             (install (plist-get plist :install))
              (upgrade (plist-get plist :upgrade))
-             (label   (ai-code-current-backend-label)))
+             (cli (plist-get plist :cli))
+             (label (ai-code-current-backend-label))
+             (cli-available (and (stringp cli) (executable-find cli)))
+             (command (if cli-available (or upgrade install) install))
+             (property (if (and cli-available upgrade) :upgrade :install)))
+        (when (and command (symbolp command))
+          (ai-code--ensure-backend-loaded spec))
         (cond
-         ((stringp upgrade)
-          (compile upgrade)
-          (message "Running upgrade command for %s" label))
-         ((and upgrade (symbolp upgrade) (fboundp upgrade))
+         ((stringp command)
+          (compile command)
+          (message "Running %s command for %s" property label))
+         ((and command (symbolp command) (fboundp command))
           (let ((current-prefix-arg arg))
-            (call-interactively upgrade))
-          (message "Running upgrade for %s" label))
-         ((and upgrade (symbolp upgrade) (not (fboundp upgrade)))
-          (user-error "Backend '%s' declares :upgrade function '%s' but it is not callable"
-                      label upgrade))
+            (call-interactively command))
+          (message "Running %s for %s" property label))
+         ((and command (symbolp command) (not (fboundp command)))
+          (user-error "Backend '%s' declares %s function '%s' but it is not callable"
+                      label property command))
+         ((and (null install) (null upgrade))
+          (user-error "Backend '%s' defines neither :install nor :upgrade command"
+                      label))
+         ((not install)
+          (user-error "Backend '%s' CLI '%s' is unavailable and :install is not defined"
+                      label (or cli "<none>")))
          (t
-          (user-error "Upgrade command for backend '%s' is not defined"
-                      label)))))))
+          (user-error "Backend '%s' declares invalid %s command: %S"
+                      label property command)))))))
 
 (defun ai-code--install-backend-skills-fallback (label)
   "Fallback skills installation for backend LABEL.
@@ -685,10 +793,10 @@ ACTION should be the symbol `install' or `uninstall'."
          (default-prompt
           (if (eq action 'uninstall)
               (format
-               "Please read the README of %s and uninstall/remove the skills described there for %s. Follow the repository instructions to remove any installed skill files and cleanup related configuration."
+               "Please read the README of %s and uninstall/remove the skills described there for %s globally for the current user, not just for the current project. Follow the repository instructions to remove the skill files from the backend's user-level/global skills directory and clean up related global configuration. Do not remove or modify project-specific skill files or configuration."
                url label)
             (format
-             "Please read the README of %s and install/setup the skills described there for %s. Follow the installation instructions in the README."
+             "Please read the README of %s and install/setup the skills described there for %s globally for the current user so they are available to all projects. Follow the installation instructions in the README, using the backend's user-level/global skills directory. Do not install or modify skill files or configuration in the current project."
              url label)))
          (prompt (if (called-interactively-p 'interactive)
                      (ai-code-read-string

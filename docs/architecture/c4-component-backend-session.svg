@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="2006px" preserveAspectRatio="none" style="width:912px;height:2006px;" version="1.1" viewBox="0 0 912 2006" width="912px" zoomAndPan="magnify"><defs/><g><!--MD5=[8b8d12f547598a976973630037019ef7]
+cluster backendSession--><rect fill="#FFFFFF" height="1425" style="stroke: #444444; stroke-width: 1.0; stroke-dasharray: 7.0,7.0;" width="684" x="22" y="24"/><text fill="#444444" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="347" x="190.5" y="43.104">Backend registry and terminal session area</text><text fill="#444444" font-family="sans-serif" font-size="12" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="67" x="330.5" y="60.6201">[Container]</text><!--MD5=[aff0e67a1692f4b0d96c087fa0872bfd]
+entity registry--><rect fill="#85BBF0" height="175.2678" style="stroke: #78A8D8; stroke-width: 1.5;" width="212" x="295" y="81"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="152" x="323" y="108.104">Backend metadata</text><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="62" x="370" y="129.8961">registry</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="123" x="339.5" y="147.4122">[Emacs Lisp defcustom]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="403" y="165.8941"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="153" x="322.5" y="184.9621">Stores labels, required</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="188" x="305" y="204.03">features, commands, config</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="176" x="311" y="223.0979">files, upgrade commands,</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="104" x="349" y="242.1658">and CLI names.</text><!--MD5=[2b5b80f7068c6a16f141d16022e08ad4]
+entity dispatcher--><rect fill="#85BBF0" height="153.4757" style="stroke: #78A8D8; stroke-width: 1.5;" width="206" x="298" y="353"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="158" x="322" y="380.104">Backend dispatcher</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="116" x="343" y="397.6201">[Emacs Lisp functions]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="403" y="416.1021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="171" x="313.5" y="435.17">Applies selected backend</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="186" x="308" y="454.2379">and exposes common start/</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="137" x="330.5" y="473.3058">resume/switch/send</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="78" x="362" y="492.3738">commands.</text><!--MD5=[0eedb84087b54e99332505f8324c5918]
+entity nativeAdapters--><rect fill="#85BBF0" height="134.4078" style="stroke: #78A8D8; stroke-width: 1.5;" width="215" x="193.5" y="603"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="157" x="222.5" y="630.104">Native CLI adapters</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="113" x="244.5" y="647.6201">[Emacs Lisp modules]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="303" y="666.1021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="191" x="203.5" y="685.17">Small wrappers that provide</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="183" x="207.5" y="704.2379">program, switches, session</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="171" x="215.5" y="723.3058">prefix, and process table.</text><!--MD5=[c202ae5bde86913307b63788187ac5e5]
+entity externalAdapters--><rect fill="#85BBF0" height="134.4078" style="stroke: #78A8D8; stroke-width: 1.5;" width="219" x="449.5" y="603"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="199" x="459.5" y="630.104">External backend entries</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="175" x="471.5" y="647.6201">[Emacs Lisp metadata/wrappers]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="561" y="666.1021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="190" x="462" y="685.17">Delegates to external Emacs</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="165" x="474.5" y="704.2379">backend packages when</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="62" x="528" y="723.3058">installed.</text><!--MD5=[918d9d28387e0929df83974d69f7b0d6]
+entity startResolver--><rect fill="#85BBF0" height="134.4078" style="stroke: #78A8D8; stroke-width: 1.5;" width="213" x="178.5" y="816"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="193" x="188.5" y="843.104">Start command resolver</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="253" y="860.6201">[Emacs Lisp]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="287" y="879.1021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="175" x="195.5" y="898.17">Builds the shell command</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="135" x="215.5" y="917.2379">and optional launch</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="68" x="251" y="936.3058">metadata.</text><!--MD5=[820389078b7636752b61fecd7bd9dbd0]
+entity sessionOrchestrator--><rect fill="#85BBF0" height="134.4078" style="stroke: #78A8D8; stroke-width: 1.5;" width="203" x="270.5" y="1065"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="165" x="289.5" y="1092.104">Session orchestrator</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="340" y="1109.6201">[Emacs Lisp]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="374" y="1128.1021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="173" x="283.5" y="1147.17">Reuses or creates session</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="179" x="280.5" y="1166.2379">buffers and tracks process</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="45" x="349.5" y="1185.3058">tables.</text><!--MD5=[b9d43cc47e0184e682e2725521d69f75]
+entity terminalImpls--><rect fill="#85BBF0" height="137.132" style="stroke: #78A8D8; stroke-width: 1.5;" width="174" x="436" y="1296"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="72" x="485" y="1323.104">Terminal</text><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="139" x="453.5" y="1344.8961">implementations</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="153" x="446.5" y="1362.4122">[vterm/eat/ghostel adapters]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="525" y="1380.8941"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="150" x="446" y="1399.9621">Create actual terminal</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="154" x="446" y="1419.03">buffers and processes.</text><!--MD5=[27983a65934c323931585c051da424d8]
+entity promptSender--><rect fill="#85BBF0" height="115.3399" style="stroke: #78A8D8; stroke-width: 1.5;" width="218" x="431" y="825.5"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="118" x="481" y="852.604">Prompt sender</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="508" y="870.1201">[Emacs Lisp]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="542" y="888.6021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="198" x="441" y="907.67">Resolves a session and sends</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="197" x="441.5" y="926.7379">user prompt text plus return.</text><!--MD5=[a73fd4522f90d1227f3e6cd7ea892c66]
+entity mcpLaunchAdapter--><rect fill="#85BBF0" height="134.4078" style="stroke: #78A8D8; stroke-width: 1.5;" width="197" x="38.5" y="1065"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="162" x="56" y="1092.104">MCP launch adapter</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="64" x="105" y="1109.6201">[Emacs Lisp]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="139" y="1128.1021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="114" x="78" y="1147.17">Injects local MCP</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="173" x="48.5" y="1166.2379">configuration for enabled</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="68" x="103" y="1185.3058">backends.</text><!--MD5=[ccae301ee4b148b6399837a24fc12e98]
+entity sessionRegistry--><rect fill="#85BBF0" height="134.4078" style="stroke: #78A8D8; stroke-width: 1.5;" width="189" x="190.5" y="1297.5"/><text fill="#000000" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="126" x="222" y="1324.604">Session registry</text><text fill="#000000" font-family="sans-serif" font-size="12" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="128" x="221" y="1342.1201">[Emacs Lisp struct/table]</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="287" y="1360.6021"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="157" x="204.5" y="1379.67">Registers sessions with</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="165" x="200.5" y="1398.7379">backend, repo, task, and</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="113" x="228.5" y="1417.8058">status metadata.</text><!--MD5=[41b557b1f769efd6f5e89935dc6c37f6]
+entity backends--><rect fill="#999999" height="98.9958" style="stroke: #8A8A8A; stroke-width: 1.5;" width="193" x="552.5" y="1532"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="155" x="571.5" y="1559.104">AI coding backends</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="651" y="1578.758"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="169" x="562.5" y="1597.8259">CLI processes or external</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="128" x="585" y="1616.8938">backend packages.</text><!--MD5=[86ad6585af7dd65ad3ed10e84eb82102]
+entity terminals--><rect fill="#999999" height="79.9279" style="stroke: #8A8A8A; stroke-width: 1.5;" width="171" x="346.5" y="1541.5"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="151" x="356.5" y="1568.604">Terminal packages</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="434" y="1588.258"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="130" x="367" y="1607.3259">vterm, eat, ghostel.</text><!--MD5=[7df5c49a5d10f9e5b8d4dd571f2ea91d]
+entity mcpHttp--><rect fill="#999999" height="101.7199" style="stroke: #8A8A8A; stroke-width: 1.5;" width="181" x="75.5" y="1728"/><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="125" x="101.5" y="1755.104">Local MCP HTTP</text><text fill="#FFFFFF" font-family="sans-serif" font-size="16" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="73" x="129.5" y="1776.8961">endpoint</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="168" y="1796.55"/><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="161" x="85.5" y="1815.6179">Emacs network process.</text><!--MD5=[c051ce54652158a8bf6b7cf3f686809e]
+link registry to dispatcher--><path d="M401,256.1 C401,285.71 401,318.7 401,347.82 " fill="none" id="registry-&gt;dispatcher" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="401,352.84,405,343.84,401,347.84,397,343.84,401,352.84" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="113" x="402" y="300.897">Provides selected</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="88" x="416" y="318.603">backend spec</text><!--MD5=[1c630a9e9e4d25dd8f99c70f26573c46]
+link dispatcher to nativeAdapters--><path d="M360.63,506.25 C355.83,516.16 351.16,526.25 347,536 C338.57,555.77 330.51,577.65 323.55,597.86 " fill="none" id="dispatcher-&gt;nativeAdapters" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="321.9,602.69,328.5932,595.465,323.5154,597.9581,321.0222,592.8803,321.9,602.69" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="133" x="348" y="550.897">Calls native wrapper</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="63" x="384.5" y="568.603">functions</text><!--MD5=[4ae929e184bf50cd9cfb8f18447d44df]
+link dispatcher to externalAdapters--><path d="M467.35,506.25 C474.97,516.03 482.37,526.09 489,536 C502.02,555.45 514.51,577.61 525.25,598.18 " fill="none" id="dispatcher-&gt;externalAdapters" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="527.65,602.82,527.0517,592.9893,525.3455,598.3827,519.9521,596.6765,527.65,602.82" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="148" x="511" y="550.897">Calls external package</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="63" x="553.5" y="568.603">functions</text><!--MD5=[2ef60ec2bd5c8cb8531271dc5bf380ac]
+link nativeAdapters to startResolver--><path d="M295.98,737.18 C294.21,760.54 292.21,786.9 290.41,810.66 " fill="none" id="nativeAdapters-&gt;startResolver" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="290.03,815.69,294.7123,807.0253,290.4157,810.7049,286.7361,806.4083,290.03,815.69" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="115" x="295" y="781.897">Pass start options</text><!--MD5=[c4a577fc50fdc90eee27dc348f595cff]
+link startResolver to mcpLaunchAdapter--><path d="M178.15,927.07 C156.91,940.74 137.37,958.15 125,980 C111.46,1003.91 110.97,1033.46 115.14,1060.06 " fill="none" id="startResolver-&gt;mcpLaunchAdapter" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="115.97,1065,118.4002,1055.4557,115.1295,1060.0711,110.5141,1056.8004,115.97,1065" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="109" x="138.5" y="994.897">Requests launch</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="134" x="126" y="1012.603">customization when</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="72" x="158.5" y="1030.309">configured</text><!--MD5=[c76a145c33891e020094a5b499e2aec8]
+link startResolver to sessionOrchestrator--><path d="M272.74,950.27 C270.48,977.39 271.54,1008.54 282,1035 C285.51,1043.87 290.27,1052.41 295.78,1060.47 " fill="none" id="startResolver-&gt;sessionOrchestrator" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="298.91,1064.91,296.9691,1055.2543,296.0187,1060.8307,290.4423,1059.8803,298.91,1064.91" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="102" x="283" y="1003.897">Starts or reuses</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="47" x="312" y="1021.603">session</text><!--MD5=[4c201ba2e19972a7bdfa348876e0457f]
+link sessionOrchestrator to terminalImpls--><path d="M388.5,1199.15 C395.81,1221.46 405.81,1245.8 419,1266 C424.82,1274.9 431.61,1283.56 438.89,1291.81 " fill="none" id="sessionOrchestrator-&gt;terminalImpls" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="442.5,1295.83,439.4704,1286.4587,439.1623,1292.1072,433.5138,1291.7991,442.5,1295.83" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="111" x="420" y="1243.897">Creates terminal</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="47" x="453.5" y="1261.603">session</text><!--MD5=[3935ca63b4860f102c54f93ddf362278]
+link terminalImpls to terminals--><path d="M494.33,1433.23 C480.04,1467 463.17,1506.86 450.59,1536.59 " fill="none" id="terminalImpls-&gt;terminals" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="448.6,1541.27,455.7967,1534.5464,450.5524,1536.6669,448.4318,1531.4226,448.6,1541.27" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="30" x="481" y="1488.897">Uses</text><!--MD5=[03b65f81a896e552529d8e8b4d9bde2f]
+link terminalImpls to backends--><path d="M562.69,1433.23 C580.5,1463.61 601.19,1498.92 617.85,1527.35 " fill="none" id="terminalImpls-&gt;backends" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="620.49,1531.85,619.3901,1522.0627,617.9618,1527.5363,612.4882,1526.1079,620.49,1531.85" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="125" x="601" y="1488.897">Runs CLI command</text><!--MD5=[5fc8d2d2cc28a3cf70f65eac8a643500]
+link promptSender to sessionOrchestrator--><path d="M464.09,940.56 C451.21,952.56 438.84,965.9 429,980 C412.32,1003.9 399.78,1033.31 390.78,1059.81 " fill="none" id="promptSender-&gt;sessionOrchestrator" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="389.13,1064.72,395.7774,1057.4528,390.7154,1059.978,388.1902,1054.9161,389.13,1064.72" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="101" x="430" y="1003.897">Resolves target</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="47" x="458.5" y="1021.603">session</text><!--MD5=[1659bb1eceb5d5d4852d14dc42199c15]
+link promptSender to terminalImpls--><path d="M542.68,940.75 C545.56,1015.46 548.54,1150.83 539,1266 C538.34,1274 537.38,1282.33 536.26,1290.61 " fill="none" id="promptSender-&gt;terminalImpls" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="535.55,1295.75,540.7691,1287.3977,536.2491,1290.7991,532.8477,1286.2791,535.55,1295.75" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="144" x="546" y="1137.397">Sends text and return</text><!--MD5=[ae2c5b65c64336618647201fca40519c]
+link sessionOrchestrator to sessionRegistry--><path d="M270.15,1191.77 C250.7,1205.11 234.63,1218.45 229,1229 C218.27,1249.13 222.05,1271.77 231.44,1292.65 " fill="none" id="sessionOrchestrator-&gt;sessionRegistry" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="233.67,1297.35,233.4241,1287.5042,231.5259,1292.8331,226.197,1290.9348,233.67,1297.35" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="145" x="230" y="1243.897">Registers and updates</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="53" x="277.5" y="1261.603">sessions</text><!--MD5=[d0476ea187b50f76cc9e8bdec1c1a643]
+link mcpLaunchAdapter to mcpHttp--><path d="M139.98,1199.3 C145.71,1326.79 158.18,1604.01 163.5,1722.49 " fill="none" id="mcpLaunchAdapter-&gt;mcpHttp" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="163.74,1727.67,167.3248,1718.4967,163.5117,1722.6752,159.3332,1718.8621,163.74,1727.67" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="108" x="164" y="1479.897">Ensures URL and</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="129" x="155" y="1497.603">session registration</text><!--MD5=[232531e8cf1c16651706bc9ea8279102]
+link backends to mcpHttp--><path d="M552.35,1623.8 C546.49,1626.25 540.67,1628.67 535,1631 C442.5,1669.09 336.35,1711.22 261.71,1740.57 " fill="none" id="backends-&gt;mcpHttp" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="256.84,1742.49,266.6793,1742.924,261.4941,1740.6626,263.7555,1735.4774,256.84,1742.49" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="122" x="455" y="1675.897">Calls tool endpoint</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="94" x="470.5" y="1693.603">when injected</text><!--MD5=[e8647b51de1b176b052776e7115b4772]
+link externalAdapters to backends--><path d="M668.62,734.75 C715.65,770.92 760,821.16 760,882 C760,882 760,882 760,1365.5 C760,1427.18 764.9,1448.05 735,1502 C729.95,1511.12 723.44,1519.75 716.27,1527.71 " fill="none" id="externalAdapters-&gt;backends" style="stroke: #666666; stroke-width: 1.0;"/><polygon fill="#666666" points="712.7,1531.57,721.75,1527.6845,716.0973,1527.9015,715.8804,1522.2488,712.7,1531.57" style="stroke: #666666; stroke-width: 1.0;"/><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="127" x="761" y="1110.897">Delegates behavior</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="94" x="777.5" y="1128.603">outside native</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="58" x="795.5" y="1146.309">terminal</text><text fill="#666666" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="95" x="778.5" y="1164.0151">infrastructure</text><rect fill="#DDDDDD" height="147.4754" rx="5" ry="5" style="stroke: #000000; stroke-width: 1.0;" width="182" x="719" y="1848"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="0" x="781" y="1869.9659"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="33" x="785" y="1869.9659">Type</text><rect fill="#08427B" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="725" y="1874.0679"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="749" y="1889.0339"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="47" x="785" y="1889.0339">person</text><rect fill="#686868" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="725" y="1893.1358"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="749" y="1908.1018"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="106" x="785" y="1908.1018">external person</text><rect fill="#1168BD" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="725" y="1912.2038"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="737" y="1927.1697"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="47" x="785" y="1927.1697">system</text><rect fill="#999999" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="725" y="1931.2717"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="749" y="1946.2376"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="106" x="785" y="1946.2376">external system</text><rect fill="#438DD5" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="725" y="1950.3396"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="737" y="1965.3055"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="64" x="785" y="1965.3055">container</text><rect fill="#85BBF0" height="19.0679" style="stroke: none; stroke-width: 1.0;" width="56" x="725" y="1969.4075"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="0" x="737" y="1984.3734"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="76" x="785" y="1984.3734">component</text><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1855" y2="1855"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1874.0679" y2="1874.0679"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1893.1358" y2="1893.1358"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1912.2038" y2="1912.2038"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1931.2717" y2="1931.2717"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1950.3396" y2="1950.3396"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1969.4075" y2="1969.4075"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="895" y1="1988.4754" y2="1988.4754"/><line style="stroke: #000000; stroke-width: 1.0;" x1="725" x2="725" y1="1855" y2="1988.4754"/><line style="stroke: #000000; stroke-width: 1.0;" x1="781" x2="781" y1="1855" y2="1988.4754"/><line style="stroke: #000000; stroke-width: 1.0;" x1="895" x2="895" y1="1855" y2="1988.4754"/><!--MD5=[da836bf3327bba50e1e11dcc5145365d]
+@startuml
+
+
+
+
+
+skinparam defaultTextAlignment center
+
+skinparam wrapWidth 200
+skinparam maxMessageSize 150
+
+skinparam rectangle {
+    StereotypeFontSize 12
+    shadowing false
+}
+
+skinparam database {
+    StereotypeFontSize 12
+    shadowing false
+}
+
+skinparam Arrow {
+    Color #666666
+    FontColor #666666
+    FontSize 12
+}
+
+skinparam rectangle<<boundary>> {
+    Shadowing false
+    StereotypeFontSize 0
+    FontColor #444444
+    BorderColor #444444
+    BorderStyle dashed
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+skinparam rectangle<<person>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #08427B
+    BorderColor #073B6F
+}
+
+skinparam rectangle<<external_person>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #686868
+    BorderColor #8A8A8A
+}
+
+skinparam rectangle<<system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #1168BD
+    BorderColor #3C7FC0
+}
+
+skinparam rectangle<<external_system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #999999
+    BorderColor #8A8A8A
+}
+
+skinparam database<<system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #1168BD
+    BorderColor #3C7FC0
+}
+
+skinparam database<<external_system>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #999999
+    BorderColor #8A8A8A
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+skinparam rectangle<<container>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #438DD5
+    BorderColor #3C7FC0
+}
+
+skinparam database<<container>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #FFFFFF
+    BackgroundColor #438DD5
+    BorderColor #3C7FC0
+}
+
+
+
+
+
+
+
+
+
+
+
+
+skinparam rectangle<<component>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #000000
+    BackgroundColor #85BBF0
+    BorderColor #78A8D8
+}
+
+skinparam database<<component>> {
+    StereotypeFontColor #FFFFFF
+    FontColor #000000
+    BackgroundColor #85BBF0
+    BorderColor #78A8D8
+}
+
+
+
+
+
+
+hide stereotype
+legend right
+|=              |= Type |
+|<#08427B>      | person |
+|<#686868>      | external person |
+|<#1168BD>   | system |
+|<#999999>      | external system |
+|<#438DD5>   | container |
+|<#85BBF0>   | component |
+endlegend
+
+rectangle "==Backend registry and terminal session area\n<size:12>[Container]</size>" <<boundary>> as backendSession {
+  rectangle "==Backend metadata registry\n//<size:12>[Emacs Lisp defcustom]</size>//\n\n Stores labels, required features, commands, config files, upgrade commands, and CLI names." <<component>> as registry
+  rectangle "==Backend dispatcher\n//<size:12>[Emacs Lisp functions]</size>//\n\n Applies selected backend and exposes common start/resume/switch/send commands." <<component>> as dispatcher
+  rectangle "==Native CLI adapters\n//<size:12>[Emacs Lisp modules]</size>//\n\n Small wrappers that provide program, switches, session prefix, and process table." <<component>> as nativeAdapters
+  rectangle "==External backend entries\n//<size:12>[Emacs Lisp metadata/wrappers]</size>//\n\n Delegates to external Emacs backend packages when installed." <<component>> as externalAdapters
+  rectangle "==Start command resolver\n//<size:12>[Emacs Lisp]</size>//\n\n Builds the shell command and optional launch metadata." <<component>> as startResolver
+  rectangle "==Session orchestrator\n//<size:12>[Emacs Lisp]</size>//\n\n Reuses or creates session buffers and tracks process tables." <<component>> as sessionOrchestrator
+  rectangle "==Terminal implementations\n//<size:12>[vterm/eat/ghostel adapters]</size>//\n\n Create actual terminal buffers and processes." <<component>> as terminalImpls
+  rectangle "==Prompt sender\n//<size:12>[Emacs Lisp]</size>//\n\n Resolves a session and sends user prompt text plus return." <<component>> as promptSender
+  rectangle "==MCP launch adapter\n//<size:12>[Emacs Lisp]</size>//\n\n Injects local MCP configuration for enabled backends." <<component>> as mcpLaunchAdapter
+  rectangle "==Session registry\n//<size:12>[Emacs Lisp struct/table]</size>//\n\n Registers sessions with backend, repo, task, and status metadata." <<component>> as sessionRegistry
+}
+
+rectangle "==AI coding backends\n\n CLI processes or external backend packages." <<external_system>> as backends
+rectangle "==Terminal packages\n\n vterm, eat, ghostel." <<external_system>> as terminals
+rectangle "==Local MCP HTTP endpoint\n\n Emacs network process." <<external_system>> as mcpHttp
+
+registry - -> dispatcher : "===Provides selected backend spec"
+dispatcher - -> nativeAdapters : "===Calls native wrapper functions"
+dispatcher - -> externalAdapters : "===Calls external package functions"
+nativeAdapters - -> startResolver : "===Pass start options"
+startResolver - -> mcpLaunchAdapter : "===Requests launch customization when configured"
+startResolver - -> sessionOrchestrator : "===Starts or reuses session"
+sessionOrchestrator - -> terminalImpls : "===Creates terminal session"
+terminalImpls - -> terminals : "===Uses"
+terminalImpls - -> backends : "===Runs CLI command"
+promptSender - -> sessionOrchestrator : "===Resolves target session"
+promptSender - -> terminalImpls : "===Sends text and return"
+sessionOrchestrator - -> sessionRegistry : "===Registers and updates sessions"
+mcpLaunchAdapter - -> mcpHttp : "===Ensures URL and session registration"
+backends - -> mcpHttp : "===Calls tool endpoint when injected"
+externalAdapters - -> backends : "===Delegates behavior outside native terminal infrastructure"
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 02:22:07 PST 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 11.0.31+11-post-1ubuntu1-24.04.2-Ubuntu
+Operating System: Linux
+Default Encoding: UTF-8
+Language: en
+Country: US
+--></g></svg>

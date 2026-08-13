@@ -1,0 +1,66 @@
+* Domain Context
+
+** Purpose
+Provide a stable Emacs workflow for AI-assisted software development across multiple CLI backends, while preserving context-aware prompting, repeatable coding workflows, and repository-safe change habits.
+
+** Ubiquitous Language
+- Backend: one AI CLI adapter (for example Codex, Copilot CLI, Gemini, Claude Code) selected through a common contract.
+- Session: an interactive terminal buffer tied to backend, directory, and optional task file.
+- Context: file/function/region/repo metadata appended to prompts to reduce ambiguity.
+- Prompt file: Org-based prompt history under =.ai.code.files/=.
+- Action menu: transient command hub (usually =C-c a=) that dispatches all workflows.
+- Agile workflows: refactor, TDD cycle, review diff, build/test/lint follow-up flows.
+- Guardrails / domain context docs: lightweight architecture context files used by future AI sessions.
+
+** Main Domain Concepts
+- Unified backend abstraction with per-backend start/switch/send/resume implementations.
+- Shared terminal/session infrastructure separated from backend-specific adapter files.
+- Context engineering pipeline that combines current scope, visible files, and stored repo context.
+- Workflow commands that convert editor state into actionable AI prompts.
+- Optional integrations (Magit, gptel, flycheck/flymake, org-roam, projectile) treated as additive, not mandatory.
+- ERT-based regression safety with module-focused tests and menu/behavior assertions.
+
+** Bounded Context Candidates
+- Backend Adapter Management
+  - Owns backend registry, backend selection, backend capability dispatch, and per-repo backend affinity.
+- Session and Terminal Orchestration
+  - Owns terminal backend abstraction, session lifecycle, window behavior, and session-link/navigation behavior.
+- Prompt and Context Engineering
+  - Owns prompt history files, prompt suffixes, context collection, and repo-context persistence/formatting.
+- AI Workflow Commands
+  - Owns user-facing operations: code change, TODO implementation, explain/question, refactor, TDD, review, build/test/lint, note capture.
+- Repository Validation and Test Harness
+  - Owns ERT bootstrap, module test suites, and diagnostics/test follow-up expectations used by AI-guided changes.
+
+** Core Flows
+- Start/Resume Session Flow
+  - User selects backend -> session buffer is created/restored -> terminal infra manages IO and window behavior.
+- Prompt Execution Flow
+  - User triggers action -> action gathers context -> prompt is edited/confirmed -> prompt is sent to active backend session.
+- Backend Switching Flow
+  - User changes backend -> backend hooks are rebound -> repo-level affinity may override global backend in that repo.
+- Change Validation Flow
+  - User/AI runs focused tests (and broader tests when needed) -> follow-up prompts are used to fix failures and revalidate.
+- Architecture Context Derivation Flow
+  - AI commands create/update =.ai.code.files/architecture/*.org= to preserve practical repo guidance for future sessions.
+
+** Domain Invariants / Business Rules
+- The top-level UX is stable and menu-driven; commands should remain discoverable through transient groups.
+- Backend-agnostic logic should not be tightly coupled to one backend implementation file.
+- Session/terminal state ownership stays in infra/session modules, not scattered across feature modules.
+- Context data is repository-scoped where appropriate; avoid hidden global state for repo-specific behavior.
+- Optional dependencies must fail softly and keep core workflows usable without them.
+- Architecture/context artifacts are expected under =.ai.code.files/= and should be updated incrementally, not rewritten blindly.
+
+** Testing Ideas
+- Keep module-local ERT tests close to each domain area (backends, infra, file, discussion, git, menu behavior).
+- When changing menu wiring or dispatch, assert key bindings/entries and dispatch behavior in menu-centric tests.
+- When changing context/prompt behavior, add tests for prompt assembly and repo-context inclusion/exclusion.
+- For infra/session changes, test session selection/routing behavior and backend-specific edge cases.
+- Use focused test files first, then run the broader =test/test_*.el= suite when cross-cutting modules are touched.
+
+** Notes and Uncertainties
+- Bounded context edges between =ai-code-file.el= and =ai-code-discussion.el= are pragmatic and may shift with feature scope.
+- Some commands appear in multiple workflow surfaces (menu, direct function calls, backend-specific wrappers), so ownership can look duplicated even when behavior is intentional.
+- Terminal backend parity (vterm/eat/ghostel) is a design goal, but edge-case behavior may differ and requires backend-specific verification.
+- DDD terms here are operational mapping for AI guidance, not evidence that the repository intentionally follows formal DDD.

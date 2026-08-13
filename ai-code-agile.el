@@ -9,20 +9,27 @@
 
 ;;; Code:
 
+(defvar ai-code--harness-loading)
+
 (require 'ai-code-input)
 (require 'ai-code-prompt-mode)
-(require 'ai-code-change)
+(let ((ai-code--harness-loading t))
+  (require 'ai-code-change))
 (require 'subr-x)
 (require 'thingatpt)
 (require 'which-func)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--compose-code-change-brief
+                  "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function dired-current-directory "dired" ())
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 (declare-function dired-get-marked-files "dired"
                   (&optional localp arg filter distinguish-one-marked error-if-none-p))
+
+(defvar ai-code-change--generic-note)
 
 (defconst ai-code--refactoring-techniques-catalog
   '((:name "Suggest Refactoring Strategy"
@@ -709,8 +716,20 @@ If no such buffer is found, report a user-error."
     (unless has-test-buffer
       (user-error "No test file found in current windows.  Please open a test file first"))))
 
+(defconst ai-code--high-value-tests-instruction
+  (concat
+   "Prefer a small set of high-value tests. Cover only distinct behaviors, "
+   "important edge cases, or regressions that materially increase confidence. "
+   "Do not add low-value or duplicate tests.")
+  "Instruction included in test-writing prompts to emphasize quality over quantity.
+This guidance exists to discourage AI from generating excessive, low-value, or
+duplicate tests.")
+
 (defconst ai-code--tdd-test-pattern-instruction
-  "\nFollow the test-code pattern in the current project. Write the test-code in the test-file. If the test-file does not exist, create it using the same test-filename pattern used in this repository."
+  (concat
+   "\nFollow the test-code pattern in the current project. Write the test-code in the test-file. If the test-file does not exist, create it using the same test-filename pattern used in this repository. "
+   ai-code--high-value-tests-instruction
+   " If the tests use random values (for example random numbers or UUIDs), make them reproducible by fixing the random seed or replacing them with deterministic fixtures.")
   "Instruction appended to TDD prompts to enforce the project's test pattern.")
 
 (defconst ai-code--tdd-run-test-after-this-stage-instruction
@@ -816,24 +835,31 @@ BOUNDARIES defines the stage limits, and INSTRUCTION is appended guidance."
        (let ((case-fold-search t))
          (not (string-match-p "test" (file-name-nondirectory buffer-file-name))))))
 
-(defun ai-code--write-test (function-name)
-  "Write a test for FUNCTION-NAME in the corresponding test file."
+(defun ai-code--write-test (function-name &optional region-text)
+  "Write a test for FUNCTION-NAME in the corresponding test file.
+When REGION-TEXT is non-nil, use the selected code as the context for the test."
   (let* ((source-file (and buffer-file-name (file-name-nondirectory buffer-file-name)))
          (test-file-hint (if source-file
                              (format "the corresponding test file for %s, following test pattern of this repo"
                                      source-file)
                            "the corresponding test file"))
+         (context-target (if region-text "the selected region" function-name))
          (write-test-desc (ai-code-read-string
                            "Write test instruction: "
                            (format "Write test for '%s' in %s."
-                                   function-name
+                                   context-target
                                    test-file-hint)))
+         (region-scope (when region-text
+                         (format "\nSelected code:\n%s" region-text)))
          (tdd-instructions
-          (ai-code--tdd-compose-code-change-brief
-           write-test-desc
-           function-name
-           "Follow TDD principles - write only the test now, not the implementation. Only update test file code."
-           ai-code--tdd-test-pattern-instruction)))
+          (ai-code--compose-code-change-brief
+           :goal write-test-desc
+           :scope (concat (ai-code--agile-current-scope-string
+                           function-name
+                           (ai-code--get-context-files-string))
+                          (or region-scope ""))
+           :boundaries "Follow TDD principles - write only the test now, not the implementation. Only update test file code."
+           :code-change-note ai-code--tdd-test-pattern-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
 (defun ai-code--tdd-red-green-stage (function-name)
@@ -936,11 +962,26 @@ to fix code."
 Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
+  ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
   (let* ((function-name (which-function))
-         (use-write-test-stage (ai-code--tdd-source-function-context-p function-name))
-         (red-stage-label (if use-write-test-stage
-                              (format "1. Red (Write test for %s)" function-name)
-                            "1. Red (Write failing test)"))
+         ;; Capture region text early, before completing-read may deactivate the mark.
+         ;; Only capture when in a non-test source buffer so it mirrors the same guard
+         ;; used by ai-code--tdd-source-function-context-p.
+         (region-text (when (and (region-active-p)
+                                 buffer-file-name
+                                 (derived-mode-p 'prog-mode)
+                                 (let ((case-fold-search t))
+                                   (not (string-match-p "test" (file-name-nondirectory buffer-file-name)))))
+                        (buffer-substring-no-properties (region-beginning) (region-end))))
+         (use-write-test-stage (or (ai-code--tdd-source-function-context-p function-name)
+                                   (and region-text (not (string-empty-p region-text)))))
+         (red-stage-label (cond
+                           ((and use-write-test-stage region-text)
+                            "1. Red (Write test for selected region)")
+                           (use-write-test-stage
+                            (format "1. Red (Write test for %s)" function-name))
+                           (t
+                            "1. Red (Write failing test)")))
          (cycle-stage (completing-read
                        "Select TDD stage: "
                        (list "0. Run unit-tests"
@@ -957,7 +998,7 @@ Works with both source code and test files that have been added to ai-code."
      ;; Red stage - write failing test
      ((= stage-num 1)
       (if use-write-test-stage
-          (ai-code--write-test function-name)
+          (ai-code--write-test function-name region-text)
         (ai-code--tdd-red-stage function-name)))
      ;; Green stage - make test pass
      ((= stage-num 2) (ai-code--tdd-green-stage function-name))
@@ -969,4 +1010,9 @@ Works with both source code and test files that have been added to ai-code."
      ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name)))))
 
 (provide 'ai-code-agile)
+
+;; Load prompt harnesses after entry commands are defined.
+(unless (bound-and-true-p ai-code--harness-loading)
+  (require 'ai-code-harness))
+
 ;;; ai-code-agile.el ends here

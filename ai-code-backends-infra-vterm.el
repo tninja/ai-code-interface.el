@@ -33,13 +33,20 @@
                   "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--set-session-directory
                   "ai-code-backends-infra" (buffer directory))
+(declare-function ai-code-backends-infra--send-string-with-paste
+                  "ai-code-backends-infra"
+                  (string paste send-function paste-function paste-active-p
+                          backend-name))
 (declare-function ai-code-backends-infra--strip-alternate-screen-sequences
                   "ai-code-backends-infra" (str))
 (declare-function ai-code-backends-infra--sync-terminal-cursor
                   "ai-code-backends-infra" ())
+(declare-function ai-code-editor-viewport-filter-output
+                  "ai-code-editor-viewport-transport" (process output))
 (declare-function ai-code-notifications-response-ready
                   "ai-code-notifications" (&optional backend-name))
 (declare-function vterm "vterm" (&optional buffer-name))
+(declare-function vterm--update "vterm-module")
 (declare-function vterm-send-string "vterm" (&rest args))
 (declare-function vterm-send-escape "vterm" ())
 (declare-function vterm-send-return "vterm" ())
@@ -48,6 +55,7 @@
 
 (defvar ai-code-backends-infra-strip-alternate-screen)
 (defvar ai-code-backends-infra--session-terminal-backend)
+(defvar vterm--term)
 (defvar vterm-copy-mode)
 (defvar vterm-copy-mode-hook)
 (defvar vterm-environment)
@@ -66,6 +74,13 @@ updates are handled separately via carriage return counting.")
 
 (defvar-local ai-code-backends-infra--vterm-render-queue nil)
 (defvar-local ai-code-backends-infra--vterm-render-timer nil)
+(defvar-local ai-code-backends-infra--vterm-dim-foreground-active nil
+  "Non-nil when AI Code injected an ANSI gray foreground for SGR dim text.")
+
+(defvar-local ai-code-backends-infra--vterm-foreground-state nil
+  "Current foreground state tracked for AI Code vterm SGR normalization.
+The value is nil for the default foreground, `explicit' for a foreground
+set by the subprocess, and `injected' for AI Code's ANSI gray foreground.")
 
 (defvar ai-code-backends-infra--vterm-advices-installed nil
   "Flag indicating whether vterm filter advices have been installed globally.")
@@ -85,12 +100,28 @@ updates are handled separately via carriage return counting.")
   (add-hook 'vterm-copy-mode-hook
             #'ai-code-backends-infra--sync-terminal-cursor nil t))
 
+(defun ai-code-backends-infra-vterm--bracketed-paste-active-p ()
+  "Return non-nil when bracketed paste mode is active in vterm."
+  (when (and (bound-and-true-p vterm--term)
+             (fboundp 'vterm--update)
+             (fboundp 'vterm--flush-output))
+    (condition-case nil
+        (let (encoded)
+          (cl-letf (((symbol-function 'vterm--flush-output)
+                     (lambda (output)
+                       (setq encoded (concat encoded output)))))
+            (vterm--update vterm--term "<start_paste>"))
+          (and encoded (string-match-p "\e\\[200~\\'" encoded)))
+      (error nil))))
+
 (defun ai-code-backends-infra-vterm-send-string (string &optional paste)
   "Send STRING to the current vterm buffer.
 If PASTE is non-nil, send it as a pasted string."
-  (if paste
-      (vterm-send-string string paste)
-    (vterm-send-string string)))
+  (ai-code-backends-infra--send-string-with-paste
+   string paste #'vterm-send-string
+   (lambda (text) (vterm-send-string text t))
+   #'ai-code-backends-infra-vterm--bracketed-paste-active-p
+   "vterm"))
 
 (defun ai-code-backends-infra-vterm-send-escape ()
   "Send escape to the current vterm buffer."
@@ -108,23 +139,123 @@ If PASTE is non-nil, send it as a pasted string."
   "Return the vterm resize handler."
   #'vterm--window-adjust-process-window-size)
 
+(defun ai-code-backends-infra--vterm-skip-sgr-color-params (codes)
+  "Skip extended SGR color parameters from CODES."
+  (pcase (car codes)
+    ("5" (nthcdr 2 codes))
+    ("2" (nthcdr 4 codes))
+    (_ (cdr codes))))
+
+(defun ai-code-backends-infra--vterm-sgr-code-number (code)
+  "Return the SGR number for CODE, treating an empty parameter as reset."
+  (string-to-number (if (string= code "") "0" code)))
+
+(defun ai-code-backends-infra--vterm-sgr-effect (codes)
+  "Return the final foreground and intensity effect of SGR CODES."
+  (let ((dim nil)
+        (normal nil)
+        (explicit-foreground nil)
+        (foreground-reset nil)
+        (foreground-state ai-code-backends-infra--vterm-foreground-state)
+        (remaining codes))
+    (while remaining
+      (let* ((code (pop remaining))
+             (number (ai-code-backends-infra--vterm-sgr-code-number code)))
+        (cond
+         ((= number 0)
+          (setq dim nil
+                normal t
+                foreground-reset t
+                foreground-state nil))
+         ((= number 2)
+          (setq dim t
+                normal nil))
+         ((= number 22)
+          (setq dim nil
+                normal t))
+         ((= number 39)
+          (setq foreground-reset t
+                foreground-state nil))
+         ((or (<= 30 number 37)
+              (<= 90 number 97))
+          (setq explicit-foreground t
+                foreground-state 'explicit))
+         ((= number 38)
+          (setq explicit-foreground t
+                foreground-state 'explicit)
+          (setq remaining
+                (ai-code-backends-infra--vterm-skip-sgr-color-params
+                 remaining)))
+         ((= number 48)
+          (setq remaining
+                (ai-code-backends-infra--vterm-skip-sgr-color-params
+                 remaining))))))
+    (list dim normal explicit-foreground foreground-reset foreground-state)))
+
+(defun ai-code-backends-infra--vterm-normalize-dim-sgr (input)
+  "Render SGR dim text with the standard ANSI gray foreground in INPUT."
+  (let ((start 0)
+        (parts nil))
+    (while (string-match "\e\\[\\([0-9;]*\\)m" input start)
+      (let* ((match-beginning (match-beginning 0))
+             (match-end (match-end 0))
+             (sequence (match-string 0 input))
+             (params (match-string 1 input))
+             (codes (if (string= params "") '("0") (split-string params ";")))
+             (was-injected
+              (eq ai-code-backends-infra--vterm-foreground-state 'injected)))
+        (cl-destructuring-bind
+            (dim normal explicit-foreground foreground-reset foreground-state)
+            (ai-code-backends-infra--vterm-sgr-effect codes)
+          (push (substring input start match-beginning) parts)
+          (push
+           (cond
+            ((and dim (null foreground-state))
+             (setq ai-code-backends-infra--vterm-foreground-state 'injected
+                   ai-code-backends-infra--vterm-dim-foreground-active t)
+             (format "\e[%sm" (mapconcat #'identity (append codes '("90")) ";")))
+            ((and normal
+                  was-injected
+                  (not foreground-reset)
+                  (not explicit-foreground))
+             (setq ai-code-backends-infra--vterm-foreground-state nil
+                   ai-code-backends-infra--vterm-dim-foreground-active nil)
+             (format "\e[%sm" (mapconcat #'identity (append codes '("39")) ";")))
+            (t
+             (setq ai-code-backends-infra--vterm-foreground-state foreground-state
+                   ai-code-backends-infra--vterm-dim-foreground-active
+                   (eq foreground-state 'injected))
+             sequence))
+           parts)
+          (setq start match-end))))
+    (push (substring input start) parts)
+    (apply #'concat (nreverse parts))))
+
 (defun ai-code-backends-infra--vterm-notification-tracker (orig-fun process input)
   "Track vterm activity for notification purposes, then call ORIG-FUN.
 When `ai-code-backends-infra-strip-alternate-screen' is non-nil,
 strip alternate screen buffer sequences from INPUT for PROCESS so that TUI
 applications write to the normal screen buffer (preserving scrollback)."
-  (let ((filtered-input
-         (if (ai-code-backends-infra--session-buffer-p (process-buffer process))
+  (let* ((session-p
+          (ai-code-backends-infra--session-buffer-p (process-buffer process)))
+         (editor-filtered-input
+          (if session-p
+              (ai-code-editor-viewport-filter-output process input)
+            input))
+         (filtered-input
+          (if session-p
              (with-current-buffer (process-buffer process)
-               (ai-code-backends-infra--strip-alternate-screen-sequences input))
-           input)))
-    (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+               (ai-code-backends-infra--vterm-normalize-dim-sgr
+                (ai-code-backends-infra--strip-alternate-screen-sequences
+                 editor-filtered-input)))
+           editor-filtered-input)))
+    (when session-p
       (with-current-buffer (process-buffer process)
         (when (ai-code-backends-infra--output-meaningful-p filtered-input)
           (ai-code-backends-infra--note-meaningful-output))))
     (prog1
         (funcall orig-fun process filtered-input)
-      (when (ai-code-backends-infra--session-buffer-p (process-buffer process))
+      (when session-p
         (ai-code-session-link--schedule-linkify-recent-output
          (process-buffer process)
          filtered-input)))))
@@ -230,7 +361,7 @@ queued while copy mode was active is rendered immediately when the user
 returns to normal terminal interaction."
   (unless (bound-and-true-p vterm-copy-mode)
     (when ai-code-backends-infra--vterm-render-queue
-      (when-let ((proc (get-buffer-process (current-buffer))))
+      (when-let* ((proc (get-buffer-process (current-buffer))))
         (let ((data ai-code-backends-infra--vterm-render-queue))
           (setq ai-code-backends-infra--vterm-render-queue nil)
           (vterm--filter proc data))))))
@@ -244,7 +375,7 @@ returns to normal terminal interaction."
   (setq-local cursor-in-non-selected-windows nil)
   (setq-local blink-cursor-mode nil)
   (setq-local cursor-type nil)
-  (when-let ((proc (get-buffer-process (current-buffer))))
+  (when-let* ((proc (get-buffer-process (current-buffer))))
     (set-process-query-on-exit-flag proc nil)
     (when (fboundp 'process-put)
       (process-put proc 'read-output-max 4096)))
@@ -259,10 +390,17 @@ returns to normal terminal interaction."
 
 (defun ai-code-backends-infra-vterm-create-session (buffer-name working-dir command env-vars)
   "Create a vterm session named BUFFER-NAME in WORKING-DIR.
-COMMAND is the shell command to run and ENV-VARS are extra environment
-variables for the terminal process."
+COMMAND is an argv list or a legacy shell command string.
+ENV-VARS are extra environment variables for the terminal process."
   (let ((default-directory working-dir)
-        (vterm-shell command)
+        (vterm-shell
+         (if (listp command)
+             (mapconcat
+              (lambda (argument)
+                (shell-quote-argument argument t))
+              command
+              " ")
+           command))
         (vterm-kill-buffer-on-exit nil)
         (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
     (let ((buffer (save-window-excursion (vterm buffer-name))))

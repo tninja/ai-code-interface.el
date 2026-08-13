@@ -7,7 +7,7 @@
 ;; - ClaudeCode:Opus-4.8
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
-;; Version: 1.86
+;; Version: 1.92
 ;; Package-Requires: ((emacs "29.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
@@ -24,6 +24,7 @@
 ;;
 ;; Supported AI coding CLIs include:
 ;;   - OpenAI Codex
+;;   - Pi
 ;;   - Antigravity CLI
 ;;   - Opencode
 ;;   - Claude Code
@@ -33,6 +34,7 @@
 ;;   - Grok CLI
 ;;   - Cursor CLI
 ;;   - Kiro CLI
+;;   - Open Interpreter CLI (Codex-compatible)
 ;;   - CodeBuddy Code CLI
 ;;   - Aider CLI
 ;;   - agent-shell
@@ -49,7 +51,7 @@
 ;;        (global-set-key (kbd "C-c a") #'ai-code-menu))
 ;;
 ;;   2) First 60 seconds:
-;;      - C-c a a : Start AI CLI session
+;;      - C-c a a : Start the selected AI CLI session
 ;;      - C-c a c : Ask AI to change current function/region
 ;;      - C-c a q : Ask question only (no code change)
 ;;      - C-c a z : Jump back to active AI session buffer
@@ -58,7 +60,7 @@
 ;;
 ;; (use-package ai-code
 ;;   :config
-;;   ;; use codex as backend, other options are 'gemini, 'github-copilot-cli, 'opencode, 'kilo, 'grok, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro, 'codebuddy, 'aider, 'agent-shell, 'eca
+;;   ;; use codex as backend, other options are 'pi, 'gemini, 'github-copilot-cli, 'open-interpreter, 'opencode, 'kilo, 'grok, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro, 'codebuddy, 'aider, 'agent-shell, 'eca
 ;;   (ai-code-set-backend 'codex) ;; set your preferred backend
 ;;   ;; Optional: use a narrower transient menu on smaller frames
 ;;   ;; (setq ai-code-menu-layout 'two-columns)
@@ -118,6 +120,7 @@
 (require 'ai-code-input)
 (require 'ai-code-task)
 (require 'ai-code-prompt-mode)
+(require 'ai-code-send)
 (require 'ai-code-agile)
 (require 'ai-code-git)
 (require 'ai-code-github)
@@ -262,6 +265,22 @@ ARG is the prefix argument."
   (when-let* ((prompt (read-string "Edit checkpoint prompt: "
                                    ai-code-session-checkpoint-prompt)))
     (ai-code--insert-prompt prompt)))
+
+;;;###autoload
+(defun ai-code-cli-resume-with-session-checkpoint (&optional arg prompt-for-checkpoint)
+  "Resume the current backend's CLI session and optionally request a checkpoint.
+Argument ARG is passed to `ai-code-cli-resume'; with a prefix argument
+\\[universal-argument], it is non-nil and preserves the backend's
+interactive resume behavior.
+PROMPT-FOR-CHECKPOINT is non-nil for interactive calls that should ask
+whether to print a checkpoint after resuming.  Noninteractive callers
+normally omit it, which skips the prompt."
+  (interactive (list current-prefix-arg t))
+  (ai-code-cli-resume arg)
+  ;; (when (and prompt-for-checkpoint
+  ;;            (y-or-n-p "Print AI session checkpoint? "))
+  ;;   (ai-code-session-checkpoint))
+  )
 
 (defun ai-code--emacs-runtime-debug-prompt (description eval-available-p
                                                        &optional region-text
@@ -498,7 +517,7 @@ Shows the current backend label to the right."
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
   ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
-  ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
+  ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume-with-session-checkpoint)
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
   ("s" ai-code-select-backend :description ai-code--select-backend-description)
   ("j" "Session dashboard" ai-code-session-dashboard)
@@ -516,10 +535,37 @@ Shows the current backend label to the right."
   ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
   ("x" "Explain code in scope" ai-code-explain)
   ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
-  ("@" "Context (add/show/clear)" ai-code-context-action)
-  ("C" "Create file or dir with AI" ai-code-create-file-or-dir)
+  ("I" "Insert to session..." ai-code-insert-menu)
+  ("@" "Context (copy/add/show/clear)" ai-code-context-action)
+  ("Q" "Send quick prompt" ai-code-send-quick-prompt)
   (":" "Speech to text input" ai-code-speech-to-text-input)
-  ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action))
+  )
+
+;;;###autoload
+(transient-define-prefix ai-code-insert-menu ()
+  "Insert files and editor selections into an AI Code session or viewport."
+  ["Insert"
+   ["Files" :class transient-column
+    :setup-children ai-code-send-setup-menu-children
+    ("f" "File" ai-code-send-file)
+    ("F" "File to..." ai-code-send-file-to)
+    ("c" "Current file" ai-code-send-current-file)
+    ("o" "Other file" ai-code-send-other-file)]
+   ["Code" :class transient-column
+    :setup-children ai-code-send-setup-menu-children
+    ("r" "Region" ai-code-send-region)
+    ("R" "Region to..." ai-code-send-region-to)
+    ("d" "DWIM" ai-code-send-dwim)
+    ("D" "DWIM to..." ai-code-send-dwim-to)]
+   ["Attachments" :class transient-column
+    :setup-children ai-code-send-setup-menu-children
+    ("s" "Screenshot" ai-code-send-screenshot)
+    ("S" "Screenshot to..." ai-code-send-screenshot-to)
+    ("i" "Clipboard image" ai-code-send-clipboard-image)
+    ("I" "Clipboard image to..." ai-code-send-clipboard-image-to)]]
+  (interactive)
+  (ai-code-send-prepare-menu)
+  (transient-setup 'ai-code-insert-menu))
 
 (transient-define-group ai-code--menu-agile-development
   (ai-code--infix-select-code-change-auto-test)
@@ -529,26 +575,26 @@ Shows the current backend label to the right."
   ;; DONE: Move ai-code-derive-architecture-guardrails ai-code-file.el. Add a new menu item: "Derive architecture document", bind to D. It let user choose from complet-reading: Derive Architecture Guardrails, and Derive DDD Context for Repo. No need to keep other two separate menu items
   ("A" "Derive architecture document" ai-code-derive-architecture-document)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
-  ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
-  ("K" "Create/Open task file" ai-code-create-or-open-task-file)
-  ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
-  ("/" "Search notes with AI" ai-code-search-notes-with-ai)
-  ("n" "Take notes from AI session" ai-code-take-notes))
+  ("b" "Build/Test/Diagnostics (AI follow-up)" ai-code-build-or-test-project)
+  ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
+  ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
+  ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action)
+  )
 
 (transient-define-group ai-code--menu-other-tools
   (ai-code--infix-toggle-auto-follow-up)
-  ("." "Init projectile and gtags" ai-code-init-project)
-  ("P" "AI session checkpoint" ai-code-session-checkpoint)
-  ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
-  ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
-  ("k" "Copy Cur File Name (C-u: full)" ai-code-copy-buffer-file-name-to-clipboard)
-  ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
+  ("k" "Create/Open task file" ai-code-create-or-open-task-file)
+  ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
+  ("/" "Search notes with AI" ai-code-search-notes-with-ai)
+  ("n" "Take notes from AI session" ai-code-take-notes)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
+  ("+" "Create file or dir with AI" ai-code-create-file-or-dir)
+  ("." "Init projectile and gtags" ai-code-init-project)
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
-  ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
-  ("Q" "Send quick prompt" ai-code-send-quick-prompt)
+  ("P" "AI session checkpoint" ai-code-session-checkpoint)
+  ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))
 
@@ -558,7 +604,7 @@ Shows the current backend label to the right."
    ["AI CLI session" ai-code--menu-ai-cli-session]
    ["AI Code Actions With Context" ai-code--menu-actions-with-context]
    ["AI Agile Development With Harness" ai-code--menu-agile-development]
-   ["Other Tools" ai-code--menu-other-tools]])
+   ["Task Management / Other Tools" ai-code--menu-other-tools]])
 
 (transient-define-prefix ai-code-menu-2-columns ()
   "Narrower two-column transient menu for AI Code Interface interactive functions."
@@ -566,7 +612,7 @@ Shows the current backend label to the right."
    ["AI CLI session" ai-code--menu-ai-cli-session]
    ["AI Code Actions With Context" ai-code--menu-actions-with-context]]
   [["AI Agile Development With Harness" ai-code--menu-agile-development]
-   ["Other Tools" ai-code--menu-other-tools]])
+   ["Task Management / Other Tools" ai-code--menu-other-tools]])
 
 (defun ai-code--menu-prefix-command ()
   "Return the transient prefix command selected by `ai-code-menu-layout`."

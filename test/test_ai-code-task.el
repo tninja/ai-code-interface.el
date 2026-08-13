@@ -320,12 +320,27 @@
                  (lambda (_label prompt)
                    (setq sent-prompt prompt))))
         (ai-code-agent-handoff nil)))
-    (should (string-match-p "Use this agent handoff context" sent-prompt))
+    (should (string-match-p "Load this agent handoff context" sent-prompt))
     (should (string-match-p "Goal: finish backend-neutral handoff" sent-prompt))
     (should
      (string-match-p
       "Use task files instead of backend session state" sent-prompt))
     (should-not (string-match-p "This content should not be sent" sent-prompt))))
+
+(ert-deftest ai-code-test-agent-handoff-missing-task-points-to-current-key ()
+  "A missing task file should direct the user to the current task-file key."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
+               (lambda () "/tmp/.ai.code.files/"))
+              ((symbol-function 'ai-code--task-file-candidates)
+               (lambda (_files-dir) nil))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _args) "")))
+      (let ((error-data
+             (should-error (ai-code-agent-handoff nil) :type 'user-error)))
+        (should (string-suffix-p
+                 "(C-c a k)"
+                 (error-message-string error-data)))))))
 
 (ert-deftest ai-code-test-agent-handoff-prefix-loads-whole-task-file ()
   "Agent handoff with prefix loads the whole current task file."
@@ -342,7 +357,7 @@
                  (lambda (_label prompt)
                    (setq sent-prompt prompt))))
         (ai-code-agent-handoff '(4))))
-    (should (string-match-p "Use this whole task file" sent-prompt))
+    (should (string-match-p "Load this whole task file" sent-prompt))
     (should (string-match-p "Build handoff support" sent-prompt))
     (should (string-match-p "Carry all task notes forward" sent-prompt))))
 

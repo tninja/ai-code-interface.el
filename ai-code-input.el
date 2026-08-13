@@ -160,8 +160,8 @@ perform that action."
 
 (defun ai-code--speech-to-text-send-prompt (origin-buffer transcription)
   "Edit TRANSCRIPTION from ORIGIN-BUFFER and send the result to the AI session."
-  (when-let ((prompt (with-current-buffer origin-buffer
-                       (ai-code-read-string "Send to AI: " transcription))))
+  (when-let* ((prompt (with-current-buffer origin-buffer
+                        (ai-code-read-string "Send to AI: " transcription))))
     (require 'ai-code-prompt-mode)
     (ai-code--insert-prompt prompt)))
 
@@ -235,7 +235,7 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
 
 (defun ai-code--imenu-symbol-from-position (payload)
   "Extract a symbol name from PAYLOAD position as fallback."
-  (when-let ((pos (ai-code--imenu-item-position payload)))
+  (when-let* ((pos (ai-code--imenu-item-position payload)))
     (save-excursion
       (goto-char pos)
       (ai-code--extract-symbol-from-line
@@ -266,7 +266,7 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
               (payload (cdr item)))
           (if (ai-code--imenu-subalist-p payload)
               (setq result (append result (ai-code--flatten-imenu-index payload)))
-            (when-let ((symbol (ai-code--normalize-imenu-symbol-name name payload)))
+            (when-let* ((symbol (ai-code--normalize-imenu-symbol-name name payload)))
               (push symbol result))))))
     result))
 
@@ -313,7 +313,7 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
 (defun ai-code--hash-completion-target-file (&optional end-pos)
   "Return an absolute file path for @relative path ending at END-POS.
 END-POS defaults to the current '#' position."
-  (when-let ((git-root (ai-code--git-root)))
+  (when-let* ((git-root (ai-code--git-root)))
     (let* ((end (or end-pos (1- (point))))
            (start (save-excursion
                     (goto-char end)
@@ -442,7 +442,7 @@ END-POS defaults to the current '#' position."
          (file (and should-complete
                     (ai-code--hash-completion-target-file (point)))))
     (ai-code-backends-infra--terminal-send-string "#")
-    (when-let ((symbol (and file (ai-code--choose-symbol-from-file file))))
+    (when-let* ((symbol (and file (ai-code--choose-symbol-from-file file))))
       (when (not (string-empty-p symbol))
         (ai-code-backends-infra--terminal-send-backspace)
         (ai-code-backends-infra--terminal-send-string (concat "#" symbol))))))
@@ -527,7 +527,7 @@ END-POS defaults to the current '#' position."
 
 (defun ai-code--session-link-bounds-at-point ()
   "Return bounds of the clickable session link at point, or nil."
-  (if-let ((text (ai-code--session-link-property-at-point)))
+  (if-let* ((text (ai-code--session-link-property-at-point)))
       (let* ((prop-pos (if (get-text-property (point) 'ai-code-session-link)
                            (point)
                          (1- (point))))
@@ -555,7 +555,7 @@ END-POS defaults to the current '#' position."
 (defun ai-code--session-link-text-at-point ()
   "Return the clickable session link text at point, or nil."
   (or (ai-code--session-link-property-at-point)
-      (when-let ((bounds (ai-code--session-link-bounds-at-point)))
+      (when-let* ((bounds (ai-code--session-link-bounds-at-point)))
         (buffer-substring-no-properties (car bounds) (cdr bounds)))))
 
 (defun ai-code--parse-session-link (text)
@@ -625,14 +625,14 @@ END-POS defaults to the current '#' position."
 
 (defun ai-code--existing-absolute-session-path (filename)
   "Return an existing absolute local path for FILENAME, or nil."
-  (when-let ((normalized (ai-code-session-link--normalize-file filename)))
+  (when-let* ((normalized (ai-code-session-link--normalize-file filename)))
     (when (file-name-absolute-p normalized)
       (ai-code-session-link--resolve-existing-local-path normalized nil))))
 
 (defun ai-code--find-project-file (filename)
   "Locate FILENAME within the current project."
   (or (ai-code--existing-absolute-session-path filename)
-        (when-let ((candidates (ai-code--project-file-candidates filename)))
+        (when-let* ((candidates (ai-code--project-file-candidates filename)))
           (if (= (length candidates) 1)
               (car candidates)
             (ai-code--read-session-link-candidate
@@ -651,15 +651,22 @@ END-POS defaults to the current '#' position."
         (goto-char position)
         (ai-code-session-navigate-link-at-point)))))
 
-(defun ai-code--open-session-link-file (text link)
-  "Open the file described by LINK for session link TEXT."
+(defun ai-code--session-image-link-file-at-point (text)
+  "Return the resolved image file for session link TEXT at point."
+  (and text
+       (ai-code-session-link--image-preview-link-file text)))
+
+(defun ai-code--open-session-link-file (text link &optional resolved-file)
+  "Open the file described by LINK for session link TEXT.
+Optional RESOLVED-FILE is an existing absolute file path to open directly."
   (when-let* ((file (plist-get link :file))
-              (abs-file (ai-code--find-project-file file)))
+              (abs-file (or resolved-file
+                            (ai-code--find-project-file file))))
     (find-file-other-window abs-file)
-    (when-let ((line-start (plist-get link :line-start)))
+    (when-let* ((line-start (plist-get link :line-start)))
       (goto-char (point-min))
       (forward-line (1- line-start))
-      (when-let ((column-start (plist-get link :column-start)))
+      (when-let* ((column-start (plist-get link :column-start)))
         (when (> column-start 0)
           (move-to-column (1- column-start)))))
     (message "Navigated to %s" text)
@@ -670,15 +677,18 @@ END-POS defaults to the current '#' position."
   "Navigate to the file or URL session link at point."
   (interactive)
   (let* ((text (ai-code--session-link-text-at-point))
-         (link (and text (ai-code--parse-session-link text))))
+         (link (and text (ai-code--parse-session-link text)))
+         (image-file
+          (and link
+               (ai-code--session-image-link-file-at-point text))))
     (cond
      ((not link)
       (message "No code link found at point"))
-     ((when-let ((url (plist-get link :url)))
+     ((when-let* ((url (plist-get link :url)))
         (browse-url url)
         (message "Opened URL: %s" url)
         t))
-     ((ai-code--open-session-link-file text link))
+     ((ai-code--open-session-link-file text link image-file))
      (t
       (message "No code link found at point")))))
 

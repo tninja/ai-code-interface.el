@@ -71,19 +71,17 @@
                  (lambda (format-string &rest args)
                    (setq message-text (apply #'format format-string args))))
                 ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
+                 (lambda (prompt &optional _initial-input _candidate-list)
+                   (should (string-match-p "Describe the Emacs runtime issue" prompt))
                    (setq description-prompt prompt)
-                   "C-c x runs the wrong interactive command")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
+                   "C-c x runs the wrong interactive command"))
+                ((symbol-function 'read-string)
+                 (lambda (prompt &optional initial-input &rest _args)
                    (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
-              ((symbol-function 'ai-code--insert-prompt)
-               (lambda (prompt)
-                 (setq sent-prompt prompt))))
+                   initial-input))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt)
+                   (setq sent-prompt prompt))))
         (ai-code-debug-emacs-runtime)))
     (should (string-match-p "interactive function or a key binding"
                             description-prompt))
@@ -115,16 +113,14 @@
                (lambda (format-string &rest args)
                  (setq message-text (apply #'format format-string args))))
               ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
-                   (setq description-prompt prompt)
-                   "M-x foo fails")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                   (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
+               (lambda (prompt &optional _initial-input _candidate-list)
+                 (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                 (setq description-prompt prompt)
+                 "M-x foo fails"))
+              ((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (setq confirm-read-args (list prompt initial-input))
+                 initial-input))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq sent-prompt prompt))))
@@ -148,12 +144,13 @@
                  (lambda (&rest _args)
                    (ert-fail "Should not ask whether eval_elisp is allowed.")))
                 ((symbol-function 'ai-code-read-string)
-                 (lambda (prompt &optional initial-input _candidate-list)
-                   (if (string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                       (progn
-                         (setq confirm-read-args (list prompt initial-input))
-                         initial-input)
-                     "C-c x runs the wrong interactive command")))
+                 (lambda (prompt &optional _initial-input _candidate-list)
+                   (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                   "C-c x runs the wrong interactive command"))
+                ((symbol-function 'read-string)
+                 (lambda (prompt &optional initial-input &rest _args)
+                   (setq confirm-read-args (list prompt initial-input))
+                   initial-input))
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (&rest _args) nil)))
         (ai-code-debug-emacs-runtime)))
@@ -189,15 +186,13 @@
                  (should (= end 42))
                  "ai-code.el#L10-L11"))
               ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
-                   "C-c x runs the wrong interactive command")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                   (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
+               (lambda (prompt &optional _initial-input _candidate-list)
+                 (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                 "C-c x runs the wrong interactive command"))
+              ((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (setq confirm-read-args (list prompt initial-input))
+                 initial-input))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq sent-prompt prompt))))
@@ -239,15 +234,13 @@
               ((symbol-function 'ai-code--get-clipboard-text)
                (lambda () "Debugger entered--Lisp error: (void-function broken-command)"))
               ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
-                   "C-c x fails at runtime")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                   (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
+               (lambda (prompt &optional _initial-input _candidate-list)
+                 (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                 "C-c x fails at runtime"))
+              ((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (setq confirm-read-args (list prompt initial-input))
+                 initial-input))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq sent-prompt prompt))))
@@ -276,6 +269,16 @@
     (should-not
      (search-forward ";; DONE: add a menu item: Debug your emacs runtime." nil t))))
 
+(ert-deftest ai-code-test-menu-p-opens-prompt-history ()
+  "Test that p remains the top-level prompt history binding."
+  (should-error
+   (transient-get-suffix 'ai-code--menu-ai-cli-session "p")
+   :type 'error)
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "p")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-open-prompt-file))))
+
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-select-terminal-entry ()
   "Test that the AI CLI session menu exposes terminal backend selection."
   (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "l")))
@@ -288,6 +291,110 @@
   (should-error (transient-get-suffix 'ai-code--menu-actions-with-context "o")
                 :type 'error))
 
+(ert-deftest ai-code-test-menu-merges-copy-context-into-context-action ()
+  "Test that context copying stays under @ when k is reused for task files."
+  (let ((context-suffix
+         (transient-get-suffix 'ai-code--menu-actions-with-context "@"))
+        (task-suffix
+         (transient-get-suffix 'ai-code--menu-other-tools "k")))
+    (should context-suffix)
+    (should (eq (plist-get (cdr context-suffix) :command)
+                'ai-code-context-action))
+    (should task-suffix)
+    (should (eq (plist-get (cdr task-suffix) :command)
+                'ai-code-create-or-open-task-file))))
+
+(ert-deftest test-ai-code--menu-actions-with-context-opens-insert-menu ()
+  "Test that the actions menu opens the independent Insert menu."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-actions-with-context "I")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-insert-menu))))
+
+(defun ai-code-test--call-with-menu-state (prefix function)
+  "Call FUNCTION with PREFIX's initialized suffixes and keymap."
+  (let* ((transient--prefix (transient--init-prefix prefix nil))
+         (layout (transient--init-suffixes prefix))
+         (transient--suffixes (transient--flatten-suffixes layout)))
+    (funcall function transient--suffixes
+             (transient--make-transient-map))))
+
+(ert-deftest test-ai-code--insert-menu-entry-remains-active-without-destination ()
+  "The top-level Insert entry should remain visible and active."
+  (dolist (prefix '(ai-code-menu-default ai-code-menu-2-columns))
+    (pcase-let
+        ((`(,inapt ,binding ,pre-command)
+          (ai-code-test--call-with-menu-state
+           prefix
+           (lambda (suffixes map)
+             (let ((suffix
+                    (seq-find
+                     (lambda (item)
+                       (eq (oref item command) 'ai-code-insert-menu))
+                     suffixes)))
+               (list
+                (and suffix (oref suffix inapt))
+                (lookup-key map (kbd "I"))
+                (lookup-key (transient--make-predicate-map)
+                            [ai-code-insert-menu])))))))
+      (should (eq binding 'ai-code-insert-menu))
+      (should-not inapt)
+      (should-not (eq pre-command 'transient--do-warn-inapt)))))
+
+(ert-deftest test-ai-code--insert-menu-checks-session-before-setup ()
+  "Pressing Insert should check session availability before menu setup."
+  (let (calls)
+    (cl-letf (((symbol-function 'ai-code-send-prepare-menu)
+               (lambda () (push 'prepare calls)))
+              ((symbol-function 'transient-setup)
+               (lambda (&rest _arguments) (push 'setup calls))))
+      (call-interactively #'ai-code-insert-menu)
+      (should (equal (nreverse calls) '(prepare setup))))))
+
+(ert-deftest test-ai-code--insert-menu-includes-all-send-variants ()
+  "Test that the independent Insert menu exposes every send variant."
+  (dolist (entry '("f" "F" "c" "o" "r" "R" "d" "D"
+                   "s" "S" "i" "I"))
+    (should (transient-get-suffix 'ai-code-insert-menu entry))))
+
+(defun ai-code-test--active-insert-menu-keys ()
+  "Return active Insert suffix keys, excluding common Transient commands."
+  (ai-code-test--call-with-menu-state
+   'ai-code-insert-menu
+   (lambda (suffixes _map)
+     (sort
+      (seq-filter
+       (lambda (key)
+         (member key '("f" "F" "c" "o" "r" "R" "d" "D"
+                       "s" "S" "i" "I")))
+       (mapcar (lambda (suffix) (oref suffix key)) suffixes))
+      #'string<))))
+
+(ert-deftest test-ai-code--insert-menu-filters-destination-and-region-commands ()
+  "The active Insert keymap should expose only usable commands."
+  (dolist (case '((nil nil ("D" "F" "I" "S"))
+                  (nil t ("D" "F" "I" "R" "S"))
+                  (t nil ("D" "F" "I" "S" "c" "d" "f" "i" "o" "s"))
+                  (t t ("D" "F" "I" "R" "S" "c" "d" "f" "i" "o" "r" "s"))))
+    (pcase-let ((`(,destination ,region ,expected) case))
+      (cl-letf (((symbol-function 'ai-code-send--default-destination-p)
+                 (lambda () destination))
+                ((symbol-function 'ai-code-send--region-available-p)
+                 (lambda () region)))
+        (should (equal (ai-code-test--active-insert-menu-keys)
+                       expected))))))
+
+(ert-deftest test-ai-code--insert-menu-allows-targeting-other-project-session ()
+  "A global session should enable only explicit targets without a default."
+  (cl-letf (((symbol-function 'ai-code-send--default-destination-p)
+             (lambda () nil))
+            ((symbol-function 'ai-code-backends-infra-session-buffers)
+             (lambda () '(other-project-session)))
+            ((symbol-function 'ai-code-send--region-available-p)
+             (lambda () nil)))
+    (should (equal (ai-code-test--active-insert-menu-keys)
+                   '("D" "F" "I" "S")))))
+
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-session-dashboard-entry ()
   "Test that the AI CLI session menu exposes the session dashboard."
   (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "j")))
@@ -297,23 +404,37 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Session dashboard"))))
 
-(ert-deftest ai-code-test-menu-other-tools-includes-debug-emacs-runtime-entry ()
-  "Test that the Other Tools menu exposes Emacs runtime debugging."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "d")))
+(ert-deftest ai-code-test-menu-ai-cli-session-resume-uses-checkpoint-wrapper ()
+  "Test that Resume AI CLI routes through the checkpoint-aware wrapper."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "R")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-cli-resume-with-session-checkpoint))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Resume AI CLI (C-u: args)"))))
+
+(ert-deftest ai-code-test-menu-agile-development-includes-debug-emacs-runtime-entry ()
+  "Test that the Agile Development menu exposes Emacs runtime debugging."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "d")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-debug-emacs-runtime))
     (should (equal (plist-get (cdr suffix) :description)
                    "Debug Emacs runtime"))))
 
-(ert-deftest ai-code-test-menu-other-tools-labels-exception-as-investigation ()
-  "Test that the exception entry is labeled as investigation-first."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "e")))
+(ert-deftest ai-code-test-menu-agile-development-labels-exception-as-investigation ()
+  "Test that the Agile Development exception entry is investigation-first."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "e")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-investigate-exception))
     (should (equal (plist-get (cdr suffix) :description)
                    "Investigate exception (C-u: clipboard)"))))
+
+(ert-deftest ai-code-test-menu-agile-development-removes-flycheck-fix-entry ()
+  "Test that Flycheck fixes no longer have a dedicated menu entry."
+  (should-error (transient-get-suffix 'ai-code--menu-agile-development "f")
+                :type 'error))
 
 (ert-deftest ai-code-test-menu-other-tools-removes-architecture-guardrails-entry ()
   "Test that the Other Tools menu no longer exposes a dedicated guardrails item."
@@ -334,19 +455,28 @@
      (equal inserted-prompt
             "Please stop and output a CHECKPOINT:\n- Goal\n- Files changed\n- Current hypothesis\n- Tests/build result\n- Blockers\n- Recommended next action\nDo not continue editing after this checkpoint"))))
 
+(ert-deftest ai-code-test-cli-resume-with-session-checkpoint-delegates-to-resume ()
+  "Test that resume delegates to `ai-code-cli-resume`."
+  (let (resume-arg)
+    (cl-letf (((symbol-function 'ai-code-cli-resume)
+               (lambda (&optional arg)
+                 (interactive "P")
+                 (setq resume-arg arg))))
+      (let ((current-prefix-arg '(4)))
+        (call-interactively #'ai-code-cli-resume-with-session-checkpoint)))
+    (should (equal resume-arg '(4)))))
+
 (ert-deftest ai-code-test-menu-other-tools-includes-session-checkpoint-entry ()
-  "Test that the Other Tools menu exposes AI session checkpoint."
+  "Test that the Other Tools menu exposes session checkpoint."
   (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "P"))
          (definition (cdr suffix)))
     (should suffix)
     (should (eq (plist-get definition :command)
-                'ai-code-session-checkpoint))
-    (should (equal (plist-get definition :description)
-                   "AI session checkpoint"))))
+                'ai-code-session-checkpoint))))
 
-(ert-deftest ai-code-test-menu-agile-development-includes-agent-handoff-entry ()
-  "Test that the agile menu exposes agent handoff."
-  (let* ((suffix (transient-get-suffix 'ai-code--menu-agile-development "H"))
+(ert-deftest ai-code-test-menu-other-tools-includes-agent-handoff-entry ()
+  "Test that the Other Tools menu exposes agent handoff."
+  (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "H"))
          (definition (cdr suffix)))
     (should suffix)
     (should (eq (plist-get definition :command)
@@ -468,23 +598,52 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Speech to text input"))))
 
-(ert-deftest ai-code-test-menu-agile-development-binds-k-to-task-file ()
-  "Test that Agile Development menu exposes task files on K."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "K")))
+(ert-deftest ai-code-test-menu-actions-with-context-binds-q-to-quick-prompt ()
+  "Test that Actions With Context exposes quick prompts on Q."
+  (let ((suffix (transient-get-suffix
+                 'ai-code--menu-actions-with-context "Q")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-send-quick-prompt))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Send quick prompt"))))
+
+(ert-deftest ai-code-test-menu-other-tools-binds-plus-to-create-file ()
+  "Test that Other Tools exposes file creation on +."
+  (let ((suffix (transient-get-suffix
+                 'ai-code--menu-other-tools "+")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-create-file-or-dir))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Create file or dir with AI"))))
+
+(ert-deftest ai-code-test-menu-other-tools-binds-k-to-task-file ()
+  "Test that Other Tools exposes task files on k."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "k")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-create-or-open-task-file))
     (should (equal (plist-get (cdr suffix) :description)
                    "Create/Open task file"))))
 
-(ert-deftest ai-code-test-menu-agile-development-binds-slash-to-note-search ()
-  "Test that Agile Development menu exposes AI note search on /."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "/")))
+(ert-deftest ai-code-test-menu-other-tools-binds-slash-to-note-search ()
+  "Test that Other Tools exposes AI note search on /."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "/")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-search-notes-with-ai))
     (should (equal (plist-get (cdr suffix) :description)
                    "Search notes with AI"))))
+
+(ert-deftest ai-code-test-menu-other-tools-includes-take-notes-entry ()
+  "Test that Other Tools exposes taking notes on n."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "n")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-take-notes))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Take notes from AI session"))))
 
 (provide 'test_ai-code)
 
