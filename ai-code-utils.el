@@ -19,9 +19,13 @@
 (declare-function projectile-project-root "projectile")
 (declare-function project-current "project" (&optional maybe-prompt dir))
 (declare-function project-root "project" (project))
+(declare-function magit-git-string "magit-git" (&rest args))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
   "Hash table storing context info lists per Git repository root.")
+
+(defvar-local ai-code--session-project-root-override nil
+  "Explicit session project root associated with the current buffer.")
 
 ;;; Path Utilities
 
@@ -59,11 +63,18 @@ main repo root from it."
 
 (defun ai-code--session-project-root ()
   "Return the best available project root for the current session.
-Tries project.el first, then Git root, then `default-directory'."
-  (or (when-let ((project (ignore-errors (project-current nil default-directory))))
-        (expand-file-name (project-root project)))
+Uses the current buffer override first, then Git root, project.el, and
+finally `default-directory'."
+  (or ai-code--session-project-root-override
       (ai-code--git-root)
+      (when-let ((project (ignore-errors (project-current nil default-directory))))
+        (expand-file-name (project-root project)))
       (expand-file-name default-directory)))
+
+(defun ai-code--set-session-project-root (root)
+  "Associate the current buffer's AI sessions with ROOT."
+  (setq-local ai-code--session-project-root-override
+              (file-truename (expand-file-name root))))
 
 (defun ai-code--get-files-directory ()
   "Get the task directory path.

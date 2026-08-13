@@ -121,7 +121,7 @@ that process character-by-character input slowly."
   "Hash table mapping (prefix . directory) to last selected session buffer.")
 
 (defvar ai-code-backends-infra--file-session-map (make-hash-table :test 'equal)
-  "Hash table mapping (prefix . file) to attached AI session buffer.")
+  "Hash table mapping (prefix workspace file) to attached session buffers.")
 
 (defvar ai-code-backends-infra--preferred-session-buffer nil
   "Preferred session buffer to place first when prompting for session selection.")
@@ -741,13 +741,16 @@ use the branch name."
   (ai-code-backends-infra--branch-instance-name existing-instance-names))
 
 (defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
-  "Return file-session map key for PREFIX and SOURCE-BUFFER."
+  "Return workspace-scoped file-session key for PREFIX and SOURCE-BUFFER."
   (when (and prefix (buffer-live-p source-buffer))
     (with-current-buffer source-buffer
       (when (and (stringp buffer-file-name)
                  (> (length buffer-file-name) 0))
-        (cons prefix
-              (ai-code-backends-infra--normalize-file-path buffer-file-name))))))
+        (list prefix
+              (ai-code-backends-infra--normalize-session-directory
+               (ai-code--session-project-root))
+              (ai-code-backends-infra--normalize-file-path
+               buffer-file-name))))))
 
 (defun ai-code-backends-infra--remember-file-session-buffer (prefix source-buffer session-buffer)
   "Remember SESSION-BUFFER as attached session for SOURCE-BUFFER and PREFIX."
@@ -775,11 +778,16 @@ use the branch name."
   "Return live sessions explicitly attached to SOURCE's file."
   (when-let* ((file (buffer-local-value 'buffer-file-name source))
               (normalized-file
-               (ai-code-backends-infra--normalize-file-path file)))
+               (ai-code-backends-infra--normalize-file-path file))
+              (root (with-current-buffer source
+                      (ai-code--session-project-root)))
+              (normalized-root
+               (ai-code-backends-infra--normalize-session-directory root)))
     (let (sessions)
       (maphash
        (lambda (key session)
-         (when (and (equal (cdr-safe key) normalized-file)
+         (when (and (equal (nth 1 key) normalized-root)
+                    (equal (nth 2 key) normalized-file)
                     (ai-code-backends-infra--live-terminal-session-p session))
            (push session sessions)))
        ai-code-backends-infra--file-session-map)
@@ -859,12 +867,9 @@ Return a cons of (BUFFER . MISSING-P)."
         (cons nil nil)
       (let* ((attached (gethash key ai-code-backends-infra--file-session-map))
              (valid (and (buffer-live-p attached)
-                         (or (ai-code-backends-infra--parse-session-buffer-name
-                             (buffer-name attached)
-                              prefix)
-                             (ai-code-backends-infra--session-buffer-matches-directory-p
-                              attached
-                              working-dir)))))
+                         (ai-code-backends-infra--session-buffer-matches-directory-p
+                          attached
+                          working-dir))))
         (cond
          (valid
           (cons attached nil))
@@ -990,7 +995,8 @@ When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
 
 (defun ai-code-backends-infra--session-key (directory instance-name)
   "Return a session key for DIRECTORY and INSTANCE-NAME."
-  (cons directory (ai-code-backends-infra--normalize-instance-name instance-name)))
+  (cons (ai-code-backends-infra--normalize-session-directory directory)
+        (ai-code-backends-infra--normalize-instance-name instance-name)))
 
 (defun ai-code-backends-infra--session-map-key (prefix directory)
   "Return a map key for PREFIX and DIRECTORY."
@@ -1335,20 +1341,23 @@ behavior."
 
 (defun ai-code-backends-infra--start-cli-session (options arg)
   "Start a generic CLI session described by OPTIONS and prefix ARG.
-When ARG is non-nil, prompt for CLI args, working directory, and instance name.
+When ARG is non-nil, prompt for CLI args, working directory, and
+instance name.
 OPTIONS is a plist with these keys:
 :program is the CLI executable.
 :switches is the default list of CLI switches.
 :label is the user-facing CLI label.
 :process-table maps session keys to processes.
 :session-prefix is the session buffer prefix.
-:escape-function is an optional function bound to escape in the session buffer.
+:escape-function is an optional function bound to escape in the
+session buffer.
 :env-vars is an optional list of environment variable strings.
-:multiline-input-sequence is an optional terminal sequence for multiline input.
+:multiline-input-sequence is an optional terminal sequence for
+multiline input.
 :prepare-launch is an optional function called with (WORKING-DIR ARGV).
-When :prepare-launch is present, it may return :argv, :env-vars, :cleanup-fn, and
-:post-start-fn entries to customize session creation.  A legacy :command
-entry is normalized to argv for compatibility."
+When :prepare-launch is present, it may return :argv, :env-vars,
+:cleanup-fn, and :post-start-fn entries to customize session creation.
+A legacy :command entry is normalized to argv for compatibility."
   (let* ((resolved (ai-code-backends-infra--resolve-start-command
                     (plist-get options :program)
                     (plist-get options :switches)

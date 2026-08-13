@@ -10,6 +10,7 @@
 
 (require 'ert)
 (require 'ai-code-git)
+(require 'ai-code-codex-cli)
 (require 'ai-code-prompt-mode)
 
 (declare-function difftastic-magit-diff "difftastic" ())
@@ -17,7 +18,7 @@
 
 (ert-deftest ai-code-test-ai-code-git-does-not-eagerly-load-github-module ()
   "Loading `ai-code-git' should not eagerly load `ai-code-github'."
-  (let ((git-library (locate-library "ai-code-git"))
+  (let ((git-library (locate-library "ai-code-git.el"))
         (github-library (locate-library "ai-code-github")))
     (unwind-protect
         (progn
@@ -324,7 +325,8 @@ other-file"))
          (worktree-path (expand-file-name branch repo-dir))
          (files-dir (expand-file-name ai-code-files-dir-name temp-git-root))
          (dired-called nil)
-         (find-file-called-with nil))
+         (find-file-called-with nil)
+         (opened-buffer (generate-new-buffer " *ai-code-worktree-task*")))
     (make-directory files-dir t)
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code--validate-git-repository)
@@ -353,7 +355,9 @@ other-file"))
                   ((symbol-function 'ai-code-current-backend-label)
                    (lambda () "Codex"))
                   ((symbol-function 'find-file-other-window)
-                   (lambda (file) (setq find-file-called-with file)))
+                   (lambda (file)
+                     (setq find-file-called-with file)
+                     opened-buffer))
                   ((symbol-function 'ai-code--generate-task-filename)
                    (lambda (_name) "task-link-test"))
                   ((symbol-function 'save-buffer)
@@ -367,11 +371,75 @@ other-file"))
             (let ((symlink-path (expand-file-name "task-link-test.org" worktree-path)))
               (should (file-symlink-p symlink-path))
               (should (string= (file-truename symlink-path)
-                               (file-truename task-file))))
-            ;; Task file should be opened
-            (should find-file-called-with)))
+                               (file-truename task-file)))
+              ;; The worktree-specific link should be opened.
+              (should (equal find-file-called-with symlink-path)))))
+      (when (buffer-live-p opened-buffer)
+        (kill-buffer opened-buffer))
       (delete-directory temp-worktree-root t)
       (delete-directory temp-git-root t))))
+
+(ert-deftest ai-code-test-git-worktree-task-starts-session-in-worktree ()
+  "Start the public backend in the worktree that owns a shared task link."
+  (let* ((git-root (make-temp-file "ai-code-real-git-root-" t))
+         (temp-worktree-root (make-temp-file "ai-code-real-worktree-root-" t))
+         (ai-code-git-worktree-root temp-worktree-root)
+         (branch "feature/session-context")
+         (repo-dir (ai-code--git-worktree-repo-dir git-root))
+         (worktree-path (expand-file-name branch repo-dir))
+         (task-link (expand-file-name "worktree-task.org" worktree-path))
+         task-buffer
+         captured-working-dir)
+    (unwind-protect
+        (progn
+          (should (zerop (process-file "git" nil nil nil "-C" git-root
+                                       "init" "--quiet")))
+          (should (zerop (process-file "git" nil nil nil "-C" git-root
+                                       "config" "user.email" "test@example.com")))
+          (should (zerop (process-file "git" nil nil nil "-C" git-root
+                                       "config" "user.name" "AI Code Test")))
+          (with-temp-file (expand-file-name "README.md" git-root)
+            (insert "# Test repository\n"))
+          (should (zerop (process-file "git" nil nil nil "-C" git-root
+                                       "add" "README.md")))
+          (should (zerop (process-file "git" nil nil nil "-C" git-root
+                                       "commit" "--quiet" "-m" "Initial commit")))
+          (let ((default-directory git-root)
+                (answers '("Worktree task" "worktree-task.org")))
+            (cl-letf (((symbol-function 'dired) (lambda (_directory) nil))
+                      ((symbol-function 'y-or-n-p) (lambda (_prompt) t))
+                      ((symbol-function 'ai-code--validate-git-repository)
+                       (lambda () git-root))
+                      ((symbol-function 'magit-branch-p) (lambda (_branch) nil))
+                      ((symbol-function 'magit-call-git)
+                       (lambda (&rest args)
+                         (apply #'process-file
+                                "git" nil nil nil
+                                (append (list "-C" git-root) args))))
+                      ((symbol-function 'ai-code-read-string)
+                       (lambda (&rest _args) (pop answers))))
+              (ai-code-git-worktree-branch branch "HEAD")
+              (setq task-buffer (find-buffer-visiting task-link))))
+          (should (file-symlink-p task-link))
+          (should (buffer-live-p task-buffer))
+          (cl-letf (((symbol-function 'ai-code-mcp-agent-prepare-launch)
+                     (lambda (_backend _working-dir argv) (list :argv argv)))
+                    ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
+                     (lambda (working-dir &rest _args)
+                       (setq captured-working-dir working-dir))))
+            (with-current-buffer task-buffer
+              (ai-code-codex-cli)))
+          (should (equal (file-name-as-directory (file-truename worktree-path))
+                         (file-name-as-directory
+                          (file-truename captured-working-dir)))))
+      (when (buffer-live-p task-buffer)
+        (kill-buffer task-buffer))
+      (when (file-directory-p worktree-path)
+        (ignore-errors
+          (process-file "git" nil nil nil "-C" git-root
+                        "worktree" "remove" "--force" worktree-path)))
+      (ignore-errors (delete-directory temp-worktree-root t))
+      (ignore-errors (delete-directory git-root t)))))
 
 (ert-deftest ai-code-test-git-worktree-branch-skips-task-when-declined ()
   "After worktree creation, when user declines, no task file is created."
