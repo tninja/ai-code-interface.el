@@ -2007,6 +2007,32 @@ The prefix argument should also force instance-name prompting."
       (ignore-errors
         (delete-directory root t)))))
 
+(ert-deftest test-ai-code-backends-infra-session-key-canonicalizes-directory-aliases ()
+  "Use one process-table key for real and symlinked workspace paths."
+  (let* ((root (make-temp-file "ai-code-session-key-root-" t))
+         (alias-parent (make-temp-file "ai-code-session-key-alias-" t))
+         (alias-root (expand-file-name "repo" alias-parent)))
+    (unwind-protect
+        (progn
+          (make-symbolic-link root alias-root)
+          (dolist (instance '(nil "" "default" "feature/test"))
+            (let ((expected
+                   (ai-code-backends-infra--session-key root instance)))
+              (dolist (candidate
+                       (list root
+                             (file-name-as-directory root)
+                             (expand-file-name "./" root)
+                             alias-root
+                             (file-name-as-directory alias-root)
+                             (expand-file-name "./" alias-root)))
+                (should
+                 (equal expected
+                        (ai-code-backends-infra--session-key
+                         candidate
+                         instance)))))))
+      (ignore-errors (delete-directory alias-parent t))
+      (ignore-errors (delete-directory root t)))))
+
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-default-process-table ()
   "Fallback to global process table when PROCESS-TABLE is nil."
   (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))
@@ -3136,13 +3162,14 @@ The prefix argument should also force instance-name prompting."
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
-(ert-deftest test-ai-code-backends-infra-switch-reuses-live-attached-session-despite-working-dir-mismatch ()
-  "Reuse a live attached session even when WORKING-DIR no longer matches it."
+(ert-deftest test-ai-code-backends-infra-switch-rejects-attached-session-on-working-dir-mismatch ()
+  "Reject a live attached session when WORKING-DIR does not match it."
   (let* ((prefix "codex")
          (session-dir "/tmp/ai-code-file-attached-root/")
          (working-dir "/tmp/ai-code-file-attached-root/subdir/")
          (source (generate-new-buffer " *ai-code-source-attached-live*"))
          (attached (get-buffer-create "*codex[file-attached-root:attached]*"))
+         (select-called nil)
          (displayed nil))
     (unwind-protect
         (progn
@@ -3160,8 +3187,9 @@ The prefix argument should also force instance-name prompting."
           (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
                      (lambda (_prefix _dir) nil))
                     ((symbol-function 'ai-code-backends-infra--select-session-buffer)
-                     (lambda (&rest _args)
-                       (ert-fail "Should reuse the live attached session without prompting.")))
+                     (lambda (_prefix _directory &optional force-prompt)
+                       (setq select-called force-prompt)
+                       nil))
                     ((symbol-function 'get-buffer-window)
                      (lambda (&rest _args) nil))
                     ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
@@ -3169,18 +3197,21 @@ The prefix argument should also force instance-name prompting."
                        (setq displayed buffer)
                        nil)))
             (with-current-buffer source
-              (ai-code-backends-infra--switch-to-session-buffer
-               nil
-               "missing"
-               prefix
-               working-dir
-               nil)))
+              (should-error
+               (ai-code-backends-infra--switch-to-session-buffer
+                nil
+                "missing"
+                prefix
+                working-dir
+                nil)
+               :type 'user-error)))
 
-          (should (eq displayed attached))
-          (should (eq (gethash
-                       (ai-code-backends-infra--file-session-map-key prefix source)
-                       ai-code-backends-infra--file-session-map)
-                      attached)))
+          (should select-called)
+          (should-not displayed)
+          (should-not
+           (gethash
+            (ai-code-backends-infra--file-session-map-key prefix source)
+            ai-code-backends-infra--file-session-map)))
       (dolist (buf (list source attached))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
@@ -3908,8 +3939,8 @@ The prefix argument should also force instance-name prompting."
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/git/repo/")))))
 
-(ert-deftest test-ai-code-backends-infra-session-working-directory-returns-project-root ()
-  "Session working directory should return project.el root when available."
+(ert-deftest test-ai-code-backends-infra-session-working-directory-prefers-git-root ()
+  "Session working directory should prefer the Git worktree root."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir)
@@ -3918,6 +3949,20 @@ The prefix argument should also force instance-name prompting."
                (lambda (_project) "/projects/myapp/"))
               ((symbol-function 'magit-toplevel)
                (lambda (&optional _dir) "/git/other/")))
+      (should (equal (ai-code-backends-infra--session-working-directory)
+                     (file-name-as-directory
+                      (file-truename "/git/other/")))))))
+
+(ert-deftest test-ai-code-backends-infra-session-working-directory-uses-project-outside-git ()
+  "Session working directory should use project.el outside Git."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir)
+                 '(transient . "/projects/myapp/")))
+              ((symbol-function 'project-root)
+               (lambda (_project) "/projects/myapp/"))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) nil)))
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/projects/myapp/")))))
 

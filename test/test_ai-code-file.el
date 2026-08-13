@@ -926,8 +926,8 @@ everything is cleaned up afterward."
 
 ;;; --- ai-code--session-project-root tests ---
 
-(ert-deftest test-ai-code-session-project-root-prefers-project-el ()
-  "Should return project.el root when available."
+(ert-deftest test-ai-code-session-project-root-prefers-git-root ()
+  "Should return Git root when project.el reports a nested root."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir)
@@ -937,7 +937,7 @@ everything is cleaned up afterward."
               ((symbol-function 'magit-toplevel)
                (lambda (&optional _dir) "/git/bar/")))
       (should (equal (ai-code--session-project-root)
-                     "/projects/foo/")))))
+                     "/git/bar/")))))
 
 (ert-deftest test-ai-code-session-project-root-falls-back-to-git-root ()
   "Should fall back to git root when project.el returns nil."

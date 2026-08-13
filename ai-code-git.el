@@ -54,6 +54,7 @@ Candidate values:
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--generate-task-filename "ai-code-task" (task-name))
 (declare-function ai-code--initialize-task-file-content "ai-code-task" (task-name task-url))
+(declare-function ai-code--set-session-project-root "ai-code-utils" (root))
 
 (defvar ai-code-files-dir-name)
 
@@ -741,8 +742,9 @@ BRANCH is used as the default task name."
           (ai-code--initialize-task-file-content task-name "")))
       (let ((symlink-path (expand-file-name confirmed-filename worktree-path)))
         (unless (file-exists-p symlink-path)
-          (make-symbolic-link task-file symlink-path)))
-      (find-file-other-window task-file))))
+          (make-symbolic-link task-file symlink-path))
+        (with-current-buffer (find-file-other-window symlink-path)
+          (ai-code--set-session-project-root worktree-path))))))
 
 ;;;###autoload
 (defun ai-code-git-worktree-action (&optional prefix)

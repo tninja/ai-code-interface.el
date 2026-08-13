@@ -19,6 +19,151 @@
 (require 'ai-code-codex-cli)
 (require 'ai-code-mcp-agent nil t)
 
+(declare-function ai-code--set-session-project-root "ai-code-utils" (root))
+
+(ert-deftest ai-code-test-codex-cli-reuses-session-across-repo-alias-and-nested-project ()
+  "Reuse one Git worktree session across path aliases and nested projects."
+  (let* ((root (make-temp-file "ai-code-session-repo-" t))
+         (alias-parent (make-temp-file "ai-code-session-alias-" t))
+         (alias-root (expand-file-name "repo" alias-parent))
+         (task-dir (expand-file-name ".ai.code.files" alias-root))
+         (task-file (expand-file-name "task.org" task-dir))
+         (nested-dir (expand-file-name "packages/app" root))
+         (code-file (expand-file-name "main.el" nested-dir))
+         (task-buffer (generate-new-buffer " *ai-code-task-source*"))
+         (code-buffer (generate-new-buffer " *ai-code-code-source*"))
+         (session-buffer (generate-new-buffer " *ai-code-session-target*"))
+         (ai-code-codex-cli--processes (make-hash-table :test #'equal))
+         process
+         sent-from)
+    (unwind-protect
+        (progn
+          (should (zerop (process-file "git" nil nil nil "-C" root "init" "--quiet")))
+          (make-symbolic-link root alias-root)
+          (make-directory task-dir t)
+          (make-directory nested-dir t)
+          (with-temp-file task-file (insert "* Task\n"))
+          (with-temp-file code-file (insert ";;; main.el\n"))
+          (with-current-buffer task-buffer
+            (setq buffer-file-name task-file
+                  default-directory task-dir))
+          (with-current-buffer code-buffer
+            (setq buffer-file-name code-file
+                  default-directory nested-dir))
+          (setq process (start-process "ai-code-session-test" session-buffer "cat"))
+          (cl-letf (((symbol-function 'magit-toplevel)
+                     (lambda (&optional dir)
+                       (car (process-lines
+                             "git" "-C" (or dir default-directory)
+                             "rev-parse" "--show-toplevel"))))
+                    ((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt dir)
+                       (cons 'test-project
+                             (if (file-in-directory-p
+                                  (expand-file-name (or dir default-directory))
+                                  nested-dir)
+                                 nested-dir
+                               alias-root))))
+                    ((symbol-function 'project-root) #'cdr)
+                    ((symbol-function 'ai-code-mcp-agent-prepare-launch)
+                     (lambda (_backend _working-dir argv)
+                       (list :argv argv)))
+                    ((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                     (lambda (buffer-name working-dir _command _env-vars)
+                       (with-current-buffer session-buffer
+                         (rename-buffer buffer-name t)
+                         (setq-local ai-code-backends-infra--session-directory
+                                     (ai-code-backends-infra--normalize-session-directory
+                                      working-dir)))
+                       (cons session-buffer process)))
+                    ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (_line &optional _paste)
+                       (setq sent-from (current-buffer))))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda () nil))
+                    ((symbol-function 'sleep-for) (lambda (&rest _args) nil))
+                    ((symbol-function 'sit-for) (lambda (&rest _args) nil)))
+            (with-current-buffer task-buffer
+              (ai-code-codex-cli))
+            (with-current-buffer code-buffer
+              (ai-code-codex-cli-send-command "Explain this file"))
+            (should (eq sent-from session-buffer))))
+      (when (and process (process-live-p process))
+        (delete-process process))
+      (dolist (buffer (list task-buffer code-buffer session-buffer))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer)))
+      (ignore-errors (delete-directory alias-parent t))
+      (ignore-errors (delete-directory root t)))))
+
+(ert-deftest ai-code-test-codex-cli-keeps-shared-task-attachments-worktree-local ()
+  "Keep public session switching local when worktrees share one task file."
+  (let* ((main-root (make-temp-file "ai-code-main-worktree-" t))
+         (linked-root (make-temp-file "ai-code-linked-worktree-" t))
+         (shared-file (expand-file-name "shared-task.org" main-root))
+         (main-source (generate-new-buffer " *ai-code-main-task*"))
+         (linked-source (generate-new-buffer " *ai-code-linked-task*"))
+         (main-session (generate-new-buffer "*codex[main:default]*"))
+         (linked-session (generate-new-buffer "*codex[linked:default]*"))
+         displayed)
+    (unwind-protect
+        (progn
+          (clrhash ai-code-backends-infra--directory-buffer-map)
+          (clrhash ai-code-backends-infra--file-session-map)
+          (with-temp-file shared-file (insert "* Shared task\n"))
+          (dolist (source (list main-source linked-source))
+            (with-current-buffer source
+              (setq buffer-file-name shared-file)))
+          (with-current-buffer main-source
+            (setq default-directory main-root)
+            (ai-code--set-session-project-root main-root))
+          (with-current-buffer linked-source
+            (setq default-directory linked-root)
+            (ai-code--set-session-project-root linked-root))
+          (with-current-buffer main-session
+            (setq-local ai-code-backends-infra--session-directory
+                        (ai-code-backends-infra--normalize-session-directory
+                         main-root)))
+          (ai-code-backends-infra--remember-file-session-buffer
+           "codex" main-source main-session)
+          (cl-letf (((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                     (lambda (buffer)
+                       (push buffer displayed))))
+            (with-current-buffer linked-source
+              (should-error (ai-code-codex-cli-switch-to-buffer)
+                            :type 'user-error))
+            (with-current-buffer linked-session
+              (setq-local ai-code-backends-infra--session-directory
+                          (ai-code-backends-infra--normalize-session-directory
+                           linked-root)))
+            (ai-code-backends-infra--remember-file-session-buffer
+             "codex" linked-source linked-session)
+            (should-not
+             (equal
+              (ai-code-backends-infra--file-session-map-key
+               "codex" main-source)
+              (ai-code-backends-infra--file-session-map-key
+               "codex" linked-source)))
+            (with-current-buffer main-source
+              (ai-code-codex-cli-switch-to-buffer))
+            (with-current-buffer linked-source
+              (ai-code-codex-cli-switch-to-buffer)))
+          (should (equal (nreverse displayed)
+                         (list main-session linked-session))))
+      (clrhash ai-code-backends-infra--directory-buffer-map)
+      (clrhash ai-code-backends-infra--file-session-map)
+      (dolist (buffer (list main-source linked-source main-session linked-session))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer)))
+      (ignore-errors (delete-directory linked-root t))
+      (ignore-errors (delete-directory main-root t)))))
+
 (ert-deftest ai-code-test-codex-cli-start-injects-session-mcp-config ()
   "Starting Codex should inject an Emacs MCP server URL and lifecycle hooks."
   (should (fboundp 'ai-code-codex-cli))

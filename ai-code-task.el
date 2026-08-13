@@ -23,6 +23,7 @@
 (declare-function ai-code--confirm-and-send "ai-code-input"
                   (prompt-label initial-prompt))
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
+(declare-function ai-code--set-session-project-root "ai-code-utils" (root))
 
 ;;;###autoload
 (defcustom ai-code-task-use-gptel-filename nil
@@ -123,14 +124,16 @@ TASK-NAME and TASK-URL are used to initialize new files."
   (message "Opened task file: %s" task-file))
 
 (defun ai-code--maybe-symlink-task-to-worktree (task-file)
-  "Symlink TASK-FILE into the worktree root when inside a git worktree."
+  "Symlink TASK-FILE and bind its buffer to the current worktree."
   (when-let* ((worktree-root (ai-code--git-root))
               (main-repo-root (ai-code--worktree-main-repo-root)))
     (let ((symlink-path (expand-file-name (file-name-nondirectory task-file)
                                           worktree-root)))
       (unless (file-exists-p symlink-path)
         (make-symbolic-link task-file symlink-path)
-        (message "Linked task file to worktree: %s" symlink-path)))))
+        (message "Linked task file to worktree: %s" symlink-path))
+      (ai-code--set-session-project-root worktree-root)
+      symlink-path)))
 
 (defun ai-code--select-task-target-directory (ai-code-files-dir current-dir)
   "Prompt user to select target directory.

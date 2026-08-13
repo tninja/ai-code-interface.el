@@ -40,6 +40,28 @@
        (when (buffer-live-p buffer)
          (kill-buffer buffer))))))
 
+(ert-deftest ai-code-test-session-register-canonicalizes-repo-root-alias ()
+  "Store one canonical repository identity for a symlinked root."
+  (ai-code-test-session--with-clean-registry
+   (let* ((root (make-temp-file "ai-code-registry-root-" t))
+          (alias-parent (make-temp-file "ai-code-registry-alias-" t))
+          (alias-root (expand-file-name "repo" alias-parent))
+          (buffer (generate-new-buffer " *ai-code-registry-session*")))
+     (unwind-protect
+         (progn
+           (make-symbolic-link root alias-root)
+           (let ((session (ai-code-session-register
+                           :buffer buffer
+                           :backend "codex"
+                           :repo-root alias-root)))
+             (should (equal (ai-code-session-repo-root session)
+                            (file-name-as-directory
+                             (file-truename root))))))
+       (when (buffer-live-p buffer)
+         (kill-buffer buffer))
+       (ignore-errors (delete-directory alias-parent t))
+       (ignore-errors (delete-directory root t))))))
+
 (ert-deftest ai-code-test-session-refresh-populates-branch-status-and-dirty-count ()
   "Refreshing should populate simple git/process metadata."
   (ai-code-test-session--with-clean-registry
