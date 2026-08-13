@@ -11,6 +11,10 @@
 (require 'ert)
 (require 'cl-lib)
 
+(defvar helm-completion-styles-alist)
+(defvar ivy-sort-functions-alist)
+(defvar vertico-sort-override-function)
+
 (unless (featurep 'magit)
   (defun magit-toplevel (&optional _dir) nil)
   (defun magit-get-current-branch () nil)
@@ -598,120 +602,162 @@
     (should spec)
     (should-not (plist-get (cdr spec) :install-skills))))
 
-(ert-deftest ai-code-test-select-backend-mru-ordering ()
-  "Test that backend selection ordering follows the MRU list loaded from the history file, and updates it upon selection."
-  (let* ((temp-file (make-temp-file "ai-code-backends-history-"))
-         (ai-code-backends-history-file temp-file)
-         (ai-code-backends '((backend-a :label "Backend A" :start ignore :switch ignore :send ignore)
-                              (backend-b :label "Backend B" :start ignore :switch ignore :send ignore)
-                              (backend-c :label "Backend C" :start ignore :switch ignore :send ignore)))
-         (ai-code-selected-backend 'backend-a)
-         (captured-candidates nil)
-         (captured-extra-properties nil)
-         (selected-choice "Backend B"))
-    (unwind-protect
-        (progn
-          ;; Write initial history: backend-c was used recently, backend-b before that
-          (with-temp-file temp-file
-            (insert (prin1-to-string '(backend-c backend-b))))
-          
-          ;; Spy completing-read to capture the candidates offered to the user
-          (cl-letf (((symbol-function 'completing-read)
-                     (lambda (_prompt candidates &rest _args)
-                       (setq captured-candidates candidates)
-                       (setq captured-extra-properties completion-extra-properties)
-                       selected-choice))
-                    ((symbol-function 'ai-code-onboarding-show-backend-switch-hint) #'ignore)
-                    ((symbol-function 'message) #'ignore))
-            (ai-code-select-backend)
-            
-            ;; 1. The selected backend should be switched to backend-b
-            (should (eq ai-code-selected-backend 'backend-b))
-            
-            ;; 2. The candidates list passed to completing-read should have:
-            ;;   - First: Current effective backend (backend-a)
-            ;;   - Then: history items in order (backend-c, backend-b) excluding current
-            ;; So candidates should be '("Backend A" "Backend C" "Backend B")
-            (should (equal captured-candidates '("Backend A" "Backend C" "Backend B")))
-            (should (eq (plist-get captured-extra-properties :display-sort-function)
-                        #'identity))
-            (should (eq (plist-get captured-extra-properties :cycle-sort-function)
-                        #'identity))
-            
-            ;; 3. The history file should have been updated after selection:
-            ;; New selection B is now at the top, C is next
-            (let ((new-history (with-temp-buffer
-                                 (insert-file-contents temp-file)
-                                 (read (buffer-string)))))
-              (should (equal new-history '(backend-b backend-c))))))
-      (when (file-exists-p temp-file)
-        (delete-file temp-file)))))
+(defmacro ai-code-test--with-backends-history (content &rest body)
+  "Evaluate BODY with a temporary backend history file containing CONTENT."
+  (declare (indent 1) (debug t))
+  `(let* ((history-content ,content)
+          (temp-file (make-temp-file "ai-code-backends-history-"))
+          (ai-code-backends-history-file temp-file))
+     (unwind-protect
+         (progn
+           (when history-content
+             (with-temp-file temp-file
+               (insert history-content)))
+           ,@body)
+       (when (file-exists-p temp-file)
+         (delete-file temp-file)))))
 
-(ert-deftest ai-code-test-backends-corrupted-history-file-deleted ()
-  "Test that if the history file contains invalid Lisp, load-backends-history deletes it and returns nil."
-  (let* ((temp-file (make-temp-file "ai-code-backends-history-"))
-         (ai-code-backends-history-file temp-file))
-    (unwind-protect
-        (progn
-          ;; Write corrupted content
-          (write-region "(invalid-lisp" nil temp-file nil 'silent)
-          (should (file-exists-p temp-file))
-          
-          ;; Load should return nil
-          (should-not (ai-code--load-backends-history))
-          
-          ;; File should have been deleted
-          (should-not (file-exists-p temp-file)))
-      (when (file-exists-p temp-file)
-        (delete-file temp-file)))))
+(ert-deftest test-ai-code-backends--select-backend-orders-by-mru ()
+  "Backend selection should display and persist MRU order."
+  (ai-code-test--with-backends-history
+      (prin1-to-string '(backend-c backend-b))
+    (let* ((ai-code-backends
+            '((backend-a :label "Backend A" :start ignore :switch ignore :send ignore)
+              (backend-b :label "Backend B" :start ignore :switch ignore :send ignore)
+              (backend-c :label "Backend C" :start ignore :switch ignore :send ignore)))
+           (ai-code-selected-backend 'backend-a)
+           (captured-candidates nil)
+           (captured-metadata nil)
+           (captured-extra-properties nil))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _args)
+                   (setq captured-candidates (all-completions "" collection)
+                         captured-metadata (completion-metadata "" collection nil)
+                         captured-extra-properties completion-extra-properties)
+                   "Backend B"))
+                ((symbol-function 'ai-code-onboarding-show-backend-switch-hint) #'ignore)
+                ((symbol-function 'message) #'ignore))
+        (ai-code-select-backend)
+        (should (eq ai-code-selected-backend 'backend-b))
+        (should (equal captured-candidates
+                       '("Backend A" "Backend C" "Backend B")))
+        (should (eq (completion-metadata-get
+                     captured-metadata 'display-sort-function)
+                    #'identity))
+        (should (eq (completion-metadata-get
+                     captured-metadata 'cycle-sort-function)
+                    #'identity))
+        (should (eq (plist-get captured-extra-properties
+                               :display-sort-function)
+                    #'identity))
+        (should (eq (plist-get captured-extra-properties
+                               :cycle-sort-function)
+                    #'identity))
+        (with-temp-buffer
+          (insert-file-contents temp-file)
+          (should (equal (read (current-buffer))
+                         '(backend-b backend-c))))))))
 
-(ert-deftest ai-code-test-backends-readable-malformed-history-file-deleted ()
-  "Test that readable but malformed history content is discarded."
-  (let* ((temp-file (make-temp-file "ai-code-backends-history-"))
-         (ai-code-backends-history-file temp-file))
-    (unwind-protect
-        (progn
-          (write-region "backend-b" nil temp-file nil 'silent)
-          (should (file-exists-p temp-file))
-          (should-not (ai-code--load-backends-history))
-          (should-not (file-exists-p temp-file)))
-      (when (file-exists-p temp-file)
-        (delete-file temp-file)))))
+(ert-deftest test-ai-code-backends--load-history-deletes-corrupt-file ()
+  "Invalid Lisp should be discarded with its backend history file."
+  (ai-code-test--with-backends-history "(invalid-lisp"
+    (should (file-exists-p temp-file))
+    (should-not (ai-code--load-backends-history))
+    (should-not (file-exists-p temp-file))))
 
-(ert-deftest ai-code-test-select-backend-partial-history-keeps-all-backends ()
-  "Test that even if the history file only covers some backends or contains invalid keys, all backends are still available as choices."
-  (let* ((temp-file (make-temp-file "ai-code-backends-history-"))
-         (ai-code-backends-history-file temp-file)
-         (ai-code-backends '((backend-a :label "Backend A" :start ignore :switch ignore :send ignore)
-                              (backend-b :label "Backend B" :start ignore :switch ignore :send ignore)
-                              (backend-c :label "Backend C" :start ignore :switch ignore :send ignore)))
-         (ai-code-selected-backend 'backend-a)
-         (captured-candidates nil)
-         (selected-choice "Backend C"))
-    (unwind-protect
-        (progn
-          ;; Write partial/invalid history: only backend-b and some invalid key
-          (with-temp-file temp-file
-            (insert (prin1-to-string '(backend-b invalid-backend-key))))
-          
-          (cl-letf (((symbol-function 'completing-read)
-                     (lambda (_prompt candidates &rest _args)
-                       (setq captured-candidates candidates)
-                       selected-choice))
-                    ((symbol-function 'ai-code-onboarding-show-backend-switch-hint) #'ignore)
-                    ((symbol-function 'message) #'ignore))
-            (ai-code-select-backend)
-            
-            ;; 1. The selection should complete successfully
-            (should (eq ai-code-selected-backend 'backend-c))
-            ;; 2. Candidates list must still include all three backends:
-            ;;   - First: Current effective backend (backend-a)
-            ;;   - Then: history items that are valid (backend-b)
-            ;;   - Last: other remaining backends (backend-c)
-            ;; So candidates should be '("Backend A" "Backend B" "Backend C")
-            (should (equal captured-candidates '("Backend A" "Backend B" "Backend C")))))
-      (when (file-exists-p temp-file)
-        (delete-file temp-file)))))
+(ert-deftest test-ai-code-backends--load-history-deletes-malformed-value ()
+  "A readable non-list should be discarded with its history file."
+  (ai-code-test--with-backends-history "backend-b"
+    (should (file-exists-p temp-file))
+    (should-not (ai-code--load-backends-history))
+    (should-not (file-exists-p temp-file))))
+
+(ert-deftest test-ai-code-backends--load-history-deletes-trailing-data ()
+  "Trailing non-whitespace data should invalidate the history file."
+  (ai-code-test--with-backends-history "(backend-c backend-b) trailing-data"
+    (should-not (ai-code--load-backends-history))
+    (should-not (file-exists-p temp-file))))
+
+(ert-deftest test-ai-code-backends--load-history-deletes-empty-file ()
+  "An empty backend history file should be discarded."
+  (ai-code-test--with-backends-history nil
+    (should-not (ai-code--load-backends-history))
+    (should-not (file-exists-p temp-file))))
+
+(ert-deftest test-ai-code-backends--load-history-deduplicates-backends ()
+  "Duplicate backend keys should keep only their first MRU position."
+  (ai-code-test--with-backends-history
+      (prin1-to-string '(backend-c backend-c backend-b backend-c))
+    (should (equal (ai-code--load-backends-history)
+                   '(backend-c backend-b)))))
+
+(ert-deftest test-ai-code-backends--completion-table-preserves-order ()
+  "Backend completion metadata should preserve collection order."
+  (let* ((candidates '("Backend A" "Backend C" "Backend B"))
+         (table (ai-code--backend-completion-table candidates))
+         (metadata (completion-metadata "" table nil))
+         (sort-function
+          (completion-metadata-get metadata 'display-sort-function)))
+    (should (eq sort-function #'identity))
+    (should (eq (completion-metadata-get metadata 'cycle-sort-function)
+                #'identity))
+    (should (equal (funcall sort-function (all-completions "" table))
+                   candidates))))
+
+(ert-deftest test-ai-code-backends--select-backend-disables-frontend-sorting ()
+  "Backend selection should disable optional frontend-specific sorting."
+  (ai-code-test--with-backends-history
+      (prin1-to-string '(backend-c backend-b))
+    (let* ((ai-code-backends
+            '((backend-a :label "Backend A" :start ignore :switch ignore :send ignore)
+              (backend-b :label "Backend B" :start ignore :switch ignore :send ignore)
+              (backend-c :label "Backend C" :start ignore :switch ignore :send ignore)))
+           (ai-code-selected-backend 'backend-a)
+           (ivy-sort-functions-alist '((t . string-lessp)))
+           (helm-completion-styles-alist
+            '((ai-code-select-backend . helm-fuzzy)))
+           (vertico-sort-override-function #'reverse)
+           captured-helm-style
+           captured-ivy-sort
+           captured-vertico-override)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt _collection &rest _args)
+                   (setq captured-helm-style
+                         (cdr (assq 'ai-code-select-backend
+                                    helm-completion-styles-alist))
+                         captured-ivy-sort
+                         (cdr (assq 'ai-code-select-backend
+                                    ivy-sort-functions-alist))
+                         captured-vertico-override
+                         vertico-sort-override-function)
+                   "Backend B"))
+                ((symbol-function 'ai-code-onboarding-show-backend-switch-hint) #'ignore)
+                ((symbol-function 'message) #'ignore))
+        (ai-code-select-backend)
+        (should (eq captured-helm-style 'emacs))
+        (should-not captured-ivy-sort)
+        (should-not captured-vertico-override)))))
+
+(ert-deftest test-ai-code-backends--select-backend-keeps-partial-history ()
+  "Partial or stale history should leave every backend selectable."
+  (ai-code-test--with-backends-history
+      (prin1-to-string '(backend-b invalid-backend-key))
+    (let* ((ai-code-backends
+            '((backend-a :label "Backend A" :start ignore :switch ignore :send ignore)
+              (backend-b :label "Backend B" :start ignore :switch ignore :send ignore)
+              (backend-c :label "Backend C" :start ignore :switch ignore :send ignore)))
+           (ai-code-selected-backend 'backend-a)
+           captured-candidates)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _args)
+                   (setq captured-candidates (all-completions "" collection))
+                   "Backend C"))
+                ((symbol-function 'ai-code-onboarding-show-backend-switch-hint) #'ignore)
+                ((symbol-function 'message) #'ignore))
+        (ai-code-select-backend)
+        (should (eq ai-code-selected-backend 'backend-c))
+        (should (equal captured-candidates
+                       '("Backend A" "Backend B" "Backend C")))))))
 
 (provide 'test_ai-code-backends)
 
