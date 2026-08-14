@@ -32,7 +32,7 @@ Native coding CLIs keep ownership of their own interaction model, tool execution
 
 Structured external backends such as agent-shell/ACP can provide deeper lifecycle and UI integration when available, without making those semantics a requirement for every backend. This keeps the common workflow portable while allowing each backend to use its native strengths.
 
-See [[*AI coding CLI backend][AI coding CLI backend]] for the full backend list and configuration details.
+See [[https://github.com/tninja/ai-code-interface.el/tree/main#ai-coding-cli-backend][AI coding CLI backend]] for the full backend list and configuration details.
 
 - Screenshot
 
