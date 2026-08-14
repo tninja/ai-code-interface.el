@@ -2,6 +2,11 @@
 * Release history
 
 ** Main branch change
+
+** 1.93
+- Chore: sort backend selection by MRU order with history persistence
+- Fix session lookup across symlinks and worktrees
+- Fix prompt handling in read-only directories
 - Feat: Add Muse Code CLI backend support
 - Feat: Add maintainability sensors to Uncle Bob coding harness as plus version
 
