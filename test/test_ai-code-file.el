@@ -44,6 +44,129 @@ everything is cleaned up afterward."
        (when (file-directory-p test-dir)
          (delete-directory test-dir t)))))
 
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-dired-defaults-to-latest-command ()
+  "Test Dired command prompts with the latest dedicated history entry."
+  (let ((major-mode 'dired-mode)
+        (default-directory "/tmp/")
+        (ai-code-shell-command-history '("echo newest"))
+        captured-initial-input
+        captured-history)
+    (cl-letf (((symbol-function 'dired-current-directory)
+               (lambda () default-directory))
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input history &rest _args)
+                 (setq captured-initial-input initial-input
+                       captured-history history)
+                 "echo fallback"))
+              ((symbol-function 'compilation-start)
+               (lambda (&rest _args) nil)))
+      (ai-code-run-current-file-or-shell-cmd)
+      (should (eq captured-history 'ai-code-shell-command-history))
+      (should (equal captured-initial-input "echo newest")))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-region-overrides-history ()
+  "Test an active region takes precedence over shell command history."
+  (let ((ai-code-shell-command-history '("echo history"))
+        (transient-mark-mode t)
+        captured-initial-input)
+    (with-temp-buffer
+      (insert "echo selected")
+      (set-mark (point-min))
+      (goto-char (point-max))
+      (activate-mark)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input))
+                ((symbol-function 'compilation-start)
+                 (lambda (&rest _args) nil)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "echo selected"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-shell-defaults-to-latest-command ()
+  "Test shell buffers prompt with the latest dedicated history entry."
+  (let ((ai-code-shell-command-history '("echo newest"))
+        captured-initial-input)
+    (with-temp-buffer
+      (setq major-mode 'shell-mode)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "echo newest"))
+        (should (equal (buffer-string) "echo newest"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-file-reuses-matching-command ()
+  "Test a file reuses its latest matching run command."
+  (let ((ai-code-run-file-history '("pytest current.py -q"))
+        captured-initial-input)
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/current.py")
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input))
+                ((symbol-function 'ai-code--run-command-in-comint)
+                 (lambda (&rest _args) nil)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "pytest current.py -q"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-file-ignores-other-file-command ()
+  "Test a file does not default to another file's run command."
+  (let ((ai-code-run-file-history '("pytest other.py -q"))
+        captured-initial-input)
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/current.py")
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input))
+                ((symbol-function 'ai-code--run-command-in-comint)
+                 (lambda (&rest _args) nil)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "python current.py"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-remembers-ai-confirmed-command ()
+  "Test the confirmed AI command becomes the latest dedicated history entry."
+  (let ((ai-code-shell-command-history nil)
+        (read-count 0))
+    (with-temp-buffer
+      (setq major-mode 'shell-mode)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional _initial-input history &rest _args)
+                   (setq read-count (1+ read-count))
+                   (if (= read-count 1)
+                       (progn
+                         (add-to-history history ":list files")
+                         ":list files")
+                     "ls -la")))
+                ((symbol-function 'ai-code-call-gptel-sync)
+                 (lambda (_prompt) "ls -la")))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal (buffer-string) "ls -la"))
+        (should (equal (car ai-code-shell-command-history) "ls -la"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-skips-empty-ai-command-history ()
+  "Test an empty AI confirmation is not added to dedicated history."
+  (let ((ai-code-shell-command-history nil)
+        (read-count 0))
+    (with-temp-buffer
+      (setq major-mode 'shell-mode)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional _initial-input history &rest _args)
+                   (setq read-count (1+ read-count))
+                   (if (= read-count 1)
+                       (progn
+                         (add-to-history history ":list files")
+                         ":list files")
+                     "")))
+                ((symbol-function 'ai-code-call-gptel-sync)
+                 (lambda (_prompt) "ls -la")))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (string-empty-p (buffer-string)))
+        (should (equal ai-code-shell-command-history '(":list files")))))))
+
 ;;; Tests for ai-code--sanitize-generated-path-name
 
 (ert-deftest ai-code-test-sanitize-basic-name ()
