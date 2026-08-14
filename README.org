@@ -7,35 +7,32 @@
 [[https://github.com/tninja/ai-code-interface.el/graphs/contributors][https://img.shields.io/github/contributors/tninja/ai-code-interface.el.svg]]
 [[https://github.com/RoggeOhta/awesome-codex-cli][https://awesome.re/mentioned-badge.svg]]
 
-An Emacs interface for AI-assisted software development. *The purpose is to provide a uniform interface and experience for different AI backends*, with context-aware AI coding actions, and integrating seamlessly with AI-driven agile development workflows.
+AI Code Interface is a backend-agnostic Emacs workflow layer for AI-assisted software development.
 
-- Currently it supports these AI coding CLIs:
-  - [[https://github.com/openai/codex][OpenAI Codex]]
-  - [[https://pi.dev/][Pi]]
-  - [[https://antigravity.google/product/antigravity-cli][Antigravity CLI]]
-  - [[https://developer.meta.com/ai/products/muse-code][Muse Code]]
-  - [[https://opencode.ai/][Opencode]]
-  - [[https://github.com/anthropics/claude-code][Claude Code]]
-  - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]]
-  - [[https://kilo.ai/][Kilo]]
-  - [[https://grokcli.io/][Grok CLI]]
-  - [[https://docs.cursor.com/en/cli][Cursor CLI]]
-  - [[https://github.com/openinterpreter/openinterpreter][Open Interpreter CLI]] (Codex-compatible)
-  - [[https://kiro.dev/cli/][Kiro CLI]]
-  - [[https://cnb.cool/codebuddy/codebuddy-code][CodeBuddy Code CLI]]
-  - [[https://github.com/google-gemini/gemini-cli][Gemini CLI]]
-  - [[https://aider.chat/][Aider CLI]]
-- It also supports external backend packages:
-  - [[https://eca.dev/][ECA (Editor Code Assistant)]] (`[[./ai-code-eca.el][ai-code-eca.el]]`)
-  - [[https://github.com/xenodium/agent-shell][agent-shell]] ([[https://github.com/xenodium/acp.el][acp.el]])
-  - [[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide.el]]
-  - [[https://github.com/stevemolitor/claude-code.el][claude-code.el]]
+Use Codex, Claude Code, Gemini CLI, Pi, agent-shell/ACP, and other coding agents while keeping the same Emacs workflow for context, prompting, code changes, review, TDD, Git, tasks, and session management.
 
-- I switch between different CLI-based AI tools in Emacs: Claude Code / OpenAI Codex / Gemini CLI / etc. If you also use different AI tools inside Emacs, but want to keep the same user interface and experience, this package is for you.
+** Why AI Code Interface?
 
-- If you are choosing between the main AI coding packages in Emacs, ask one question first: do you want the deepest integration for one specific agent runtime, or do you want one Emacs workflow that stays stable even when you change AI tools?
+AI coding agents change quickly. AI Code Interface keeps your developer workflow stable while allowing the agent underneath to change: *the backend can change; your Emacs workflow does not have to*.
 
-- *ai-code-interface.el* is built for the second case. Its real advantage is not just backend coverage. Its main advantage is *workflow portability*: the same menu, context gathering, prompt flow, refactoring commands, TDD helpers, review workflow, prompt files, and Emacs MCP tools continue to work while the backend changes underneath.
+If you want the deepest possible integration with one specific agent runtime, a dedicated client may be a better fit. If you use or evaluate multiple coding agents and want one consistent Emacs workflow, AI Code Interface is built for that.
+
+*Workflow portability is the core idea:*
+
+- Keep the same context and prompt workflow.
+- Keep the same code-change, review, refactoring, and TDD workflow.
+- Keep the same task, Git, MCP, and session workflow.
+- Switch the AI backend without rebuilding your Emacs setup.
+
+** Design Philosophy
+
+*AI Code Interface unifies developer workflows, not agent runtimes.*
+
+Native coding CLIs keep ownership of their own interaction model, tool execution, retries, queueing or steering, permissions, and other runtime behavior. AI Code Interface integrates with those capabilities rather than reimplementing them.
+
+Structured external backends such as agent-shell/ACP can provide deeper lifecycle and UI integration when available, without making those semantics a requirement for every backend. This keeps the common workflow portable while allowing each backend to use its native strengths.
+
+See [[*AI coding CLI backend][AI coding CLI backend]] for the full backend list and configuration details.
 
 - Screenshot
 
@@ -637,7 +634,6 @@ To transfer development work between different AI coding backends (e.g., from Co
 #+end_src
 
 *** Q: Gemini CLI response is relatively slow, how to improve?
-
 - A: use gemini-3-flash model, it is pretty fast, with good quality (being able to solve leetcode hard problems), and it is free. You can set the following in your Emacs config:
 
 #+begin_src elisp
