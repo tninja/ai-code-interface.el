@@ -281,14 +281,24 @@ Only works when gptel package is installed, otherwise shows error message."
                              :buffer temp-buffer
                              :stream nil
                              :callback (lambda (response info)
-                                         (cond
-                                          ((stringp response)
-                                           (setq answer response))
-                                          ((eq response 'abort)
-                                           (setq error-info "Request aborted."))
-                                          (t
-                                           (setq error-info (or (plist-get info :status) "Unknown error"))))
-                                         (setq done t)))
+                                         (let ((gptel-error
+                                                (plist-get info :error)))
+                                           (cond
+                                            (gptel-error
+                                             (setq error-info
+                                                   (format "%s" gptel-error)
+                                                   done t))
+                                            ((stringp response)
+                                             (setq answer response
+                                                   done t))
+                                            ((eq response 'abort)
+                                             (setq error-info "Request aborted."
+                                                   done t))
+                                            ((and (consp response)
+                                                  (eq (car response) 'reasoning)))
+                                            (t
+                                             (setq error-info "Unknown error"
+                                                   done t))))))
               ;; Block until 'done' is true or timeout is reached
               (while (not done)
                 (when quit-flag

@@ -652,6 +652,71 @@
        (ai-code--resolve-auto-test-type-for-send
         "Explain this function\nNote: This is a question only - please do not modify the code.")))))
 
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-question-skips-when-gptel-disabled ()
+  "Test that local question markers bypass ask-me without GPTel."
+  (let ((ai-code-auto-test-type 'ask-me)
+        (ai-code-use-gptel-classify-prompt nil))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text)
+                 (ert-fail "Should not call GPTel for a local question marker.")))
+              ((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda ()
+                 (ert-fail "Should not ask test type for a question."))))
+      (should-not
+       (ai-code--resolve-auto-test-type-for-send
+        "Explain this function\nNote: This is a question only - please do not modify the code.")))))
+
+(ert-deftest ai-code-test-resolve-auto-test-type-for-send-unknown-asks-without-gptel ()
+  "Test that an unknown prompt preserves ask-me when GPTel is disabled."
+  (let ((ai-code-auto-test-type 'ask-me)
+        (ai-code-use-gptel-classify-prompt nil)
+        (choice-count 0))
+    (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+               (lambda (_prompt-text)
+                 (ert-fail "Should not call GPTel when classification is disabled.")))
+              ((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda ()
+                 (cl-incf choice-count)
+                 'test-after-change)))
+      (should (eq 'test-after-change
+                  (ai-code--resolve-auto-test-type-for-send
+                   "Take a look at this repository.")))
+      (should (= 1 choice-count)))))
+
+(ert-deftest ai-code-test-simple-classifier-treats-todo-question-brief-as-non-code-change ()
+  "Test that the TODO Ask question brief bypasses code-change routing."
+  (let ((prompt (ai-code--compose-question-brief
+                 :goal "Why does this TODO exist?"
+                 :scope "Current file: ai-code-change.el"
+                 :instruction ai-code-change--ask-question-note)))
+    (should (eq 'non-code-change
+                (ai-code--simple-classify-prompt-code-change prompt)))))
+
+(ert-deftest ai-code-test-github-analysis-workflows-bypass-auto-test-routing ()
+  "Test that GitHub analysis workflows never offer a test harness."
+  (dolist (workflow '(review-pr
+                      check-feedback
+                      prepare-pr-description
+                      send-current-branch-pr
+                      investigate-issue
+                      review-ci-checks
+                      resolve-merge-conflict))
+    (let ((ai-code--grill-me-workflow workflow)
+          (ai-code-auto-test-type 'ask-me)
+          (ai-code-use-gptel-classify-prompt nil))
+      (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
+                 (lambda (_prompt-text)
+                   (ert-fail "Should not call GPTel for a known GitHub workflow.")))
+                ((symbol-function 'ai-code--read-auto-test-type-choice)
+                 (lambda ()
+                   (ert-fail "Should not ask test type for a GitHub analysis workflow."))))
+        (should (eq 'non-code-change
+                    (ai-code--classify-prompt-for-send
+                     "Investigate the linked GitHub item and provide analysis only.")))
+        (should-not
+         (ai-code--resolve-auto-test-type-for-send
+          "Investigate the linked GitHub item and provide analysis only."))))))
+
 (ert-deftest ai-code-test-read-auto-test-type-choice-allow-no-test ()
   "Test that ask choices support selecting no test run."
   (let ((ai-code--auto-test-type-ask-choices
@@ -1072,6 +1137,8 @@
   (should (boundp 'ai-code-change--selected-region-note))
   (should (boundp 'ai-code-change--generic-note))
   (should (boundp 'ai-code-change--selected-files-note))
+  (should (boundp 'ai-code-change--ask-question-note))
+  (should (boundp 'ai-code-change--question-brief-default-boundaries))
   (should (boundp 'ai-code-discussion--question-only-note))
   (should (boundp 'ai-code-discussion--selected-region-note))
   (should (boundp 'ai-code-discussion--exception-investigation-boundaries))
@@ -1084,7 +1151,9 @@
   (should (equal ai-code--non-code-change-prompt-markers
                  (append
                   (mapcar #'downcase
-                          (list ai-code-discussion--question-only-note
+                          (list ai-code-change--ask-question-note
+                                ai-code-change--question-brief-default-boundaries
+                                ai-code-discussion--question-only-note
                                 ai-code-discussion--selected-region-note
                                 ai-code-discussion--exception-investigation-boundaries))
                   (mapcar #'downcase

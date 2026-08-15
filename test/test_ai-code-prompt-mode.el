@@ -109,6 +109,51 @@
           nil))))
     (should (= calls 1))))
 
+(ert-deftest ai-code-test-call-gptel-sync-ignores-reasoning-before-final-response ()
+  "A reasoning callback should not complete a synchronous GPTel request."
+  (let ((ai-code-gptel-sync-timeout 1)
+        (original-featurep (symbol-function 'featurep)))
+    (cl-letf (((symbol-function 'featurep)
+               (lambda (feature)
+                 (or (eq feature 'gptel)
+                     (funcall original-featurep feature))))
+              ((symbol-function 'gptel-request)
+               (lambda (_question &rest args)
+                 (let ((callback (plist-get args :callback)))
+                   (funcall callback '(reasoning . "")
+                            '(:status "HTTP/2 200" :error nil))
+                   (funcall callback "NOT_CODE_CHANGE"
+                            '(:status "HTTP/2 200" :error nil)))))
+              ((symbol-function 'gptel-abort)
+               (lambda (&rest _args)
+                 (ert-fail "A completed request should not be aborted.")))
+              ((symbol-function 'sit-for) #'ignore))
+      (should (equal "NOT_CODE_CHANGE"
+                     (ai-code-call-gptel-sync "Classify this prompt"))))))
+
+(ert-deftest ai-code-test-call-gptel-sync-reports-gptel-error-field ()
+  "A failed synchronous GPTel request should report INFO's error field."
+  (let ((ai-code-gptel-sync-timeout 1)
+        (original-featurep (symbol-function 'featurep)))
+    (cl-letf (((symbol-function 'featurep)
+               (lambda (feature)
+                 (or (eq feature 'gptel)
+                     (funcall original-featurep feature))))
+              ((symbol-function 'gptel-request)
+               (lambda (_question &rest args)
+                 (funcall (plist-get args :callback)
+                          nil
+                          '(:status "HTTP/2 500" :error "Backend failed"))))
+              ((symbol-function 'gptel-abort) #'ignore)
+              ((symbol-function 'sit-for) #'ignore))
+      (let ((error-message
+             (condition-case err
+                 (progn
+                   (ai-code-call-gptel-sync "Fail this prompt")
+                   nil)
+               (error (error-message-string err)))))
+        (should (string-match-p "Backend failed" error-message))))))
+
 (ert-deftest ai-code-test-custom-prompt-suffix-provider-respects-switch ()
   "The custom suffix provider should honor the legacy suffix switch."
   (let ((ai-code-prompt-suffix-functions
