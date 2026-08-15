@@ -23,6 +23,7 @@
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
 (declare-function ai-code--current-function-name "ai-code-utils")
 (declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
+(declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
@@ -284,8 +285,7 @@ REGION-ACTIVE indicates whether a region is selected."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
          (scope-ctx (ai-code--current-scope-context))
          (function-name (plist-get scope-ctx :function-name))
-         (class-name (plist-get scope-ctx :class-name))
-         (class-header (plist-get scope-ctx :class-header))
+         (semantic-scope (ai-code--format-scope-context scope-ctx))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
          (region-start-line (when region-active
@@ -307,9 +307,8 @@ REGION-ACTIVE indicates whether a region is selected."
                       (region-start-line
                        (format "Start line: %d\n" region-start-line)))
                      region-text))
-           (when class-name (format "\nEnclosing class: %s" class-name))
-           (when class-header (format "\nClass definition: %s" class-header))
-           (when function-name (format "\nFunction: %s" function-name))
+           (unless (string-empty-p semantic-scope)
+             (concat "\n" semantic-scope))
            files-context-string))
          (final-prompt
           (ai-code--compose-code-change-brief
@@ -519,16 +518,23 @@ ARG controls whether clipboard context is included."
          (current-line (string-trim (thing-at-point 'line t)))
          (current-line-number (line-number-at-pos (point)))
          (is-comment (ai-code--is-comment-line current-line))
+         (scope-context (unless is-comment
+                          (ai-code--current-scope-context)))
          (function-name (if is-comment
                             (ai-code--get-function-name-for-comment)
-                          (ai-code--current-function-name)))
+                          (plist-get scope-context :function-name)))
          (org-todo-section-info (ai-code--implement-todo--get-org-todo-section-info))
          (org-section-block
           (ai-code--implement-todo--format-org-section-block
            org-todo-section-info))
-         (function-context (if function-name
-                               (format "\nFunction: %s" function-name)
-                             ""))
+         (semantic-scope (unless is-comment
+                           (ai-code--format-scope-context scope-context)))
+         (function-context
+          (cond
+           ((and semantic-scope (not (string-empty-p semantic-scope)))
+            (concat "\n" semantic-scope))
+           (function-name (format "\nFunction: %s" function-name))
+           (t "")))
          (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties

@@ -291,15 +291,16 @@ normally omit it, which skips the prompt."
                                                        function-name
                                                        files-context-string
                                                        repo-context-string
-                                                       clipboard-context)
+                                                       clipboard-context
+                                                       semantic-scope)
   "Return an Emacs runtime debugging prompt from DESCRIPTION.
 EVAL-AVAILABLE-P reports whether `eval_elisp' is globally enabled.
 Optional REGION-TEXT and REGION-LOCATION-INFO add selected-region context.
 BUFFER-SCOPE, FUNCTION-NAME, FILES-CONTEXT-STRING, REPO-CONTEXT-STRING,
-and CLIPBOARD-CONTEXT add broader debugging context."
+CLIPBOARD-CONTEXT, and SEMANTIC-SCOPE add broader debugging context."
   (let ((scope-string
          (ai-code--emacs-runtime-debug-scope-string
-          buffer-scope function-name files-context-string))
+          buffer-scope function-name files-context-string semantic-scope))
         (context-string
          (ai-code--emacs-runtime-debug-context-string
           repo-context-string clipboard-context)))
@@ -331,15 +332,18 @@ Runtime issue description:\n\
        (concat "\n\nContext:\n" context-string)))))
 
 (defun ai-code--emacs-runtime-debug-scope-string (buffer-scope function-name
-                                                              files-context-string)
+                                                              files-context-string
+                                                              &optional semantic-scope)
   "Return scope text for one Emacs runtime debug prompt.
-BUFFER-SCOPE describes the current file or buffer.  FUNCTION-NAME and
-FILES-CONTEXT-STRING are optional additional scope levels."
+BUFFER-SCOPE describes the current file or buffer.  FUNCTION-NAME,
+FILES-CONTEXT-STRING, and SEMANTIC-SCOPE are optional additional levels."
   (string-trim
    (concat
     (or buffer-scope "")
-    (when function-name
-      (format "\nFunction: %s" function-name))
+    (cond
+     ((and semantic-scope (not (string-empty-p semantic-scope)))
+      (concat "\n" semantic-scope))
+     (function-name (format "\nFunction: %s" function-name)))
     (or files-context-string ""))))
 
 (defun ai-code--emacs-runtime-debug-context-string (repo-context-string
@@ -376,7 +380,9 @@ optional runtime/debugging text from the clipboard."
          (buffer-scope (if buffer-file-name
                            (format "Current file: %s" buffer-file-name)
                          (format "Current buffer: %s" (buffer-name))))
-         (function-name (ai-code--current-function-name))
+         (scope-context (ai-code--current-scope-context))
+         (function-name (plist-get scope-context :function-name))
+         (semantic-scope (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
          (clipboard-context (when current-prefix-arg
@@ -403,7 +409,8 @@ optional runtime/debugging text from the clipboard."
         function-name
         files-context-string
         repo-context-string
-        clipboard-context)))))
+        clipboard-context
+        semantic-scope)))))
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer-or-hide ()

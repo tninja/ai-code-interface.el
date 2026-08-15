@@ -180,6 +180,24 @@
             (ai-code-run-test)
             (should (= ai-assisted-call-count 1))))))))
 
+(ert-deftest ai-code-test-agile-current-scope-includes-semantic-context ()
+  "Include class, signature, and range context in agile prompts."
+  (with-temp-buffer
+    (setq-local buffer-file-name "/project/src/service.py")
+    (insert "first line\nsecond line\n")
+    (cl-letf (((symbol-function 'ai-code--current-scope-context)
+               (lambda (&optional _)
+                 (list :function-name "find_user"
+                       :class-name "UserService"
+                       :class-header "class UserService:"
+                       :function-header "def find_user(self):"
+                       :range (cons (point-min) (1- (point-max)))))))
+      (let ((scope (ai-code--agile-current-scope-string
+                    "find_user" "\nFiles:\n/project/src/service.py")))
+        (should (string-match-p "Class definition: class UserService:" scope))
+        (should (string-match-p "Function definition: def find_user(self):" scope))
+        (should (string-match-p "Function range: lines 1-2" scope))))))
+
 (ert-deftest ai-code-test-tdd-red-green-blue-stage-prompt-includes-xp-rules ()
   "Verify Red + Green + Blue prompt includes TDD flow and XP simplicity rules."
   (with-temp-buffer

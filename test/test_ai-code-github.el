@@ -470,34 +470,40 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
     (should (string-match-p "conflict" (downcase captured-prompt)))
     (should-not diff-called)))
 
-(ert-deftest ai-code-test-pull-or-review-diff-file-investigate-issue-with-context ()
-  "Test that investigate issue mode can include current file context when y-or-n-p is true."
-  (let* ((captured-prompt nil)
-         (completing-read-results '("Use GitHub MCP server" "Investigate issue")))
+(ert-deftest ai-code-test-build-issue-investigation-prompt-with-semantic-context ()
+  "Include the current semantic scope in an issue investigation prompt."
+  (let (captured-prompt)
     (with-temp-buffer
       (setq buffer-file-name "/path/to/my-source-file.el")
       (insert "defun hello-world ()")
-      (cl-letf (((symbol-function 'completing-read)
-                 (lambda (&rest _args)
-                   (let ((selected (car completing-read-results)))
-                     (setq completing-read-results (cdr completing-read-results))
-                     selected)))
-                ((symbol-function 'ai-code-read-string)
-                 (lambda (prompt &optional initial-input &rest _args)
-                   (if (string-match-p "URL:" prompt)
-                       "https://github.com/acme/demo/issues/42"
-                     initial-input)))
-                ((symbol-function 'ai-code--insert-prompt)
-                 (lambda (prompt) (setq captured-prompt prompt)))
-                ((symbol-function 'y-or-n-p)
-                 (lambda (prompt)
-                   (should (string-match-p "Include active buffer and editor context" prompt))
-                   t))
-                ((symbol-function 'ai-code--git-root) (lambda () "/path/to/")))
-        (ai-code-pull-or-review-diff-file)))
+      (cl-letf (((symbol-function 'use-region-p) (lambda () nil))
+                ((symbol-function 'ai-code--pull-or-review-source-instruction)
+                 (lambda (&rest _) "Use GitHub MCP server."))
+                ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+                ((symbol-function 'ai-code--format-repo-context-info) (lambda () nil))
+                ((symbol-function 'ai-code--current-scope-context)
+                 (lambda (&optional _)
+                   (list :function-name "hello-world"
+                         :class-name "GreetingService"
+                         :class-header "class GreetingService:"
+                         :function-header "defun hello-world ()"
+                         :range (cons (point-min) (point-max)))))
+                ((symbol-function 'ai-code--format-scope-context)
+                 (lambda (context)
+                   (should (equal (plist-get context :class-name)
+                                  "GreetingService"))
+                   (concat "Enclosing class: GreetingService\n"
+                           "Class definition: class GreetingService:\n"
+                           "Function: hello-world\n"
+                           "Function definition: defun hello-world ()"))))
+        (setq captured-prompt
+              (ai-code--build-issue-investigation-init-prompt
+               'github-mcp "https://github.com/acme/demo/issues/42" t))))
     (should (string-match-p "Investigate issue: https://github.com/acme/demo/issues/42" captured-prompt))
     (should (string-match-p "Local Context:" captured-prompt))
-    (should (string-match-p "Current file: /path/to/my-source-file.el" captured-prompt))))
+    (should (string-match-p "Current file: /path/to/my-source-file.el" captured-prompt))
+    (should (string-match-p "Class definition: class GreetingService:" captured-prompt))
+    (should (string-match-p "Function definition: defun hello-world ()" captured-prompt))))
 
 (provide 'test_ai-code-github)
 

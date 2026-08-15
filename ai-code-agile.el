@@ -24,6 +24,8 @@
                   "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
 (declare-function ai-code--current-function-name "ai-code-utils")
+(declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
+(declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function dired-current-directory "dired" ())
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
@@ -468,7 +470,11 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
   (let* ((dired-targets (when (derived-mode-p 'dired-mode)
                           (ai-code--refactoring-dired-targets)))
          (region-active (and (not dired-targets) (region-active-p)))
-         (current-function (unless dired-targets (ai-code--current-function-name)))
+         (scope-context (unless dired-targets
+                          (ai-code--current-scope-context)))
+         (current-function (plist-get scope-context :function-name))
+         (semantic-scope (unless dired-targets
+                           (ai-code--format-scope-context scope-context)))
          (file-name (unless dired-targets
                       (when buffer-file-name
                         (file-name-nondirectory buffer-file-name)))))
@@ -476,6 +482,7 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
           :region-text (when region-active
                          (buffer-substring-no-properties (region-beginning) (region-end)))
           :current-function current-function
+          :semantic-scope semantic-scope
           :file-name file-name
           :dired-targets dired-targets
           :context-description (cond
@@ -514,19 +521,23 @@ otherwise falls back to absolute paths."
   "Return scope text for current agile prompt.
 FUNCTION-NAME is the current function when available.
 FILE-INFO is additional visible-file context."
-  (concat
-   (if buffer-file-name
-       (format "Current file: %s" buffer-file-name)
-     (format "Current buffer: %s" (buffer-name)))
-   (when function-name
-     (format "\nFunction: %s" function-name))
-   file-info))
+  (let ((semantic-scope
+         (ai-code--format-scope-context (ai-code--current-scope-context))))
+    (concat
+     (if buffer-file-name
+         (format "Current file: %s" buffer-file-name)
+       (format "Current buffer: %s" (buffer-name)))
+     (cond
+      ((not (string-empty-p semantic-scope)) (concat "\n" semantic-scope))
+      (function-name (format "\nFunction: %s" function-name)))
+     file-info)))
 
 (defun ai-code--refactoring-scope-string (context file-info)
   "Return structured scope text for refactoring CONTEXT and FILE-INFO."
   (let ((region-active (plist-get context :region-active))
         (region-text (plist-get context :region-text))
         (current-function (plist-get context :current-function))
+        (semantic-scope (plist-get context :semantic-scope))
         (dired-targets (plist-get context :dired-targets))
         (context-description (plist-get context :context-description))
         (file-name (plist-get context :file-name)))
@@ -543,8 +554,10 @@ FILE-INFO is additional visible-file context."
        (format "Current buffer: %s" (buffer-name))))
      (when context-description
        (format "\nRefactoring context: %s" context-description))
-     (when current-function
-       (format "\nFunction: %s" current-function))
+     (cond
+      ((and semantic-scope (not (string-empty-p semantic-scope)))
+       (concat "\n" semantic-scope))
+      (current-function (format "\nFunction: %s" current-function)))
      (when region-active
        (format "\nSelected code:\n%s" region-text))
      file-info)))
@@ -923,7 +936,12 @@ to fix code."
 (defun ai-code--run-test-ai-assisted ()
   "Send a prompt to AI to run a test command with current context."
   (let* ((is-dired (derived-mode-p 'dired-mode))
-         (function-name (unless is-dired (ai-code--current-function-name)))
+         (scope-context (unless is-dired (ai-code--current-scope-context)))
+         (function-name (plist-get scope-context :function-name))
+         (semantic-scope (unless is-dired
+                           (ai-code--format-scope-context scope-context)))
+         (scope-details (unless (string-empty-p (or semantic-scope ""))
+                          (concat "\n" semantic-scope)))
          (file-info (unless is-dired (ai-code--get-context-files-string)))
          (error-handling-instruction
           (concat "\n\nIf any test fails:"
@@ -938,12 +956,14 @@ to fix code."
                     (dired-current-directory)
                     error-handling-instruction))
            (function-name
-            (format "Run the tests for the current function '%s' using appropriate test runner.%s%s"
+            (format "Run the tests for the current function '%s' using appropriate test runner.%s%s%s"
                     function-name
+                    scope-details
                     file-info
                     error-handling-instruction))
            (t
-            (format "Run the tests for the current file using appropriate test runner.%s%s"
+            (format "Run the tests for the current file using appropriate test runner.%s%s%s"
+                    scope-details
                     file-info
                     error-handling-instruction))))
          (prompt (ai-code-read-string "Send to AI: " initial-input)))

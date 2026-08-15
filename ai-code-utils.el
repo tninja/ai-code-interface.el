@@ -161,6 +161,14 @@ Includes stored context entries for the current Git repository if available."
 
 ;;; Semantic Scope & Tree-sitter Utilities
 
+(defconst ai-code--treesit-enclosing-type-node-types
+  '("class" "class_definition" "class_declaration" "class_specifier"
+    "struct" "struct_definition" "struct_declaration" "struct_specifier"
+    "struct_item" "impl_item" "interface_declaration" "trait_item"
+    "object_declaration" "object_definition" "record_declaration"
+    "enum_declaration")
+  "Tree-sitter node types that can contain a method or function.")
+
 (defun ai-code--treesit-available-p (&optional buffer)
   "Return non-nil if Tree-sitter is available and active for BUFFER.
 BUFFER defaults to `current-buffer'."
@@ -191,32 +199,43 @@ POS defaults to `point'."
                (and (fboundp 'treesit-node-text)
                     (treesit-node-text name-child t)))))))
 
+(defun ai-code--treesit-enclosing-type-node-p (node-type)
+  "Return non-nil when NODE-TYPE represents a class-like container."
+  (and (stringp node-type)
+       (member node-type ai-code--treesit-enclosing-type-node-types)))
+
 (defun ai-code--treesit-enclosing-class-node (&optional node)
   "Find the enclosing class, struct, trait, or interface node for NODE.
 If NODE is omitted, searches upward from the defun at point."
   (when (ai-code--treesit-available-p)
-    (let ((current (or node (ai-code--treesit-defun-at-point))))
-      (while (and current
-                  (fboundp 'treesit-node-parent)
-                  (let ((parent (treesit-node-parent current)))
-                    (setq current parent)
-                    (and current
-                         (fboundp 'treesit-node-type)
-                         (not (string-match-p
-                               "\\`\\(?:class\\|struct\\|impl\\|interface\\|trait\\|module\\|object\\)\\_>"
-                               (or (treesit-node-type current) "")))))))
-      current)))
+    (let ((current (or node (ai-code--treesit-defun-at-point)))
+          enclosing-node)
+      (while (and current (not enclosing-node)
+                  (fboundp 'treesit-node-parent))
+        (setq current (treesit-node-parent current))
+        (when (and current
+                   (fboundp 'treesit-node-type)
+                   (ai-code--treesit-enclosing-type-node-p
+                    (treesit-node-type current)))
+          (setq enclosing-node current)))
+      enclosing-node)))
 
-(defun ai-code--treesit-node-header (node &optional max-lines)
-  "Extract the signature / header line(s) of Tree-sitter NODE.
-MAX-LINES defaults to 3."
+(defun ai-code--treesit-node-header (node)
+  "Extract the signature or declaration header of Tree-sitter NODE.
+When the grammar exposes a body field, stop immediately before it.
+Otherwise, return the first source line of NODE."
   (when (and node (fboundp 'treesit-node-start) (fboundp 'treesit-node-end))
     (let* ((start (treesit-node-start node))
-           (end (min (treesit-node-end node)
-                     (save-excursion
-                       (goto-char start)
-                       (forward-line (or max-lines 3))
-                       (point))))
+           (body-node
+            (and (fboundp 'treesit-node-child-by-field-name)
+                 (ignore-errors
+                   (treesit-node-child-by-field-name node "body"))))
+           (end (if (and body-node (fboundp 'treesit-node-start))
+                    (treesit-node-start body-node)
+                  (min (treesit-node-end node)
+                       (save-excursion
+                         (goto-char start)
+                         (line-end-position)))))
            (text (buffer-substring-no-properties start end)))
       (string-trim text))))
 
@@ -232,16 +251,20 @@ Prefers Tree-sitter AST detection when available, and falls back to
 
 (defun ai-code--current-scope-context (&optional pos)
   "Return a plist describing the semantic scope at POS (defaults to point).
-Includes `:function-name', `:class-name', `:class-header', and `:range'."
+Includes names and headers for the function and its class-like container,
+plus the function's buffer range under `:range'."
   (save-excursion
     (when pos (goto-char pos))
     (if (ai-code--treesit-available-p)
         (let* ((defun-node (ai-code--treesit-defun-at-point))
                (class-node (ai-code--treesit-enclosing-class-node defun-node))
                (func-name (or (and defun-node (ai-code--treesit-node-name defun-node))
-                              (when (fboundp 'which-function) (which-function))))
+                              (when (fboundp 'which-function)
+                                (ignore-errors (which-function)))))
                (class-name (and class-node (ai-code--treesit-node-name class-node)))
                (class-header (and class-node (ai-code--treesit-node-header class-node)))
+               (function-header (and defun-node
+                                     (ai-code--treesit-node-header defun-node)))
                (range (when (and defun-node
                                  (fboundp 'treesit-node-start)
                                  (fboundp 'treesit-node-end))
@@ -251,11 +274,41 @@ Includes `:function-name', `:class-name', `:class-header', and `:range'."
           (list :function-name func-name
                 :class-name class-name
                 :class-header class-header
+                :function-header function-header
                 :range range))
-      (list :function-name (when (fboundp 'which-function) (which-function))
+      (list :function-name (when (fboundp 'which-function)
+                             (ignore-errors (which-function)))
             :class-name nil
             :class-header nil
+            :function-header nil
             :range nil))))
+
+(defun ai-code--format-scope-context (context)
+  "Return human-readable semantic scope lines for CONTEXT.
+CONTEXT is a plist returned by `ai-code--current-scope-context'."
+  (let* ((function-name (plist-get context :function-name))
+         (class-name (plist-get context :class-name))
+         (class-header (plist-get context :class-header))
+         (function-header (plist-get context :function-header))
+         (range (plist-get context :range))
+         (start-line (and (consp range)
+                          (integer-or-marker-p (car range))
+                          (ignore-errors (line-number-at-pos (car range)))))
+         (end-line (and (consp range)
+                        (integer-or-marker-p (cdr range))
+                        (ignore-errors (line-number-at-pos (cdr range))))))
+    (mapconcat
+     #'identity
+     (delq nil
+           (list
+            (when class-name (format "Enclosing class: %s" class-name))
+            (when class-header (format "Class definition: %s" class-header))
+            (when function-name (format "Function: %s" function-name))
+            (when function-header
+              (format "Function definition: %s" function-header))
+            (when (and start-line end-line)
+              (format "Function range: lines %d-%d" start-line end-line))))
+     "\n")))
 
 (provide 'ai-code-utils)
 

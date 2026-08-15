@@ -313,7 +313,13 @@
     (goto-char (point-min))
     (let (captured-prompt)
       (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
-                ((symbol-function 'which-function) (lambda () "old-helper"))
+                ((symbol-function 'ai-code--current-scope-context)
+                 (lambda (&optional _)
+                   (list :function-name "old-helper"
+                         :class-name "HelperService"
+                         :class-header "class HelperService:"
+                         :function-header "(defun old-helper ()"
+                         :range (cons (point-min) (1- (point-max))))))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (_label _input) "Why does old-helper return nil?"))
                 ((symbol-function 'ai-code--get-context-files-string)
@@ -326,7 +332,11 @@
         (should (stringp captured-prompt))
         (should (string-match-p "Goal:\nWhy does old-helper return nil\\?" captured-prompt))
         (should (string-match-p "Scope:\nCurrent file: /tmp/project/test\\.el" captured-prompt))
+        (should (string-match-p "Enclosing class: HelperService" captured-prompt))
+        (should (string-match-p "Class definition: class HelperService:" captured-prompt))
         (should (string-match-p "Function: old-helper" captured-prompt))
+        (should (string-match-p "Function definition: (defun old-helper ()" captured-prompt))
+        (should (string-match-p "Function range: lines 1-2" captured-prompt))
         (should (string-match-p "Context:\nStored repository context" captured-prompt))
         (should (string-match-p "Boundaries:\nAnswer the question only\\. Do not make code changes\\."
                                 captured-prompt))
@@ -366,7 +376,13 @@
     (goto-char (point-min))
     (let (captured-prompt)
       (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
-                ((symbol-function 'which-function) (lambda () "old-helper"))
+                ((symbol-function 'ai-code--current-scope-context)
+                 (lambda (&optional _)
+                   (list :function-name "old-helper"
+                         :class-name "HelperService"
+                         :class-header "class HelperService:"
+                         :function-header "(defun old-helper ()"
+                         :range (cons (point-min) (1- (point-max))))))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (_label input) input))
                 ((symbol-function 'ai-code--get-context-files-string)
@@ -380,6 +396,9 @@
         (should (string-match-p "^Goal:\nInvestigate this error" captured-prompt))
         (should (string-match-p "\n\nScope:\nCurrent file: /tmp/project/test\\.el" captured-prompt))
         (should (string-match-p "Function: old-helper" captured-prompt))
+        (should (string-match-p "Class definition: class HelperService:" captured-prompt))
+        (should (string-match-p "Function definition: (defun old-helper ()" captured-prompt))
+        (should (string-match-p "Function range: lines 1-2" captured-prompt))
         (should (string-match-p "Context:\nStored repository context" captured-prompt))
         (should (string-match-p
                  "Boundaries:\nInvestigate first\\. Do not make code changes\\."
