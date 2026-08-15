@@ -275,10 +275,13 @@ and runs it in a compilation buffer."
 
 (defun ai-code--generate-shell-command (&optional initial-input)
   "Generate shell command from user input or AI assistance.
-Read initial command from user with INITIAL-INPUT as default.
+Read initial command with INITIAL-INPUT as the default, falling back to
+the latest entry in `ai-code-shell-command-history'.
 If command starts with ':', treat as prompt for AI to generate command.
-Return the final command string."
-  (let* ((initial-command (read-string "Shell command: " initial-input
+Record the confirmed AI command in the dedicated history and return it."
+  (let* ((default-command (or initial-input
+                              (car ai-code-shell-command-history)))
+         (initial-command (read-string "Shell command: " default-command
                                        'ai-code-shell-command-history))
          ;; if current buffer is Dired buffer, replace the * character
          ;; inside initial-command with file base name under cursor,
@@ -318,7 +321,14 @@ Return the final command string."
                                          (car (split-string ai-generated "\n" t)))))
                       (when first-line
                         ;; Ask user to confirm/edit the AI-generated command
-                        (read-string "Shell command (AI generated): " (string-trim first-line))))
+                        (let ((confirmed-command
+                               (read-string "Shell command (AI generated): "
+                                            (string-trim first-line))))
+                          (when (and confirmed-command
+                                     (not (string-empty-p confirmed-command)))
+                            (add-to-history 'ai-code-shell-command-history
+                                            confirmed-command))
+                          confirmed-command)))
                   (error
                    (message "Failed to generate command with AI: %s" err)
                    "")))
