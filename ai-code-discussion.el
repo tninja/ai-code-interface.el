@@ -26,6 +26,8 @@
 (declare-function ai-code--detect-todo-info
                   "ai-code-change" (region-active))
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
+(declare-function ai-code--current-function-name "ai-code-utils")
+(declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 (declare-function ai-code--ensure-files-directory "ai-code-utils")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
@@ -228,8 +230,11 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                           (file-name-extension buffer-file-name)))
          (is-diff-or-patch (and file-extension
                                (member file-extension '("diff" "patch"))))
-         (function-name (unless is-diff-or-patch
-                         (which-function)))
+         (scope-ctx (unless is-diff-or-patch
+                      (ai-code--current-scope-context)))
+         (function-name (plist-get scope-ctx :function-name))
+         (class-name (plist-get scope-ctx :class-name))
+         (class-header (plist-get scope-ctx :class-header))
          (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
@@ -271,6 +276,10 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                      (when region-location-info
                        (concat region-location-info "\n"))
                      region-text))
+           (when class-name
+             (format "\nEnclosing class: %s" class-name))
+           (when class-header
+             (format "\nClass definition: %s" class-header))
            (when function-name
              (format "\nFunction: %s" function-name))
            files-context-string))
@@ -337,7 +346,7 @@ Argument ARG is the prefix argument."
          (buffer-file buffer-file-name)
          (full-buffer-context (when (and (not buffer-file) (not region-text))
                                 (buffer-substring-no-properties (point-min) (point-max))))
-         (function-name (which-function))
+         (function-name (ai-code--current-function-name))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
          (diagnostic-context
@@ -461,7 +470,7 @@ sends to AI."
 (defun ai-code--explain-region ()
   "Explain the selected region with function/file context."
   (let* ((region-text (buffer-substring-no-properties (region-beginning) (region-end)))
-         (function-name (which-function))
+         (function-name (ai-code--current-function-name))
          (context-info (if function-name
                           (format "Function: %s" function-name)
                         ""))
@@ -629,7 +638,7 @@ In the current repository, inspect `git show %s` and explain:
 (defun ai-code--explain-symbol ()
   "Explain the symbol at point."
   (let* ((symbol (thing-at-point 'symbol t))
-         (function-name (which-function)))
+         (function-name (ai-code--current-function-name)))
     (unless symbol
       (user-error "No symbol at point"))
     (let* ((initial-prompt (format "%s%s' in the context of:%s\nFile: %s\n\nExplain what this symbol represents, its type, purpose, and how it's used in this context."
@@ -645,7 +654,7 @@ In the current repository, inspect `git show %s` and explain:
   "Explain the current line."
   (let* ((line-text (string-trim (thing-at-point 'line t)))
          (line-number (line-number-at-pos))
-         (function-name (which-function)))
+         (function-name (ai-code--current-function-name)))
     (let* ((initial-prompt (format "%s\n\nLine %d: %s\n\n%sFile: %s\n\nExplain what this line does, its purpose, and how it fits into the surrounding code."
                                    ai-code-discussion--explain-line-prefix
                                    line-number
@@ -658,7 +667,7 @@ In the current repository, inspect `git show %s` and explain:
 
 (defun ai-code--explain-function ()
   "Explain the current function."
-  (let ((function-name (which-function)))
+  (let ((function-name (ai-code--current-function-name)))
     (unless function-name
       (user-error "Not inside a function"))
     (let* ((initial-prompt (format "%s%s':

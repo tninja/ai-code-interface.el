@@ -23,6 +23,7 @@
 (declare-function ai-code--compose-code-change-brief
                   "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
+(declare-function ai-code--current-function-name "ai-code-utils")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function dired-current-directory "dired" ())
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
@@ -467,7 +468,7 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
   (let* ((dired-targets (when (derived-mode-p 'dired-mode)
                           (ai-code--refactoring-dired-targets)))
          (region-active (and (not dired-targets) (region-active-p)))
-         (current-function (unless dired-targets (which-function)))
+         (current-function (unless dired-targets (ai-code--current-function-name)))
          (file-name (unless dired-targets
                       (when buffer-file-name
                         (file-name-nondirectory buffer-file-name)))))
@@ -922,7 +923,7 @@ to fix code."
 (defun ai-code--run-test-ai-assisted ()
   "Send a prompt to AI to run a test command with current context."
   (let* ((is-dired (derived-mode-p 'dired-mode))
-         (function-name (unless is-dired (which-function)))
+         (function-name (unless is-dired (ai-code--current-function-name)))
          (file-info (unless is-dired (ai-code--get-context-files-string)))
          (error-handling-instruction
           (concat "\n\nIf any test fails:"
@@ -963,7 +964,7 @@ Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
   ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
-  (let* ((function-name (which-function))
+  (let* ((function-name (ai-code--current-function-name))
          ;; Capture region text early, before completing-read may deactivate the mark.
          ;; Only capture when in a non-test source buffer so it mirrors the same guard
          ;; used by ai-code--tdd-source-function-context-p.

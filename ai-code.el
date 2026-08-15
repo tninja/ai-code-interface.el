@@ -134,6 +134,7 @@
 (require 'ai-code-kilo)
 (require 'ai-code-grok-cli)
 (require 'ai-code-codebuddy-cli)
+(require 'ai-code-utils)
 (require 'ai-code-file)
 (require 'ai-code-doc)
 (require 'ai-code-harness)
@@ -375,7 +376,7 @@ optional runtime/debugging text from the clipboard."
          (buffer-scope (if buffer-file-name
                            (format "Current file: %s" buffer-file-name)
                          (format "Current buffer: %s" (buffer-name))))
-         (function-name (which-function))
+         (function-name (ai-code--current-function-name))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
          (clipboard-context (when current-prefix-arg

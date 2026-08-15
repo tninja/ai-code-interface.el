@@ -28,8 +28,8 @@
 (declare-function ai-code--explain-code-change "ai-code-discussion" (&optional review-source))
 (declare-function ai-code--get-context-files-string "ai-code-utils" ())
 (declare-function ai-code--format-repo-context-info "ai-code-utils" ())
+(declare-function ai-code--current-function-name "ai-code-utils" ())
 (declare-function ai-code--get-region-location-info "ai-code-discussion" (region-beginning region-end))
-(declare-function which-function "which-func" ())
 
 
 (defcustom ai-code-default-review-source nil
@@ -199,7 +199,7 @@ Issue Investigation Steps:
                                        (ai-code--get-region-location-info
                                         (region-beginning)
                                         (region-end))))
-               (function-name (which-function))
+               (function-name (ai-code--current-function-name))
                (files-context-string (ai-code--get-context-files-string))
                (repo-context-string (ai-code--format-repo-context-info))
                (context-blocks nil))

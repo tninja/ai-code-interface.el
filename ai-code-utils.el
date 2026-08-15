@@ -20,6 +20,17 @@
 (declare-function project-current "project" (&optional maybe-prompt dir))
 (declare-function project-root "project" (project))
 (declare-function magit-git-string "magit-git" (&rest args))
+(declare-function which-function "which-func" ())
+(declare-function treesit-available-p "treesit")
+(declare-function treesit-parser-list "treesit" (&optional buffer))
+(declare-function treesit-defun-at-point "treesit" ())
+(declare-function treesit-defun-name "treesit" (node))
+(declare-function treesit-node-type "treesit" (node))
+(declare-function treesit-node-start "treesit" (node))
+(declare-function treesit-node-end "treesit" (node))
+(declare-function treesit-node-text "treesit" (node &optional no-property))
+(declare-function treesit-node-parent "treesit" (node))
+(declare-function treesit-node-child-by-field-name "treesit" (node field-name))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
   "Hash table storing context info lists per Git repository root.")
@@ -147,6 +158,104 @@ Includes stored context entries for the current Git repository if available."
                                  (concat "  - " ctx))
                                (reverse entries)
                                "\n"))))))))
+
+;;; Semantic Scope & Tree-sitter Utilities
+
+(defun ai-code--treesit-available-p (&optional buffer)
+  "Return non-nil if Tree-sitter is available and active for BUFFER.
+BUFFER defaults to `current-buffer'."
+  (and (fboundp 'treesit-available-p)
+       (treesit-available-p)
+       (fboundp 'treesit-parser-list)
+       (condition-case nil
+           (consp (treesit-parser-list (or buffer (current-buffer))))
+         (error nil))))
+
+(defun ai-code--treesit-defun-at-point (&optional pos)
+  "Return the Tree-sitter defun/method AST node at POS, or nil.
+POS defaults to `point'."
+  (when (ai-code--treesit-available-p)
+    (save-excursion
+      (when pos (goto-char pos))
+      (and (fboundp 'treesit-defun-at-point)
+           (ignore-errors (treesit-defun-at-point))))))
+
+(defun ai-code--treesit-node-name (node)
+  "Return the symbol/identifier name string for Tree-sitter NODE, or nil."
+  (when node
+    (or (and (fboundp 'treesit-defun-name)
+             (ignore-errors (treesit-defun-name node)))
+        (and (fboundp 'treesit-node-child-by-field-name)
+             (when-let ((name-child (or (treesit-node-child-by-field-name node "name")
+                                        (treesit-node-child-by-field-name node "identifier"))))
+               (and (fboundp 'treesit-node-text)
+                    (treesit-node-text name-child t)))))))
+
+(defun ai-code--treesit-enclosing-class-node (&optional node)
+  "Find the enclosing class, struct, trait, or interface node for NODE.
+If NODE is omitted, searches upward from the defun at point."
+  (when (ai-code--treesit-available-p)
+    (let ((current (or node (ai-code--treesit-defun-at-point))))
+      (while (and current
+                  (fboundp 'treesit-node-parent)
+                  (let ((parent (treesit-node-parent current)))
+                    (setq current parent)
+                    (and current
+                         (fboundp 'treesit-node-type)
+                         (not (string-match-p
+                               "\\`\\(?:class\\|struct\\|impl\\|interface\\|trait\\|module\\|object\\)\\_>"
+                               (or (treesit-node-type current) "")))))))
+      current)))
+
+(defun ai-code--treesit-node-header (node &optional max-lines)
+  "Extract the signature / header line(s) of Tree-sitter NODE.
+MAX-LINES defaults to 3."
+  (when (and node (fboundp 'treesit-node-start) (fboundp 'treesit-node-end))
+    (let* ((start (treesit-node-start node))
+           (end (min (treesit-node-end node)
+                     (save-excursion
+                       (goto-char start)
+                       (forward-line (or max-lines 3))
+                       (point))))
+           (text (buffer-substring-no-properties start end)))
+      (string-trim text))))
+
+(defun ai-code--current-function-name ()
+  "Return the name of the function/method at point.
+Prefers Tree-sitter AST detection when available, and falls back to
+`which-function'."
+  (or (when (ai-code--treesit-available-p)
+        (when-let ((node (ai-code--treesit-defun-at-point)))
+          (ai-code--treesit-node-name node)))
+      (when (fboundp 'which-function)
+        (ignore-errors (which-function)))))
+
+(defun ai-code--current-scope-context (&optional pos)
+  "Return a plist describing the semantic scope at POS (defaults to point).
+Includes `:function-name', `:class-name', `:class-header', and `:range'."
+  (save-excursion
+    (when pos (goto-char pos))
+    (if (ai-code--treesit-available-p)
+        (let* ((defun-node (ai-code--treesit-defun-at-point))
+               (class-node (ai-code--treesit-enclosing-class-node defun-node))
+               (func-name (or (and defun-node (ai-code--treesit-node-name defun-node))
+                              (when (fboundp 'which-function) (which-function))))
+               (class-name (and class-node (ai-code--treesit-node-name class-node)))
+               (class-header (and class-node (ai-code--treesit-node-header class-node)))
+               (range (when (and defun-node
+                                 (fboundp 'treesit-node-start)
+                                 (fboundp 'treesit-node-end))
+                        (ignore-errors
+                          (cons (treesit-node-start defun-node)
+                                (treesit-node-end defun-node))))))
+          (list :function-name func-name
+                :class-name class-name
+                :class-header class-header
+                :range range))
+      (list :function-name (when (fboundp 'which-function) (which-function))
+            :class-name nil
+            :class-header nil
+            :range nil))))
 
 (provide 'ai-code-utils)
 
