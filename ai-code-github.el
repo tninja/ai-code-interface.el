@@ -49,6 +49,26 @@ or nil (prompt the user)."
 
 (defvar ai-code--grill-me-workflow)
 
+(defconst ai-code-github--analysis-only-note
+  "No need to make code change. Provide analysis only."
+  "Prompt note marking a GitHub workflow as analysis without code changes.")
+
+(defconst ai-code-github--resolution-analysis-only-note
+  "Do not make code changes. Provide analysis and resolution suggestions only."
+  "Prompt note marking a resolution workflow as analysis without code changes.")
+
+(defconst ai-code-github--pr-creation-no-code-change-note
+  "No need to make code change. Only create the pull request and report its details."
+  "Prompt note marking PR creation as a workflow without code changes.")
+
+(defconst ai-code-github--analysis-only-notes
+  (list ai-code-github--analysis-only-note
+        ai-code-github--resolution-analysis-only-note
+        ai-code-github--pr-creation-no-code-change-note)
+  "Generated prompt notes that mark a GitHub workflow as analysis only.
+Send-time prompt classification treats these as non-code-change markers, so
+editing the note out of a prompt restores normal code-change routing.")
+
 (defun ai-code--extract-url-from-region ()
   "Return the first URL found in the active region, or nil."
   (when (use-region-p)
@@ -123,9 +143,11 @@ Review Steps:
 1. Requirement Fit: Verify the PR implementation against requirements.
 2. Code Quality: Check code quality, security, and performance concerns.
 3. Findings: For each issue include location, issue, fix suggestion, and priority.
+4. %s
 
 Provide an overall assessment at the end."
-            pr-url source-instruction)))
+            pr-url source-instruction
+            ai-code-github--analysis-only-note)))
 
 (defun ai-code--build-send-current-branch-pr-init-prompt
     (review-source current-branch target-branch &optional pr-title)
@@ -155,13 +177,15 @@ PR Creation Steps:
 %s3. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
 4. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
 5. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
-6. Return the final PR URL, the exact PR title, and the exact description that were used."
+6. Return the final PR URL, the exact PR title, and the exact description that were used.
+7. %s"
             current-branch
             target-branch
             source-instruction
             target-branch
             pr-type-instruction
-            title-instruction)))
+            title-instruction
+            ai-code-github--pr-creation-no-code-change-note)))
 
 (defun ai-code--build-pr-feedback-check-init-prompt (review-source pr-url)
   "Build unresolved feedback check prompt for REVIEW-SOURCE with PR-URL."
@@ -175,8 +199,9 @@ Feedback Check Steps:
 1. Find unresolved feedback or unresolved review comments in this PR.
 2. For each unresolved feedback, explain whether it makes sense and why.
 3. If a feedback does not make sense, explain why it may not be necessary.
-4. No need to make code change. Provide analysis only."
-            pr-url source-instruction)))
+4. %s"
+            pr-url source-instruction
+            ai-code-github--analysis-only-note)))
 
 (defun ai-code--build-issue-investigation-init-prompt (review-source issue-url &optional include-context)
   "Build issue investigation prompt for REVIEW-SOURCE with ISSUE-URL.
@@ -192,8 +217,9 @@ Issue Investigation Steps:
 1. Understand the issue description, reproduction details, and expected behavior.
 2. Analyze relevant code in this repository as context and identify likely root causes.
 3. Provide concrete insights on how to fix it, including likely files or areas to change.
-4. No need to make code change. Provide analysis only."
-                  issue-url source-instruction)))
+4. %s"
+                  issue-url source-instruction
+                  ai-code-github--analysis-only-note)))
     (if (and include-context (or buffer-file-name (use-region-p)))
         (let* ((region-text (when (use-region-p)
                               (buffer-substring-no-properties (region-beginning) (region-end))))
@@ -243,8 +269,10 @@ PR Description Steps:
 2. Highlight the most important code changes and user-visible impact.
 3. Add a testing section with relevant verification details.
 4. Format the result as a concise PR description ready to share with reviewers,
-   written in the voice of the author or maintainer."
-            pr-url source-instruction)))
+   written in the voice of the author or maintainer.
+5. %s"
+            pr-url source-instruction
+            ai-code-github--analysis-only-note)))
 
 (defun ai-code--build-pr-ci-check-init-prompt (review-source pr-url)
   "Build a CI check review prompt for REVIEW-SOURCE with PR-URL."
@@ -258,8 +286,9 @@ CI Checks Review Steps:
 1. Review the GitHub CI checks for this pull request.
 2. If there is a failing or error state, inspect the failing checks and relevant details.
 3. Analyze the likely root cause of each failure.
-4. No need to make code change. Provide analysis only."
-            pr-url source-instruction)))
+4. %s"
+            pr-url source-instruction
+            ai-code-github--analysis-only-note)))
 
 (defun ai-code--build-resolve-merge-conflict-init-prompt (review-source pr-url)
   "Build merge conflict resolution prompt for REVIEW-SOURCE with PR-URL."
@@ -275,9 +304,10 @@ Merge Conflict Resolution Steps:
 3. Update the local target branch to the latest remote version.
 4. Attempt to merge the target branch into the current working branch.
 5. If there are merge conflicts, analyze each conflict and provide detailed instructions on how to resolve them, including which files to change and how.
-6. Do not make code changes. Provide analysis and resolution suggestions only.
+6. %s
 7. If there are no merge conflicts, report that the merge would succeed and return a success message."
-            pr-url source-instruction)))
+            pr-url source-instruction
+            ai-code-github--resolution-analysis-only-note)))
 
 (defun ai-code--pull-or-review-url-prompt (review-mode)
   "Return the URL prompt string for REVIEW-MODE."
@@ -285,19 +315,25 @@ Merge Conflict Resolution Steps:
       "GitHub issue URL: "
     "Pull request URL: "))
 
+(defconst ai-code-github--pull-or-review-pr-mode-alist
+  '(("Review the PR" . review-pr)
+    ("Check unresolved feedback" . check-feedback)
+    ("Prepare PR description" . prepare-pr-description)
+    ("Send out PR for current branch" . send-current-branch-pr)
+    ("Review current branch with difftastic"
+     . review-current-branch-with-difftastic)
+    ("Investigate issue" . investigate-issue)
+    ("Review GitHub CI checks" . review-ci-checks)
+    ("Explain code change" . explain-code-change)
+    ("Resolve merge conflict" . resolve-merge-conflict)
+    ("Generate diff file" . generate-diff-file))
+  "Analysis modes offered for a pull request or issue.
+Every mode that builds a send prompt must mark the prompt with one of
+`ai-code-github--analysis-only-notes' unless it really requests code changes.")
+
 (defun ai-code--pull-or-review-pr-mode-choice ()
   "Prompt user to choose analysis mode for a pull request or issue."
-  (let* ((review-mode-alist '(("Review the PR" . review-pr)
-                              ("Check unresolved feedback" . check-feedback)
-                              ("Prepare PR description" . prepare-pr-description)
-                              ("Send out PR for current branch" . send-current-branch-pr)
-                              ("Review current branch with difftastic"
-                               . review-current-branch-with-difftastic)
-                              ("Investigate issue" . investigate-issue)
-                              ("Review GitHub CI checks" . review-ci-checks)
-                              ("Explain code change" . explain-code-change)
-                              ("Resolve merge conflict" . resolve-merge-conflict)
-                              ("Generate diff file" . generate-diff-file)))
+  (let* ((review-mode-alist ai-code-github--pull-or-review-pr-mode-alist)
          (review-mode (completing-read "Select analysis mode (PR or issue): "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
@@ -454,10 +490,12 @@ ARG is the optional prefix argument to force including context."
 1. **Requirement Fit** (Top Priority): Verify if the code change fulfills the requirement below. Identify gaps or missing implementations.
 2. **Code Quality**: Check for quality, security, performance, and coding patterns.
 3. **Issues Found**: For each issue: Location, Issue, Solution, Priority (High/Medium/Low)
+4. %s
 
 Provide overall assessment.
 
-**Requirement**: " file-name)))
+**Requirement**: " file-name
+                                  ai-code-github--analysis-only-note)))
         (ai-code--confirm-and-send "Enter review prompt (type requirement at end): " init-prompt))
     ;; For non-diff files, let user choose PR review via MCP/gh CLI.
     (unless ai-code-default-review-source

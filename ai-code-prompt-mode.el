@@ -37,6 +37,8 @@ the terminal backend infrastructure.")
 (declare-function ai-code-cli-switch-to-buffer "ai-code-backends" ())
 (declare-function gptel-request "gptel" (prompt &rest args))
 (declare-function gptel-abort "gptel" (buffer))
+(defvar gptel-use-tools)
+(defvar gptel-tools)
 (declare-function ai-code--git-repo-recent-modified-files "ai-code-git" (base-dir limit))
 (declare-function ai-code--git-ignored-repo-file-p "ai-code-git" (file root))
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
@@ -257,9 +259,36 @@ writable."
     (org-insert-time-stamp (current-time) t t))
   (insert "\n"))
 
+(defun ai-code--gptel-sync-intermediate-response-p (response info)
+  "Return non-nil when RESPONSE with INFO is an intermediate GPTel event.
+Reasoning blocks arrive before the final response, so they must not end
+the wait.  A reported error always ends it, even mid-reasoning."
+  (and (null (plist-get info :error))
+       (consp response)
+       (eq (car response) 'reasoning)))
+
+(defun ai-code--gptel-sync-failure-description (response info)
+  "Return a failure description for RESPONSE and INFO.
+RESPONSE and INFO follow the `gptel-request' callback contract."
+  (let ((gptel-error (plist-get info :error))
+        (status (plist-get info :status)))
+    (cond
+     (gptel-error
+      (if status
+          (format "%s (status: %s)" gptel-error status)
+        (format "%s" gptel-error)))
+     ((eq response 'abort) "Request aborted")
+     ;; A nil response means no response or an unreported error.
+     ((null response)
+      (format "Empty response from GPTel (status: %s)"
+              (or status "unknown")))
+     (t (format "Unexpected GPTel response: %S" response)))))
+
 (defun ai-code-call-gptel-sync (question)
   "Get an answer from gptel synchronously for a given QUESTION.
 This function blocks until a response is received or a timeout occurs.
+GPTel tools are disabled for the request, because this is a background
+query whose answer is consumed by ai-code rather than by the user.
 Only works when gptel package is installed, otherwise shows error message."
   (unless (featurep 'gptel)
     (user-error "GPTel package is required for AI command generation; please install gptel package"))
@@ -277,18 +306,27 @@ Only works when gptel package is installed, otherwise shows error message."
             (temp-buffer (generate-new-buffer " *gptel-sync*")))
         (unwind-protect
             (progn
-              (gptel-request truncated-question
-                             :buffer temp-buffer
-                             :stream nil
-                             :callback (lambda (response info)
-                                         (cond
-                                          ((stringp response)
-                                           (setq answer response))
-                                          ((eq response 'abort)
-                                           (setq error-info "Request aborted."))
-                                          (t
-                                           (setq error-info (or (plist-get info :status) "Unknown error"))))
-                                         (setq done t)))
+              ;; `gptel-request' copies these out of its `:buffer'.  That is a
+              ;; fresh buffer with no local values, so it inherits these
+              ;; bindings and the user's own tools stay out of this query.
+              (let ((gptel-use-tools nil)
+                    (gptel-tools nil))
+                (gptel-request truncated-question
+                               :buffer temp-buffer
+                               :stream nil
+                               :callback (lambda (response info)
+                                           (cond
+                                            ((ai-code--gptel-sync-intermediate-response-p
+                                              response info))
+                                            ((and (stringp response)
+                                                  (null (plist-get info :error)))
+                                             (setq answer response
+                                                   done t))
+                                            (t
+                                             (setq error-info
+                                                   (ai-code--gptel-sync-failure-description
+                                                    response info)
+                                                   done t))))))
               ;; Block until 'done' is true or timeout is reached
               (while (not done)
                 (when quit-flag
