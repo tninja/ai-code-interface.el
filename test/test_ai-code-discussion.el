@@ -361,8 +361,8 @@
     (goto-char (point-min))
     (let (captured-prompt)
       (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
-                ((symbol-function 'ai-code--current-scope-context)
-                 (lambda (&optional _)
+                ((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda ()
                    (list :function-name "old-helper"
                          :class-name "HelperService"
                          :class-header "class HelperService:"
@@ -424,8 +424,8 @@
     (goto-char (point-min))
     (let (captured-prompt)
       (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
-                ((symbol-function 'ai-code--current-scope-context)
-                 (lambda (&optional _)
+                ((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda ()
                    (list :function-name "old-helper"
                          :class-name "HelperService"
                          :class-header "class HelperService:"

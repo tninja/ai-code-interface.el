@@ -26,7 +26,7 @@
 (declare-function ai-code--detect-todo-info
                   "ai-code-change" (region-active))
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
-(declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
+(declare-function ai-code--current-line-scope-context "ai-code-utils" ())
 (declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
@@ -236,7 +236,7 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                       (if region-active
                           (ai-code--scope-context-for-region
                            (region-beginning) (region-end))
-                        (ai-code--current-scope-context))))
+                        (ai-code--current-line-scope-context))))
          (function-name (plist-get scope-ctx :function-name))
          (semantic-scope (ai-code--format-scope-context scope-ctx))
          (region-text (when region-active
@@ -349,7 +349,7 @@ Argument ARG is the prefix argument."
           (if region-text
               (ai-code--scope-context-for-region
                (region-beginning) (region-end))
-            (ai-code--current-scope-context)))
+            (ai-code--current-line-scope-context)))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))
@@ -644,7 +644,8 @@ In the current repository, inspect `git show %s` and explain:
   "Explain the symbol at point."
   (let* ((symbol (thing-at-point 'symbol t))
          (semantic-scope
-          (ai-code--format-scope-context (ai-code--current-scope-context))))
+          (ai-code--format-scope-context
+           (ai-code--current-line-scope-context))))
     (unless symbol
       (user-error "No symbol at point"))
     (let* ((initial-prompt (format "%s%s' in the context of:%s\nFile: %s\n\nExplain what this symbol represents, its type, purpose, and how it's used in this context."
@@ -656,22 +657,13 @@ In the current repository, inspect `git show %s` and explain:
                                   (or buffer-file-name "current buffer"))))
       (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
-(defun ai-code--line-semantic-position ()
-  "Return the first non-whitespace position on the current line.
-Return nil when the current line contains only whitespace."
-  (save-excursion
-    (back-to-indentation)
-    (unless (eolp)
-      (point))))
-
 (defun ai-code--explain-line ()
   "Explain the current line."
   (let* ((line-text (string-trim (thing-at-point 'line t)))
          (line-number (line-number-at-pos))
-         (semantic-position (ai-code--line-semantic-position))
          (semantic-scope
           (ai-code--format-scope-context
-           (ai-code--current-scope-context semantic-position))))
+           (ai-code--current-line-scope-context))))
     (let* ((initial-prompt (format "%s\n\nLine %d: %s\n\n%sFile: %s\n\nExplain what this line does, its purpose, and how it fits into the surrounding code."
                                    ai-code-discussion--explain-line-prefix
                                    line-number
@@ -684,8 +676,7 @@ Return nil when the current line contains only whitespace."
 
 (defun ai-code--explain-function ()
   "Explain the current function."
-  (let* ((semantic-position (ai-code--line-semantic-position))
-         (scope-context (ai-code--current-scope-context semantic-position))
+  (let* ((scope-context (ai-code--current-line-scope-context))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (ai-code--format-scope-context scope-context)))
     (unless function-name

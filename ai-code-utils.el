@@ -246,18 +246,28 @@ Otherwise, return the first source line of NODE."
            (text (buffer-substring-no-properties start end)))
       (string-trim text))))
 
+(defun ai-code--current-line-semantic-position ()
+  "Return the first non-whitespace position on the current line.
+Return nil when the current line contains only whitespace."
+  (save-excursion
+    (back-to-indentation)
+    (unless (eolp)
+      (point))))
+
 (defun ai-code--current-function-name ()
-  "Return the name of the function/method at point.
-Prefers Tree-sitter AST detection when available, and falls back to
-`which-function'."
-  (if (ai-code--treesit-available-p)
-      (let ((node (ai-code--treesit-defun-at-point)))
-        (unless (ai-code--treesit-class-like-node-p node)
-          (or (and node (ai-code--treesit-node-name node))
-              (when (fboundp 'which-function)
-                (ignore-errors (which-function))))))
-    (when (fboundp 'which-function)
-      (ignore-errors (which-function)))))
+  "Return the function or method name for the current semantic line."
+  (save-excursion
+    (when-let ((semantic-position
+                (ai-code--current-line-semantic-position)))
+      (goto-char semantic-position))
+    (if (ai-code--treesit-available-p)
+        (let ((node (ai-code--treesit-defun-at-point)))
+          (unless (ai-code--treesit-class-like-node-p node)
+            (or (and node (ai-code--treesit-node-name node))
+                (when (fboundp 'which-function)
+                  (ignore-errors (which-function))))))
+      (when (fboundp 'which-function)
+        (ignore-errors (which-function))))))
 
 (defun ai-code--current-scope-context (&optional pos)
   "Return a plist describing the semantic scope at POS (defaults to point).
@@ -309,6 +319,15 @@ plus the function's buffer range under `:range'."
             :class-range nil
             :function-header nil
             :range nil))))
+
+(defun ai-code--current-line-scope-context ()
+  "Return semantic context for the code on the current line.
+Resolve nonblank lines from their first non-whitespace character so
+leading indentation does not select an enclosing Tree-sitter node.
+Preserve the raw point behavior for whitespace-only lines."
+  (if-let ((semantic-position (ai-code--current-line-semantic-position)))
+      (ai-code--current-scope-context semantic-position)
+    (ai-code--current-scope-context)))
 
 (defun ai-code--empty-scope-context ()
   "Return an empty semantic scope context plist."

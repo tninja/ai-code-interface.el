@@ -1092,6 +1092,22 @@ everything is cleaned up afterward."
       (should (stringp (ai-code--session-project-root)))
       (should (not (string-empty-p (ai-code--session-project-root)))))))
 
+(ert-deftest ai-code-test-current-file-context-reference-normalizes-ts-indentation ()
+  "Include a method anchor from indentation on its Tree-sitter definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (ai-code--current-file-context-reference t)
+                   "/tmp/project/service.py#first"))))
+
 (provide 'test_ai-code-file)
 
 ;;; test_ai-code-file.el ends here

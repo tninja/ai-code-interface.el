@@ -42,6 +42,50 @@
               ((symbol-function 'which-function) (lambda () "fallback-when-no-node")))
       (should (equal (ai-code--current-function-name) "fallback-when-no-node")))))
 
+(ert-deftest test-ai-code-treesit--current-line-scope-normalizes-indentation ()
+  "Resolve the method declared on an indented Tree-sitter line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (let ((scope (ai-code--current-line-scope-context)))
+      (should (equal (plist-get scope :function-name) "first"))
+      (should (equal (plist-get scope :class-name) "Service")))))
+
+(ert-deftest test-ai-code-treesit--current-function-name-normalizes-indentation ()
+  "Return the method name from indentation on its definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (ai-code--current-function-name) "first"))))
+
+(ert-deftest test-ai-code-treesit--current-line-scope-preserves-whitespace-point ()
+  "Use the raw point when the current line contains only whitespace."
+  (with-temp-buffer
+    (insert "   \n")
+    (goto-char (+ (point-min) 1))
+    (let (captured-position)
+      (cl-letf (((symbol-function 'ai-code--current-scope-context)
+                 (lambda (&optional pos)
+                   (setq captured-position (or pos (point)))
+                   (list :function-name "raw-point"))))
+        (let ((scope (ai-code--current-line-scope-context)))
+          (should (equal (plist-get scope :function-name) "raw-point"))
+          (should (= captured-position (point))))))))
+
 (ert-deftest test-ai-code-treesit--enclosing-class-skeleton ()
   "Test `ai-code--current-scope-context' extracts class context when available."
   (with-temp-buffer

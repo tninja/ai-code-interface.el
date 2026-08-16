@@ -185,8 +185,8 @@
   (with-temp-buffer
     (setq-local buffer-file-name "/project/src/service.py")
     (insert "first line\nsecond line\n")
-    (cl-letf (((symbol-function 'ai-code--current-scope-context)
-               (lambda (&optional _)
+    (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+               (lambda ()
                  (list :function-name "find_user"
                        :class-name "UserService"
                        :class-header "class UserService:"

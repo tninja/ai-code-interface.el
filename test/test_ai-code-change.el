@@ -778,8 +778,8 @@ is between the function definition and its body."
     (goto-char (point-min))
     (let (captured-prompt)
       (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
-                ((symbol-function 'ai-code--current-scope-context)
-                 (lambda (&optional _)
+                ((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda ()
                    (list :function-name "old-helper"
                          :class-name "HelperService"
                          :class-header "class HelperService:"
@@ -855,6 +855,50 @@ is between the function definition and its body."
                                     prompt))
             (should-not (string-match-p "Function: Service" prompt)))
           (should (equal forward-prompt reverse-prompt)))))))
+
+(ert-deftest ai-code-test-implement-todo-context-normalizes-ts-indentation ()
+  "Collect method context from indentation on a Tree-sitter definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+              ((symbol-function 'ai-code--get-context-files-string)
+               (lambda () "")))
+      (let ((context (ai-code--implement-todo--collect-prompt-context nil)))
+        (should (equal (plist-get context :function-name) "first"))
+        (should (string-match-p "Function definition: def first(self):"
+                                (plist-get context :function-context)))))))
+
+(ert-deftest ai-code-test-flycheck-function-scope-uses-ts-function-range ()
+  "Use the Tree-sitter method range from an indented definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt choices &rest _)
+                 (should (member "current-function" choices))
+                 "current-function")))
+      (pcase-let ((`(,start ,end ,description)
+                   (ai-code--choose-flycheck-scope)))
+        (should (= (line-number-at-pos start) 2))
+        (should (= (line-number-at-pos end) 3))
+        (should (string-match-p "function 'first'" description))))))
 
 (ert-deftest ai-code-test-flycheck-fix-errors-uses-structured-brief ()
   "Test `ai-code-flycheck-fix-errors-in-scope' uses structured code-change brief."

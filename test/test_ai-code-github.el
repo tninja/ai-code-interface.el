@@ -481,8 +481,8 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
                  (lambda (&rest _) "Use GitHub MCP server."))
                 ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
                 ((symbol-function 'ai-code--format-repo-context-info) (lambda () nil))
-                ((symbol-function 'ai-code--current-scope-context)
-                 (lambda (&optional _)
+                ((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda ()
                    (list :function-name "hello-world"
                          :class-name "GreetingService"
                          :class-header "class GreetingService:"

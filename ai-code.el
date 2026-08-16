@@ -384,7 +384,7 @@ optional runtime/debugging text from the clipboard."
           (if region-text
               (ai-code--scope-context-for-region
                (region-beginning) (region-end))
-            (ai-code--current-scope-context)))
+            (ai-code--current-line-scope-context)))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))

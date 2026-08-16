@@ -23,7 +23,7 @@
 (declare-function ai-code--compose-code-change-brief
                   "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
-(declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
+(declare-function ai-code--current-line-scope-context "ai-code-utils" ())
 (declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
@@ -474,7 +474,7 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
                           (if region-active
                               (ai-code--scope-context-for-region
                                (region-beginning) (region-end))
-                            (ai-code--current-scope-context))))
+                            (ai-code--current-line-scope-context))))
          (current-function (plist-get scope-context :function-name))
          (semantic-scope (unless dired-targets
                            (ai-code--format-scope-context scope-context)))
@@ -528,7 +528,7 @@ FILE-INFO is additional visible-file context."
           (if (region-active-p)
               (ai-code--scope-context-for-region
                (region-beginning) (region-end))
-            (ai-code--current-scope-context)))
+            (ai-code--current-line-scope-context)))
          (semantic-scope (ai-code--format-scope-context scope-context)))
     (concat
      (if buffer-file-name
@@ -948,7 +948,7 @@ to fix code."
             (if (region-active-p)
                 (ai-code--scope-context-for-region
                  (region-beginning) (region-end))
-              (ai-code--current-scope-context))))
+              (ai-code--current-line-scope-context))))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (unless is-dired
                            (ai-code--format-scope-context scope-context)))
@@ -1001,7 +1001,7 @@ Works with both source code and test files that have been added to ai-code."
           (if region-active
               (ai-code--scope-context-for-region
                (region-beginning) (region-end))
-            (ai-code--current-scope-context)))
+            (ai-code--current-line-scope-context)))
          (function-name (plist-get scope-context :function-name))
          ;; Capture region text early, before completing-read may deactivate the mark.
          ;; Only capture when in a non-test source buffer so it mirrors the same guard
