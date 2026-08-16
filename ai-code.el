@@ -380,7 +380,11 @@ optional runtime/debugging text from the clipboard."
          (buffer-scope (if buffer-file-name
                            (format "Current file: %s" buffer-file-name)
                          (format "Current buffer: %s" (buffer-name))))
-         (scope-context (ai-code--current-scope-context))
+         (scope-context
+          (if region-text
+              (ai-code--scope-context-for-region
+               (region-beginning) (region-end))
+            (ai-code--current-scope-context)))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))

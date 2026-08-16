@@ -23,8 +23,8 @@
 (declare-function ai-code--compose-code-change-brief
                   "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
-(declare-function ai-code--current-function-name "ai-code-utils")
 (declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
+(declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function dired-current-directory "dired" ())
@@ -471,7 +471,10 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
                           (ai-code--refactoring-dired-targets)))
          (region-active (and (not dired-targets) (region-active-p)))
          (scope-context (unless dired-targets
-                          (ai-code--current-scope-context)))
+                          (if region-active
+                              (ai-code--scope-context-for-region
+                               (region-beginning) (region-end))
+                            (ai-code--current-scope-context))))
          (current-function (plist-get scope-context :function-name))
          (semantic-scope (unless dired-targets
                            (ai-code--format-scope-context scope-context)))
@@ -521,8 +524,12 @@ otherwise falls back to absolute paths."
   "Return scope text for current agile prompt.
 FUNCTION-NAME is the current function when available.
 FILE-INFO is additional visible-file context."
-  (let ((semantic-scope
-         (ai-code--format-scope-context (ai-code--current-scope-context))))
+  (let* ((scope-context
+          (if (region-active-p)
+              (ai-code--scope-context-for-region
+               (region-beginning) (region-end))
+            (ai-code--current-scope-context)))
+         (semantic-scope (ai-code--format-scope-context scope-context)))
     (concat
      (if buffer-file-name
          (format "Current file: %s" buffer-file-name)
@@ -936,7 +943,12 @@ to fix code."
 (defun ai-code--run-test-ai-assisted ()
   "Send a prompt to AI to run a test command with current context."
   (let* ((is-dired (derived-mode-p 'dired-mode))
-         (scope-context (unless is-dired (ai-code--current-scope-context)))
+         (scope-context
+          (unless is-dired
+            (if (region-active-p)
+                (ai-code--scope-context-for-region
+                 (region-beginning) (region-end))
+              (ai-code--current-scope-context))))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (unless is-dired
                            (ai-code--format-scope-context scope-context)))
@@ -984,11 +996,17 @@ Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
   ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
-  (let* ((function-name (ai-code--current-function-name))
+  (let* ((region-active (region-active-p))
+         (scope-context
+          (if region-active
+              (ai-code--scope-context-for-region
+               (region-beginning) (region-end))
+            (ai-code--current-scope-context)))
+         (function-name (plist-get scope-context :function-name))
          ;; Capture region text early, before completing-read may deactivate the mark.
          ;; Only capture when in a non-test source buffer so it mirrors the same guard
          ;; used by ai-code--tdd-source-function-context-p.
-         (region-text (when (and (region-active-p)
+         (region-text (when (and region-active
                                  buffer-file-name
                                  (derived-mode-p 'prog-mode)
                                  (let ((case-fold-search t))

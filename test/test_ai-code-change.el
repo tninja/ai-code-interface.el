@@ -806,6 +806,56 @@ is between the function definition and its body."
         (should (string-match-p "Agent responsibilities:" captured-prompt))
         (should (string-match-p "Verification evidence:" captured-prompt))))))
 
+(ert-deftest ai-code-test-code-change-whole-function-region-is-direction-independent ()
+  "Use the selected function scope for forward and reverse Tree-sitter regions."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        value = 1\n"
+            "        return value\n\n"
+            "    def second(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "return value")
+    (backward-char 1)
+    (let* ((function-node (ai-code--treesit-defun-at-point))
+           (start (treesit-node-start function-node))
+           (end (treesit-node-end function-node)))
+      (cl-labels
+          ((capture-prompt
+            (point-position mark-position)
+            (goto-char mark-position)
+            (set-mark (point))
+            (goto-char point-position)
+            (let (captured-prompt)
+              (cl-letf (((symbol-function 'region-active-p) (lambda () t))
+                        ((symbol-function 'ai-code-read-string)
+                         (lambda (&rest _) "Change selected code"))
+                        ((symbol-function 'ai-code--get-context-files-string)
+                         (lambda () ""))
+                        ((symbol-function 'ai-code--format-repo-context-info)
+                         (lambda () ""))
+                        ((symbol-function 'ai-code--get-region-location-info)
+                         (lambda (&rest _) "service.py#L2-L4"))
+                        ((symbol-function 'ai-code--insert-prompt)
+                         (lambda (prompt) (setq captured-prompt prompt))))
+                (ai-code--handle-regular-code-change nil t))
+              captured-prompt)))
+        (let ((forward-prompt (capture-prompt end start))
+              (reverse-prompt (capture-prompt start end)))
+          (dolist (prompt (list forward-prompt reverse-prompt))
+            (should (string-match-p "Selected region:" prompt))
+            (should (string-match-p "Function: first" prompt))
+            (should (string-match-p "Function definition: def first(self):"
+                                    prompt))
+            (should-not (string-match-p "Function: Service" prompt)))
+          (should (equal forward-prompt reverse-prompt)))))))
+
 (ert-deftest ai-code-test-flycheck-fix-errors-uses-structured-brief ()
   "Test `ai-code-flycheck-fix-errors-in-scope' uses structured code-change brief."
   (with-temp-buffer

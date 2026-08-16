@@ -204,6 +204,13 @@ POS defaults to `point'."
   (and (stringp node-type)
        (member node-type ai-code--treesit-enclosing-type-node-types)))
 
+(defun ai-code--treesit-class-like-node-p (node)
+  "Return non-nil when Tree-sitter NODE is a class-like container."
+  (and node
+       (fboundp 'treesit-node-type)
+       (when-let ((node-type (ignore-errors (treesit-node-type node))))
+         (ai-code--treesit-enclosing-type-node-p node-type))))
+
 (defun ai-code--treesit-enclosing-class-node (&optional node)
   "Find the enclosing class, struct, trait, or interface node for NODE.
 If NODE is omitted, searches upward from the defun at point."
@@ -243,11 +250,14 @@ Otherwise, return the first source line of NODE."
   "Return the name of the function/method at point.
 Prefers Tree-sitter AST detection when available, and falls back to
 `which-function'."
-  (or (when (ai-code--treesit-available-p)
-        (when-let ((node (ai-code--treesit-defun-at-point)))
-          (ai-code--treesit-node-name node)))
-      (when (fboundp 'which-function)
-        (ignore-errors (which-function)))))
+  (if (ai-code--treesit-available-p)
+      (let ((node (ai-code--treesit-defun-at-point)))
+        (unless (ai-code--treesit-class-like-node-p node)
+          (or (and node (ai-code--treesit-node-name node))
+              (when (fboundp 'which-function)
+                (ignore-errors (which-function))))))
+    (when (fboundp 'which-function)
+      (ignore-errors (which-function)))))
 
 (defun ai-code--current-scope-context (&optional pos)
   "Return a plist describing the semantic scope at POS (defaults to point).
@@ -256,15 +266,30 @@ plus the function's buffer range under `:range'."
   (save-excursion
     (when pos (goto-char pos))
     (if (ai-code--treesit-available-p)
-        (let* ((defun-node (ai-code--treesit-defun-at-point))
-               (class-node (ai-code--treesit-enclosing-class-node defun-node))
-               (func-name (or (and defun-node (ai-code--treesit-node-name defun-node))
-                              (when (fboundp 'which-function)
-                                (ignore-errors (which-function)))))
+        (let* ((raw-defun-node (ai-code--treesit-defun-at-point))
+               (raw-node-is-class
+                (ai-code--treesit-class-like-node-p raw-defun-node))
+               (defun-node (unless raw-node-is-class raw-defun-node))
+               (class-node (if raw-node-is-class
+                               raw-defun-node
+                             (ai-code--treesit-enclosing-class-node
+                              defun-node)))
+               (func-name
+                (or (and defun-node (ai-code--treesit-node-name defun-node))
+                    (when (and (null raw-defun-node)
+                               (fboundp 'which-function))
+                      (ignore-errors (which-function)))))
                (class-name (and class-node (ai-code--treesit-node-name class-node)))
                (class-header (and class-node (ai-code--treesit-node-header class-node)))
                (function-header (and defun-node
                                      (ai-code--treesit-node-header defun-node)))
+               (class-range
+                (when (and class-node
+                           (fboundp 'treesit-node-start)
+                           (fboundp 'treesit-node-end))
+                  (ignore-errors
+                    (cons (treesit-node-start class-node)
+                          (treesit-node-end class-node)))))
                (range (when (and defun-node
                                  (fboundp 'treesit-node-start)
                                  (fboundp 'treesit-node-end))
@@ -274,14 +299,81 @@ plus the function's buffer range under `:range'."
           (list :function-name func-name
                 :class-name class-name
                 :class-header class-header
+                :class-range class-range
                 :function-header function-header
                 :range range))
       (list :function-name (when (fboundp 'which-function)
                              (ignore-errors (which-function)))
             :class-name nil
             :class-header nil
+            :class-range nil
             :function-header nil
             :range nil))))
+
+(defun ai-code--empty-scope-context ()
+  "Return an empty semantic scope context plist."
+  (list :function-name nil
+        :class-name nil
+        :class-header nil
+        :class-range nil
+        :function-header nil
+        :range nil))
+
+(defun ai-code--region-semantic-bounds (beg end)
+  "Return first and last non-whitespace positions between BEG and END.
+END is treated as an exclusive buffer position.  Return nil when the
+region is empty or contains only whitespace."
+  (when (< beg end)
+    (let ((start (save-excursion
+                   (goto-char beg)
+                   (when (re-search-forward "\\S-" end t)
+                     (match-beginning 0))))
+          (finish (save-excursion
+                    (goto-char end)
+                    (when (re-search-backward "\\S-" beg t)
+                      (match-beginning 0)))))
+      (when (and start finish)
+        (cons start finish)))))
+
+(defun ai-code--scope-context-same-range-p (first second range-key name-key)
+  "Return non-nil when FIRST and SECOND identify the same semantic scope.
+RANGE-KEY selects the preferred identity range.  NAME-KEY supplies the
+fallback identity when neither context has a range."
+  (let ((first-range (plist-get first range-key))
+        (second-range (plist-get second range-key))
+        (first-name (plist-get first name-key))
+        (second-name (plist-get second name-key)))
+    (cond
+     ((and first-range second-range) (equal first-range second-range))
+     ((or first-range second-range) nil)
+     (t (and first-name second-name (equal first-name second-name))))))
+
+(defun ai-code--class-only-scope-context (context)
+  "Return only the class-like container fields from CONTEXT."
+  (list :function-name nil
+        :class-name (plist-get context :class-name)
+        :class-header (plist-get context :class-header)
+        :class-range (plist-get context :class-range)
+        :function-header nil
+        :range nil))
+
+(defun ai-code--scope-context-for-region (beg end)
+  "Return semantic context shared by the selected region from BEG to END.
+Use full function context only when both non-whitespace endpoints belong
+to the same function.  For a region spanning sibling functions, retain
+only their common class-like container context."
+  (if-let ((bounds (ai-code--region-semantic-bounds beg end)))
+      (let* ((first-context (ai-code--current-scope-context (car bounds)))
+             (last-context (ai-code--current-scope-context (cdr bounds))))
+        (cond
+         ((ai-code--scope-context-same-range-p
+           first-context last-context :range :function-name)
+          first-context)
+         ((ai-code--scope-context-same-range-p
+           first-context last-context :class-range :class-name)
+          (ai-code--class-only-scope-context first-context))
+         (t (ai-code--empty-scope-context))))
+    (ai-code--empty-scope-context)))
 
 (defun ai-code--format-scope-context (context)
   "Return human-readable semantic scope lines for CONTEXT.

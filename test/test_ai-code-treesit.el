@@ -109,6 +109,113 @@
       (should-not (string-match-p "Service docs" formatted))
       (should-not (string-match-p "return str" formatted)))))
 
+(ert-deftest test-ai-code-treesit--python-whole-function-region-uses-function-scope ()
+  "Resolve a whole-function region without treating its class as a function."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        value = 1\n"
+            "        return value\n\n"
+            "    def second(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "return value")
+    (backward-char 1)
+    (let* ((function-node (ai-code--treesit-defun-at-point))
+           (start (treesit-node-start function-node))
+           (end (treesit-node-end function-node))
+           (region-scope (ai-code--scope-context-for-region start end))
+           (scope-at-exclusive-end (ai-code--current-scope-context end)))
+      (should (equal (plist-get region-scope :function-name) "first"))
+      (should (equal (plist-get region-scope :class-name) "Service"))
+      (should (equal (plist-get region-scope :function-header)
+                     "def first(self):"))
+      (should-not (plist-get scope-at-exclusive-end :function-name))
+      (should (equal (plist-get scope-at-exclusive-end :class-name)
+                     "Service")))))
+
+(ert-deftest test-ai-code-treesit--python-cross-function-region-keeps-class-only ()
+  "Omit single-function metadata when a region spans sibling methods."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n\n"
+            "    def second(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "return 1")
+    (backward-char 1)
+    (let ((start (treesit-node-start (ai-code--treesit-defun-at-point))))
+      (search-forward "return 2")
+      (backward-char 1)
+      (let* ((end (treesit-node-end (ai-code--treesit-defun-at-point)))
+             (scope (ai-code--scope-context-for-region start end)))
+        (should-not (plist-get scope :function-name))
+        (should-not (plist-get scope :function-header))
+        (should-not (plist-get scope :range))
+        (should (equal (plist-get scope :class-name) "Service"))
+        (should (equal (plist-get scope :class-header)
+                       "class Service:"))))))
+
+(ert-deftest test-ai-code-treesit--region-scope-empty-for-whitespace ()
+  "Return no semantic metadata for a whitespace-only region."
+  (with-temp-buffer
+    (insert "  \n\t")
+    (cl-letf (((symbol-function 'ai-code--current-scope-context)
+               (lambda (&optional _)
+                 (ert-fail "Whitespace must not trigger scope lookup"))))
+      (should
+       (string-empty-p
+        (ai-code--format-scope-context
+         (ai-code--scope-context-for-region
+          (point-min) (point-max))))))))
+
+(ert-deftest test-ai-code-treesit--region-scope-fallback-compares-function-names ()
+  "Use matching fallback function names when Tree-sitter ranges are absent."
+  (with-temp-buffer
+    (insert "a b")
+    (cl-letf (((symbol-function 'ai-code--current-scope-context)
+               (lambda (&optional _)
+                 (list :function-name "fallback-function"
+                       :class-name nil
+                       :class-header nil
+                       :class-range nil
+                       :function-header nil
+                       :range nil))))
+      (let ((scope (ai-code--scope-context-for-region
+                    (point-min) (point-max))))
+        (should (equal (plist-get scope :function-name)
+                       "fallback-function"))))))
+
+(ert-deftest test-ai-code-treesit--region-scope-empty-across-different-classes ()
+  "Return no semantic metadata when region endpoints belong to different classes."
+  (with-temp-buffer
+    (insert "a b")
+    (cl-letf (((symbol-function 'ai-code--current-scope-context)
+               (lambda (&optional pos)
+                 (if (= pos (point-min))
+                     (list :function-name "first"
+                           :class-name "FirstClass"
+                           :class-range '(1 . 1)
+                           :range '(1 . 1))
+                   (list :function-name "second"
+                         :class-name "SecondClass"
+                         :class-range '(3 . 3)
+                         :range '(3 . 3))))))
+      (should
+       (string-empty-p
+        (ai-code--format-scope-context
+         (ai-code--scope-context-for-region
+          (point-min) (point-max))))))))
+
 (ert-deftest test-ai-code-treesit--scope-context-fallback-without-treesit ()
   "Test `ai-code--current-scope-context' provides standard which-function fallback."
   (with-temp-buffer

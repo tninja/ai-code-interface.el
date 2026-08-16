@@ -23,6 +23,7 @@
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
 (declare-function ai-code--current-function-name "ai-code-utils")
 (declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
+(declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
@@ -283,7 +284,10 @@ FUNCTION-NAME is the name of the function at point if any."
 ARG is the prefix argument.
 REGION-ACTIVE indicates whether a region is selected."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
-         (scope-ctx (ai-code--current-scope-context))
+         (scope-ctx (if region-active
+                        (ai-code--scope-context-for-region
+                         (region-beginning) (region-end))
+                      (ai-code--current-scope-context)))
          (function-name (plist-get scope-ctx :function-name))
          (semantic-scope (ai-code--format-scope-context scope-ctx))
          (region-text (when region-active
@@ -518,8 +522,12 @@ ARG controls whether clipboard context is included."
          (current-line (string-trim (thing-at-point 'line t)))
          (current-line-number (line-number-at-pos (point)))
          (is-comment (ai-code--is-comment-line current-line))
+         (region-active (region-active-p))
          (scope-context (unless is-comment
-                          (ai-code--current-scope-context)))
+                          (if region-active
+                              (ai-code--scope-context-for-region
+                               (region-beginning) (region-end))
+                            (ai-code--current-scope-context))))
          (function-name (if is-comment
                             (ai-code--get-function-name-for-comment)
                           (plist-get scope-context :function-name)))
@@ -535,7 +543,6 @@ ARG controls whether clipboard context is included."
             (concat "\n" semantic-scope))
            (function-name (format "\nFunction: %s" function-name))
            (t "")))
-         (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties
                          (region-beginning)

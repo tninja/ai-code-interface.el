@@ -185,6 +185,11 @@
                  (should (= beg 10))
                  (should (= end 42))
                  "ai-code.el#L10-L11"))
+              ((symbol-function 'ai-code--scope-context-for-region)
+               (lambda (beg end)
+                 (should (= beg 10))
+                 (should (= end 42))
+                 nil))
               ((symbol-function 'ai-code-read-string)
                (lambda (prompt &optional _initial-input _candidate-list)
                  (should (string-match-p "Describe the Emacs runtime issue" prompt))
@@ -225,8 +230,10 @@
               ((symbol-function 'ai-code--get-region-location-info)
                (lambda (_beg _end)
                  "ai-code.el#L10-L11"))
-              ((symbol-function 'ai-code--current-scope-context)
-               (lambda (&optional _)
+              ((symbol-function 'ai-code--scope-context-for-region)
+               (lambda (beg end)
+                 (should (= beg 10))
+                 (should (= end 42))
                  (list :function-name "ai-code-test-command"
                        :class-name "RuntimeDebugger"
                        :class-header "class RuntimeDebugger:"

@@ -26,8 +26,8 @@
 (declare-function ai-code--detect-todo-info
                   "ai-code-change" (region-active))
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
-(declare-function ai-code--current-function-name "ai-code-utils")
 (declare-function ai-code--current-scope-context "ai-code-utils" (&optional pos))
+(declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 (declare-function ai-code--ensure-files-directory "ai-code-utils")
@@ -231,11 +231,14 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                           (file-name-extension buffer-file-name)))
          (is-diff-or-patch (and file-extension
                                (member file-extension '("diff" "patch"))))
+         (region-active (region-active-p))
          (scope-ctx (unless is-diff-or-patch
-                      (ai-code--current-scope-context)))
+                      (if region-active
+                          (ai-code--scope-context-for-region
+                           (region-beginning) (region-end))
+                        (ai-code--current-scope-context))))
          (function-name (plist-get scope-ctx :function-name))
          (semantic-scope (ai-code--format-scope-context scope-ctx))
-         (region-active (region-active-p))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
          (region-location-info (when region-active
@@ -342,7 +345,11 @@ Argument ARG is the prefix argument."
          (buffer-file buffer-file-name)
          (full-buffer-context (when (and (not buffer-file) (not region-text))
                                 (buffer-substring-no-properties (point-min) (point-max))))
-         (scope-context (ai-code--current-scope-context))
+         (scope-context
+          (if region-text
+              (ai-code--scope-context-for-region
+               (region-beginning) (region-end))
+            (ai-code--current-scope-context)))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))
@@ -468,7 +475,9 @@ sends to AI."
 (defun ai-code--explain-region ()
   "Explain the selected region with function/file context."
   (let* ((region-text (buffer-substring-no-properties (region-beginning) (region-end)))
-         (scope-context (ai-code--current-scope-context))
+         (scope-context
+          (ai-code--scope-context-for-region
+           (region-beginning) (region-end)))
          (context-info (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))
          (initial-prompt (format "%s\n\n%s\n\n%s%s%s\n\nProvide a clear explanation of what this code does, how it works, and its purpose within the context."
