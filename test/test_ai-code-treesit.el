@@ -271,5 +271,35 @@
         (should-not (plist-get scope :class-header))
         (should-not (plist-get scope :function-header))))))
 
+(ert-deftest test-ai-code-treesit--qualified-scope-name-joins-class-and-function ()
+  "Qualify a method name with its enclosing class."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    enabled = True\n"
+            "    def run(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 2)
+    (should (equal (ai-code--current-qualified-scope-name) "Service.run"))
+    (forward-line -1)
+    (should (equal (ai-code--current-qualified-scope-name) "Service"))))
+
+(ert-deftest test-ai-code-treesit--qualified-scope-name-avoids-double-qualifying ()
+  "Do not re-qualify a fallback name that already carries its container."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+               (lambda ()
+                 (list :function-name "Service.run"
+                       :class-name "Service"))))
+      (should (equal (ai-code--current-qualified-scope-name) "Service.run"))))
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+               (lambda () (ai-code--empty-scope-context))))
+      (should-not (ai-code--current-qualified-scope-name)))))
+
 (provide 'test_ai-code-treesit)
 ;;; test_ai-code-treesit.el ends here

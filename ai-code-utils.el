@@ -329,6 +329,29 @@ Preserve the raw point behavior for whitespace-only lines."
       (ai-code--current-scope-context semantic-position)
     (ai-code--current-scope-context)))
 
+(defun ai-code--current-qualified-scope-name ()
+  "Return a qualified name for the semantic scope on the current line.
+Join the enclosing class-like container and the function with a dot, as in
+\"Service.run\".  Fall back to the container name alone when point is not
+inside a function, and to the bare function name when there is no
+container.  Return nil when no scope can be resolved."
+  (let* ((context (ai-code--current-line-scope-context))
+         (function-name (plist-get context :function-name))
+         (class-name (plist-get context :class-name))
+         (parts (delq nil
+                      (list (and (stringp class-name)
+                                 (not (string-empty-p class-name))
+                                 class-name)
+                            (and (stringp function-name)
+                                 (not (string-empty-p function-name))
+                                 function-name)))))
+    (when parts
+      ;; The `which-function' fallback may already return a qualified name.
+      (if (and (cdr parts)
+               (string-prefix-p (concat (car parts) ".") (cadr parts)))
+          (cadr parts)
+        (mapconcat #'identity parts ".")))))
+
 (defun ai-code--empty-scope-context ()
   "Return an empty semantic scope context plist."
   (list :function-name nil

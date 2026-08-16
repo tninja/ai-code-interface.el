@@ -952,7 +952,8 @@ to fix code."
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (unless is-dired
                            (ai-code--format-scope-context scope-context)))
-         (scope-details (unless (string-empty-p (or semantic-scope ""))
+         (scope-details (if (string-empty-p (or semantic-scope ""))
+                            ""
                           (concat "\n" semantic-scope)))
          (file-info (unless is-dired (ai-code--get-context-files-string)))
          (error-handling-instruction

@@ -1093,7 +1093,7 @@ everything is cleaned up afterward."
       (should (not (string-empty-p (ai-code--session-project-root)))))))
 
 (ert-deftest ai-code-test-current-file-context-reference-normalizes-ts-indentation ()
-  "Include a method anchor from indentation on its Tree-sitter definition line."
+             "Include a qualified method anchor from indentation on its definition line."
   (skip-unless (and (fboundp 'treesit-language-available-p)
                     (treesit-language-available-p 'python)
                     (fboundp 'python-ts-mode)))
@@ -1106,7 +1106,50 @@ everything is cleaned up afterward."
     (goto-char (point-min))
     (forward-line 1)
     (should (equal (ai-code--current-file-context-reference t)
-                   "/tmp/project/service.py#first"))))
+                              "/tmp/project/service.py#Service.first"))))
+
+(ert-deftest ai-code-test-current-file-context-reference-keeps-class-anchor ()
+  "Anchor on the enclosing class when point is not inside a function."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    enabled = True\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (ai-code--current-file-context-reference t)
+                   "/tmp/project/service.py#Service"))))
+
+(ert-deftest ai-code-test-current-file-context-reference-module-function-unqualified ()
+  "Keep a module-level function anchor unqualified."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/util.py")
+    (insert "def alpha():\n"
+            "    return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (ai-code--current-file-context-reference t)
+                   "/tmp/project/util.py#alpha"))))
+
+(ert-deftest ai-code-test-current-file-context-reference-no-scope-plain-path ()
+  "Return a bare path when no semantic scope can be resolved."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/plain.txt")
+    (insert "just text\n")
+    (goto-char (point-min))
+    (cl-letf (((symbol-function 'ai-code--current-qualified-scope-name)
+               (lambda () nil)))
+      (should (equal (ai-code--current-file-context-reference t)
+                     "/tmp/project/plain.txt")))))
 
 (provide 'test_ai-code-file)
 

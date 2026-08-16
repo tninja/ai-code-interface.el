@@ -180,6 +180,48 @@
             (ai-code-run-test)
             (should (= ai-assisted-call-count 1))))))))
 
+(ert-deftest ai-code-test-run-test-prompt-omits-empty-scope-details ()
+  "Never render a nil semantic scope as the literal string \"nil\"."
+  (dolist (case '((nil . "current file") ("run" . "current function")))
+    (ert-info ((format "Function name: %S" (car case)))
+      (with-temp-buffer
+        (insert "x = 1\n")
+        (goto-char (point-min))
+        (let (captured-prompt)
+          (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+                     (lambda () (list :function-name (car case))))
+                    ((symbol-function 'ai-code--format-scope-context)
+                     (lambda (_context) ""))
+                    ((symbol-function 'ai-code--get-context-files-string)
+                     (lambda () ""))
+                    ((symbol-function 'ai-code-read-string)
+                     (lambda (_prompt &optional initial &rest _) initial))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (prompt) (setq captured-prompt prompt))))
+            (ai-code--run-test-ai-assisted))
+          (should (string-match-p (cdr case) captured-prompt))
+          (should-not (string-match-p "nil" captured-prompt)))))))
+
+(ert-deftest ai-code-test-run-test-prompt-includes-scope-details ()
+  "Include semantic scope details in the run-test prompt when present."
+  (with-temp-buffer
+    (insert "x = 1\n")
+    (goto-char (point-min))
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda () (list :function-name "run")))
+                ((symbol-function 'ai-code--format-scope-context)
+                 (lambda (_context) "Enclosing class: Service"))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () ""))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial &rest _) initial))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+        (ai-code--run-test-ai-assisted))
+      (should (string-match-p "Enclosing class: Service" captured-prompt))
+      (should-not (string-match-p "nil" captured-prompt)))))
+
 (ert-deftest ai-code-test-agile-current-scope-includes-semantic-context ()
   "Include class, signature, and range context in agile prompts."
   (with-temp-buffer

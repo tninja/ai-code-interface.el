@@ -73,7 +73,7 @@ active region line range, then the current function, then the file path."
                   (line-number-at-pos start t)
                   (line-number-at-pos (max start (1- end)) t))))
        (t
-        (let ((function-name (ai-code--current-function-name)))
+        (let ((function-name (ai-code--current-qualified-scope-name)))
           (if (and (stringp function-name)
                    (not (string-empty-p function-name)))
               (format "%s#%s" file-reference function-name)
