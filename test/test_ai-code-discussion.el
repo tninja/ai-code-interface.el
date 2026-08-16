@@ -48,6 +48,30 @@
       (should (string-match-p "Function definition: def first(self):"
                               captured-prompt)))))
 
+(ert-deftest ai-code-test-explain-function-ts-mode-uses-indented-definition ()
+  "Explain a method when point is in indentation on its definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code--confirm-and-send)
+                 (lambda (_prompt initial-input)
+                   (setq captured-prompt initial-input))))
+        (ai-code--explain-function))
+      (should (string-match-p "Please explain the function 'first':"
+                              captured-prompt))
+      (should (string-match-p "Enclosing class: Service" captured-prompt))
+      (should (string-match-p "Function definition: def first(self):"
+                              captured-prompt)))))
+
 (ert-deftest ai-code-test-explain-dired-uses-marked-files-as-git-relative-context ()
   "Test that marked Dired files are explained using git relative paths."
   (let (captured-initial-prompt captured-final-prompt)

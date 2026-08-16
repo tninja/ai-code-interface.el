@@ -684,7 +684,8 @@ Return nil when the current line contains only whitespace."
 
 (defun ai-code--explain-function ()
   "Explain the current function."
-  (let* ((scope-context (ai-code--current-scope-context))
+  (let* ((semantic-position (ai-code--line-semantic-position))
+         (scope-context (ai-code--current-scope-context semantic-position))
          (function-name (plist-get scope-context :function-name))
          (semantic-scope (ai-code--format-scope-context scope-context)))
     (unless function-name
