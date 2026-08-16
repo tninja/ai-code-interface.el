@@ -26,6 +26,7 @@ copy_issue_files() {
   local destination=$1
 
   cp ai-code-harness.el "$destination/ai-code-harness.el"
+  cp ai-code-github.el "$destination/ai-code-github.el"
   cp ai-code-prompt-mode.el "$destination/ai-code-prompt-mode.el"
   cp test/test_ai-code-harness.el "$destination/test_ai-code-harness.el"
   cp test/test_ai-code-prompt-mode.el "$destination/test_ai-code-prompt-mode.el"
@@ -42,7 +43,7 @@ run_focused_tests() {
     -l "$source_dir/ai-code-harness.el" \
     -l "$source_dir/test_ai-code-harness.el" \
     --eval '(ert-run-tests-batch-and-exit
-             "ai-code-test-\\(github-analysis-workflows-bypass-auto-test-routing\\|resolve-auto-test-type-for-send-\\(question-skips-when-gptel-disabled\\|unknown-asks-without-gptel\\)\\|simple-classifier-treats-todo-question-brief-as-non-code-change\\)")' \
+             "ai-code-test-\\(github-analysis-workflows-bypass-auto-test-routing\\|github-review-modes-all-carry-analysis-only-note\\|github-workflow-classification-follows-edited-prompt-text\\|diff-file-review-prompt-bypasses-auto-test-routing\\|resolve-auto-test-type-for-send-\\(question-skips-when-gptel-disabled\\|unknown-asks-without-gptel\\)\\|simple-classifier-treats-todo-question-brief-as-non-code-change\\)")' \
     || return 1
 
   emacs -Q --batch \
@@ -108,9 +109,15 @@ run_mutant "call GPTel when local fallback is disabled" \
 run_mutant "drop TODO question markers" \
   "ai-code-harness.el" \
   's/ai-code-change--ask-question-note\s+ai-code-change--question-brief-default-boundaries\s+//'
-run_mutant "ignore GitHub workflow metadata" \
+run_mutant "ignore GitHub analysis-only prompt markers" \
   "ai-code-harness.el" \
-  's/\Qai-code--non-code-change-workflows)\E/nil)/'
+  's/\Q(ai-code--downcase-strings\E\s+\Qai-code-github--analysis-only-notes))\E/nil)/'
+run_mutant "drop the analysis-only note from the PR review prompt" \
+  "ai-code-github.el" \
+  's/^4\. %s\n\nProvide an overall assessment at the end\."/\n\nProvide an overall assessment at the end."/m'
+run_mutant "drop the analysis-only note from the diff file review prompt" \
+  "ai-code-github.el" \
+  's/^4\. %s\n\nProvide overall assessment\./\nProvide overall assessment./m'
 run_mutant "treat reasoning as an unknown response" \
   "ai-code-prompt-mode.el" \
   "s/'reasoning/'never-reasoning/"

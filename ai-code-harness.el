@@ -20,6 +20,7 @@
   (require 'ai-code-backends)
   (require 'ai-code-change)
   (require 'ai-code-discussion)
+  (require 'ai-code-github)
   (require 'ai-code-prompt-mode))
 
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
@@ -49,6 +50,7 @@
 (defvar ai-code-discussion--explain-prompt-prefixes)
 (defvar ai-code-discussion--question-only-note)
 (defvar ai-code-discussion--selected-region-note)
+(defvar ai-code-github--analysis-only-notes)
 (defvar ai-code-mcp-agent-enabled-backends)
 (defvar ai-code-prompt-suffix-functions)
 (defvar ai-code-selected-backend)
@@ -414,18 +416,10 @@ test suffixes."
           ai-code-discussion--selected-region-note
           ai-code-discussion--exception-investigation-boundaries))
    (ai-code--downcase-strings
-    ai-code-discussion--explain-prompt-prefixes))
+    ai-code-discussion--explain-prompt-prefixes)
+   (ai-code--downcase-strings
+    ai-code-github--analysis-only-notes))
   "Prompt markers that clearly indicate a non-code-change request.")
-
-(defconst ai-code--non-code-change-workflows
-  '(review-pr
-    check-feedback
-    prepare-pr-description
-    send-current-branch-pr
-    investigate-issue
-    review-ci-checks
-    resolve-merge-conflict)
-  "Known workflows that do not request program code changes.")
 
 (defun ai-code--prompt-contains-any-marker-p (text markers)
   "Return non-nil when any string in MARKERS appears in TEXT."
@@ -435,16 +429,16 @@ test suffixes."
 
 (defun ai-code--simple-classify-prompt-code-change (prompt-text)
   "Classify PROMPT-TEXT with cheap string matching before GPTel.
+Classification is driven only by PROMPT-TEXT, so editing a generated
+analysis-only prompt into a code-change request reclassifies it.
 Return one of: `code-change`, `non-code-change`, or `unknown`."
   (let ((text (downcase (or prompt-text ""))))
     (cond
      ((ai-code--prompt-contains-any-marker-p text
                                              ai-code--code-change-prompt-markers)
       'code-change)
-     ((or (memq ai-code--grill-me-workflow
-                ai-code--non-code-change-workflows)
-          (ai-code--prompt-contains-any-marker-p
-           text ai-code--non-code-change-prompt-markers))
+     ((ai-code--prompt-contains-any-marker-p
+       text ai-code--non-code-change-prompt-markers)
       'non-code-change)
      (t 'unknown))))
 

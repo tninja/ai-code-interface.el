@@ -692,30 +692,105 @@
     (should (eq 'non-code-change
                 (ai-code--simple-classify-prompt-code-change prompt)))))
 
+(defconst ai-code-test--github-non-prompt-review-modes
+  '(review-current-branch-with-difftastic
+    generate-diff-file
+    explain-code-change)
+  "Review modes that do not build a GitHub analysis prompt themselves.")
+
+(defun ai-code-test--github-prompt-for-review-mode (review-mode)
+  "Return the generated init prompt for REVIEW-MODE."
+  (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _args) nil)))
+    (if (eq review-mode 'send-current-branch-pr)
+        (ai-code--build-send-current-branch-pr-init-prompt
+         'gh-cli "feature" "main")
+      (ai-code--build-pr-init-prompt
+       'gh-cli "https://example.test/pull/1" review-mode))))
+
+(defun ai-code-test--github-analysis-prompts ()
+  "Return one generated prompt per analysis-only GitHub review mode."
+  (mapcar #'ai-code-test--github-prompt-for-review-mode
+          (seq-remove
+           (lambda (review-mode)
+             (memq review-mode ai-code-test--github-non-prompt-review-modes))
+           (mapcar #'cdr ai-code-github--pull-or-review-pr-mode-alist))))
+
+(ert-deftest ai-code-test-github-review-modes-all-carry-analysis-only-note ()
+  "Test that every prompt-building GitHub review mode marks its prompt.
+This guards against drift when a new review mode is added."
+  (dolist (review-mode (mapcar #'cdr ai-code-github--pull-or-review-pr-mode-alist))
+    (unless (memq review-mode ai-code-test--github-non-prompt-review-modes)
+      (let ((prompt (ai-code-test--github-prompt-for-review-mode review-mode)))
+        (should (seq-some (lambda (note) (string-match-p (regexp-quote note) prompt))
+                          ai-code-github--analysis-only-notes))
+        (should (eq 'non-code-change
+                    (ai-code--simple-classify-prompt-code-change prompt)))))))
+
 (ert-deftest ai-code-test-github-analysis-workflows-bypass-auto-test-routing ()
-  "Test that GitHub analysis workflows never offer a test harness."
-  (dolist (workflow '(review-pr
-                      check-feedback
-                      prepare-pr-description
-                      send-current-branch-pr
-                      investigate-issue
-                      review-ci-checks
-                      resolve-merge-conflict))
-    (let ((ai-code--grill-me-workflow workflow)
+  "Test that generated GitHub analysis prompts never offer a test harness."
+  (dolist (prompt (ai-code-test--github-analysis-prompts))
+    (let ((ai-code--grill-me-workflow nil)
           (ai-code-auto-test-type 'ask-me)
           (ai-code-use-gptel-classify-prompt nil))
       (cl-letf (((symbol-function 'ai-code--gptel-classify-prompt-code-change)
                  (lambda (_prompt-text)
-                   (ert-fail "Should not call GPTel for a known GitHub workflow.")))
+                   (ert-fail "Should not call GPTel for a GitHub analysis prompt.")))
                 ((symbol-function 'ai-code--read-auto-test-type-choice)
                  (lambda ()
-                   (ert-fail "Should not ask test type for a GitHub analysis workflow."))))
+                   (ert-fail "Should not ask test type for a GitHub analysis prompt."))))
         (should (eq 'non-code-change
-                    (ai-code--classify-prompt-for-send
-                     "Investigate the linked GitHub item and provide analysis only.")))
-        (should-not
-         (ai-code--resolve-auto-test-type-for-send
-          "Investigate the linked GitHub item and provide analysis only."))))))
+                    (ai-code--classify-prompt-for-send prompt)))
+        (should-not (ai-code--resolve-auto-test-type-for-send prompt))))))
+
+(ert-deftest ai-code-test-github-workflow-classification-follows-edited-prompt-text ()
+  "Test that editing out the analysis-only note restores code-change routing."
+  (let* ((generated
+          (ai-code--build-pr-review-init-prompt 'gh-cli "https://example.test/pull/1"))
+         (edited
+          (replace-regexp-in-string
+           (concat "^4\\. " (regexp-quote ai-code-github--analysis-only-note) "\n")
+           "4. Fix every issue you find and add unit tests for it.\n"
+           generated)))
+    (should-not (string-equal generated edited))
+    ;; The workflow variable stays bound, as it does during `ai-code--confirm-and-send'.
+    (let ((ai-code--grill-me-workflow 'review-pr)
+          (ai-code-auto-test-type 'ask-me)
+          (ai-code-use-gptel-classify-prompt nil))
+      (should (eq 'unknown
+                  (ai-code--simple-classify-prompt-code-change edited)))
+      (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
+                 (lambda () 'test-after-change)))
+        (should (eq 'test-after-change
+                    (ai-code--resolve-auto-test-type-for-send edited)))))))
+
+(ert-deftest ai-code-test-diff-file-review-prompt-bypasses-auto-test-routing ()
+  "Test that the .diff review prompt is classified as analysis only."
+  (let ((ai-code-default-review-source 'github-mcp)
+        (ai-code-auto-test-type 'ask-me)
+        (ai-code-use-gptel-classify-prompt nil)
+        (ai-code-grill-me-enabled nil)
+        (ai-code-prompt-preprocess-filepaths nil)
+        (captured-prompt nil))
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/ai-code-test-review.diff")
+      (unwind-protect
+          (cl-letf (((symbol-function 'ai-code-read-string)
+                     (lambda (_prompt &optional initial-input &rest _args)
+                       initial-input))
+                    ((symbol-function 'read-string)
+                     (lambda (_prompt &optional initial-input &rest _args)
+                       initial-input))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (prompt) (setq captured-prompt prompt))))
+            (ai-code-pull-or-review-diff-file))
+        (setq buffer-file-name nil)))
+    (should captured-prompt)
+    (cl-letf (((symbol-function 'ai-code--read-auto-test-type-choice)
+               (lambda ()
+                 (ert-fail "Should not ask test type for a diff review prompt."))))
+      (should (eq 'non-code-change
+                  (ai-code--simple-classify-prompt-code-change captured-prompt)))
+      (should-not (ai-code--resolve-auto-test-type-for-send captured-prompt)))))
 
 (ert-deftest ai-code-test-read-auto-test-type-choice-allow-no-test ()
   "Test that ask choices support selecting no test run."
@@ -1143,6 +1218,7 @@
   (should (boundp 'ai-code-discussion--selected-region-note))
   (should (boundp 'ai-code-discussion--exception-investigation-boundaries))
   (should (boundp 'ai-code-discussion--explain-prompt-prefixes))
+  (should (boundp 'ai-code-github--analysis-only-notes))
   (should (equal ai-code--code-change-prompt-markers
                  (mapcar #'downcase
                          (list ai-code-change--selected-region-note
@@ -1157,7 +1233,9 @@
                                 ai-code-discussion--selected-region-note
                                 ai-code-discussion--exception-investigation-boundaries))
                   (mapcar #'downcase
-                          ai-code-discussion--explain-prompt-prefixes)))))
+                          ai-code-discussion--explain-prompt-prefixes)
+                  (mapcar #'downcase
+                          ai-code-github--analysis-only-notes)))))
 
 (ert-deftest ai-code-test-simple-classifier-treats-exception-investigation-as-non-code-change ()
   "Test that exception investigation prompts skip code-change routing."
