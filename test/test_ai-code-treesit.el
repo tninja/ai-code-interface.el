@@ -271,6 +271,46 @@
         (should-not (plist-get scope :class-header))
         (should-not (plist-get scope :function-header))))))
 
+(ert-deftest test-ai-code-treesit--which-func-available-for-fallback ()
+  "Ensure the non-Tree-sitter fallback function is actually loadable."
+  (should (fboundp 'which-function)))
+
+(ert-deftest test-ai-code-treesit--header-excludes-body-comments ()
+  "Stop the function header before comments that open the body."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def run(self):\n"
+            "        # Step 1: validate the payload\n"
+            "        # Step 2: normalize identifiers\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 4)
+    (let ((scope (ai-code--current-line-scope-context)))
+      (should (equal (plist-get scope :function-header) "def run(self):"))
+      (should-not (string-match-p "Step 1" (plist-get scope :function-header))))))
+
+(ert-deftest test-ai-code-treesit--class-header-excludes-body-comments ()
+  "Stop the class header before comments that open the class body."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    # NOTE: internal registry helper\n"
+            "    # NOTE: see docs/registry.md\n"
+            "    def run(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 3)
+    (let ((scope (ai-code--current-line-scope-context)))
+      (should (equal (plist-get scope :class-header) "class Service:"))
+      (should-not (string-match-p "NOTE" (plist-get scope :class-header))))))
+
 (ert-deftest test-ai-code-treesit--qualified-scope-name-joins-class-and-function ()
   "Qualify a method name with its enclosing class."
   (skip-unless (and (fboundp 'treesit-language-available-p)

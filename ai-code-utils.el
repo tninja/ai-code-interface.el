@@ -15,6 +15,8 @@
 (require 'subr-x)
 (require 'magit)
 (require 'project)
+;; Optional: provides the non-Tree-sitter fallback for scope detection.
+(require 'which-func nil t)
 
 (declare-function projectile-project-root "projectile")
 (declare-function project-current "project" (&optional maybe-prompt dir))
@@ -30,6 +32,7 @@
 (declare-function treesit-node-end "treesit" (node))
 (declare-function treesit-node-text "treesit" (node &optional no-property))
 (declare-function treesit-node-parent "treesit" (node))
+(declare-function treesit-node-children "treesit" (node &optional named))
 (declare-function treesit-node-child-by-field-name "treesit" (node field-name))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
@@ -227,9 +230,35 @@ If NODE is omitted, searches upward from the defun at point."
           (setq enclosing-node current)))
       enclosing-node)))
 
+(defconst ai-code--treesit-comment-node-types
+  '("comment" "line_comment" "block_comment" "documentation_comment")
+  "Tree-sitter node types treated as comments when extracting headers.")
+
+(defun ai-code--treesit-signature-end (node body-node)
+  "Return the position where NODE's declaration ends before BODY-NODE.
+Ignore comment children that the grammar places between the declaration
+and BODY-NODE.  Return nil when NODE exposes no such child."
+  (when (and (fboundp 'treesit-node-children)
+             (fboundp 'treesit-node-type)
+             (fboundp 'treesit-node-start)
+             (fboundp 'treesit-node-end))
+    (let ((body-start (treesit-node-start body-node))
+          (signature-end nil))
+      (dolist (child (ignore-errors (treesit-node-children node)))
+        (let ((child-end (treesit-node-end child)))
+          (when (and child-end
+                     (<= child-end body-start)
+                     (not (member (treesit-node-type child)
+                                  ai-code--treesit-comment-node-types))
+                     (or (null signature-end)
+                         (> child-end signature-end)))
+            (setq signature-end child-end))))
+      signature-end)))
+
 (defun ai-code--treesit-node-header (node)
   "Extract the signature or declaration header of Tree-sitter NODE.
-When the grammar exposes a body field, stop immediately before it.
+When the grammar exposes a body field, stop at the end of the last
+declaration child before it so comments preceding the body are excluded.
 Otherwise, return the first source line of NODE."
   (when (and node (fboundp 'treesit-node-start) (fboundp 'treesit-node-end))
     (let* ((start (treesit-node-start node))
@@ -237,12 +266,14 @@ Otherwise, return the first source line of NODE."
             (and (fboundp 'treesit-node-child-by-field-name)
                  (ignore-errors
                    (treesit-node-child-by-field-name node "body"))))
-           (end (if (and body-node (fboundp 'treesit-node-start))
-                    (treesit-node-start body-node)
-                  (min (treesit-node-end node)
+           (end (cond
+                 ((and body-node
+                       (ai-code--treesit-signature-end node body-node)))
+                 (body-node (treesit-node-start body-node))
+                 (t (min (treesit-node-end node)
                        (save-excursion
                          (goto-char start)
-                         (line-end-position)))))
+                         (line-end-position))))))
            (text (buffer-substring-no-properties start end)))
       (string-trim text))))
 

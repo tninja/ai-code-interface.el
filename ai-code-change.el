@@ -25,6 +25,7 @@
 (declare-function ai-code--current-line-scope-context "ai-code-utils" ())
 (declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
+(declare-function ai-code--class-only-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
@@ -515,6 +516,17 @@ The plist contains `:heading-line', `:content', and `:line-number'."
     (and clipboard-context
          (string-match-p "\\S-" clipboard-context))))
 
+(defun ai-code--implement-todo--format-function-context (semantic-scope
+                                                         fallback-function-name)
+  "Return the scope block for a TODO prompt.
+SEMANTIC-SCOPE is preformatted scope text.  FALLBACK-FUNCTION-NAME names
+the function when SEMANTIC-SCOPE carries no function of its own."
+  (concat
+   (unless (string-empty-p (or semantic-scope ""))
+     (concat "\n" semantic-scope))
+   (when fallback-function-name
+     (format "\nFunction: %s" fallback-function-name))))
+
 (defun ai-code--implement-todo--collect-prompt-context (arg)
   "Collect prompt context for `ai-code-implement-todo'.
 ARG controls whether clipboard context is included."
@@ -523,26 +535,33 @@ ARG controls whether clipboard context is included."
          (current-line-number (line-number-at-pos (point)))
          (is-comment (ai-code--is-comment-line current-line))
          (region-active (region-active-p))
-         (scope-context (unless is-comment
-                          (if region-active
+         (scope-context (if region-active
                               (ai-code--scope-context-for-region
                                (region-beginning) (region-end))
-                            (ai-code--current-line-scope-context))))
-         (function-name (if is-comment
-                            (ai-code--get-function-name-for-comment)
-                          (plist-get scope-context :function-name)))
+                          (ai-code--current-line-scope-context)))
+         (scope-function-name (plist-get scope-context :function-name))
+         (comment-function-name (when is-comment
+                                  (ai-code--get-function-name-for-comment)))
+         (function-name (or comment-function-name scope-function-name))
+         ;; A comment may document the function that follows it, so the scope
+         ;; at point then describes a different function.  Keep only its
+         ;; class-like container in that case.
+         (semantic-context
+          (if (and comment-function-name
+                   scope-function-name
+                   (not (equal comment-function-name scope-function-name)))
+              (ai-code--class-only-scope-context scope-context)
+            scope-context))
+         (semantic-scope (ai-code--format-scope-context semantic-context))
          (org-todo-section-info (ai-code--implement-todo--get-org-todo-section-info))
          (org-section-block
           (ai-code--implement-todo--format-org-section-block
            org-todo-section-info))
-         (semantic-scope (unless is-comment
-                           (ai-code--format-scope-context scope-context)))
          (function-context
-          (cond
-           ((and semantic-scope (not (string-empty-p semantic-scope)))
-            (concat "\n" semantic-scope))
-           (function-name (format "\nFunction: %s" function-name))
-           (t "")))
+          (ai-code--implement-todo--format-function-context
+           semantic-scope
+           (unless (plist-get semantic-context :function-name)
+             function-name)))
          (region-text (when region-active
                         (buffer-substring-no-properties
                          (region-beginning)

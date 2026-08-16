@@ -1215,6 +1215,64 @@ is between the function definition and its body."
         (should command-executed)
         (should-not y-or-n-called)))))
 
+(ert-deftest ai-code-test-implement-todo-comment-keeps-enclosing-scope ()
+  "Keep Tree-sitter scope for a TODO comment inside a method."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def run(self):\n"
+            "        # TODO: implement caching\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 2)
+    (let* ((context (ai-code--implement-todo--collect-prompt-context nil))
+           (function-context (plist-get context :function-context)))
+      (should (plist-get context :is-comment))
+      (should (equal (plist-get context :function-name) "run"))
+      (should (string-match-p "Enclosing class: Service" function-context))
+      (should (string-match-p "Function: run" function-context))
+      (should (string-match-p "Function definition: def run(self):"
+                              function-context)))))
+
+(ert-deftest ai-code-test-implement-todo-comment-for-next-function-keeps-class-only ()
+  "Drop function metadata when a TODO comment documents the following method."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def run(self):\n"
+            "        return 1\n\n"
+            "    # TODO: add retry\n"
+            "    def retry(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "# TODO")
+    (back-to-indentation)
+    (let* ((context (ai-code--implement-todo--collect-prompt-context nil))
+           (function-context (plist-get context :function-context)))
+      (should (equal (plist-get context :function-name) "retry"))
+      (should (string-match-p "Enclosing class: Service" function-context))
+      (should (string-match-p "Function: retry" function-context))
+      ;; The scope at point still describes `run', so its signature and range
+      ;; must not be attributed to `retry'.
+      (should-not (string-match-p "Function definition" function-context))
+      (should-not (string-match-p "Function range" function-context))
+      (should-not (string-match-p "run" function-context)))))
+
+(ert-deftest ai-code-test-implement-todo-format-function-context-empty ()
+  "Return an empty scope block when no scope information exists."
+  (should (equal (ai-code--implement-todo--format-function-context nil nil) ""))
+  (should (equal (ai-code--implement-todo--format-function-context "" nil) ""))
+  (should (equal (ai-code--implement-todo--format-function-context "" "run")
+                 "\nFunction: run")))
+
 (provide 'test_ai-code-change)
 
 ;;; test_ai-code-change.el ends here
