@@ -656,12 +656,22 @@ In the current repository, inspect `git show %s` and explain:
                                   (or buffer-file-name "current buffer"))))
       (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
+(defun ai-code--line-semantic-position ()
+  "Return the first non-whitespace position on the current line.
+Return nil when the current line contains only whitespace."
+  (save-excursion
+    (back-to-indentation)
+    (unless (eolp)
+      (point))))
+
 (defun ai-code--explain-line ()
   "Explain the current line."
   (let* ((line-text (string-trim (thing-at-point 'line t)))
          (line-number (line-number-at-pos))
+         (semantic-position (ai-code--line-semantic-position))
          (semantic-scope
-          (ai-code--format-scope-context (ai-code--current-scope-context))))
+          (ai-code--format-scope-context
+           (ai-code--current-scope-context semantic-position))))
     (let* ((initial-prompt (format "%s\n\nLine %d: %s\n\n%sFile: %s\n\nExplain what this line does, its purpose, and how it fits into the surrounding code."
                                    ai-code-discussion--explain-line-prefix
                                    line-number
