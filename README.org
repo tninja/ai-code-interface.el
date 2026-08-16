@@ -219,7 +219,23 @@ Context engineering is the deliberate practice of selecting, structuring, and de
 This package makes context engineering easy by automatically assembling precise context blocks and letting you curate additional context on demand:
 - Automatic file and window context: prompts can include the current file and other visible files (`ai-code--get-context-files-string`), so the AI sees related code without manual copying.
 - Function or region scoping: most actions capture the current function or active region, keeping requests focused (e.g., `ai-code-code-change`, `ai-code-implement-todo`, `ai-code-ask-question`).
-- Manual context curation: `C-c a @` (`ai-code-context-action`) stores file paths, function anchors, or region ranges in a repo-scoped list, which is appended to prompts via `ai-code--format-repo-context-info`. In a Dired buffer, `C-c a @` (`ai-code-context-action`) can store the marked files or directories as repo context; if nothing is explicitly marked, it falls back to the file or directory at point.
+- Tree-sitter semantic scope: when the current buffer has an active Tree-sitter parser, prompts carry structural context derived from the real syntax tree instead of just a function name. A prompt for a method now includes its enclosing type, both declaration headers, and the function's line range:
+
+  #+begin_example
+  Enclosing class: UserService
+  Class definition: class UserService(BaseService):
+  Function: find_user
+  Function definition: def find_user(self, user_id: int) -> str:
+  Function range: lines 2-4
+  #+end_example
+
+  Details worth knowing:
+  - The enclosing container is grammar-driven, so it covers classes, structs, `impl` and `trait` blocks, interfaces, objects, records, and enums across languages, not only Python-style classes.
+  - Headers are taken from the declaration node, so multi-line signatures are preserved in full while bodies, docstrings, and comments that the grammar attaches to the body are excluded.
+  - A region spanning sibling functions does not claim to be inside either one; it collapses to their common container, emitting only `Enclosing class:` and `Class definition:`.
+  - Indented definition lines resolve to the definition itself rather than to an enclosing node, so placing the cursor on a `def` line reports that method.
+  - Without an active Tree-sitter grammar, the same actions fall back to `which-function`, so behavior degrades to the previous function-name-only context rather than breaking.
+- Manual context curation: `C-c a @` (`ai-code-context-action`) stores file paths, function anchors, or region ranges in a repo-scoped list, which is appended to prompts via `ai-code--format-repo-context-info`. Function anchors are qualified with their enclosing type when Tree-sitter can resolve one, so a stored method reads `src/service.py#UserService.find_user` instead of the ambiguous `src/service.py#find_user`; with the cursor outside any function the anchor falls back to the container alone (`src/service.py#UserService`). In a Dired buffer, `C-c a @` (`ai-code-context-action`) can store the marked files or directories as repo context; if nothing is explicitly marked, it falls back to the file or directory at point.
 - Optional clipboard context: prefix with `C-u` to append clipboard content to prompts for external snippets or logs.
 - @-triggered filepath completion in comments and AI sessions. Type `@` to open a completion list of recent and visible repo files, then select a path to insert.
 - Dired-aware prompt context: Dired-based actions such as code change, question asking, and explain can use marked entries or the current entry as prompt context, so the AI receives the exact file or directory targets you selected in the directory view.
