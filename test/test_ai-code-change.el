@@ -778,7 +778,13 @@ is between the function definition and its body."
     (goto-char (point-min))
     (let (captured-prompt)
       (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
-                ((symbol-function 'which-function) (lambda () "old-helper"))
+                ((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda ()
+                   (list :function-name "old-helper"
+                         :class-name "HelperService"
+                         :class-header "class HelperService:"
+                         :function-header "(defun old-helper ()"
+                         :range (cons (point-min) (1- (point-max))))))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (_label _input) "Rename old-helper to new-helper"))
                 ((symbol-function 'ai-code--get-context-files-string)
@@ -791,10 +797,108 @@ is between the function definition and its body."
         (should (stringp captured-prompt))
         (should (string-match-p "Goal:\nRename old-helper to new-helper" captured-prompt))
         (should (string-match-p "Scope:" captured-prompt))
+        (should (string-match-p "Enclosing class: HelperService" captured-prompt))
+        (should (string-match-p "Class definition: class HelperService:" captured-prompt))
         (should (string-match-p "Function: old-helper" captured-prompt))
+        (should (string-match-p "Function definition: (defun old-helper ()" captured-prompt))
+        (should (string-match-p "Function range: lines 1-2" captured-prompt))
         (should (string-match-p "Boundaries:" captured-prompt))
         (should (string-match-p "Agent responsibilities:" captured-prompt))
         (should (string-match-p "Verification evidence:" captured-prompt))))))
+
+(ert-deftest ai-code-test-code-change-whole-function-region-is-direction-independent ()
+  "Use the selected function scope for forward and reverse Tree-sitter regions."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        value = 1\n"
+            "        return value\n\n"
+            "    def second(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "return value")
+    (backward-char 1)
+    (let* ((function-node (ai-code--treesit-defun-at-point))
+           (start (treesit-node-start function-node))
+           (end (treesit-node-end function-node)))
+      (cl-labels
+          ((capture-prompt
+            (point-position mark-position)
+            (goto-char mark-position)
+            (set-mark (point))
+            (goto-char point-position)
+            (let (captured-prompt)
+              (cl-letf (((symbol-function 'region-active-p) (lambda () t))
+                        ((symbol-function 'ai-code-read-string)
+                         (lambda (&rest _) "Change selected code"))
+                        ((symbol-function 'ai-code--get-context-files-string)
+                         (lambda () ""))
+                        ((symbol-function 'ai-code--format-repo-context-info)
+                         (lambda () ""))
+                        ((symbol-function 'ai-code--get-region-location-info)
+                         (lambda (&rest _) "service.py#L2-L4"))
+                        ((symbol-function 'ai-code--insert-prompt)
+                         (lambda (prompt) (setq captured-prompt prompt))))
+                (ai-code--handle-regular-code-change nil t))
+              captured-prompt)))
+        (let ((forward-prompt (capture-prompt end start))
+              (reverse-prompt (capture-prompt start end)))
+          (dolist (prompt (list forward-prompt reverse-prompt))
+            (should (string-match-p "Selected region:" prompt))
+            (should (string-match-p "Function: first" prompt))
+            (should (string-match-p "Function definition: def first(self):"
+                                    prompt))
+            (should-not (string-match-p "Function: Service" prompt)))
+          (should (equal forward-prompt reverse-prompt)))))))
+
+(ert-deftest ai-code-test-implement-todo-context-normalizes-ts-indentation ()
+  "Collect method context from indentation on a Tree-sitter definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+              ((symbol-function 'ai-code--get-context-files-string)
+               (lambda () "")))
+      (let ((context (ai-code--implement-todo--collect-prompt-context nil)))
+        (should (equal (plist-get context :function-name) "first"))
+        (should (string-match-p "Function definition: def first(self):"
+                                (plist-get context :function-context)))))))
+
+(ert-deftest ai-code-test-flycheck-function-scope-uses-ts-function-range ()
+  "Use the Tree-sitter method range from an indented definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt choices &rest _)
+                 (should (member "current-function" choices))
+                 "current-function")))
+      (pcase-let ((`(,start ,end ,description)
+                   (ai-code--choose-flycheck-scope)))
+        (should (= (line-number-at-pos start) 2))
+        (should (= (line-number-at-pos end) 3))
+        (should (string-match-p "function 'first'" description))))))
 
 (ert-deftest ai-code-test-flycheck-fix-errors-uses-structured-brief ()
   "Test `ai-code-flycheck-fix-errors-in-scope' uses structured code-change brief."
@@ -1110,6 +1214,64 @@ is between the function definition and its body."
 
         (should command-executed)
         (should-not y-or-n-called)))))
+
+(ert-deftest ai-code-test-implement-todo-comment-keeps-enclosing-scope ()
+  "Keep Tree-sitter scope for a TODO comment inside a method."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def run(self):\n"
+            "        # TODO: implement caching\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 2)
+    (let* ((context (ai-code--implement-todo--collect-prompt-context nil))
+           (function-context (plist-get context :function-context)))
+      (should (plist-get context :is-comment))
+      (should (equal (plist-get context :function-name) "run"))
+      (should (string-match-p "Enclosing class: Service" function-context))
+      (should (string-match-p "Function: run" function-context))
+      (should (string-match-p "Function definition: def run(self):"
+                              function-context)))))
+
+(ert-deftest ai-code-test-implement-todo-comment-for-next-function-keeps-class-only ()
+  "Drop function metadata when a TODO comment documents the following method."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def run(self):\n"
+            "        return 1\n\n"
+            "    # TODO: add retry\n"
+            "    def retry(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "# TODO")
+    (back-to-indentation)
+    (let* ((context (ai-code--implement-todo--collect-prompt-context nil))
+           (function-context (plist-get context :function-context)))
+      (should (equal (plist-get context :function-name) "retry"))
+      (should (string-match-p "Enclosing class: Service" function-context))
+      (should (string-match-p "Function: retry" function-context))
+      ;; The scope at point still describes `run', so its signature and range
+      ;; must not be attributed to `retry'.
+      (should-not (string-match-p "Function definition" function-context))
+      (should-not (string-match-p "Function range" function-context))
+      (should-not (string-match-p "run" function-context)))))
+
+(ert-deftest ai-code-test-implement-todo-format-function-context-empty ()
+  "Return an empty scope block when no scope information exists."
+  (should (equal (ai-code--implement-todo--format-function-context nil nil) ""))
+  (should (equal (ai-code--implement-todo--format-function-context "" nil) ""))
+  (should (equal (ai-code--implement-todo--format-function-context "" "run")
+                 "\nFunction: run")))
 
 (provide 'test_ai-code-change)
 

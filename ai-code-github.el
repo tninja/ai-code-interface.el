@@ -28,8 +28,10 @@
 (declare-function ai-code--explain-code-change "ai-code-discussion" (&optional review-source))
 (declare-function ai-code--get-context-files-string "ai-code-utils" ())
 (declare-function ai-code--format-repo-context-info "ai-code-utils" ())
+(declare-function ai-code--current-line-scope-context "ai-code-utils" ())
+(declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
+(declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--get-region-location-info "ai-code-discussion" (region-beginning region-end))
-(declare-function which-function "which-func" ())
 
 
 (defcustom ai-code-default-review-source nil
@@ -199,7 +201,12 @@ Issue Investigation Steps:
                                        (ai-code--get-region-location-info
                                         (region-beginning)
                                         (region-end))))
-               (function-name (which-function))
+               (semantic-scope
+                (ai-code--format-scope-context
+                 (if region-text
+                     (ai-code--scope-context-for-region
+                      (region-beginning) (region-end))
+                   (ai-code--current-line-scope-context))))
                (files-context-string (ai-code--get-context-files-string))
                (repo-context-string (ai-code--format-repo-context-info))
                (context-blocks nil))
@@ -207,8 +214,8 @@ Issue Investigation Steps:
                     (format "Current file: %s" buffer-file-name)
                   (format "Current buffer: %s" (buffer-name)))
                 context-blocks)
-          (when function-name
-            (push (format "Function: %s" function-name) context-blocks))
+          (unless (string-empty-p semantic-scope)
+            (push semantic-scope context-blocks))
           (when region-text
             (push (concat "Selected region:\n"
                           (when region-location-info

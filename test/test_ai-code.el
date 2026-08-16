@@ -185,6 +185,11 @@
                  (should (= beg 10))
                  (should (= end 42))
                  "ai-code.el#L10-L11"))
+              ((symbol-function 'ai-code--scope-context-for-region)
+               (lambda (beg end)
+                 (should (= beg 10))
+                 (should (= end 42))
+                 nil))
               ((symbol-function 'ai-code-read-string)
                (lambda (prompt &optional _initial-input _candidate-list)
                  (should (string-match-p "Describe the Emacs runtime issue" prompt))
@@ -225,8 +230,15 @@
               ((symbol-function 'ai-code--get-region-location-info)
                (lambda (_beg _end)
                  "ai-code.el#L10-L11"))
-              ((symbol-function 'which-function)
-               (lambda () "ai-code-test-command"))
+              ((symbol-function 'ai-code--scope-context-for-region)
+               (lambda (beg end)
+                 (should (= beg 10))
+                 (should (= end 42))
+                 (list :function-name "ai-code-test-command"
+                       :class-name "RuntimeDebugger"
+                       :class-header "class RuntimeDebugger:"
+                       :function-header "(defun ai-code-test-command ()"
+                       :range (cons (point-min) (point-max)))))
               ((symbol-function 'ai-code--get-context-files-string)
                (lambda () "\nFiles:\n/tmp/project/ai-code.el\n/tmp/project/ai-code-discussion.el"))
               ((symbol-function 'ai-code--format-repo-context-info)
@@ -250,6 +262,10 @@
     (should (string-match-p "Current file: /tmp/project/ai-code\\.el"
                             (cadr confirm-read-args)))
     (should (string-match-p "Function: ai-code-test-command"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Class definition: class RuntimeDebugger:"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Function definition: (defun ai-code-test-command ()"
                             (cadr confirm-read-args)))
     (should (string-match-p "Selected region:" (cadr confirm-read-args)))
     (should (string-match-p "ai-code.el#L10-L11" (cadr confirm-read-args)))

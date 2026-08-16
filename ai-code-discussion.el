@@ -26,6 +26,9 @@
 (declare-function ai-code--detect-todo-info
                   "ai-code-change" (region-active))
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
+(declare-function ai-code--current-line-scope-context "ai-code-utils" ())
+(declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
+(declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode")
 (declare-function ai-code--ensure-files-directory "ai-code-utils")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
@@ -228,9 +231,14 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                           (file-name-extension buffer-file-name)))
          (is-diff-or-patch (and file-extension
                                (member file-extension '("diff" "patch"))))
-         (function-name (unless is-diff-or-patch
-                         (which-function)))
          (region-active (region-active-p))
+         (scope-ctx (unless is-diff-or-patch
+                      (if region-active
+                          (ai-code--scope-context-for-region
+                           (region-beginning) (region-end))
+                        (ai-code--current-line-scope-context))))
+         (function-name (plist-get scope-ctx :function-name))
+         (semantic-scope (ai-code--format-scope-context scope-ctx))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
          (region-location-info (when region-active
@@ -271,8 +279,8 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
                      (when region-location-info
                        (concat region-location-info "\n"))
                      region-text))
-           (when function-name
-             (format "\nFunction: %s" function-name))
+           (unless (string-empty-p semantic-scope)
+             (concat "\n" semantic-scope))
            files-context-string))
          (final-prompt
           (ai-code--compose-question-brief
@@ -337,7 +345,13 @@ Argument ARG is the prefix argument."
          (buffer-file buffer-file-name)
          (full-buffer-context (when (and (not buffer-file) (not region-text))
                                 (buffer-substring-no-properties (point-min) (point-max))))
-         (function-name (which-function))
+         (scope-context
+          (if region-text
+              (ai-code--scope-context-for-region
+               (region-beginning) (region-end))
+            (ai-code--current-line-scope-context)))
+         (function-name (plist-get scope-context :function-name))
+         (semantic-scope (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
          (diagnostic-context
@@ -380,8 +394,8 @@ Argument ARG is the prefix argument."
            (if buffer-file
                (format "Current file: %s" buffer-file)
              (format "Current buffer: %s" (buffer-name)))
-           (when function-name
-             (format "\nFunction: %s" function-name))
+           (unless (string-empty-p semantic-scope)
+             (concat "\n" semantic-scope))
            files-context-string))
          (context-string
           (string-trim
@@ -461,17 +475,17 @@ sends to AI."
 (defun ai-code--explain-region ()
   "Explain the selected region with function/file context."
   (let* ((region-text (buffer-substring-no-properties (region-beginning) (region-end)))
-         (function-name (which-function))
-         (context-info (if function-name
-                          (format "Function: %s" function-name)
-                        ""))
+         (scope-context
+          (ai-code--scope-context-for-region
+           (region-beginning) (region-end)))
+         (context-info (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))
          (initial-prompt (format "%s\n\n%s\n\n%s%s%s\n\nProvide a clear explanation of what this code does, how it works, and its purpose within the context."
                          ai-code-discussion--explain-code-prefix
                          region-text
                          context-info
-                         (if function-name "\n" "")
-                        files-context-string)))
+                         (if (string-empty-p context-info) "" "\n")
+                         files-context-string)))
     (ai-code--confirm-and-send "Prompt: " initial-prompt)))
 
 (defun ai-code--explain-with-scope-selection ()
@@ -629,15 +643,17 @@ In the current repository, inspect `git show %s` and explain:
 (defun ai-code--explain-symbol ()
   "Explain the symbol at point."
   (let* ((symbol (thing-at-point 'symbol t))
-         (function-name (which-function)))
+         (semantic-scope
+          (ai-code--format-scope-context
+           (ai-code--current-line-scope-context))))
     (unless symbol
       (user-error "No symbol at point"))
     (let* ((initial-prompt (format "%s%s' in the context of:%s\nFile: %s\n\nExplain what this symbol represents, its type, purpose, and how it's used in this context."
                                    ai-code-discussion--explain-symbol-prefix
                                    symbol
-                                   (if function-name
-                                       (format "\nFunction: %s" function-name)
-                                     "")
+                                   (if (string-empty-p semantic-scope)
+                                       ""
+                                     (concat "\n" semantic-scope))
                                   (or buffer-file-name "current buffer"))))
       (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
@@ -645,27 +661,33 @@ In the current repository, inspect `git show %s` and explain:
   "Explain the current line."
   (let* ((line-text (string-trim (thing-at-point 'line t)))
          (line-number (line-number-at-pos))
-         (function-name (which-function)))
+         (semantic-scope
+          (ai-code--format-scope-context
+           (ai-code--current-line-scope-context))))
     (let* ((initial-prompt (format "%s\n\nLine %d: %s\n\n%sFile: %s\n\nExplain what this line does, its purpose, and how it fits into the surrounding code."
                                    ai-code-discussion--explain-line-prefix
                                    line-number
                                    line-text
-                                   (if function-name
-                                       (format "Function: %s\n" function-name)
-                                    "")
+                                   (if (string-empty-p semantic-scope)
+                                       ""
+                                     (concat semantic-scope "\n"))
                                   (or buffer-file-name "current buffer"))))
       (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 
 (defun ai-code--explain-function ()
   "Explain the current function."
-  (let ((function-name (which-function)))
+  (let* ((scope-context (ai-code--current-line-scope-context))
+         (function-name (plist-get scope-context :function-name))
+         (semantic-scope (ai-code--format-scope-context scope-context)))
     (unless function-name
       (user-error "Not inside a function"))
     (let* ((initial-prompt (format "%s%s':
+%s
 File: %s
 Explain what this function does, its parameters, return value, algorithm, and its role in the overall codebase."
                                    ai-code-discussion--explain-function-prefix
                                    function-name
+                                   semantic-scope
                                    (or buffer-file-name "current buffer"))))
       (ai-code--confirm-and-send "Prompt: " initial-prompt))))
 

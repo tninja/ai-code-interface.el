@@ -21,6 +21,11 @@
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode")
 (declare-function ai-code--get-clipboard-text "ai-code-utils")
+(declare-function ai-code--current-function-name "ai-code-utils")
+(declare-function ai-code--current-line-scope-context "ai-code-utils" ())
+(declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
+(declare-function ai-code--format-scope-context "ai-code-utils" (context))
+(declare-function ai-code--class-only-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
@@ -176,9 +181,10 @@ begins with a DONE: prefix."
 (defun ai-code--get-function-name-for-comment ()
   "Get the appropriate function name when cursor is on a comment line.
 If the comment precedes a function definition or is inside a function body,
-returns that function's name.  Otherwise returns the result of `which-function`."
+returns that function's name.  Otherwise returns the result of
+`ai-code--current-function-name`."
   (interactive)
-  (let* ((current-func (which-function))
+  (let* ((current-func (ai-code--current-function-name))
          (resolved-func
           (save-excursion
             (cl-labels ((line-text ()
@@ -198,7 +204,7 @@ returns that function's name.  Otherwise returns the result of `which-function`.
                     (when (or (eobp) (string-blank-p text))
                       (cl-return-from resolve nil)))
                   ;; Resolve with a short lookahead; stop on blank lines.
-                  (let ((next-func (which-function)))
+                  (let ((next-func (ai-code--current-function-name)))
                     (cl-loop with lookahead = 5
                              while (and (> lookahead 0)
                                         (or (null next-func)
@@ -209,14 +215,12 @@ returns that function's name.  Otherwise returns the result of `which-function`.
                                 (when (string-blank-p text)
                                   (cl-return-from resolve nil))
                                 (unless (ai-code--is-comment-line text)
-                                  (setq next-func (which-function)))
+                                  (setq next-func (ai-code--current-function-name)))
                              finally return (cond
                                              ((not current-func) next-func)
                                              ((not next-func) current-func)
                                              ((not (string= next-func current-func)) next-func)
                                              (t current-func))))))))))
-    ;; (when resolved-func
-    ;;   (message "Identified function: %s" resolved-func))
     resolved-func))
 
 (defun ai-code--detect-todo-info (region-active)
@@ -281,7 +285,12 @@ FUNCTION-NAME is the name of the function at point if any."
 ARG is the prefix argument.
 REGION-ACTIVE indicates whether a region is selected."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
-         (function-name (which-function))
+         (scope-ctx (if region-active
+                        (ai-code--scope-context-for-region
+                         (region-beginning) (region-end))
+                      (ai-code--current-line-scope-context)))
+         (function-name (plist-get scope-ctx :function-name))
+         (semantic-scope (ai-code--format-scope-context scope-ctx))
          (region-text (when region-active
                         (buffer-substring-no-properties (region-beginning) (region-end))))
          (region-start-line (when region-active
@@ -303,7 +312,8 @@ REGION-ACTIVE indicates whether a region is selected."
                       (region-start-line
                        (format "Start line: %d\n" region-start-line)))
                      region-text))
-           (when function-name (format "\nFunction: %s" function-name))
+           (unless (string-empty-p semantic-scope)
+             (concat "\n" semantic-scope))
            files-context-string))
          (final-prompt
           (ai-code--compose-code-change-brief
@@ -506,6 +516,17 @@ The plist contains `:heading-line', `:content', and `:line-number'."
     (and clipboard-context
          (string-match-p "\\S-" clipboard-context))))
 
+(defun ai-code--implement-todo--format-function-context (semantic-scope
+                                                         fallback-function-name)
+  "Return the scope block for a TODO prompt.
+SEMANTIC-SCOPE is preformatted scope text.  FALLBACK-FUNCTION-NAME names
+the function when SEMANTIC-SCOPE carries no function of its own."
+  (concat
+   (unless (string-empty-p (or semantic-scope ""))
+     (concat "\n" semantic-scope))
+   (when fallback-function-name
+     (format "\nFunction: %s" fallback-function-name))))
+
 (defun ai-code--implement-todo--collect-prompt-context (arg)
   "Collect prompt context for `ai-code-implement-todo'.
 ARG controls whether clipboard context is included."
@@ -513,17 +534,34 @@ ARG controls whether clipboard context is included."
          (current-line (string-trim (thing-at-point 'line t)))
          (current-line-number (line-number-at-pos (point)))
          (is-comment (ai-code--is-comment-line current-line))
-         (function-name (if is-comment
-                            (ai-code--get-function-name-for-comment)
-                          (which-function)))
+         (region-active (region-active-p))
+         (scope-context (if region-active
+                              (ai-code--scope-context-for-region
+                               (region-beginning) (region-end))
+                          (ai-code--current-line-scope-context)))
+         (scope-function-name (plist-get scope-context :function-name))
+         (comment-function-name (when is-comment
+                                  (ai-code--get-function-name-for-comment)))
+         (function-name (or comment-function-name scope-function-name))
+         ;; A comment may document the function that follows it, so the scope
+         ;; at point then describes a different function.  Keep only its
+         ;; class-like container in that case.
+         (semantic-context
+          (if (and comment-function-name
+                   scope-function-name
+                   (not (equal comment-function-name scope-function-name)))
+              (ai-code--class-only-scope-context scope-context)
+            scope-context))
+         (semantic-scope (ai-code--format-scope-context semantic-context))
          (org-todo-section-info (ai-code--implement-todo--get-org-todo-section-info))
          (org-section-block
           (ai-code--implement-todo--format-org-section-block
            org-todo-section-info))
-         (function-context (if function-name
-                               (format "\nFunction: %s" function-name)
-                             ""))
-         (region-active (region-active-p))
+         (function-context
+          (ai-code--implement-todo--format-function-context
+           semantic-scope
+           (unless (plist-get semantic-context :function-name)
+             function-name)))
          (region-text (when region-active
                         (buffer-substring-no-properties
                          (region-beginning)
@@ -749,13 +787,17 @@ to include in each error report."
 
 (defun ai-code--choose-flycheck-scope ()
   "Return a list (START END DESCRIPTION) for Flycheck fixing scope."
-  (let* ((scope (if (region-active-p) 'region
+  (let* ((region-active (region-active-p))
+         (scope-context (unless region-active
+                          (ai-code--current-line-scope-context)))
+         (function-name (plist-get scope-context :function-name))
+         (scope (if region-active 'region
                   (intern
                    (completing-read
                     "Select Flycheck fixing scope: "
                     (delq nil
                           `("current-line"
-                            ,(when (which-function) "current-function")
+                            ,(when function-name "current-function")
                             "whole-file"))
                     nil t))))
          start end description)
@@ -773,15 +815,16 @@ to include in each error report."
              description       (format "current line (%d)"
                                        (line-number-at-pos (point)))))
       ('current-function
-       (let ((bounds (bounds-of-thing-at-point 'defun)))
+       (let ((bounds (or (plist-get scope-context :range)
+                         (bounds-of-thing-at-point 'defun))))
          (unless bounds
            (user-error "Not inside a function; cannot select current function"))
          (setq start            (car bounds)
                end              (cdr bounds)
                description       (format "function '%s' (lines %d–%d)"
-                                        (which-function)
-                                        (line-number-at-pos (car bounds))
-                                        (line-number-at-pos (cdr bounds))))))
+                                         function-name
+                                         (line-number-at-pos (car bounds))
+                                         (line-number-at-pos (cdr bounds))))))
       ('whole-file
        (setq start            (point-min)
              end              (point-max)
