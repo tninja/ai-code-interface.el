@@ -52,8 +52,7 @@ run_focused_tests() {
     -l ert \
     -l "$source_dir/ai-code-prompt-mode.el" \
     -l "$source_dir/test_ai-code-prompt-mode.el" \
-    --eval '(ert-run-tests-batch-and-exit
-             "ai-code-test-call-gptel-sync-\\(ignores-reasoning-before-final-response\\|reports-gptel-error-field\\)")' \
+    --eval '(ert-run-tests-batch-and-exit "ai-code-test-call-gptel-sync-")' \
     || return 1
 }
 
@@ -124,5 +123,17 @@ run_mutant "treat reasoning as an unknown response" \
 run_mutant "ignore GPTel callback errors" \
   "ai-code-prompt-mode.el" \
   's/\Q(plist-get info :error)\E/nil/'
+run_mutant "let caller GPTel tools run during a sync request" \
+  "ai-code-prompt-mode.el" \
+  's/\Q(let ((gptel-use-tools nil)\E\s+\Q(gptel-tools nil))\E/(progn/'
+run_mutant "drop the GPTel status from failure descriptions" \
+  "ai-code-prompt-mode.el" \
+  's/\Q(plist-get info :status)\E/nil/'
+run_mutant "let a reasoning block mask a reported error" \
+  "ai-code-prompt-mode.el" \
+  's/\Q(and (null (plist-get info :error))\E\s+\Q(consp response)\E/(and (consp response)/'
+run_mutant "accept a partial string response reported with an error" \
+  "ai-code-prompt-mode.el" \
+  's/\Q((and (stringp response)\E\s+\Q(null (plist-get info :error)))\E/((stringp response)/'
 
 echo "Issue 478 gauntlet passed"
