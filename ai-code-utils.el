@@ -283,8 +283,8 @@ Otherwise, return the first source line of NODE."
   '("function_definition" "function_declaration" "method_definition"
     "method_declaration" "function_item" "method_item" "function" "method"
     "arrow_function" "generator_function" "generator_function_declaration"
-    "constructor" "procedure_definition" "procedure" "func_definition"
-    "async_function_definition")
+    "constructor" "constructor_declaration" "procedure_definition" "procedure"
+    "func_definition" "async_function_definition")
   "Tree-sitter node types that define a function or method.")
 
 (defun ai-code--treesit-defun-node-p (node-type)
@@ -299,14 +299,21 @@ Otherwise, return the first source line of NODE."
 
 (defun ai-code--treesit--qualified-name (node name)
   "Return qualified name for NODE with base NAME.
-Prefix with enclosing class when available."
-  (if (ai-code--treesit-class-like-node-p node)
-      name
-    (let* ((class-node (ai-code--treesit-enclosing-class-node node))
-           (class-name (and class-node (ai-code--treesit-node-name class-node))))
-      (if (and class-name (not (string-empty-p class-name)))
-          (concat class-name "." name)
-        name))))
+Prefix with the full enclosing type path."
+  (let* ((enclosing-names
+          (let ((names nil)
+                (cur (treesit-node-parent node)))
+            (while cur
+              (when (ai-code--treesit-class-like-node-p cur)
+                (when-let ((n (ai-code--treesit-node-name cur)))
+                  (push n names)))
+              (setq cur (treesit-node-parent cur)))
+            names))
+         (prefix (when enclosing-names
+                   (mapconcat #'identity enclosing-names "."))))
+    (if (and prefix (not (string-empty-p prefix)))
+        (concat prefix "." name)
+      name)))
 
 (defun ai-code--treesit--symbol-entry (node node-type name)
   "Build a symbol plist for NODE of NODE-TYPE with NAME."
