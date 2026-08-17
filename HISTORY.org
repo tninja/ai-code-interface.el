@@ -3,6 +3,12 @@
 
 ** Main branch change
 
+** 1.94
+- feat(treesit): symbol-level @# completion with qualified names
+- Add Tree-sitter semantic scope and structural context extraction
+- Skip test harnesses for non-code prompts
+- Reuse recent shell commands in run prompts
+
 ** 1.93
 - Chore: sort backend selection by MRU order with history persistence
 - Fix session lookup across symlinks and worktrees
