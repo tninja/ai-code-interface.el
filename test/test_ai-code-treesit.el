@@ -341,5 +341,57 @@
                (lambda () (ai-code--empty-scope-context))))
       (should-not (ai-code--current-qualified-scope-name)))))
 
+;; Spec: Symbol-level @# completion — Tree-sitter file symbols
+;; Expected: ai-code--treesit-file-symbols returns qualified names in file order with headers
+(ert-deftest test-ai-code-treesit--file-symbols-qualified-and-order ()
+  "Collect file symbols with qualified names in file-definition order."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "def alpha():\n    pass\n\n"
+            "class Service:\n"
+            "    def first(self):\n        pass\n"
+            "    def second(self):\n        pass\n\n"
+            "def zebra():\n    pass\n")
+    (python-ts-mode)
+    ;; Function under test does not exist yet — RED should fail.
+    (should (fboundp 'ai-code--treesit-file-symbols))
+    (let* ((symbols (ai-code--treesit-file-symbols (current-buffer)))
+           (qualified (mapcar (lambda (s) (plist-get s :qualified)) symbols)))
+      ;; File order, not alphabetical: alpha, Service, Service.first, Service.second, zebra
+      (should (equal qualified '("alpha" "Service" "Service.first" "Service.second" "zebra")))
+      ;; Headers and lines present
+      (let ((first (cl-find "Service.first" symbols :key (lambda (s) (plist-get s :qualified)) :test #'string=)))
+        (should first)
+        (should (string-match-p "def first" (plist-get first :header)))
+        (should (integerp (plist-get first :line)))))))
+
+(ert-deftest test-ai-code-treesit--file-symbols-empty ()
+  "Return nil or empty list for file with no symbols."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "# just comment\nx = 1\n")
+    (python-ts-mode)
+    (should (fboundp 'ai-code--treesit-file-symbols))
+    (let ((symbols (ai-code--treesit-file-symbols (current-buffer))))
+      (should (null symbols)))))
+
+(ert-deftest test-ai-code-treesit--file-symbols-class-only ()
+  "Collect class symbol without methods."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Only:\n    pass\n")
+    (python-ts-mode)
+    (should (fboundp 'ai-code--treesit-file-symbols))
+    (let* ((symbols (ai-code--treesit-file-symbols (current-buffer)))
+           (qualified (mapcar (lambda (s) (plist-get s :qualified)) symbols)))
+      (should (equal qualified '("Only")))
+      (should (string-match-p "class Only" (plist-get (car symbols) :header))))))
+
 (provide 'test_ai-code-treesit)
 ;;; test_ai-code-treesit.el ends here
