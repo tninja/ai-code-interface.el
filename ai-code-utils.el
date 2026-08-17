@@ -35,7 +35,6 @@
 (declare-function treesit-node-children "treesit" (node &optional named))
 (declare-function treesit-node-child-by-field-name "treesit" (node field-name))
 (declare-function treesit-parser-root-node "treesit" (parser))
-(declare-function treesit-buffer-root-node "treesit" (language &optional buffer))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
   "Hash table storing context info lists per Git repository root.")
@@ -358,15 +357,10 @@ Return nil when Tree-sitter is unavailable."
   (let ((buf (or buffer (current-buffer))))
     (when (ai-code--treesit-available-p buf)
       (with-current-buffer buf
-        (let* ((parsers (ignore-errors (treesit-parser-list buf)))
-               (parser (car parsers))
-               (root (cond
-                      (parser (ignore-errors (treesit-parser-root-node parser)))
-                      ((fboundp 'treesit-buffer-root-node)
-                       (ignore-errors (treesit-buffer-root-node 'python buf)))
-                      (t nil))))
-          (when root
-            (ai-code--treesit--collect-symbols root)))))))
+        (when-let* ((parsers (ignore-errors (treesit-parser-list buf)))
+                    (parser (car parsers))
+                    (root (ignore-errors (treesit-parser-root-node parser))))
+          (ai-code--treesit--collect-symbols root))))))
 
 (defun ai-code--current-line-semantic-position ()
   "Return the first non-whitespace position on the current line.
