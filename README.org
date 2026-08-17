@@ -230,6 +230,10 @@ This package makes context engineering easy by automatically assembling precise 
   #+end_example
 - Tree-sitter `@#` symbol completion: after picking a file with `@` (e.g., `@src/service.py`), type `#` to pick a symbol from that file. When Tree-sitter is active (`python-ts-mode`, `rust-ts-mode`, etc.), candidates are qualified names in file-definition order (`Bar`, `Bar.baz`), each annotated with its header and line (`def baz(self):  line 4`); otherwise it falls back to an alphabetically sorted `imenu` list. Works in comments, `*.prompt.org` buffers, and AI session buffers.
 
+Screenshot: 
+
+[[file:./symbol-completion-example-screenshot.png]]
+
 Example (focused refactor with curated context):
 1) In a buffer, run `C-c a @` to add the current function or selected region to stored repo context.
 2) Open another related file in a window so it is picked up by `ai-code--get-context-files-string`.
