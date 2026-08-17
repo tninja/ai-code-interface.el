@@ -94,7 +94,7 @@ Returns a filename with .org suffix."
   (insert task-name)
   (insert "\n\n* Investigation\n\n")
   (insert
-   "# Enter prompts here. Use @ for file path completion.\n")
+   "# Enter prompts here. Use @ for file path completion; after that, use # for symbol completion .\n")
   (insert
    "# Select text and use C-c a SPC (ai-code-send-command) to send it to AI.\n")
   (insert

@@ -331,10 +331,10 @@ END-POS defaults to the current '#' position."
                      (string-prefix-p git-root (file-truename file)))
             file))))))
 
-(defun ai-code--file-symbol-candidates (file)
-  "Return sorted function/class symbol candidates from FILE."
+(defun ai-code--file-symbol-candidates--imenu (buffer)
+  "Return sorted imenu candidates from BUFFER."
   (let (symbols)
-    (with-current-buffer (find-file-noselect file t)
+    (with-current-buffer buffer
       (condition-case nil
           (let ((imenu-auto-rescan t)
                 (index (imenu--make-index-alist t)))
@@ -342,13 +342,67 @@ END-POS defaults to the current '#' position."
         (error nil)))
     (sort (delete-dups (cl-remove-if-not #'stringp symbols)) #'string<)))
 
+(defun ai-code--file-symbol-candidates (file)
+  "Return function/class symbol candidates from FILE.
+When Tree-sitter is available for FILE's buffer, return qualified
+names in file-definition order.  Otherwise fall back to an
+alphabetically sorted imenu list."
+  (let ((buf (ignore-errors (find-file-noselect file t))))
+    (if (and buf
+             (fboundp 'ai-code--treesit-available-p)
+             (fboundp 'ai-code--treesit-file-symbols)
+             (ignore-errors (ai-code--treesit-available-p buf)))
+        (let ((symbols (ignore-errors (ai-code--treesit-file-symbols buf))))
+          (if (and symbols (consp symbols))
+              (let ((qualified (mapcar (lambda (s) (plist-get s :qualified)) symbols)))
+                (delete-dups (cl-remove-if-not #'stringp qualified)))
+            (ai-code--file-symbol-candidates--imenu buf)))
+      (when buf
+        (ai-code--file-symbol-candidates--imenu buf)))))
+
+(defun ai-code--choose-symbol-annotation-alist (symbols-or-buffer)
+  "Return annotation alist for Tree-sitter SYMBOLS-OR-BUFFER.
+Each element is (QUALIFIED . \" HEADER  line N\")."
+  (let ((symbols (if (bufferp symbols-or-buffer)
+                     (when (and (fboundp 'ai-code--treesit-available-p)
+                                (fboundp 'ai-code--treesit-file-symbols)
+                                (ignore-errors (ai-code--treesit-available-p symbols-or-buffer)))
+                       (ignore-errors (ai-code--treesit-file-symbols symbols-or-buffer)))
+                   symbols-or-buffer)))
+    (when (and symbols (consp symbols))
+      (mapcar (lambda (s)
+                (cons (plist-get s :qualified)
+                      (format " %s  line %s"
+                              (or (plist-get s :header) "")
+                              (or (plist-get s :line) ""))))
+              symbols))))
+
 (defun ai-code--choose-symbol-from-file (file)
-  "Prompt user to select a symbol from FILE and return it."
-  (let ((candidates (ai-code--file-symbol-candidates file)))
+  "Prompt user to select a symbol from FILE and return it.
+When Tree-sitter symbols are available, show header and line as
+annotation via `completion-extra-properties'."
+  (let* ((buf (ignore-errors (find-file-noselect file t)))
+         (ts-symbols (when (and buf
+                                (fboundp 'ai-code--treesit-available-p)
+                                (fboundp 'ai-code--treesit-file-symbols)
+                                (ignore-errors (ai-code--treesit-available-p buf)))
+                       (ignore-errors (ai-code--treesit-file-symbols buf))))
+         (candidates (if (and ts-symbols (consp ts-symbols))
+                         (delete-dups
+                          (cl-remove-if-not #'stringp
+                                            (mapcar (lambda (s) (plist-get s :qualified)) ts-symbols)))
+                       (when buf (ai-code--file-symbol-candidates--imenu buf))))
+         (annotation-alist (when ts-symbols
+                             (ai-code--choose-symbol-annotation-alist ts-symbols))))
     (when candidates
-      (condition-case nil
-          (completing-read "Symbol: " candidates nil nil)
-        (quit nil)))))
+      (let ((completion-extra-properties
+             (when annotation-alist
+               (list :annotation-function
+                     (lambda (cand)
+                       (cdr (assoc cand annotation-alist)))))))
+        (condition-case nil
+            (completing-read "Symbol: " candidates nil nil)
+          (quit nil))))))
 
 (defun ai-code--comment-filepath-capf ()
   "Provide completion candidates for @file paths inside comments."
