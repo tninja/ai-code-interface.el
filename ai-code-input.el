@@ -27,6 +27,7 @@
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt))
 (declare-function whisper-run "whisper" ())
+(declare-function treesit-node-parent "treesit" (node))
 
 (eval-when-compile
   (defvar whisper-after-transcription-hook))
@@ -331,78 +332,221 @@ END-POS defaults to the current '#' position."
                      (string-prefix-p git-root (file-truename file)))
             file))))))
 
+(defun ai-code--imenu-symbol-self-entry-p (entry)
+  "Return non-nil when ENTRY is an Imenu node's self-position entry.
+Tree-sitter-backed Imenu uses a whitespace-only name for this entry when a
+symbol also contains nested entries."
+  (and (consp entry)
+       (stringp (car entry))
+       (string-empty-p (string-trim (car entry)))
+       (ai-code--imenu-item-position (cdr entry))))
+
+(defun ai-code--imenu-symbol-self-position (payload)
+  "Return the self position encoded in nested Imenu PAYLOAD, or nil."
+  (when-let* ((entry (cl-find-if #'ai-code--imenu-symbol-self-entry-p payload)))
+    (ai-code--imenu-item-position (cdr entry))))
+
+(defun ai-code--imenu-symbol-position-number (position)
+  "Return numeric buffer position for POSITION, or nil."
+  (cond
+   ((integerp position) position)
+   ((markerp position) (marker-position position))
+   (t nil)))
+
+(defun ai-code--imenu-qualified-name (parent-prefix name)
+  "Return NAME qualified by PARENT-PREFIX without duplicating a prefix."
+  (cond
+   ((or (null parent-prefix) (string-empty-p parent-prefix)) name)
+   ((or (string= name parent-prefix)
+        (string-prefix-p (concat parent-prefix ".") name))
+    name)
+   (t (concat parent-prefix "." name))))
+
+(defun ai-code--imenu-treesit-qualified-name-at-position (position)
+  "Return the full Tree-sitter qualified scope name at POSITION, or nil.
+Imenu remains the symbol-discovery source; this helper only enriches one
+discovered Imenu position with enclosing type information."
+  (when (and (ai-code--treesit-available-p)
+             (fboundp 'treesit-node-parent))
+    (save-excursion
+      (goto-char position)
+      (when-let* ((node (ai-code--treesit-defun-at-point)))
+        (let* ((node-is-type (ai-code--treesit-class-like-node-p node))
+               (function-name
+                (unless node-is-type
+                  (ai-code--treesit-node-name node)))
+               (current (if node-is-type
+                            node
+                          (treesit-node-parent node)))
+               (type-names nil))
+          (while current
+            (when (ai-code--treesit-class-like-node-p current)
+              (when-let* ((name (ai-code--treesit-node-name current)))
+                (push name type-names)))
+            (setq current (treesit-node-parent current)))
+          (let ((parts (append type-names
+                               (when function-name (list function-name)))))
+            (when parts
+              (mapconcat #'identity parts "."))))))))
+
+(defun ai-code--imenu-symbol-record (name payload parent-prefix &optional position)
+  "Build a symbol record from Imenu NAME and PAYLOAD under PARENT-PREFIX.
+POSITION overrides the position extracted from PAYLOAD."
+  (when-let* ((symbol (ai-code--normalize-imenu-symbol-name name payload))
+              ((not (string-empty-p symbol)))
+              (pos (or position (ai-code--imenu-item-position payload))))
+    (list :name symbol
+          :qualified (ai-code--imenu-qualified-name parent-prefix symbol)
+          :position pos)))
+
+(defun ai-code--imenu-collect-symbol-records (index &optional parent-prefix)
+  "Collect symbol records from Imenu INDEX while preserving hierarchy.
+PARENT-PREFIX is the qualified name of the semantic container.  Plain
+category/group nodes are traversed without becoming part of that name."
+  (let (records)
+    (dolist (item index)
+      (when (consp item)
+        (let ((name (car item))
+              (payload (cdr item)))
+          (cond
+           ((equal item imenu--rescan-item)
+            nil)
+           ((ai-code--imenu-symbol-self-entry-p item)
+            nil)
+           ((ai-code--imenu-subalist-p payload)
+            (if-let* ((self-position (ai-code--imenu-symbol-self-position payload))
+                      (record (ai-code--imenu-symbol-record
+                               name payload parent-prefix self-position)))
+                (let* ((qualified (plist-get record :qualified))
+                       (children (cl-remove-if
+                                  #'ai-code--imenu-symbol-self-entry-p
+                                  payload)))
+                  (push record records)
+                  (setq records
+                        (nconc (ai-code--imenu-collect-symbol-records
+                                children qualified)
+                               records)))
+              ;; Category nodes such as "Function" or "Class" have no
+              ;; self-position and therefore do not qualify their children.
+              (setq records
+                    (nconc (ai-code--imenu-collect-symbol-records
+                            payload parent-prefix)
+                           records))))
+           (t
+            (when-let* ((record (ai-code--imenu-symbol-record
+                                 name payload parent-prefix)))
+              (push record records)))))))
+    records))
+
+(defun ai-code--imenu-record-position-less-p (left right)
+  "Return non-nil when LEFT appears before RIGHT in the source buffer."
+  (let ((left-pos (ai-code--imenu-symbol-position-number
+                   (plist-get left :position)))
+        (right-pos (ai-code--imenu-symbol-position-number
+                    (plist-get right :position))))
+    (cond
+     ((and left-pos right-pos) (< left-pos right-pos))
+     (left-pos t)
+     (right-pos nil)
+     (t nil))))
+
+(defun ai-code--imenu-symbol-header-at-position (position)
+  "Return the best declaration header available at POSITION.
+When Tree-sitter is active, use the existing semantic scope helper for a
+precise declaration header.  Otherwise return the source line."
+  (when-let* ((pos (ai-code--imenu-symbol-position-number position))
+              ((<= (point-min) pos))
+              ((<= pos (point-max))))
+    (save-excursion
+      (goto-char pos)
+      (let ((scope (when (ai-code--treesit-available-p)
+                     (ignore-errors (ai-code--current-scope-context pos)))))
+        (or (plist-get scope :function-header)
+            (plist-get scope :class-header)
+            (string-trim
+             (buffer-substring-no-properties
+              (line-beginning-position)
+              (line-end-position))))))))
+
+(defun ai-code--imenu-enrich-symbol-record (record)
+  "Add line and declaration header metadata to Imenu symbol RECORD."
+  (let* ((position (plist-get record :position))
+         (pos (ai-code--imenu-symbol-position-number position)))
+    (when (and pos (<= (point-min) pos) (<= pos (point-max)))
+      (when-let* ((qualified
+                   (ai-code--imenu-treesit-qualified-name-at-position pos)))
+        (setq record (plist-put record :qualified qualified)))
+      (setq record (plist-put record :line (line-number-at-pos pos)))
+      (setq record
+            (plist-put record :header
+                       (ai-code--imenu-symbol-header-at-position pos))))
+    record))
+
+(defun ai-code--file-symbol-records--imenu (buffer)
+  "Return Imenu symbol records from BUFFER in source-definition order."
+  (with-current-buffer buffer
+    (condition-case nil
+        (let* ((imenu-auto-rescan t)
+               (index (imenu--make-index-alist t))
+               (records (ai-code--imenu-collect-symbol-records index)))
+          (setq records (sort records #'ai-code--imenu-record-position-less-p))
+          (mapcar #'ai-code--imenu-enrich-symbol-record records))
+      (error nil))))
+
 (defun ai-code--file-symbol-candidates--imenu (buffer)
-  "Return sorted imenu candidates from BUFFER."
-  (let (symbols)
-    (with-current-buffer buffer
-      (condition-case nil
-          (let ((imenu-auto-rescan t)
-                (index (imenu--make-index-alist t)))
-            (setq symbols (ai-code--flatten-imenu-index index)))
-        (error nil)))
-    (sort (delete-dups (cl-remove-if-not #'stringp symbols)) #'string<)))
+  "Return qualified Imenu symbol candidates from BUFFER in source order."
+  (delete-dups
+   (delq nil
+         (mapcar (lambda (record) (plist-get record :qualified))
+                 (ai-code--file-symbol-records--imenu buffer)))))
 
 (defun ai-code--file-symbol-candidates (file)
-  "Return function/class symbol candidates from FILE.
-When Tree-sitter is available for FILE's buffer, return qualified
-names in file-definition order.  Otherwise fall back to an
-alphabetically sorted imenu list."
-  (let ((buf (ignore-errors (find-file-noselect file t))))
-    (if (and buf
-             (fboundp 'ai-code--treesit-available-p)
-             (fboundp 'ai-code--treesit-file-symbols)
-             (ignore-errors (ai-code--treesit-available-p buf)))
-        (let ((symbols (ignore-errors (ai-code--treesit-file-symbols buf))))
-          (if (and symbols (consp symbols))
-              (let ((qualified (mapcar (lambda (s) (plist-get s :qualified)) symbols)))
-                (delete-dups (cl-remove-if-not #'stringp qualified)))
-            (ai-code--file-symbol-candidates--imenu buf)))
-      (when buf
-        (ai-code--file-symbol-candidates--imenu buf)))))
+  "Return qualified symbol candidates from FILE using Imenu.
+The major mode decides how the Imenu index is produced.  In Tree-sitter modes
+this naturally consumes Tree-sitter-backed Imenu without duplicating grammar
+knowledge in ai-code."
+  (when-let* ((buffer (ignore-errors (find-file-noselect file t))))
+    (ai-code--file-symbol-candidates--imenu buffer)))
 
 (defun ai-code--choose-symbol-annotation-alist (symbols-or-buffer)
-  "Return annotation alist for Tree-sitter SYMBOLS-OR-BUFFER.
-Each element is (QUALIFIED . \" HEADER  line N\")."
-  (let ((symbols (if (bufferp symbols-or-buffer)
-                     (when (and (fboundp 'ai-code--treesit-available-p)
-                                (fboundp 'ai-code--treesit-file-symbols)
-                                (ignore-errors (ai-code--treesit-available-p symbols-or-buffer)))
-                       (ignore-errors (ai-code--treesit-file-symbols symbols-or-buffer)))
+  "Return completion annotations for SYMBOLS-OR-BUFFER.
+SYMBOLS-OR-BUFFER is either a list of Imenu symbol records or a buffer.
+Each result maps a qualified name to a declaration header and line number."
+  (let ((records (if (bufferp symbols-or-buffer)
+                     (ai-code--file-symbol-records--imenu symbols-or-buffer)
                    symbols-or-buffer)))
-    (when (and symbols (consp symbols))
-      (mapcar (lambda (s)
-                (cons (plist-get s :qualified)
-                      (format " %s  line %s"
-                              (or (plist-get s :header) "")
-                              (or (plist-get s :line) ""))))
-              symbols))))
+    (delq nil
+          (mapcar
+           (lambda (record)
+             (when-let* ((qualified (plist-get record :qualified)))
+               (cons qualified
+                     (format " %s  line %s"
+                             (or (plist-get record :header) "")
+                             (or (plist-get record :line) "")))))
+           records))))
 
 (defun ai-code--choose-symbol-from-file (file)
   "Prompt user to select a symbol from FILE and return it.
-When Tree-sitter symbols are available, show header and line as
-annotation via `completion-extra-properties'."
-  (let* ((buf (ignore-errors (find-file-noselect file t)))
-         (ts-symbols (when (and buf
-                                (fboundp 'ai-code--treesit-available-p)
-                                (fboundp 'ai-code--treesit-file-symbols)
-                                (ignore-errors (ai-code--treesit-available-p buf)))
-                       (ignore-errors (ai-code--treesit-file-symbols buf))))
-         (candidates (if (and ts-symbols (consp ts-symbols))
-                         (delete-dups
-                          (cl-remove-if-not #'stringp
-                                            (mapcar (lambda (s) (plist-get s :qualified)) ts-symbols)))
-                       (when buf (ai-code--file-symbol-candidates--imenu buf))))
-         (annotation-alist (when ts-symbols
-                             (ai-code--choose-symbol-annotation-alist ts-symbols))))
-    (when candidates
-      (let ((completion-extra-properties
-             (when annotation-alist
-               (list :annotation-function
-                     (lambda (cand)
-                       (cdr (assoc cand annotation-alist)))))))
-        (condition-case nil
-            (completing-read "Symbol: " candidates nil nil)
-          (quit nil))))))
+Symbol discovery always goes through Imenu.  Header and line metadata are
+shown through `completion-extra-properties'."
+  (when-let* ((buffer (ignore-errors (find-file-noselect file t)))
+              (records (ai-code--file-symbol-records--imenu buffer)))
+    (let* ((candidates
+            (delete-dups
+             (delq nil
+                   (mapcar (lambda (record) (plist-get record :qualified))
+                           records))))
+           (annotation-alist
+            (ai-code--choose-symbol-annotation-alist records)))
+      (when candidates
+        (let ((completion-extra-properties
+               (when annotation-alist
+                 (list :annotation-function
+                       (lambda (candidate)
+                         (cdr (assoc candidate annotation-alist)))))))
+          (condition-case nil
+              (completing-read "Symbol: " candidates nil nil)
+            (quit nil)))))))
 
 (defun ai-code--comment-filepath-capf ()
   "Provide completion candidates for @file paths inside comments."
