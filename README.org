@@ -228,6 +228,7 @@ This package makes context engineering easy by automatically assembling precise 
   Function definition: def find_user(self, user_id: int) -> str:
   Function range: lines 2-4
   #+end_example
+- Tree-sitter `@#` symbol completion: after picking a file with `@` (e.g., `@src/service.py`), type `#` to pick a symbol from that file. When Tree-sitter is active (`python-ts-mode`, `rust-ts-mode`, etc.), candidates are qualified names in file-definition order (`Bar`, `Bar.baz`), each annotated with its header and line (`def baz(self):  line 4`); otherwise it falls back to an alphabetically sorted `imenu` list. Works in comments, `*.prompt.org` buffers, and AI session buffers.
 
 Example (focused refactor with curated context):
 1) In a buffer, run `C-c a @` to add the current function or selected region to stored repo context.
