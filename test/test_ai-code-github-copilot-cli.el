@@ -151,7 +151,7 @@
               (should (string-match-p "127\\.0\\.0\\.1" (cadr config-args)))
               (should
                (string-match-p
-                "mcp/github-copilot-cli-"
+                "\\\"url\\\":\\\"http://127\\.0\\.0\\.1:8765/mcp\\\""
                 (cadr config-args)))
               (should (string-match-p "AI_CODE_MCP_BEARER_TOKEN"
                                       (cadr config-args)))
@@ -173,8 +173,7 @@
               (should (fboundp 'ai-code-mcp-agent-buffer-status))
               (let ((status (ai-code-mcp-agent-buffer-status)))
                 (should (eq 'github-copilot-cli (plist-get status :backend)))
-                (should (equal (format "http://127.0.0.1:8765/mcp/%s"
-                                       (car registered))
+                (should (equal "http://127.0.0.1:8765/mcp"
                                (plist-get status :server-url)))))
             (funcall captured-cleanup-fn)
             (should (equal (car registered) unregistered))))

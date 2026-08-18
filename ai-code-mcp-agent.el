@@ -81,7 +81,7 @@
     (let* ((port (ai-code-mcp-http-server-ensure))
            (session-id (ai-code-mcp-agent--make-session-id backend))
            (token (ai-code-mcp--random-secret))
-           (url (ai-code-mcp-agent--make-server-url port session-id))
+           (url (ai-code-mcp-agent--make-server-url port))
            (launch-metadata
             (ai-code-mcp-agent--inject-argv backend argv url
                                             ai-code-mcp-agent--token-environment-variable))
@@ -142,11 +142,10 @@ Failed file removals are retried; session unregistration occurs at most once."
           (format-time-string "%Y%m%d%H%M%S")
           (random 1000000)))
 
-(defun ai-code-mcp-agent--make-server-url (port &optional session-id)
-  "Build the MCP server URL for PORT, optionally scoped by SESSION-ID."
-  (if session-id
-      (format "http://127.0.0.1:%d/mcp/%s" port session-id)
-    (format "http://127.0.0.1:%d/mcp" port)))
+(defun ai-code-mcp-agent--make-server-url (port)
+  "Build the shared MCP server endpoint for PORT.
+The bearer token selects the registered agent session."
+  (format "http://127.0.0.1:%d/mcp" port))
 
 (defun ai-code-mcp-agent--record-buffer-session (buffer backend session-id url)
   "Record BUFFER session for BACKEND, SESSION-ID, and URL."
