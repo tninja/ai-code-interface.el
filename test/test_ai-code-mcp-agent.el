@@ -17,6 +17,30 @@
   (provide 'magit))
 (require 'ai-code-mcp-agent)
 
+(ert-deftest ai-code-test-mcp-agent-launch-url-matches-http-endpoint ()
+  "Launch metadata should use the exact path accepted by the HTTP server."
+  (let ((ai-code-mcp-agent-enabled-backends '(codex))
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        launch)
+    (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda () 8765))
+              ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore)
+              ((symbol-function 'ai-code-mcp-agent--make-session-id)
+               (lambda (_backend) "codex-test-session")))
+      (unwind-protect
+          (progn
+            (setq launch
+                  (ai-code-mcp-agent-prepare-launch
+                   'codex default-directory '("codex")))
+            (should (equal "http://127.0.0.1:8765/mcp"
+                           (plist-get launch :mcp-server-url)))
+            (should (equal
+                     "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp\", bearer_token_env_var = \"AI_CODE_MCP_BEARER_TOKEN\" }"
+                     (car (last (plist-get launch :argv))))))
+        (when-let ((cleanup-fn (plist-get launch :cleanup-fn)))
+          (funcall cleanup-fn))))))
+
 (ert-deftest ai-code-test-mcp-agent-prepare-launch-registers-source-before-process-start ()
   "Preparing a launch should register its source before the CLI starts."
   (let ((ai-code-mcp-agent-enabled-backends '(codex))
@@ -45,7 +69,7 @@
             (should (equal (file-name-as-directory project-dir)
                            (file-name-as-directory
                             (plist-get context :project-dir))))
-            (should (string-prefix-p
+            (should (equal
                      (format "http://127.0.0.1:%d/mcp"
                              ai-code-mcp-http-server--port)
                      (plist-get launch :mcp-server-url)))))
@@ -157,8 +181,8 @@
                                   "Bearer ${AI_CODE_MCP_BEARER_TOKEN}"
                                   (alist-get 'Authorization
                                              (alist-get 'headers server)))))))
-                    (should (string-prefix-p "http://127.0.0.1:8765/mcp"
-                                             (plist-get launch :mcp-server-url))))
+                    (should (equal "http://127.0.0.1:8765/mcp"
+                                   (plist-get launch :mcp-server-url))))
                 (funcall (plist-get launch :cleanup-fn))))))
       (when (buffer-live-p source-buffer)
         (kill-buffer source-buffer)))))
@@ -252,7 +276,7 @@
                 "--banner"
                 "value with spaces"
                 "--additional-mcp-config"
-                "{\"mcpServers\":{\"emacs_tools\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:8765/mcp/github-copilot-cli-20260730223000-42\",\"headers\":{\"Authorization\":\"Bearer ${AI_CODE_MCP_BEARER_TOKEN}\"},\"tools\":[\"*\"]}}}")))
+                "{\"mcpServers\":{\"emacs_tools\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:8765/mcp\",\"headers\":{\"Authorization\":\"Bearer ${AI_CODE_MCP_BEARER_TOKEN}\"},\"tools\":[\"*\"]}}}")))
           (funcall (plist-get launch :cleanup-fn)))))))
 
 (ert-deftest ai-code-test-mcp-agent-codex-launch-preserves-config-override-argument ()
@@ -279,7 +303,7 @@
                 "--profile"
                 "work profile"
                 "-c"
-                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/codex-20260730223000-42\", bearer_token_env_var = \"AI_CODE_MCP_BEARER_TOKEN\" }")))
+                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp\", bearer_token_env_var = \"AI_CODE_MCP_BEARER_TOKEN\" }")))
           (funcall (plist-get launch :cleanup-fn)))))))
 
 (ert-deftest ai-code-test-mcp-agent-open-interpreter-preserves-config-override-argument ()
@@ -306,7 +330,7 @@
                 "--model"
                 "provider/model name"
                 "-c"
-                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp/open-interpreter-20260730223000-42\", bearer_token_env_var = \"AI_CODE_MCP_BEARER_TOKEN\" }")))
+                "mcp_servers.emacs_tools={ url = \"http://127.0.0.1:8765/mcp\", bearer_token_env_var = \"AI_CODE_MCP_BEARER_TOKEN\" }")))
           (funcall (plist-get launch :cleanup-fn)))))))
 
 (ert-deftest ai-code-test-mcp-agent-claude-cleanup-removes-temp-config ()

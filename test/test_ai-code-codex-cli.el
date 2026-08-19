@@ -245,8 +245,7 @@
             (should (fboundp 'ai-code-mcp-agent-buffer-status))
             (let ((status (ai-code-mcp-agent-buffer-status)))
               (should (eq 'codex (plist-get status :backend)))
-              (should (equal (format "http://127.0.0.1:8765/mcp/%s"
-                                     (car registered))
+              (should (equal "http://127.0.0.1:8765/mcp"
                              (plist-get status :server-url)))))
           (funcall captured-cleanup-fn)
           (should (equal (car registered) unregistered)))
