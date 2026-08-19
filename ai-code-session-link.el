@@ -136,6 +136,13 @@ Each function is called with the current buffer.  If any function
 returns non-nil, delayed linkification is retried later instead of
 touching text properties immediately.")
 
+(defvar-local ai-code-session-link-after-linkify-functions nil
+  "Hook run after session links are applied to a buffer region.
+
+Each function is called with START and END buffer positions, with the
+session buffer current.  Terminal backends can use this to preserve their
+own display invariants without advising linkification internals.")
+
 (defvar-local ai-code-session-link-image-preview-position-function nil
   "Optional owner that decides whether a preview position is stable.
 The function receives START and END buffer positions.  A nil return suppresses
@@ -2228,7 +2235,9 @@ visible-window recovery in large terminal scrollback."
               (setq ai-code-session-link--last-region-bounds bounds
                     ai-code-session-link--last-region-text region-text
                     ai-code-session-link--last-region-rules-version
-                    ai-code-session-link--linkify-rules-version))))))))
+                    ai-code-session-link--linkify-rules-version))))))
+      (run-hook-with-args
+       'ai-code-session-link-after-linkify-functions start end)))
 
 (defun ai-code-session-link--recent-output-tail-width (output)
   "Return the tail width to rescan after OUTPUT."

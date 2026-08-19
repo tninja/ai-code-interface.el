@@ -55,10 +55,6 @@ enabled by default because it widens the terminal's local resource access."
 (declare-function ghostel-paste-string "ghostel" (string))
 (declare-function ghostel--mode-enabled "ghostel-module" (term mode))
 (declare-function ghostel-cursor-point "ghostel" ())
-(declare-function ghostel--schedule-link-detection
-                  "ghostel" (&optional begin end))
-(declare-function ghostel--run-queued-plain-link-detection
-                  "ghostel" (buffer))
 (declare-function ghostel-ime-mode "ghostel-ime" (&optional arg))
 (declare-function ai-code-session-link--recent-output-plain-text
                   "ai-code-session-link" (output))
@@ -68,13 +64,10 @@ enabled by default because it widens the terminal's local resource access."
 (defvar ai-code-backends-infra--session-terminal-backend)
 (defvar ai-code-backends-infra--session-directory)
 (defvar ai-code-backends-infra--launch-program)
-(defvar ai-code-session-link--path-base-regexp)
-(defvar ai-code-session-link--url-pattern-regexp)
 (defvar ai-code-session-link-inhibit-functions)
 (defvar ghostel-eval-cmds)
 (defvar ghostel-inhibit-redraw-functions)
 (defvar ghostel-kitty-graphics-mediums)
-(defvar ghostel-link-map)
 (defvar ghostel--term)
 (defvar ghostel-use-native-pty)
 (eval-when-compile
@@ -86,9 +79,7 @@ enabled by default because it widens the terminal's local resource access."
   (defvar ghostel--copy-mode-active)
   (defvar ghostel--fake-cursor-overlay)
   (defvar ghostel--cursor-char-pos)
-  (defvar ghostel--input-mode)
-  (defvar ghostel--plain-link-detection-begin)
-  (defvar ghostel--plain-link-detection-end))
+  (defvar ghostel--input-mode))
 
 (defconst ai-code-backends-infra-ghostel--editor-command
   "ai-code-editor-viewport"
@@ -193,17 +184,11 @@ set by the subprocess, and `injected' for AI Code's ANSI gray foreground.")
     ai-code-session-symbol-file ai-code-session-hover-link)
   "Text properties to preserve across Ghostel redraws.")
 
-(defconst ai-code-backends-infra-ghostel--session-link-candidate-regexp
-  (concat "\\(?:"
-          ai-code-session-link--url-pattern-regexp
-          "\\|"
-          ai-code-session-link--path-base-regexp
-          "\\(?:[#:(][[:alnum:],L-]+\\)?"
-          "\\)")
-  "Regexp matching URL and path candidates for Ghostel redraw linkify.")
-
 (defvar-local ai-code-backends-infra-ghostel--preserved-link-spans nil
   "Cached clickable link spans restored after Ghostel redraws.")
+
+(defvar-local ai-code-backends-infra-ghostel--link-restoration-timer nil
+  "Timer restoring cached links after the current Ghostel redraw.")
 
 (defun ai-code-backends-infra-ghostel-ensure-backend ()
   "Ensure the Ghostel backend is available."
@@ -609,79 +594,42 @@ START and END optionally bound the redraw region."
                        span-start span-end properties)))
             (add-text-properties span-start span-end properties)))))))
 
-(defun ai-code-backends-infra-ghostel--linkified-candidate-at-p (position)
-  "Return non-nil when POSITION already belongs to a clickable link."
-  (ai-code-backends-infra-ghostel--link-properties-p
-   (ai-code-backends-infra-ghostel--link-properties-at position)))
+(defun ai-code-backends-infra-ghostel--restore-links-after-redraw (buffer)
+  "Restore cached session links in BUFFER after a Ghostel redraw."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq ai-code-backends-infra-ghostel--link-restoration-timer nil)
+      (ai-code-backends-infra-ghostel--restore-preserved-link-spans))))
 
-(defun ai-code-backends-infra-ghostel--region-needs-session-linkify-p
-    (start end)
-  "Return non-nil when START to END has unlinked session-link candidates."
-  (let ((position start)
-        needs-linkify)
-    (save-excursion
-      (goto-char start)
-      (while (and (not needs-linkify)
-                  (re-search-forward
-                   ai-code-backends-infra-ghostel--session-link-candidate-regexp
-                   end t))
-        (setq position (match-beginning 0))
-        (unless (ai-code-backends-infra-ghostel--linkified-candidate-at-p
-                 position)
-          (setq needs-linkify t))))
-    needs-linkify))
+(defun ai-code-backends-infra-ghostel--schedule-link-restoration (buffer)
+  "Schedule cached link restoration after Ghostel redraws BUFFER.
+Return nil so this public redraw hook never inhibits the redraw."
+  (when (and (buffer-live-p buffer)
+             (ai-code-backends-infra-ghostel--ai-session-buffer-p buffer))
+    (with-current-buffer buffer
+      (when (and ai-code-backends-infra-ghostel--preserved-link-spans
+                 (not ai-code-backends-infra-ghostel--link-restoration-timer))
+        (setq ai-code-backends-infra-ghostel--link-restoration-timer
+              (run-at-time
+               0 nil
+               #'ai-code-backends-infra-ghostel--restore-links-after-redraw
+               buffer)))))
+  nil)
 
-(defun ai-code-backends-infra-ghostel--linkify-session-region
-    (start end)
-  "Linkify START to END without refreshing already preserved links."
-  (ai-code-backends-infra-ghostel--restore-preserved-link-spans start end)
-  (when (ai-code-backends-infra-ghostel--region-needs-session-linkify-p
-         start end)
-    (ai-code-session-link--linkify-session-region start end))
-  (ai-code-backends-infra-ghostel--cache-preserved-link-spans start end))
+(defun ai-code-backends-infra-ghostel--cancel-link-restoration ()
+  "Cancel pending cached link restoration in the current buffer."
+  (when (timerp ai-code-backends-infra-ghostel--link-restoration-timer)
+    (cancel-timer ai-code-backends-infra-ghostel--link-restoration-timer))
+  (setq ai-code-backends-infra-ghostel--link-restoration-timer nil))
 
-(defun ai-code-backends-infra-ghostel--around-schedule-link-detection
-    (orig-fn &optional begin end)
-  "Call ORIG-FN after restoring links before a redraw scan.
-BEGIN and END are the Ghostel link-detection bounds."
-  (ai-code-backends-infra-ghostel--restore-preserved-link-spans begin end)
-  (funcall orig-fn begin end))
-
-(defun ai-code-backends-infra-ghostel--around-run-queued-link-detection
-    (orig-fn buffer)
-  "Call ORIG-FN for BUFFER and cache Ghostel link spans afterward."
-  (let (begin end)
-    (when (buffer-live-p buffer)
-      (with-current-buffer buffer
-        (when (ai-code-backends-infra-ghostel--ai-session-buffer-p)
-          (setq begin ghostel--plain-link-detection-begin
-                end ghostel--plain-link-detection-end))))
-    (prog1 (funcall orig-fn buffer)
-      (when (and (buffer-live-p buffer)
-                 (integer-or-marker-p begin)
-                 (integer-or-marker-p end))
-        (with-current-buffer buffer
-          (ai-code-backends-infra-ghostel--cache-preserved-link-spans
-           begin end))))))
-
-(defun ai-code-backends-infra-ghostel--install-link-preservation-advice ()
-  "Install Ghostel redraw link preservation advice."
-  (when (and (fboundp 'ghostel--schedule-link-detection)
-             (not (advice-member-p
-                   #'ai-code-backends-infra-ghostel--around-schedule-link-detection
-                   'ghostel--schedule-link-detection)))
-    (advice-add 'ghostel--schedule-link-detection
-                :around
-                #'ai-code-backends-infra-ghostel--around-schedule-link-detection))
-  (when (and (fboundp 'ghostel--run-queued-plain-link-detection)
-             (not
-              (advice-member-p
-               #'ai-code-backends-infra-ghostel--around-run-queued-link-detection
-               'ghostel--run-queued-plain-link-detection)))
-    (advice-add
-     'ghostel--run-queued-plain-link-detection
-     :around
-     #'ai-code-backends-infra-ghostel--around-run-queued-link-detection)))
+(defun ai-code-backends-infra-ghostel--install-link-preservation ()
+  "Preserve session links through Ghostel's public redraw hook."
+  (add-hook 'ghostel-inhibit-redraw-functions
+            #'ai-code-backends-infra-ghostel--schedule-link-restoration t t)
+  (add-hook 'ai-code-session-link-after-linkify-functions
+            #'ai-code-backends-infra-ghostel--cache-preserved-link-spans nil t)
+  (add-hook 'kill-buffer-hook
+            #'ai-code-backends-infra-ghostel--cancel-link-restoration nil t))
 
 (defun ai-code-backends-infra-ghostel--effective-kitty-graphics-mediums ()
   "Return Kitty graphics mediums for the current AI Code Ghostel session."
@@ -949,7 +897,7 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
   (ai-code-backends-infra-ghostel--configure-image-support)
   (ai-code-backends-infra-ghostel--enable-ime-integration)
   (ai-code-backends-infra-ghostel--install-redraw-inhibition)
-  (ai-code-backends-infra-ghostel--install-link-preservation-advice)
+  (ai-code-backends-infra-ghostel--install-link-preservation)
   (ai-code-backends-infra-ghostel--install-lifecycle-hooks)
   (ai-code-backends-infra-ghostel--install-editor-transport)
   (when (ai-code-session-link--image-preview-enabled-p)

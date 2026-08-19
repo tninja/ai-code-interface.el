@@ -1220,6 +1220,25 @@
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest ai-code-session-link-test-linkify-session-region-runs-completion-hook ()
+  "Linkification should notify buffer-local consumers after properties exist."
+  (with-temp-buffer
+    (insert "https://example.com/path\n")
+    (let (observed)
+      (add-hook
+       'ai-code-session-link-after-linkify-functions
+       (lambda (start end)
+         (setq observed
+               (list start end
+                     (get-text-property start 'ai-code-session-link))))
+       nil t)
+      (ai-code-session-link--linkify-session-region
+       (point-min) (point-max))
+      (should
+       (equal observed
+              (list (point-min) (point-max)
+                    "https://example.com/path"))))))
+
 (ert-deftest ai-code-session-link-test-disabled-toggle-skips-linkify-and-scheduling ()
   "Disabled session linkification should skip properties and timer scheduling."
   (should (boundp 'ai-code-session-link-enabled))
