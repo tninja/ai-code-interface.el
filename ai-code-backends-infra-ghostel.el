@@ -67,6 +67,7 @@ enabled by default because it widens the terminal's local resource access."
 (defvar ai-code-session-link-inhibit-functions)
 (defvar ghostel-eval-cmds)
 (defvar ghostel-inhibit-redraw-functions)
+(defvar ghostel-plain-link-detection-delay)
 (defvar ghostel-kitty-graphics-mediums)
 (defvar ghostel--term)
 (defvar ghostel-use-native-pty)
@@ -90,6 +91,14 @@ enabled by default because it widens the terminal's local resource access."
 
 (defconst ai-code-backends-infra-ghostel--linkify-redraw-delay 0.05
   "Seconds to wait before relinkifying recent Ghostel output.")
+
+(defconst ai-code-backends-infra-ghostel--min-plain-link-detection-delay 0.05
+  "Minimum `ghostel-plain-link-detection-delay' for AI Code sessions.
+Cached links are restored from a zero-delay timer after each redraw.  A
+non-positive detection delay makes Ghostel scan synchronously inside the
+redraw, before that timer runs, so its stranded-link cleanup would see
+session links whose text properties are still missing.  Any positive delay
+lets restoration win the race.")
 
 (defcustom ai-code-backends-infra-ghostel-anti-flicker t
   "Enable short output batching for Ghostel TUI redraws.
@@ -184,8 +193,14 @@ set by the subprocess, and `injected' for AI Code's ANSI gray foreground.")
     ai-code-session-symbol-file ai-code-session-hover-link)
   "Text properties to preserve across Ghostel redraws.")
 
+(defconst ai-code-backends-infra-ghostel--preserved-link-span-limit 512
+  "Maximum number of clickable link spans retained per Ghostel session.
+Every redraw walks the whole cache, so an unbounded scrollback of links
+would make restoration cost grow with session length.")
+
 (defvar-local ai-code-backends-infra-ghostel--preserved-link-spans nil
-  "Cached clickable link spans restored after Ghostel redraws.")
+  "Cached clickable link spans restored after Ghostel redraws.
+Ordered by ascending buffer position, oldest output first.")
 
 (defvar-local ai-code-backends-infra-ghostel--link-restoration-timer nil
   "Timer restoring cached links after the current Ghostel redraw.")
@@ -520,9 +535,48 @@ BUFFER defaults to the current buffer.  This function is installed in
       (plist-get properties 'ai-code-session-link)
       (plist-get properties 'ai-code-session-hover-link)))
 
+(defun ai-code-backends-infra-ghostel--link-spans-outside-region (start end)
+  "Return cached link spans that do not overlap START to END.
+Spans whose text no longer matches the buffer are dropped as stale."
+  (let (kept)
+    (dolist (span ai-code-backends-infra-ghostel--preserved-link-spans)
+      (let ((span-start (plist-get span :start))
+            (span-end (plist-get span :end)))
+        (when (and (integer-or-marker-p span-start)
+                   (integer-or-marker-p span-end)
+                   (or (<= span-end start) (>= span-start end))
+                   (<= (point-min) span-start)
+                   (<= span-end (point-max))
+                   (equal (buffer-substring-no-properties span-start span-end)
+                          (plist-get span :text)))
+          (push span kept))))
+    (nreverse kept)))
+
+(defun ai-code-backends-infra-ghostel--merge-preserved-link-spans
+    (start end spans)
+  "Merge SPANS covering START to END into the preserved-span cache.
+Spans outside START to END are retained, so a tail-scoped linkify pass
+does not evict links from earlier output.  The cache is ordered by buffer
+position and trimmed to
+`ai-code-backends-infra-ghostel--preserved-link-span-limit', evicting the
+oldest output first."
+  (let* ((merged
+          (sort (append
+                 (ai-code-backends-infra-ghostel--link-spans-outside-region
+                  start end)
+                 spans)
+                (lambda (left right)
+                  (< (plist-get left :start) (plist-get right :start)))))
+         (excess (- (length merged)
+                    ai-code-backends-infra-ghostel--preserved-link-span-limit)))
+    (setq ai-code-backends-infra-ghostel--preserved-link-spans
+          (if (> excess 0) (nthcdr excess merged) merged))))
+
 (defun ai-code-backends-infra-ghostel--cache-preserved-link-spans
     (start end)
-  "Cache clickable link spans between START and END for redraw restoration."
+  "Cache clickable link spans between START and END for redraw restoration.
+Only spans overlapping START to END are refreshed; see
+`ai-code-backends-infra-ghostel--merge-preserved-link-spans'."
   (when (and (ai-code-backends-infra-ghostel--ai-session-buffer-p)
              (integer-or-marker-p start)
              (integer-or-marker-p end))
@@ -546,8 +600,8 @@ BUFFER defaults to the current buffer.  This function is installed in
                     spans))
             (setq position next)))
         (when spans
-          (setq ai-code-backends-infra-ghostel--preserved-link-spans
-                (nreverse spans)))))))
+          (ai-code-backends-infra-ghostel--merge-preserved-link-spans
+           start end (nreverse spans)))))))
 
 (defun ai-code-backends-infra-ghostel--link-span-properties-present-p
     (start end properties)
@@ -622,8 +676,23 @@ Return nil so this public redraw hook never inhibits the redraw."
     (cancel-timer ai-code-backends-infra-ghostel--link-restoration-timer))
   (setq ai-code-backends-infra-ghostel--link-restoration-timer nil))
 
+(defun ai-code-backends-infra-ghostel--floor-plain-link-detection-delay ()
+  "Keep Ghostel's plain-link detection asynchronous in this buffer.
+Raise a non-positive `ghostel-plain-link-detection-delay' to
+`ai-code-backends-infra-ghostel--min-plain-link-detection-delay' buffer
+locally, leaving the user's global preference untouched."
+  (when (and (boundp 'ghostel-plain-link-detection-delay)
+             (numberp ghostel-plain-link-detection-delay)
+             (<= ghostel-plain-link-detection-delay 0))
+    (setq-local ghostel-plain-link-detection-delay
+                ai-code-backends-infra-ghostel--min-plain-link-detection-delay)))
+
 (defun ai-code-backends-infra-ghostel--install-link-preservation ()
-  "Preserve session links through Ghostel's public redraw hook."
+  "Preserve session links through Ghostel's public redraw hook.
+Cache spans after each linkify pass, restore them after each redraw, drop
+the pending restoration timer when the buffer dies, and keep Ghostel's
+plain-link detection asynchronous so restoration runs first."
+  (ai-code-backends-infra-ghostel--floor-plain-link-detection-delay)
   (add-hook 'ghostel-inhibit-redraw-functions
             #'ai-code-backends-infra-ghostel--schedule-link-restoration t t)
   (add-hook 'ai-code-session-link-after-linkify-functions

@@ -2,6 +2,9 @@
 * Release history
 
 ** Main branch change
+- Fix: adapt to ghostel 0.47+ link-detection API change
+- Fix: retain cached session links outside each linkified tail across ghostel redraws
+- Fix: keep ghostel plain-link detection asynchronous so session links survive redraws
 
 ** 1.94
 - feat(treesit): symbol-level @# completion with qualified names
