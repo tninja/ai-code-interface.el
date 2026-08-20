@@ -4,7 +4,9 @@
 ;; Assisted-by:
 ;; - CodexCLI:GPT-5.5
 ;; - GithubCopilotCLI:GPT-5.4
+;; - AntigravityCLI:Gemini-Flash-3.7
 ;; - ClaudeCode:Opus-4.8
+;; - MuseCode:Muse-Spark-1.2
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
 ;; Version: 1.940
