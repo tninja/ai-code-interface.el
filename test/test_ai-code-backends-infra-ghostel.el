@@ -19,16 +19,15 @@
 (defvar ghostel-kill-buffer-on-exit)
 (defvar ghostel-kitty-graphics-mediums)
 (defvar ghostel-inhibit-redraw-functions)
+(defvar ghostel-plain-link-detection-delay)
 (defvar ghostel-eval-cmds)
 (defvar ai-code-session-link-inhibit-functions)
+(defvar ai-code-session-link-after-linkify-functions)
 (defvar ai-code-session-link-image-preview-source-function)
 (defvar ai-code-session-link-image-preview-transaction-function)
 (defvar ai-code-backends-infra--session-directory)
 (defvar ghostel--fake-cursor-overlay)
 (defvar ghostel--cursor-char-pos)
-(defvar ghostel--plain-link-detection-begin)
-(defvar ghostel--plain-link-detection-end)
-(defvar ghostel-link-map)
 (defvar x-preedit-overlay)
 
 (declare-function ai-code-ghostel-image-preview--cached-source
@@ -411,18 +410,144 @@
            (point-min) (point-max))
           (should (= add-count 1)))))))
 
-(ert-deftest test-ai-code-backends-infra-ghostel-schedule-link-detection-restores-first ()
-  "Ghostel link detection should see cached links before rescanning."
+(ert-deftest test-ai-code-backends-infra-ghostel-tail-cache-retains-earlier-link-spans ()
+  "A tail-scoped cache pass should keep links from earlier output restorable."
+  (let ((old-keymap (make-sparse-keymap))
+        (new-keymap (make-sparse-keymap)))
+    (with-temp-buffer
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (insert "Open src/old.el:1\n")
+      (goto-char (point-min))
+      (search-forward "src/old.el:1")
+      (let ((old-start (match-beginning 0))
+            (old-end (match-end 0))
+            tail-start new-start)
+        (add-text-properties
+         old-start old-end
+         (list 'help-echo "fileref:/tmp/src/old.el:1"
+               'ai-code-session-symbol-link "old"
+               'keymap old-keymap))
+        (ai-code-backends-infra-ghostel--cache-preserved-link-spans
+         (point-min) (point-max))
+        ;; Later output only linkifies its own tail, as delayed linkification does.
+        (goto-char (point-max))
+        (setq tail-start (point))
+        (insert "Open src/new.el:2\n")
+        (goto-char tail-start)
+        (search-forward "src/new.el:2")
+        (setq new-start (match-beginning 0))
+        (add-text-properties
+         new-start (match-end 0)
+         (list 'help-echo "fileref:/tmp/src/new.el:2"
+               'ai-code-session-symbol-link "new"
+               'keymap new-keymap))
+        (ai-code-backends-infra-ghostel--cache-preserved-link-spans
+         tail-start (point-max))
+        ;; A redraw strips both links; restoration must recover both.
+        (remove-list-of-text-properties
+         (point-min) (point-max)
+         '(help-echo ai-code-session-symbol-link keymap))
+        (ai-code-backends-infra-ghostel--restore-preserved-link-spans)
+        (should (equal (get-text-property old-start 'help-echo)
+                       "fileref:/tmp/src/old.el:1"))
+        (should (eq (get-text-property old-start 'keymap) old-keymap))
+        (should (equal (get-text-property new-start 'help-echo)
+                       "fileref:/tmp/src/new.el:2"))
+        (should (eq (get-text-property new-start 'keymap) new-keymap))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-tail-cache-replaces-overlapping-spans ()
+  "Recaching a region should replace, not duplicate, its own stale spans."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (insert "Open src/foo.el:1\n")
+    (goto-char (point-min))
+    (search-forward "src/foo.el:1")
+    (add-text-properties (match-beginning 0) (match-end 0)
+                         (list 'help-echo "fileref:/tmp/src/foo.el:1"))
+    (ai-code-backends-infra-ghostel--cache-preserved-link-spans
+     (point-min) (point-max))
+    (ai-code-backends-infra-ghostel--cache-preserved-link-spans
+     (point-min) (point-max))
+    (should (= 1 (length ai-code-backends-infra-ghostel--preserved-link-spans)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-preserved-link-spans-are-bounded ()
+  "The preserved-span cache should evict the oldest spans past its limit."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let ((total (+ ai-code-backends-infra-ghostel--preserved-link-span-limit 5))
+          (index 0))
+      (while (< index total)
+        (let ((start (point)))
+          (insert (format "Open src/f%d.el:1\n" index))
+          (goto-char start)
+          (search-forward (format "src/f%d.el:1" index))
+          (add-text-properties
+           (match-beginning 0) (match-end 0)
+           (list 'help-echo (format "fileref:/tmp/src/f%d.el:1" index)))
+          (ai-code-backends-infra-ghostel--cache-preserved-link-spans
+           start (point-max))
+          (goto-char (point-max)))
+        (setq index (1+ index)))
+      (should (= ai-code-backends-infra-ghostel--preserved-link-span-limit
+                 (length ai-code-backends-infra-ghostel--preserved-link-spans)))
+      ;; Eviction drops the oldest output, so the newest link must survive.
+      (should
+       (equal (plist-get
+               (car (last ai-code-backends-infra-ghostel--preserved-link-spans))
+               :properties)
+              (list 'help-echo
+                    (format "fileref:/tmp/src/f%d.el:1" (1- total))))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-link-preservation-uses-public-hooks ()
+  "Ghostel link preservation should use public and AI-owned hooks."
+  (with-temp-buffer
+    (setq-local ghostel-inhibit-redraw-functions nil)
+    (setq-local ai-code-session-link-after-linkify-functions nil)
+    (ai-code-backends-infra-ghostel--install-link-preservation)
+    (should
+     (memq #'ai-code-backends-infra-ghostel--schedule-link-restoration
+           ghostel-inhibit-redraw-functions))
+    (should
+     (memq #'ai-code-backends-infra-ghostel--cache-preserved-link-spans
+           ai-code-session-link-after-linkify-functions))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-link-preservation-floors-detection-delay ()
+  "A non-positive plain-link detection delay should be raised buffer-locally.
+Ghostel scans synchronously when the delay is zero or negative, which would
+run before the asynchronous link restoration re-applies cached properties."
+  (let ((ghostel-plain-link-detection-delay 0))
+    (with-temp-buffer
+      (setq-local ghostel-inhibit-redraw-functions nil)
+      (setq-local ai-code-session-link-after-linkify-functions nil)
+      (ai-code-backends-infra-ghostel--install-link-preservation)
+      (should (local-variable-p 'ghostel-plain-link-detection-delay))
+      (should (> ghostel-plain-link-detection-delay 0))
+      (should (= ghostel-plain-link-detection-delay
+                 ai-code-backends-infra-ghostel--min-plain-link-detection-delay)))
+    ;; The user's global preference must stay untouched.
+    (should (= 0 ghostel-plain-link-detection-delay))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-link-preservation-keeps-usable-detection-delay ()
+  "A delay that already outruns link restoration should be left alone."
+  (let ((ghostel-plain-link-detection-delay 0.5))
+    (with-temp-buffer
+      (setq-local ghostel-inhibit-redraw-functions nil)
+      (setq-local ai-code-session-link-after-linkify-functions nil)
+      (ai-code-backends-infra-ghostel--install-link-preservation)
+      (should-not (local-variable-p 'ghostel-plain-link-detection-delay))
+      (should (= 0.5 ghostel-plain-link-detection-delay)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-public-redraw-hook-restores-links-after-redraw ()
+  "The public pre-redraw hook should restore cached links after rendering."
   (let ((link-keymap (make-sparse-keymap))
-        restored-before-scan)
+        scheduled)
     (with-temp-buffer
       (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
       (insert "Open src/foo.el:1\n")
-      (let (link-start link-end)
-        (goto-char (point-min))
-        (search-forward "src/foo.el:1")
-        (setq link-start (match-beginning 0)
-              link-end (match-end 0))
+      (goto-char (point-min))
+      (search-forward "src/foo.el:1")
+      (let ((link-start (match-beginning 0))
+            (link-end (match-end 0)))
         (add-text-properties
          link-start link-end
          (list 'help-echo "fileref:/tmp/src/foo.el:1"
@@ -430,17 +555,22 @@
                'keymap link-keymap))
         (ai-code-backends-infra-ghostel--cache-preserved-link-spans
          (point-min) (point-max))
+        (cl-letf (((symbol-function 'run-at-time)
+                   (lambda (_delay _repeat function &rest args)
+                     (setq scheduled (cons function args))
+                     'mock-timer)))
+          (should-not
+           (ai-code-backends-infra-ghostel--schedule-link-restoration
+            (current-buffer))))
         (remove-text-properties
          link-start link-end
          '(help-echo nil mouse-face nil keymap nil))
-        (ai-code-backends-infra-ghostel--around-schedule-link-detection
-         (lambda (_begin _end)
-           (setq restored-before-scan
-                 (get-text-property link-start 'help-echo)))
-         (point-min)
-         (point-max))
-        (should (equal restored-before-scan
-                       "fileref:/tmp/src/foo.el:1"))))))
+        (apply (car scheduled) (cdr scheduled))
+        (should (equal (get-text-property link-start 'help-echo)
+                       "fileref:/tmp/src/foo.el:1"))
+        (should (eq (get-text-property link-start 'keymap) link-keymap))
+        (should-not
+         ai-code-backends-infra-ghostel--link-restoration-timer)))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel-records-recent-input-in-ai-session ()
   "Recent input tracking should only mark AI Code Ghostel sessions."
