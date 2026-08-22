@@ -13,13 +13,18 @@
 (require 'ai-code-commit)
 (require 'ai-code-github)
 
+(defun ai-code-test-commit--status-lines (&rest args)
+  "Return a dirty status only for git status ARGS."
+  (when (equal args '("status" "--porcelain"))
+    '(" M ai-code.el")))
+
 (ert-deftest ai-code-test-commit-current-changes-explicit-message ()
   "Stage all changes and commit an explicit message without calling AI."
   (let (git-calls read-count)
     (cl-letf (((symbol-function 'ai-code--git-root)
                (lambda (&optional _dir) "/tmp/repo/"))
-              ((symbol-function 'magit-anything-modified-p)
-               (lambda () t))
+              ((symbol-function 'magit-git-lines)
+               #'ai-code-test-commit--status-lines)
               ((symbol-function 'ai-code-read-string)
                (lambda (&rest _args)
                  (setq read-count (1+ (or read-count 0)))
@@ -46,8 +51,8 @@
         git-calls)
     (cl-letf (((symbol-function 'ai-code--git-root)
                (lambda (&optional _dir) "/tmp/repo/"))
-              ((symbol-function 'magit-anything-modified-p)
-               (lambda () t))
+              ((symbol-function 'magit-git-lines)
+               #'ai-code-test-commit--status-lines)
               ((symbol-function 'ai-code-read-string)
                (lambda (&rest _args)
                  (prog1 (car read-values)
