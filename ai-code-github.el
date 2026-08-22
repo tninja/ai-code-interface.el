@@ -25,6 +25,7 @@
 (declare-function ai-code--generate-staged-diff "ai-code-git" (diff-file))
 (declare-function ai-code--generate-branch-or-commit-diff "ai-code-git" (diff-params diff-file))
 (declare-function ai-code--open-diff-file "ai-code-git" (diff-file))
+(declare-function ai-code-git-commit-current-changes "ai-code-commit" ())
 (declare-function ai-code--explain-code-change "ai-code-discussion" (&optional review-source))
 (declare-function ai-code--get-context-files-string "ai-code-utils" ())
 (declare-function ai-code--format-repo-context-info "ai-code-utils" ())
@@ -320,6 +321,7 @@ Merge Conflict Resolution Steps:
     ("Check unresolved feedback" . check-feedback)
     ("Prepare PR description" . prepare-pr-description)
     ("Send out PR for current branch" . send-current-branch-pr)
+    ("Commit current changes" . commit-current-changes)
     ("Review current branch with difftastic"
      . review-current-branch-with-difftastic)
     ("Investigate issue" . investigate-issue)
@@ -327,14 +329,14 @@ Merge Conflict Resolution Steps:
     ("Explain code change" . explain-code-change)
     ("Resolve merge conflict" . resolve-merge-conflict)
     ("Generate diff file" . generate-diff-file))
-  "Analysis modes offered for a pull request or issue.
+  "Git and GitHub actions offered by `ai-code-pull-or-review-diff-file'.
 Every mode that builds a send prompt must mark the prompt with one of
 `ai-code-github--analysis-only-notes' unless it really requests code changes.")
 
 (defun ai-code--pull-or-review-pr-mode-choice ()
-  "Prompt user to choose analysis mode for a pull request or issue."
+  "Prompt user to choose a Git or GitHub action."
   (let* ((review-mode-alist ai-code-github--pull-or-review-pr-mode-alist)
-         (review-mode (completing-read "Select analysis mode (PR or issue): "
+         (review-mode (completing-read "Select Git/PR action: "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
     (or (alist-get review-mode review-mode-alist nil nil #'string=)
@@ -386,11 +388,12 @@ If INCLUDE-CONTEXT is non-nil, append current editor context to the prompt."
     (_
      (ai-code--build-pr-review-init-prompt review-source target-url))))
 
-(defun ai-code--pull-or-review-pr-with-source (review-source &optional arg)
-  "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI.
-ARG is the optional prefix argument to force including context."
+(defun ai-code--pull-or-review-pr-with-source (review-source &optional arg review-mode)
+  "Send the selected GitHub workflow for REVIEW-SOURCE to AI.
+ARG is the optional prefix argument to force including context.
+When REVIEW-MODE is nil, prompt for the workflow first."
   (require 'ai-code-git nil t)
-  (let ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
+  (let ((review-mode (or review-mode (ai-code--pull-or-review-pr-mode-choice))))
     (cond
      ((eq review-mode 'generate-diff-file)
       (ai-code--magit-generate-feature-branch-diff-file))
@@ -477,9 +480,10 @@ Works with GitHub, GitLab, Bitbucket, and other Git hosting services."
       (message "Unable to determine repository web URL"))))
 
 (defun ai-code-pull-or-review-diff-file (&optional arg)
-  "Review a diff file with AI Code or choose a PR review workflow.
+  "Review a diff file with AI Code or choose a Git/GitHub workflow.
 If current buffer is a .diff file, ask AI Code to review it.
-Otherwise, prompt for a review source and analysis mode.
+Otherwise, prompt for a Git or GitHub action.  Local Git actions run directly;
+GitHub actions then prompt for the configured review source.
 ARG is the optional prefix argument to force including context."
   (interactive "P")
   (if (and buffer-file-name (string-match-p "\\.diff$" buffer-file-name))
@@ -497,11 +501,15 @@ Provide overall assessment.
 **Requirement**: " file-name
                                   ai-code-github--analysis-only-note)))
         (ai-code--confirm-and-send "Enter review prompt (type requirement at end): " init-prompt))
-    ;; For non-diff files, let user choose PR review via MCP/gh CLI.
-    (unless ai-code-default-review-source
-      (ai-code--message-review-source-config-hint))
-    (let ((review-source (ai-code--pull-or-review-action-choice)))
-      (ai-code--pull-or-review-pr-with-source review-source arg))))
+    (let ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
+      (if (eq review-mode 'commit-current-changes)
+          (progn
+            (require 'ai-code-commit)
+            (call-interactively #'ai-code-git-commit-current-changes))
+        (unless ai-code-default-review-source
+          (ai-code--message-review-source-config-hint))
+        (let ((review-source (ai-code--pull-or-review-action-choice)))
+          (ai-code--pull-or-review-pr-with-source review-source arg review-mode))))))
 
 (provide 'ai-code-github)
 
