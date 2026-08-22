@@ -89,26 +89,16 @@
       (ai-code-commit--push-current-branch)
       (should (equal git-calls '(("push")))))))
 
-(ert-deftest ai-code-test-github-commit-action-skips-review-source-choice ()
-  "The local commit action should not ask for a GitHub review source."
+(ert-deftest ai-code-test-github-mode-dispatches-commit-current-changes ()
+  "The C-c a v mode dispatcher should invoke the local commit workflow."
   (let (commit-called)
     (cl-letf (((symbol-function 'ai-code--pull-or-review-pr-mode-choice)
                (lambda () 'commit-current-changes))
-              ((symbol-function 'ai-code--pull-or-review-action-choice)
-               (lambda ()
-                 (ert-fail "Commit action should not ask for review source")))
-              ((symbol-function 'require)
-               (let ((original-require (symbol-function 'require)))
-                 (lambda (feature &optional filename noerror)
-                   (if (eq feature 'ai-code-commit)
-                       t
-                     (funcall original-require feature filename noerror)))))
               ((symbol-function 'call-interactively)
                (lambda (fn &optional _record-flag _keys)
                  (should (eq fn #'ai-code-git-commit-current-changes))
                  (setq commit-called t))))
-      (with-temp-buffer
-        (ai-code-pull-or-review-diff-file))
+      (ai-code--pull-or-review-pr-with-source 'github-mcp)
       (should commit-called))))
 
 (ert-deftest ai-code-test-github-action-list-includes-commit-current-changes ()
