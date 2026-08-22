@@ -18,7 +18,6 @@
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
-(declare-function magit-anything-modified-p "magit" ())
 (declare-function magit-call-git "magit-git" (&rest args))
 (declare-function magit-get-current-branch "magit-git" ())
 (declare-function magit-git-lines "magit-git" (&rest args))
@@ -81,7 +80,7 @@ current branch to its remote."
   (interactive)
   (let* ((root (ai-code-commit--validate-repository))
          (default-directory root))
-    (unless (magit-anything-modified-p)
+    (unless (magit-git-lines "status" "--porcelain")
       (user-error "No changes to commit"))
     (let ((commit-message
            (ai-code-read-string "Commit message (empty = AI generate): ")))
