@@ -329,14 +329,14 @@ Merge Conflict Resolution Steps:
     ("Explain code change" . explain-code-change)
     ("Resolve merge conflict" . resolve-merge-conflict)
     ("Generate diff file" . generate-diff-file))
-  "Git and GitHub actions offered by `ai-code-pull-or-review-diff-file'.
+  "Analysis modes offered for a pull request, issue, or local Git action.
 Every mode that builds a send prompt must mark the prompt with one of
 `ai-code-github--analysis-only-notes' unless it really requests code changes.")
 
 (defun ai-code--pull-or-review-pr-mode-choice ()
-  "Prompt user to choose a Git or GitHub action."
+  "Prompt user to choose analysis mode for a pull request, issue, or Git action."
   (let* ((review-mode-alist ai-code-github--pull-or-review-pr-mode-alist)
-         (review-mode (completing-read "Select Git/PR action: "
+         (review-mode (completing-read "Select analysis mode (PR, issue, or Git): "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
     (or (alist-get review-mode review-mode-alist nil nil #'string=)
@@ -388,13 +388,15 @@ If INCLUDE-CONTEXT is non-nil, append current editor context to the prompt."
     (_
      (ai-code--build-pr-review-init-prompt review-source target-url))))
 
-(defun ai-code--pull-or-review-pr-with-source (review-source &optional arg review-mode)
-  "Send the selected GitHub workflow for REVIEW-SOURCE to AI.
-ARG is the optional prefix argument to force including context.
-When REVIEW-MODE is nil, prompt for the workflow first."
+(defun ai-code--pull-or-review-pr-with-source (review-source &optional arg)
+  "Prompt for a mode and send a prompt for REVIEW-SOURCE to AI.
+ARG is the optional prefix argument to force including context."
   (require 'ai-code-git nil t)
-  (let ((review-mode (or review-mode (ai-code--pull-or-review-pr-mode-choice))))
+  (let ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
     (cond
+     ((eq review-mode 'commit-current-changes)
+      (require 'ai-code-commit)
+      (call-interactively #'ai-code-git-commit-current-changes))
      ((eq review-mode 'generate-diff-file)
       (ai-code--magit-generate-feature-branch-diff-file))
      ((eq review-mode 'review-current-branch-with-difftastic)
@@ -480,10 +482,9 @@ Works with GitHub, GitLab, Bitbucket, and other Git hosting services."
       (message "Unable to determine repository web URL"))))
 
 (defun ai-code-pull-or-review-diff-file (&optional arg)
-  "Review a diff file with AI Code or choose a Git/GitHub workflow.
+  "Review a diff file with AI Code or choose a PR review workflow.
 If current buffer is a .diff file, ask AI Code to review it.
-Otherwise, prompt for a Git or GitHub action.  Local Git actions run directly;
-GitHub actions then prompt for the configured review source.
+Otherwise, prompt for a review source and analysis mode.
 ARG is the optional prefix argument to force including context."
   (interactive "P")
   (if (and buffer-file-name (string-match-p "\\.diff$" buffer-file-name))
@@ -501,15 +502,11 @@ Provide overall assessment.
 **Requirement**: " file-name
                                   ai-code-github--analysis-only-note)))
         (ai-code--confirm-and-send "Enter review prompt (type requirement at end): " init-prompt))
-    (let ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
-      (if (eq review-mode 'commit-current-changes)
-          (progn
-            (require 'ai-code-commit)
-            (call-interactively #'ai-code-git-commit-current-changes))
-        (unless ai-code-default-review-source
-          (ai-code--message-review-source-config-hint))
-        (let ((review-source (ai-code--pull-or-review-action-choice)))
-          (ai-code--pull-or-review-pr-with-source review-source arg review-mode))))))
+    ;; For non-diff files, let user choose PR review via MCP/gh CLI.
+    (unless ai-code-default-review-source
+      (ai-code--message-review-source-config-hint))
+    (let ((review-source (ai-code--pull-or-review-action-choice)))
+      (ai-code--pull-or-review-pr-with-source review-source arg))))
 
 (provide 'ai-code-github)
 
