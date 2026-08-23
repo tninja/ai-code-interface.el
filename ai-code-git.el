@@ -119,6 +119,80 @@ Return the git root directory if valid, otherwise signal an error."
         git-root
       (user-error "Not in a git repository"))))
 
+(defun ai-code--git-current-changes-p ()
+  "Return non-nil when the current repository has changes to commit."
+  (let ((status (magit-git-output "status" "--porcelain")))
+    (and status (not (string-empty-p status)))))
+
+(defun ai-code--git-generate-commit-message (diff)
+  "Generate a concise commit message from staged DIFF."
+  (unless (fboundp 'ai-code-call-gptel-sync)
+    (user-error "GPTel commit message generation is not available"))
+  (let ((message
+         (ai-code-call-gptel-sync
+          (concat
+           "Generate a concise Git commit message for the staged diff below.\n\n"
+           "Return only the commit message. Use imperative mood. Keep the first "
+           "line under 72 characters. Do not use Markdown.\n\n"
+           diff))))
+    (setq message (and message (string-trim message)))
+    (unless (and message (not (string-empty-p message)))
+      (user-error "Could not generate commit message"))
+    message))
+
+(defun ai-code--git-default-push-remote ()
+  "Return a suitable remote name for pushing the current branch."
+  (cond
+   ((ignore-errors (magit-git-string "remote" "get-url" "origin"))
+    "origin")
+   ((car (magit-git-lines "remote")))
+   (t
+    (user-error "No Git remote configured"))))
+
+(defun ai-code--git-push-current-branch ()
+  "Push the current branch, setting an upstream when needed."
+  (let ((branch (ai-code--require-current-branch)))
+    (if (ignore-errors
+          (magit-git-string "rev-parse"
+                            "--abbrev-ref"
+                            "--symbolic-full-name"
+                            "@{upstream}"))
+        (unless (zerop (magit-call-git "push"))
+          (user-error "Git push failed"))
+      (let ((remote (ai-code--git-default-push-remote)))
+        (unless (zerop (magit-call-git "push" "-u" remote branch))
+          (user-error "Git push failed"))))))
+
+;;;###autoload
+(defun ai-code-git-commit-current-changes ()
+  "Commit the current working-tree changes and optionally push them.
+Prompt for a commit message first.  When the message is empty, stage all
+changes, generate a message from the exact staged diff, and let the user edit
+that generated message before committing.  Finally ask whether to push the
+current branch to its remote."
+  (interactive)
+  (let* ((root (ai-code--validate-git-repository))
+         (default-directory root))
+    (unless (ai-code--git-current-changes-p)
+      (user-error "No changes to commit"))
+    (let ((commit-message
+           (ai-code-read-string "Commit message (empty = AI generate): ")))
+      (unless (zerop (magit-call-git "add" "-A"))
+        (user-error "Git add failed"))
+      (when (string-empty-p (or commit-message ""))
+        (let* ((diff (magit-git-output "diff" "--cached"))
+               (generated (ai-code--git-generate-commit-message diff)))
+          (setq commit-message
+                (ai-code-read-string "Commit message: " generated))))
+      (setq commit-message (string-trim (or commit-message "")))
+      (when (string-empty-p commit-message)
+        (user-error "Commit message cannot be empty"))
+      (unless (zerop (magit-call-git "commit" "-m" commit-message))
+        (user-error "Git commit failed"))
+      (message "Committed: %s" commit-message)
+      (when (y-or-n-p "Push to remote? ")
+        (ai-code--git-push-current-branch)))))
+
 (defun ai-code--validate-buffer-file ()
   "Validate that current buffer is visiting a file.
 Signal an error if not visiting a file."
