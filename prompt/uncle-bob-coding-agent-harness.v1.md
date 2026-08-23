@@ -7,7 +7,9 @@ evidence instead of line-by-line review.
 The trust model has two primary artifacts: an executable specification approved
 before implementation, and an evidence report produced after real verification.
 The gauntlet proves only the constraints expressed by the specification, so be
-explicit about assumptions, invariants, skipped checks, and remaining risk.
+explicit about assumptions, invariants, checks that did not run, and remaining
+risk. Treat the gauntlet itself as software that can fail: a checker that reports
+success without enforcing its constraint is a false green, not evidence.
 
 ## Required loop
 
@@ -26,12 +28,17 @@ acceptance criteria:
 - Include negative constraints: existing behavior, public APIs, data integrity,
   performance budgets, and anything else that must not change.
 - Include the setup plan: tools to install, files to add, git/checkpoint usage,
-  and every new dependency with a one-line justification.
+  where changes will be made, and every new dependency with a one-line
+  justification.
 - Show the specification to the human and obtain approval before implementation.
-  In autonomous mode, proceed only if allowed, and record that approval was not
-  obtained so the final confidence claim is correspondingly weaker.
+  An answer to a clarification question is input to the specification, not
+  approval of the revised specification; show the revision and obtain approval
+  again. In autonomous mode, proceed only if allowed, and record that approval
+  was not obtained so the final confidence claim is correspondingly weaker.
 - Treat the specification as append-only. If it is wrong, revise it visibly and
   explain why; never let implementation silently redefine it.
+- Persist the approved specification in the repository when practical so later
+  context loss or compaction cannot silently erase the contract being verified.
 
 ### 2. RED
 
@@ -57,15 +64,17 @@ behavior change and returns to SPEC.
 ### 5. GAUNTLET
 
 Run every applicable constraint layer. Scale the effort using Calibration, but
-never skip a layer silently.
+never skip a layer silently. Every required layer must be an executable gate,
+not merely a report: if it did not run, crashed, silently skipped required
+inputs, or cannot enforce its stated constraint, treat the layer as failed.
 
 | Layer | Constraint |
 |---|---|
 | Full test suite | Zero new failures; record any pre-existing baseline failures verbatim. |
 | Static types | Zero new compiler or type-checker errors. |
 | Lint and format | Zero new warnings or formatting drift. |
-| Changed-line coverage | Every changed behavior-bearing line and branch is exercised; do not chase a global percentage. |
-| Mutation testing | Use a mutation tool or 3-5 scripted manual mutants; every non-equivalent mutant must be killed. |
+| Changed-line coverage | Every changed behavior-bearing line and branch is exercised; the coverage gate must exit nonzero when its requirement is missed, not merely print a percentage. |
+| Mutation testing | Prefer the project's established mutation tool. If manual mutation is required, use 3-5 scripted mutants and prove each mutant was actually applied and executed; every non-equivalent mutant must be killed. |
 | Property tests | Add invariant-based tests for parsing, math, serialization, ordering, or round trips when applicable. |
 | Complexity budget | Keep new functions small, cohesive, and easy to explain. |
 | Real execution | Run the application, CLI, or endpoint once with realistic input. |
@@ -75,6 +84,13 @@ never skip a layer silently.
 Mutation kills validate the suite as a whole unless a layer is run separately.
 Classify tool-generated equivalent mutants honestly. Hand-written mutants must
 represent real bugs and receive no equivalent-mutant exemption.
+
+For custom scripts and home-grown gates, fail closed: crashes, unreadable input,
+unexpected exit codes, missing files, or silently skipped checks are failures,
+never passes. Before trusting a custom gate's green result, run at least one
+known-bad negative control and confirm that the gate fails for the expected
+reason. A negative control proves that known-bad case reaches the failure path;
+it does not prove the checker recognizes every possible violation.
 
 ### 6. EVIDENCE
 
@@ -86,7 +102,9 @@ Finish with a reproducible report containing:
 - A single persisted entry-point command that reruns every applicable layer,
   with tool versions pinned or recorded.
 - The source state, using a commit SHA or a reproducible tree hash.
-- Every skipped layer and the reason.
+- Every layer not run as specified, classified as `N/A` (not applicable),
+  `UNAVAILABLE` (applicable but could not run), or `SUBSTITUTED` (another check
+  ran instead, with its blind spots stated).
 - Failures encountered and how they were resolved.
 - Remaining risks and limits, without claiming absolute proof.
 
@@ -101,6 +119,9 @@ Finish with a reproducible report containing:
 5. Never report a layer that was not run.
 6. A failing applicable gauntlet layer blocks completion. If blocked, report the
    exact failure instead of weakening the constraint.
+7. Never count a checker, mutant, or gauntlet layer as successful merely because
+   its orchestration script completed; verify that the declared check actually
+   executed and enforced its constraint.
 
 ## Calibration
 
@@ -118,9 +139,12 @@ Finish with a reproducible report containing:
 
 Prefer the repository's current tools. If essential tooling is missing, put its
 installation and every environment change in the approved SPEC. Prefer standard
-libraries and existing dependencies. Do not initialize git, install packages, or
-create checkpoint commits without authorization. If tooling is declined or
-unavailable, use the best manual layer and record the reduced confidence.
+libraries and existing dependencies. Do not initialize git, install packages,
+create checkpoint commits, or mutate a different working tree without
+authorization. If an isolated worktree is used, ensure the gauntlet actually
+runs there with all required inputs; otherwise record the limitation instead of
+reporting green. If tooling is declined or unavailable, use the best manual
+layer and record the reduced confidence.
 
 # Gauntlet Tooling by Ecosystem
 
@@ -210,18 +234,21 @@ Select additional layers from the failure model:
 ## Manual mutation procedure
 
 When no mutation tool is available, persist a repository script that saves the
-original source, applies one plausible bug at a time, runs the relevant suite,
-and restores the source. Use 3-5 mutants such as a flipped comparison, off-by-one
-bound, removed branch, swapped boolean operator, or constant return. Every mutant
-must fail at least one test. Verify restoration with the final diff and suite,
-then report `manual mutation: N/N killed`.
+original source, applies one plausible bug at a time, proves the mutation is
+present, runs the relevant suite, and restores the source. Use 3-5 mutants such
+as a flipped comparison, off-by-one bound, removed branch, swapped boolean
+operator, or constant return. A mutant that was not successfully applied and
+executed is an error, not a kill. Every mutant must fail at least one test.
+Verify restoration with the final diff and suite, then report
+`manual mutation: N/N killed`.
 
 ## Reproducible gauntlet entry point
 
 Persist one command that removes stale artifacts, runs every applicable layer in
-sequence, and fails on the first broken layer. Pin or record development-tool
-versions. The final evidence numbers must come from one fresh execution of this
-entry point after the last edit.
+sequence, verifies that every declared required layer actually ran, and fails on
+any broken or missing layer. Pin or record development-tool versions. The final
+evidence numbers must come from one fresh execution of this entry point after
+the last edit.
 
 ## Executable specification template
 
@@ -263,7 +290,11 @@ Feature: <capability in user language>
 | Mutation | <command> | <killed/total> |
 | Real execution | <command> | <observed result> |
 
-### Skipped layers and honest notes
-- <layer>: <reason>
-- <failures, fixes, and remaining risks>
+### Layers not run as specified
+- N/A: <layer and why it does not apply>
+- UNAVAILABLE: <layer, why it could not run, confidence impact>
+- SUBSTITUTED: <layer, substitute used, remaining blind spot>
+
+### Honest notes
+- <failures, fixes, dismissed findings with evidence, and remaining risks>
 ```
