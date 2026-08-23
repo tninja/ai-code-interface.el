@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Harden Uncle Bob harness (and +) against false-green checks
+- Add commit current changes workflow
 - Fix: adapt to ghostel 0.47+ link-detection API change
 - Fix: retain cached session links outside each linkified tail across ghostel redraws
 - Fix: keep ghostel plain-link detection asynchronous so session links survive redraws
