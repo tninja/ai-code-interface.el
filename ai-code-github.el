@@ -25,7 +25,7 @@
 (declare-function ai-code--generate-staged-diff "ai-code-git" (diff-file))
 (declare-function ai-code--generate-branch-or-commit-diff "ai-code-git" (diff-params diff-file))
 (declare-function ai-code--open-diff-file "ai-code-git" (diff-file))
-(declare-function ai-code-git-commit-current-changes "ai-code-commit" ())
+(declare-function ai-code-git-commit-current-changes "ai-code-git" ())
 (declare-function ai-code--explain-code-change "ai-code-discussion" (&optional review-source))
 (declare-function ai-code--get-context-files-string "ai-code-utils" ())
 (declare-function ai-code--format-repo-context-info "ai-code-utils" ())
@@ -395,7 +395,6 @@ ARG is the optional prefix argument to force including context."
   (let ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
     (cond
      ((eq review-mode 'commit-current-changes)
-      (require 'ai-code-commit)
       (call-interactively #'ai-code-git-commit-current-changes))
      ((eq review-mode 'generate-diff-file)
       (ai-code--magit-generate-feature-branch-diff-file))
