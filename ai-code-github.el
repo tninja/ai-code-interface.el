@@ -25,6 +25,7 @@
 (declare-function ai-code--generate-staged-diff "ai-code-git" (diff-file))
 (declare-function ai-code--generate-branch-or-commit-diff "ai-code-git" (diff-params diff-file))
 (declare-function ai-code--open-diff-file "ai-code-git" (diff-file))
+(declare-function ai-code-git-commit-current-changes "ai-code-git" ())
 (declare-function ai-code--explain-code-change "ai-code-discussion" (&optional review-source))
 (declare-function ai-code--get-context-files-string "ai-code-utils" ())
 (declare-function ai-code--format-repo-context-info "ai-code-utils" ())
@@ -320,6 +321,7 @@ Merge Conflict Resolution Steps:
     ("Check unresolved feedback" . check-feedback)
     ("Prepare PR description" . prepare-pr-description)
     ("Send out PR for current branch" . send-current-branch-pr)
+    ("Commit current changes" . commit-current-changes)
     ("Review current branch with difftastic"
      . review-current-branch-with-difftastic)
     ("Investigate issue" . investigate-issue)
@@ -327,14 +329,14 @@ Merge Conflict Resolution Steps:
     ("Explain code change" . explain-code-change)
     ("Resolve merge conflict" . resolve-merge-conflict)
     ("Generate diff file" . generate-diff-file))
-  "Analysis modes offered for a pull request or issue.
+  "Analysis modes offered for a pull request, issue, or local Git action.
 Every mode that builds a send prompt must mark the prompt with one of
 `ai-code-github--analysis-only-notes' unless it really requests code changes.")
 
 (defun ai-code--pull-or-review-pr-mode-choice ()
-  "Prompt user to choose analysis mode for a pull request or issue."
+  "Prompt user to choose analysis mode for a pull request, issue, or Git action."
   (let* ((review-mode-alist ai-code-github--pull-or-review-pr-mode-alist)
-         (review-mode (completing-read "Select analysis mode (PR or issue): "
+         (review-mode (completing-read "Select analysis mode (PR, issue, or Git): "
                                        review-mode-alist
                                        nil t nil nil "Review the PR")))
     (or (alist-get review-mode review-mode-alist nil nil #'string=)
@@ -392,6 +394,8 @@ ARG is the optional prefix argument to force including context."
   (require 'ai-code-git nil t)
   (let ((review-mode (ai-code--pull-or-review-pr-mode-choice)))
     (cond
+     ((eq review-mode 'commit-current-changes)
+      (call-interactively #'ai-code-git-commit-current-changes))
      ((eq review-mode 'generate-diff-file)
       (ai-code--magit-generate-feature-branch-diff-file))
      ((eq review-mode 'review-current-branch-with-difftastic)
