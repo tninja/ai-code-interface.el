@@ -454,6 +454,18 @@
       (let ((content (buffer-string)))
         (should-not (string-match-p "#+BRANCH:" content))))))
 
+(ert-deftest ai-code-test-initialize-task-file-content-sets-startup-folding ()
+  "Task file initialization requests content-level folding on open."
+  (cl-letf (((symbol-function 'magit-get-current-branch)
+             (lambda () nil))
+            ((symbol-function 'ai-code-current-backend-label)
+             (lambda () "codex")))
+    (with-temp-buffer
+      (ai-code--initialize-task-file-content "Test Task" "")
+      (let ((content (buffer-string)))
+        (should
+         (string-match-p (regexp-quote "#+STARTUP: content") content))))))
+
 (ert-deftest ai-code-test-create-or-open-task-file-adds-org-extension ()
   "Create/open task file adds .org when the user omits it."
   (ai-code-with-test-repo
