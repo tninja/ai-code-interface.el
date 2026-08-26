@@ -263,6 +263,110 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
     (should (equal (ai-code--default-pr-target-branch "feature/improve-pr-flow")
                    "develop"))))
 
+(defun ai-code-test--with-reflog-entries (entries existing-branches thunk)
+  "Call THUNK with reflog ENTRIES and EXISTING-BRANCHES stubbed.
+ENTRIES is the list of `git reflog show --format=%gs' output lines,
+newest first.  EXISTING-BRANCHES is the list of branch names that
+`magit-branch-p' should report as present."
+  (cl-letf (((symbol-function 'magit-git-lines)
+             (lambda (&rest args)
+               (pcase args
+                 (`("reflog" "show" "--format=%gs" ,_branch) entries)
+                 (_ nil))))
+            ((symbol-function 'magit-branch-p)
+             (lambda (branch) (member branch existing-branches))))
+    (funcall thunk)))
+
+(ert-deftest ai-code-test-branch-parent-branch-reads-reflog-creation-entry ()
+  "Parent branch detection should read the reflog creation entry."
+  (ai-code-test--with-reflog-entries
+   '("commit: work in progress" "branch: Created from 1.88")
+   '("1.88")
+   (lambda ()
+     (should (equal (ai-code--branch-parent-branch "rdar_183143740_1.88")
+                    "1.88")))))
+
+(ert-deftest ai-code-test-branch-parent-branch-normalizes-remote-tracking-ref ()
+  "A remote-tracking creation ref should be normalized to a bare branch name."
+  (ai-code-test--with-reflog-entries
+   '("branch: Created from refs/remotes/origin/develop")
+   '("origin/develop")
+   (lambda ()
+     (should (equal (ai-code--branch-parent-branch "feature/improve-pr-flow")
+                    "develop")))))
+
+(ert-deftest ai-code-test-branch-parent-branch-uses-oldest-creation-entry ()
+  "When several creation entries exist, use the oldest (last) one."
+  (ai-code-test--with-reflog-entries
+   '("branch: Created from stale-topic" "commit: work" "branch: Created from main")
+   '("main" "stale-topic")
+   (lambda ()
+     (should (equal (ai-code--branch-parent-branch "feature/improve-pr-flow")
+                    "main")))))
+
+(ert-deftest ai-code-test-branch-parent-branch-rejects-head-and-unknown-refs ()
+  "Non-branch creation sources should not be treated as a parent branch."
+  (ai-code-test--with-reflog-entries
+   '("branch: Created from HEAD") '("main")
+   (lambda ()
+     (should-not (ai-code--branch-parent-branch "feature/improve-pr-flow"))))
+  ;; A raw commit or a deleted parent branch is not a usable PR target.
+  (ai-code-test--with-reflog-entries
+   '("branch: Created from 11465c9") '("main")
+   (lambda ()
+     (should-not (ai-code--branch-parent-branch "feature/improve-pr-flow"))))
+  (ai-code-test--with-reflog-entries
+   '("branch: Created from merged-and-deleted") '("main")
+   (lambda ()
+     (should-not (ai-code--branch-parent-branch "feature/improve-pr-flow"))))
+  ;; An expired or missing reflog yields no creation entry at all.
+  (ai-code-test--with-reflog-entries
+   '("commit: work in progress") '("main")
+   (lambda ()
+     (should-not (ai-code--branch-parent-branch "feature/improve-pr-flow")))))
+
+(ert-deftest ai-code-test-branch-parent-branch-rejects-self-reference ()
+  "A creation entry naming the branch itself should be ignored."
+  (ai-code-test--with-reflog-entries
+   '("branch: Created from refs/remotes/origin/feature/improve-pr-flow")
+   '("origin/feature/improve-pr-flow")
+   (lambda ()
+     (should-not (ai-code--branch-parent-branch "feature/improve-pr-flow")))))
+
+(ert-deftest ai-code-test-default-pr-target-branch-prefers-reflog-parent-branch ()
+  "The reflog parent branch should outrank same-name upstream and origin HEAD."
+  (cl-letf (((symbol-function 'magit-git-string)
+             (lambda (&rest args)
+               (pcase args
+                 ;; Typical workflow: upstream is the same-name remote branch.
+                 (`("rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{upstream}")
+                  "origin/rdar_183143740_1.88")
+                 (`("symbolic-ref" "--quiet" "--short" "refs/remotes/origin/HEAD")
+                  "origin/main")
+                 (_ nil)))))
+    (ai-code-test--with-reflog-entries
+     '("commit: work in progress" "branch: Created from 1.88")
+     '("1.88" "main")
+     (lambda ()
+       (should (equal (ai-code--default-pr-target-branch "rdar_183143740_1.88")
+                      "1.88"))))))
+
+(ert-deftest ai-code-test-default-pr-target-branch-falls-back-without-reflog-parent ()
+  "Without a usable reflog parent, existing upstream fallbacks still apply."
+  (cl-letf (((symbol-function 'magit-git-string)
+             (lambda (&rest args)
+               (pcase args
+                 (`("rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{upstream}")
+                  "origin/rdar_183143740_1.88")
+                 (`("symbolic-ref" "--quiet" "--short" "refs/remotes/origin/HEAD")
+                  "origin/main")
+                 (_ nil)))))
+    (ai-code-test--with-reflog-entries
+     '("branch: Created from HEAD") '("main")
+     (lambda ()
+       (should (equal (ai-code--default-pr-target-branch "rdar_183143740_1.88")
+                      "main"))))))
+
 (ert-deftest ai-code-test-pull-or-review-pr-with-source-send-current-branch-pr-uses-neutral-prompt ()
   "Current branch PR flow should validate repo and use a PR creation prompt label."
   (let (captured-read-prompts captured-read-string-prompts captured-inserted-prompt)

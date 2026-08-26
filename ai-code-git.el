@@ -10,6 +10,7 @@
 ;;; Code:
 
 (require 'magit)
+(require 'seq)
 
 (require 'ai-code-input)
 (require 'ai-code-task)
@@ -84,9 +85,45 @@ Candidate values:
    (ignore-errors
      (magit-git-string "symbolic-ref" "--quiet" "--short" "refs/remotes/origin/HEAD"))))
 
+(defun ai-code--branch-creation-source (branch)
+  "Return the raw ref BRANCH was created from, or nil when unknown.
+Read the oldest \"branch: Created from REF\" entry in the reflog of BRANCH.
+Git does not record a branch parent, so this is the only available record and
+it disappears once the reflog expires (see `gc.reflogExpire')."
+  (when (and branch (not (string-empty-p branch)))
+    (let* ((entries (ignore-errors
+                      (magit-git-lines "reflog" "show" "--format=%gs" branch)))
+           ;; The creation entry is the oldest one; later resets and rebases add
+           ;; newer entries that must not be mistaken for the creation record.
+           (creation-entry
+            (car (last (seq-filter
+                        (lambda (entry)
+                          (string-match-p "\\`branch: Created from " entry))
+                        entries)))))
+      (when creation-entry
+        (let ((source (string-trim
+                       (substring creation-entry
+                                  (length "branch: Created from ")))))
+          (unless (string-empty-p source) source))))))
+
+(defun ai-code--branch-parent-branch (branch)
+  "Return the branch BRANCH was created from, or nil when not determinable.
+Only return a source that still resolves to an existing branch, so raw commits,
+`HEAD', tags, and deleted branches are rejected as PR targets."
+  (let* ((source (ai-code--branch-creation-source branch))
+         (normalized (ai-code--normalize-branch-name source)))
+    (when (and normalized
+               (not (string-empty-p normalized))
+               (not (string= normalized branch))
+               (or (magit-branch-p normalized)
+                   (magit-branch-p (concat "origin/" normalized))))
+      normalized)))
+
 (defun ai-code--default-pr-target-branch (current-branch)
   "Return the default PR target branch for CURRENT-BRANCH."
-  (let* ((upstream-branch
+  (let* ((parent-branch
+          (ai-code--branch-parent-branch current-branch))
+         (upstream-branch
           (ignore-errors
             (magit-git-string "rev-parse"
                               "--abbrev-ref"
@@ -97,6 +134,8 @@ Candidate values:
          (normalized-upstream
           (ai-code--normalize-branch-name upstream-branch)))
     (cond
+     ;; The branch this one was forked from is the most likely PR target.
+     (parent-branch parent-branch)
      ((and normalized-upstream
            (not (string-empty-p normalized-upstream))
            (not (string= normalized-upstream current-branch)))
