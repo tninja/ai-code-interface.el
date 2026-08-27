@@ -9,7 +9,7 @@
 ;; - MuseCode:Muse-Spark-1.2
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
-;; Version: 1.940
+;; Version: 1.950
 ;; Package-Requires: ((emacs "29.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 

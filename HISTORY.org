@@ -2,6 +2,10 @@
 * Release history
 
 ** Main branch change
+
+** 1.95
+- Default PR target branch to the reflog-recorded parent branch
+- Update Grill harness to frontier-based rounds
 - Harden Uncle Bob harness (and +) against false-green checks
 - Add commit current changes workflow
 - Fix: adapt to ghostel 0.47+ link-detection API change
