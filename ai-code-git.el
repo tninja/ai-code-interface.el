@@ -85,6 +85,23 @@ Candidate values:
    (ignore-errors
      (magit-git-string "symbolic-ref" "--quiet" "--short" "refs/remotes/origin/HEAD"))))
 
+(defun ai-code--strip-remote-prefix (ref)
+  "Strip a configured remote prefix from remote-tracking REF.
+REF is a name below `refs/remotes/'.  Match against the configured remote
+names rather than splitting on the first path segment, because a remote name
+may itself contain a slash while a branch name may contain several."
+  (let ((remotes (ignore-errors (magit-git-lines "remote"))))
+    (or (seq-some (lambda (remote)
+                    (let ((prefix (concat remote "/")))
+                      (when (and (string-prefix-p prefix ref)
+                                 (> (length ref) (length prefix)))
+                        (substring ref (length prefix)))))
+                  ;; Longest remote name first, so that a remote named "grp/sub"
+                  ;; wins over a remote named "grp".
+                  (sort (copy-sequence remotes)
+                        (lambda (a b) (> (length a) (length b)))))
+        ref)))
+
 (defun ai-code--branch-creation-source (branch)
   "Return the raw ref BRANCH was created from, or nil when unknown.
 Read the oldest \"branch: Created from REF\" entry in the reflog of BRANCH.
@@ -106,18 +123,40 @@ it disappears once the reflog expires (see `gc.reflogExpire')."
                                   (length "branch: Created from ")))))
           (unless (string-empty-p source) source))))))
 
+(defun ai-code--creation-source-parent-branch (source)
+  "Return the bare branch name SOURCE refers to, or nil when it is not a branch.
+SOURCE is a raw creation ref recorded in a reflog.  Resolve it with
+`git rev-parse --symbolic-full-name', which dereferences a symbolic ref such as
+`origin/HEAD' to the branch it points at."
+  ;; A bare HEAD records "created from wherever HEAD was", which carries no
+  ;; parent information: it resolves to whatever branch happens to be checked
+  ;; out now rather than to the fork point being looked up.
+  (unless (string= source "HEAD")
+    (when-let* ((full-ref (ignore-errors
+                            (magit-git-string "rev-parse"
+                                              "--symbolic-full-name"
+                                              source))))
+      (cond
+       ((string-prefix-p "refs/heads/" full-ref)
+        (substring full-ref (length "refs/heads/")))
+       ((string-prefix-p "refs/remotes/" full-ref)
+        (ai-code--strip-remote-prefix
+         (substring full-ref (length "refs/remotes/"))))
+       ;; Tags and other namespaces are not usable PR targets.
+       (t nil)))))
+
 (defun ai-code--branch-parent-branch (branch)
   "Return the branch BRANCH was created from, or nil when not determinable.
-Only return a source that still resolves to an existing branch, so raw commits,
-`HEAD', tags, and deleted branches are rejected as PR targets."
-  (let* ((source (ai-code--branch-creation-source branch))
-         (normalized (ai-code--normalize-branch-name source)))
-    (when (and normalized
-               (not (string-empty-p normalized))
-               (not (string= normalized branch))
-               (or (magit-branch-p normalized)
-                   (magit-branch-p (concat "origin/" normalized))))
-      normalized)))
+Only refs that resolve inside a branch namespace qualify, so raw commits, tags,
+and deleted branches are rejected.  Return a bare branch name, because a PR base
+takes a branch name rather than a remote-qualified one."
+  (when-let* ((source (ai-code--branch-creation-source branch))
+              (parent (ai-code--creation-source-parent-branch source)))
+    ;; Checking out an existing remote branch records its own remote-tracking
+    ;; ref as the creation source, which would make BRANCH its own PR target.
+    (unless (or (string-empty-p parent)
+                (string= parent branch))
+      parent)))
 
 (defun ai-code--default-pr-target-branch (current-branch)
   "Return the default PR target branch for CURRENT-BRANCH."
