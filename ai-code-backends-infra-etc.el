@@ -4,11 +4,13 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Extra side-panel resize commands and keybindings for AI Code sessions.
+;; Extra side-panel resize commands, keybindings, and platform compatibility
+;; activation for AI Code sessions.
 
 ;;; Code:
 
 (require 'cl-lib)
+(require 'ai-code-backends-infra-platform)
 
 (declare-function ai-code-backends-infra--fit-side-window-body-width
                   "ai-code-backends-infra" (window))
@@ -103,7 +105,8 @@
       (ai-code-backends-infra-etc--bind-panel-resize-keys))))
 
 (defun ai-code-backends-infra-etc-activate ()
-  "Activate side-panel resize extensions for AI session buffers."
+  "Activate extra terminal behavior for AI session buffers."
+  (ai-code-backends-infra-platform-activate)
   (unless (advice-member-p #'ai-code-backends-infra-etc--configure-session-buffer-advice
                            #'ai-code-backends-infra--configure-session-buffer)
     (advice-add #'ai-code-backends-infra--configure-session-buffer
