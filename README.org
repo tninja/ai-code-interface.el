@@ -112,6 +112,13 @@ Enable installation of packages from MELPA by adding an entry to package-archive
       (ai-code-magit-setup-transients)))
 #+end_src
 
+** Windows
+
+Native Windows Emacs is supported. Ghostel is the recommended terminal backend
+because it uses ConPTY and provides pre-built Windows native modules. If the
+default vterm backend cannot start on native Windows, AI Code automatically
+falls back to Ghostel. See [[./docs/windows.org][Native Windows Support]] for setup and troubleshooting.
+
 ** Dependencies
 
 *** Required Dependencies
