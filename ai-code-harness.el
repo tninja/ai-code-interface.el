@@ -216,7 +216,8 @@ If the harness file cannot be prepared, fall back to the inline suffix."
   (pcase type
     ((or 'test-after-change 'tdd 'tdd-with-refactoring
          'uncle-bob-coding-agent-harness
-         'uncle-bob-coding-agent-harness-plus)
+         'uncle-bob-coding-agent-harness-plus
+         'evidence-first-coding-harness)
      (ai-code--auto-test-harness-reference-suffix type))
     ('no-test "Do not write or run any test.")
     (_ nil)))
@@ -340,6 +341,7 @@ See the later `defcustom' for user-facing documentation and default.")
     ("Do not write or run tests" . no-test)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
     ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
+    ("Evidence-First coding harness" . evidence-first-coding-harness)
     ("Uncle Bob's coding agent harness" . uncle-bob-coding-agent-harness)
     ("Uncle Bob's coding agent harness+"
      . uncle-bob-coding-agent-harness-plus))
