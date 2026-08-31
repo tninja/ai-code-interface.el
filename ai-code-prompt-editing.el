@@ -41,6 +41,7 @@
 (declare-function ai-code--get-files-directory "ai-code-utils" ())
 (declare-function ai-code--git-root "ai-code-git" (&optional dir))
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
+(declare-function company-begin-backend "company" (backend &optional callback))
 (declare-function company-mode "company" (&optional arg))
 (declare-function helm-imenu "helm-imenu" ())
 (declare-function magit-get-current-branch "magit-git" ())
@@ -50,6 +51,7 @@
 
 (defvar ai-code-files-dir-name)
 (defvar company-backends)
+(defvar company-mode)
 
 
 ;;;; Reference gating
@@ -130,8 +132,9 @@ deliberately suppressed."
         ;; usable both before and after "@" has been entered.
         (let ((start (save-excursion
                        (skip-chars-backward ai-code--prompt-reference-chars)
-                       (if (eq (char-before) ?@) (1- (point)) (point)))))
-          (when (< start (point))
+                       (when (eq (char-before) ?@)
+                         (1- (point))))))
+          (when start
             (delete-region start (point))))
         (insert choice)))))
 
@@ -158,6 +161,20 @@ enabled buffer-locally so `global-company-mode' stays off."
     ;; Only capf, so company offers exactly the @reference candidates.
     (setq-local company-backends '(company-capf))
     (company-mode 1)))
+
+(defun ai-code--prompt-start-inline-reference-completion ()
+  "Start non-blocking @reference completion in the current prompt buffer.
+Prefer the buffer-local Company CAPF backend configured by
+`ai-code--prompt-setup-inline-completion'.  Fall back to the standard
+`completion-at-point' UI when Company is unavailable."
+  (if (and (bound-and-true-p company-mode)
+           (fboundp 'company-begin-backend))
+      (condition-case nil
+          (company-begin-backend 'company-capf)
+        ;; Company reports an empty CAPF result as a user error.  Typing the
+        ;; sigil in an empty repository should simply leave it unchanged.
+        (user-error nil))
+    (completion-at-point)))
 
 
 ;;;; Navigation

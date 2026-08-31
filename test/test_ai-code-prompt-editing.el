@@ -124,17 +124,28 @@ directory."
 ;;; Scenario: the auto-trigger path honours the guard
 
 (ert-deftest ai-code-test-prompt-auto-trigger-skips-annotation-in-src-block ()
-  "The blocking auto-trigger must not fire for an annotation in a src block."
-  (let ((prompted nil))
-    (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&rest _) "/tmp/repo/"))
-              ((symbol-function 'ai-code--prompt-filepath-candidates)
-               (lambda () '("@src/main.el")))
-              ((symbol-function 'completing-read)
-               (lambda (&rest _) (setq prompted t) "@src/main.el")))
+  "The inline auto-trigger must not fire for an annotation in a src block."
+  (let ((started nil))
+    (cl-letf (((symbol-function 'ai-code--prompt-start-inline-reference-completion)
+               (lambda () (setq started t))))
       (ai-code-test-with-prompt-text "#+begin_src java\n@"
         (let ((before (buffer-string)))
           (ai-code--prompt-auto-trigger-filepath-completion)
-          (should-not prompted)
+          (should-not started)
+          (should (string= before (buffer-string))))))))
+
+(ert-deftest ai-code-test-prompt-auto-trigger-starts-inline-completion ()
+  "A valid sigil starts inline completion without opening a minibuffer."
+  (let ((started nil))
+    (cl-letf (((symbol-function 'ai-code--prompt-start-inline-reference-completion)
+               (lambda () (setq started t)))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _)
+                 (ert-fail "Auto-trigger called completing-read"))))
+      (ai-code-test-with-prompt-text "read @"
+        (let ((before (buffer-string)))
+          (ai-code--prompt-auto-trigger-filepath-completion)
+          (should started)
           (should (string= before (buffer-string))))))))
 
 (ert-deftest ai-code-test-prompt-capf-skips-annotation-in-src-block ()
@@ -169,6 +180,17 @@ directory."
       (ai-code-prompt-complete-reference)
       (should (string= "read @src/main.el" (buffer-string))))))
 
+(ert-deftest ai-code-test-prompt-complete-reference-preserves-ordinary-text ()
+  "The explicit command does not delete text that lacks an @ sigil."
+  (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&rest _) "/tmp/repo/"))
+            ((symbol-function 'ai-code--prompt-filepath-candidates)
+             (lambda () '("@src/main.el")))
+            ((symbol-function 'completing-read)
+             (lambda (&rest _) "@src/main.el")))
+    (ai-code-test-with-prompt-text "keep"
+      (ai-code-prompt-complete-reference)
+      (should (string= "keep@src/main.el" (buffer-string))))))
+
 (ert-deftest ai-code-test-prompt-complete-reference-errors-without-repo ()
   "The explicit command reports a user error outside a repository."
   (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&rest _) nil)))
@@ -181,6 +203,7 @@ directory."
 ;; which is the case in continuous integration.  The helm option is deliberately
 ;; NOT declared here: the implementation must cope with it being void.
 (defvar company-backends nil)
+(defvar company-mode nil)
 
 (ert-deftest ai-code-test-prompt-inline-completion-opts-out-of-helm ()
   "Setup registers the mode in helm's supported opt-out list."
@@ -244,6 +267,33 @@ here aborts activation of the whole major mode."
       (if had-value
           (setq helm-mode-no-completion-in-region-in-modes saved)
         (makunbound 'helm-mode-no-completion-in-region-in-modes)))))
+
+(ert-deftest ai-code-test-prompt-inline-completion-starts-company-capf ()
+  "Inline completion uses Company's CAPF backend when Company is active."
+  (let ((company-mode t)
+        backend)
+    (cl-letf (((symbol-function 'company-begin-backend)
+               (lambda (value) (setq backend value)))
+              ((symbol-function 'completion-at-point)
+               (lambda () (ert-fail "CAPF fallback was called"))))
+      (ai-code--prompt-start-inline-reference-completion)
+      (should (eq backend 'company-capf)))))
+
+(ert-deftest ai-code-test-prompt-inline-completion-tolerates-no-company-candidates ()
+  "Inline completion does not signal when Company finds no candidates."
+  (let ((company-mode t))
+    (cl-letf (((symbol-function 'company-begin-backend)
+               (lambda (&rest _) (user-error "Cannot complete at point"))))
+      (should-not (ai-code--prompt-start-inline-reference-completion)))))
+
+(ert-deftest ai-code-test-prompt-inline-completion-falls-back-to-capf ()
+  "Inline completion uses the standard CAPF UI when Company is inactive."
+  (let ((company-mode nil)
+        (called nil))
+    (cl-letf (((symbol-function 'completion-at-point)
+               (lambda () (setq called t))))
+      (ai-code--prompt-start-inline-reference-completion)
+      (should called))))
 
 
 ;;;; Navigation
@@ -450,6 +500,16 @@ here aborts activation of the whole major mode."
   "The send binding on C-c C-c is preserved."
   (should (eq 'ai-code-prompt-send-block
               (lookup-key ai-code-prompt-mode-map (kbd "C-c C-c")))))
+
+(ert-deftest ai-code-test-prompt-bindings-preserve-org-mark-subtree ()
+  "Prompt mode preserves Org's subtree marking binding on C-c @."
+  (should (eq 'org-mark-subtree
+              (lookup-key ai-code-prompt-mode-map (kbd "C-c @")))))
+
+(ert-deftest ai-code-test-prompt-complete-reference-has-nonconflicting-binding ()
+  "Explicit reference completion remains available on C-c r."
+  (should (eq 'ai-code-prompt-complete-reference
+              (lookup-key ai-code-prompt-mode-map (kbd "C-c r")))))
 
 ;;; Scenario: writing mode is opt-in and degrades without its dependency
 

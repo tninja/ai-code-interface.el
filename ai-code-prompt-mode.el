@@ -683,12 +683,7 @@ GIT-ROOT-TRUENAME is the normalized Git root."
   (when (not (minibufferp))
     (pcase (char-before)
       ((and ?@ (guard (ai-code--prompt-reference-position-p)))
-       (let ((candidates (ai-code--prompt-filepath-candidates)))
-         (when candidates
-           (let ((choice (completing-read "File: " candidates nil nil)))
-             (when (and choice (not (string-empty-p choice)))
-               (delete-char -1)  ; Remove the '@' we just typed
-               (insert choice))))))
+       (ai-code--prompt-start-inline-reference-completion))
       (?#
        (require 'ai-code-input nil t)
        (when (and (fboundp 'ai-code--hash-completion-target-file)
@@ -747,7 +742,10 @@ Special commands:
 ;; Bound at load time rather than inside the mode body, so the bindings are
 ;; discoverable through `describe-mode' before the mode is ever activated.
 (define-key ai-code-prompt-mode-map (kbd "C-c C-c") #'ai-code-prompt-send-block)
-(define-key ai-code-prompt-mode-map (kbd "C-c @") #'ai-code-prompt-complete-reference)
+;; This map defines its own C-c prefix, so preserve Org's subtree command
+;; explicitly instead of relying on keymap inheritance for this sequence.
+(define-key ai-code-prompt-mode-map (kbd "C-c @") #'org-mark-subtree)
+(define-key ai-code-prompt-mode-map (kbd "C-c r") #'ai-code-prompt-complete-reference)
 (define-key ai-code-prompt-mode-map (kbd "C-c j") #'ai-code-prompt-goto-heading)
 (define-key ai-code-prompt-mode-map (kbd "C-c f") #'ai-code-prompt-focus-subtree)
 (define-key ai-code-prompt-mode-map (kbd "C-c m") #'ai-code--mark-prompt-block)

@@ -1082,24 +1082,19 @@ evaluates BODY, and ensures everything is cleaned up afterward."
            (should (equal candidates '("@src/main.el" "@src/main.js")))))))))
 
 (ert-deftest ai-code-test-prompt-auto-trigger-filepath-completion ()
-  "Test that ai-code--prompt-auto-trigger-filepath-completion triggers completion after '@'."
+  "Test that @ starts inline completion without changing prompt text."
   (ai-code-with-test-repo
    (with-temp-buffer
-     ;; Insert @ symbol
      (insert "@")
-     
-     ;; Mock filepath candidates and selection
-     (cl-letf (((symbol-function 'ai-code--prompt-filepath-candidates)
-                (lambda () '("@src/main.el")))
-               ((symbol-function 'completing-read)
-                (lambda (_prompt candidates &rest _args)
-                  (car candidates))))
-       
-       ;; Call auto-trigger function
-       (ai-code--prompt-auto-trigger-filepath-completion)
-       
-       ;; Should replace @ with chosen candidate
-       (should (string= (buffer-string) "@src/main.el"))))))
+     (let ((completion-started nil))
+       (cl-letf (((symbol-function 'ai-code--prompt-start-inline-reference-completion)
+                  (lambda () (setq completion-started t)))
+                 ((symbol-function 'completing-read)
+                  (lambda (&rest _)
+                    (ert-fail "Auto-trigger called completing-read"))))
+         (ai-code--prompt-auto-trigger-filepath-completion)
+         (should completion-started)
+         (should (string= (buffer-string) "@")))))))
 
 (ert-deftest ai-code-test-prompt-auto-trigger-no-trigger-without-at ()
   "Test that ai-code--prompt-auto-trigger-filepath-completion doesn't trigger without '@'."
@@ -1107,17 +1102,13 @@ evaluates BODY, and ensures everything is cleaned up afterward."
    (with-temp-buffer
      ;; Insert text without @
      (insert "text")
-     
-     ;; Mock completion-at-point
-     (let ((completion-called nil))
-       (cl-letf (((symbol-function 'completion-at-point)
-                  (lambda () (setq completion-called t))))
-         
+     (let ((completion-started nil))
+       (cl-letf (((symbol-function 'ai-code--prompt-start-inline-reference-completion)
+                  (lambda () (setq completion-started t))))
          ;; Call auto-trigger function
          (ai-code--prompt-auto-trigger-filepath-completion)
-         
-         ;; Should NOT have called completion-at-point
-         (should-not completion-called))))))
+         ;; Should NOT have started inline completion.
+         (should-not completion-started))))))
 
 ;;; Tests for # symbol completion in prompt mode
 
