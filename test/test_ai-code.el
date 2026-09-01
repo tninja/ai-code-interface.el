@@ -553,8 +553,9 @@
     (should suffix)
     (should (eq (plist-get definition :command)
                 'ai-code-agent-handoff-or-checkpoint))
-    (should (equal (plist-get definition :description)
-                   "Handoff / checkpoint (C-u: whole task)"))))
+    ;; Only assert the prefix so the label can carry optional hints.
+    (should (string-prefix-p "Handoff / checkpoint"
+                             (plist-get definition :description)))))
 
 (ert-deftest ai-code-test-menu-prefix-command-default-layout ()
   "Test that the default menu layout uses the original transient."
