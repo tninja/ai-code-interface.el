@@ -90,6 +90,8 @@ Returns a filename with .org suffix."
     (insert (format "#+AGENT: %s\n" label))
     (insert
      "#+SESSION_ID: <Usually you can get the session id with /status or /stat in AI coding window>\n"))
+  ;; Task files grow long, so open them showing headings only.
+  (insert "#+STARTUP: content\n")
   (insert "\n* Task Description\n\n")
   (insert task-name)
   (insert "\n\n* Investigation\n\n")
