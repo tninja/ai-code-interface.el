@@ -182,7 +182,7 @@ appends the destination PNG path when invoking it:
   - If the default wide layout does not fit your frame well, set `ai-code-menu-layout` to `two-columns` for a narrower menu with the same commands.
 - *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), install backend skills (`S`), edit backend configs (`g`), open backend agent file (`G`), and run prompts against the current file (`|`). It supports multiple sessions per project. The `S` entry is especially useful for installing shared skill packs such as [[https://github.com/obra/superpowers][obra/superpowers]].
   - `j` opens the AI session dashboard, where you can inspect active sessions, refresh the list, visit a session buffer, kill a session, or open the repository's Magit status.
-  - `P` sends a session checkpoint prompt that asks the AI to summarize the goal, files changed, current hypothesis, tests/build result, blockers, and next action.
+  - `H` sends a session checkpoint prompt when run from an AI session buffer, asking the AI to summarize the goal, files changed, current hypothesis, tests/build result, blockers, and next action.
   - When resuming, selecting a UUID in the region appends that UUID automatically so you can continue a specific session.
   - In AI session side windows, `C-.` grows and `C-,` shrinks the panel immediately. On left/right side windows it adjusts width; on top/bottom side windows it adjusts height.
 - *AI CLI Editor Viewport*: Managed terminal TUI sessions support editing in a native Emacs viewport.
@@ -457,10 +457,12 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 To transfer development work between different AI coding backends (e.g., from Codex to Antigravity CLI) without relying on backend-specific session histories, *ai-code-interface.el* supports portable agent handoffs using Org-mode task files.
 
 - *Create or Open Task Files (`k` / `ai-code-create-or-open-task-file`)*: Quickly initialize a new task file (by default under `.ai.code.files/`) with date, branch, selected backend, and structured Org headings (`Task Description`, `Investigation`, `Code Change`).
-- *Generate Portable Handoff (`H` / `ai-code-agent-handoff`)*:
-  - Run `C-c a H` (without a prefix) when not on an Org heading to ask the current AI agent to append a structured handoff section (`* Agent Handoff YYYY-MM-DD HH:MM`) summarizing the task objective, current progress, files modified, design decisions, failed approaches, test results, and a startup prompt for the next agent.
+- *Generate Portable Handoff (`H` / `ai-code-agent-handoff-or-checkpoint`)*: `C-c a H` picks its behavior from the current buffer.
+  - In an Org buffer, run `C-c a H` (without a prefix) outside any handoff section to ask the current AI agent to append a structured handoff section (`* Agent Handoff YYYY-MM-DD HH:MM`) summarizing the task objective, current progress, files modified, design decisions, failed approaches, test results, and a startup prompt for the next agent.
   - Run `C-c a H` with a prefix argument (e.g. `C-u C-c a H`) to load the whole task file as neutral handoff context in a new AI session.
-  - Run `C-c a H` when the cursor is positioned on an Org heading to load only that specific subtree as prompt context for the active session.
+  - Run `C-c a H` anywhere inside a handoff section, or with the cursor on any Org heading, to load only that subtree as prompt context for the active session. The cursor does not have to sit on the handoff headline itself.
+  - In an AI session buffer, `C-c a H` sends the session checkpoint prompt (`ai-code-session-checkpoint`) instead.
+  - In any other buffer, `C-c a H` asks which of the two actions to run.
 
 ** AI coding CLI backend
 

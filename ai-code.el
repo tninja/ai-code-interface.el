@@ -270,6 +270,36 @@ ARG is the prefix argument."
                                    ai-code-session-checkpoint-prompt)))
     (ai-code--insert-prompt prompt)))
 
+(defconst ai-code--handoff-or-checkpoint-choices
+  '(("Agent handoff" . ai-code-agent-handoff)
+    ("Session checkpoint" . ai-code-session-checkpoint))
+  "Fallback choices offered by `ai-code-agent-handoff-or-checkpoint'.")
+
+(defun ai-code--read-handoff-or-checkpoint-command ()
+  "Ask which handoff or checkpoint command to run and return its symbol."
+  (let ((choice (completing-read
+                 "Neither an Org nor an AI session buffer; choose action: "
+                 (mapcar #'car ai-code--handoff-or-checkpoint-choices)
+                 nil t)))
+    (cdr (assoc choice ai-code--handoff-or-checkpoint-choices))))
+
+;;;###autoload
+(defun ai-code-agent-handoff-or-checkpoint (&optional arg)
+  "Run agent handoff or session checkpoint based on the current buffer.
+In an Org buffer, run `ai-code-agent-handoff' and forward ARG to it.  In an
+AI session buffer, run `ai-code-session-checkpoint'.  Anywhere else, ask
+which of the two commands to run."
+  (interactive "P")
+  (cond
+   ((derived-mode-p 'org-mode)
+    (ai-code-agent-handoff arg))
+   ((ai-code-backends-infra--session-buffer-p (current-buffer))
+    (ai-code-session-checkpoint))
+   ((eq (ai-code--read-handoff-or-checkpoint-command) 'ai-code-agent-handoff)
+    (ai-code-agent-handoff arg))
+   (t
+    (ai-code-session-checkpoint))))
+
 ;;;###autoload
 (defun ai-code-cli-resume-with-session-checkpoint (&optional arg prompt-for-checkpoint)
   "Resume the current backend's CLI session and optionally request a checkpoint.
@@ -599,7 +629,7 @@ Shows the current backend label to the right."
 (transient-define-group ai-code--menu-other-tools
   (ai-code--infix-toggle-auto-follow-up)
   ("k" "Create/Open task file" ai-code-create-or-open-task-file)
-  ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
+  ("H" "Handoff / checkpoint" ai-code-agent-handoff-or-checkpoint)
   ("/" "Search notes with AI" ai-code-search-notes-with-ai)
   ("n" "Take notes from AI session" ai-code-take-notes)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
@@ -608,7 +638,6 @@ Shows the current backend label to the right."
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
-  ("P" "AI session checkpoint" ai-code-session-checkpoint)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))

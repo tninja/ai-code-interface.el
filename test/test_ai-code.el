@@ -482,23 +482,80 @@
         (call-interactively #'ai-code-cli-resume-with-session-checkpoint)))
     (should (equal resume-arg '(4)))))
 
-(ert-deftest ai-code-test-menu-other-tools-includes-session-checkpoint-entry ()
-  "Test that the Other Tools menu exposes session checkpoint."
-  (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "P"))
-         (definition (cdr suffix)))
-    (should suffix)
-    (should (eq (plist-get definition :command)
-                'ai-code-session-checkpoint))))
+(ert-deftest ai-code-test-menu-other-tools-removes-session-checkpoint-entry ()
+  "Test that session checkpoint no longer owns a dedicated Other Tools key."
+  (should-error (transient-get-suffix 'ai-code--menu-other-tools "P")
+                :type 'error))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-dispatches-to-handoff-in-org-buffer ()
+  "Test that Org buffers route the merged command to agent handoff."
+  (let (handoff-arg checkpoint-called)
+    (cl-letf (((symbol-function 'ai-code-agent-handoff)
+               (lambda (&optional arg) (setq handoff-arg (list arg))))
+              ((symbol-function 'ai-code-session-checkpoint)
+               (lambda () (setq checkpoint-called t))))
+      (with-temp-buffer
+        (org-mode)
+        (ai-code-agent-handoff-or-checkpoint '(4))))
+    (should (equal handoff-arg '((4))))
+    (should-not checkpoint-called)))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-dispatches-to-checkpoint-in-session-buffer ()
+  "Test that AI session buffers route the merged command to the checkpoint."
+  (let ((buffer (get-buffer-create "*ai-code-test-backend[project]*"))
+        handoff-called checkpoint-called)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-agent-handoff)
+                   (lambda (&optional _arg) (setq handoff-called t)))
+                  ((symbol-function 'ai-code-session-checkpoint)
+                   (lambda () (setq checkpoint-called t))))
+          (with-current-buffer buffer
+            (ai-code-agent-handoff-or-checkpoint nil)))
+      (kill-buffer buffer))
+    (should checkpoint-called)
+    (should-not handoff-called)))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-asks-in-other-buffers ()
+  "Test that other buffers ask which of the two commands to run."
+  (let (prompted-collection handoff-arg)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq prompted-collection collection)
+                 "Agent handoff"))
+              ((symbol-function 'ai-code-agent-handoff)
+               (lambda (&optional arg) (setq handoff-arg (list arg))))
+              ((symbol-function 'ai-code-session-checkpoint)
+               (lambda () (error "Checkpoint must not run for this choice"))))
+      (with-temp-buffer
+        (fundamental-mode)
+        (ai-code-agent-handoff-or-checkpoint '(4))))
+    (should (equal prompted-collection '("Agent handoff" "Session checkpoint")))
+    (should (equal handoff-arg '((4))))))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-honors-checkpoint-choice ()
+  "Test that picking the checkpoint in other buffers runs the checkpoint."
+  (let (checkpoint-called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Session checkpoint"))
+              ((symbol-function 'ai-code-agent-handoff)
+               (lambda (&optional _arg) (error "Handoff must not run")))
+              ((symbol-function 'ai-code-session-checkpoint)
+               (lambda () (setq checkpoint-called t))))
+      (with-temp-buffer
+        (fundamental-mode)
+        (ai-code-agent-handoff-or-checkpoint nil)))
+    (should checkpoint-called)))
 
 (ert-deftest ai-code-test-menu-other-tools-includes-agent-handoff-entry ()
-  "Test that the Other Tools menu exposes agent handoff."
+  "Test that the Other Tools menu exposes the merged handoff/checkpoint entry."
   (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "H"))
          (definition (cdr suffix)))
     (should suffix)
     (should (eq (plist-get definition :command)
-                'ai-code-agent-handoff))
-    (should (equal (plist-get definition :description)
-                   "Agent handoff (C-u: whole task)"))))
+                'ai-code-agent-handoff-or-checkpoint))
+    ;; Only assert the prefix so the label can carry optional hints.
+    (should (string-prefix-p "Handoff / checkpoint"
+                             (plist-get definition :description)))))
 
 (ert-deftest ai-code-test-menu-prefix-command-default-layout ()
   "Test that the default menu layout uses the original transient."
