@@ -81,6 +81,7 @@ When nil, an available port is selected automatically."
                  :host "127.0.0.1"
                  :service (or ai-code-mcp-http-server-port 0)
                  :noquery t
+                 :filter #'ai-code-mcp-http-server--filter
                  :log #'ai-code-mcp-http-server--accept)))
     (setq ai-code-mcp-http-server--server server
           ai-code-mcp-http-server--port (process-contact server :service))))

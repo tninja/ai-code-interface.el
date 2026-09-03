@@ -52,6 +52,7 @@
 (declare-function vterm-send-return "vterm" ())
 (declare-function vterm--window-adjust-process-window-size "vterm" (&rest args))
 (declare-function vterm--filter "vterm" (&rest args))
+(declare-function vterm--delayed-redraw "vterm" (buffer))
 
 (defvar ai-code-backends-infra-strip-alternate-screen)
 (defvar ai-code-backends-infra--session-terminal-backend)
@@ -260,29 +261,73 @@ applications write to the normal screen buffer (preserving scrollback)."
          (process-buffer process)
          filtered-input)))))
 
+(defun ai-code-backends-infra--vterm-window-scrolled-away-p (window)
+  "Return non-nil when WINDOW no longer shows the end of the current buffer.
+Such a window was scrolled away by the user, so its viewport should stay
+put instead of following new terminal output.  The buffer end counts as
+shown even when its line is only partially visible, otherwise a fractional
+last screen line would freeze the viewport permanently.  Anything that is
+not a live window is never reported as scrolled away."
+  (and (windowp window)
+       (window-live-p window)
+       (not (pos-visible-in-window-p (point-max) window t))))
+
+(defun ai-code-backends-infra--vterm-frozen-windows ()
+  "Return windows of the current buffer whose viewport must stay stable.
+`vterm-copy-mode' freezes every window showing the buffer.  Otherwise only
+windows the user has scrolled away from the buffer end are frozen, so a
+window that still shows live output keeps following it."
+  (let ((windows (get-buffer-window-list (current-buffer) nil t)))
+    (if (bound-and-true-p vterm-copy-mode)
+        windows
+      (cl-remove-if-not
+       #'ai-code-backends-infra--vterm-window-scrolled-away-p windows))))
+
 (defun ai-code-backends-infra--vterm-render-preserving-copy-mode-view (render-fn)
-  "Call RENDER-FN while keeping the user's `vterm-copy-mode' viewport stable."
-  (if (not (bound-and-true-p vterm-copy-mode))
-      (funcall render-fn)
-    (let ((point-marker (copy-marker (point) t))
-          (window-states
-           (mapcar (lambda (window)
-                     (list window
-                           (copy-marker (window-start window) t)
-                           (copy-marker (window-point window) t)))
-                   (get-buffer-window-list (current-buffer) nil t))))
-      (unwind-protect
-          (let ((inhibit-redisplay t))
-            (funcall render-fn))
-        (dolist (state window-states)
-          (pcase-let ((`(,window ,start-marker ,window-point-marker) state))
-            (when (window-live-p window)
-              (set-window-start window start-marker t)
-              (set-window-point window window-point-marker))
-            (set-marker start-marker nil)
-            (set-marker window-point-marker nil)))
-        (goto-char point-marker)
-        (set-marker point-marker nil)))))
+  "Call RENDER-FN while keeping frozen vterm viewports stable.
+A viewport is frozen in `vterm-copy-mode' and in any window the user has
+scrolled away from the buffer end, so terminal output keeps rendering
+without yanking the view back to the terminal cursor.  Windows that still
+show live output are left untouched and keep following it.
+Frozen windows are detected before RENDER-FN runs, because rendering is
+what moves the viewport."
+  (let* ((frozen-windows (ai-code-backends-infra--vterm-frozen-windows))
+         (preserve-point (or (bound-and-true-p vterm-copy-mode)
+                             (and (memq (selected-window) frozen-windows) t))))
+    (if (and (null frozen-windows) (not preserve-point))
+        (funcall render-fn)
+      (let ((point-marker (and preserve-point (copy-marker (point) t)))
+            (window-states
+             (mapcar (lambda (window)
+                       (list window
+                             (copy-marker (window-start window) t)
+                             (copy-marker (window-point window) t)))
+                     frozen-windows)))
+        (unwind-protect
+            (let ((inhibit-redisplay t))
+              (funcall render-fn))
+          (dolist (state window-states)
+            (pcase-let ((`(,window ,start-marker ,window-point-marker) state))
+              (when (window-live-p window)
+                (set-window-start window start-marker t)
+                (set-window-point window window-point-marker))
+              (set-marker start-marker nil)
+              (set-marker window-point-marker nil)))
+          (when point-marker
+            (goto-char point-marker)
+            (set-marker point-marker nil)))))))
+
+(defun ai-code-backends-infra--vterm-preserve-viewport-on-redraw (orig-fun buffer)
+  "Keep frozen viewports stable while ORIG-FUN redraws BUFFER.
+`vterm--delayed-redraw' is where the vterm module recenters windows on the
+terminal cursor, so session buffers wrap it to hold scrolled-away windows
+in place.  Other buffers redraw untouched."
+  (if (not (and (buffer-live-p buffer)
+                (ai-code-backends-infra--session-buffer-p buffer)))
+      (funcall orig-fun buffer)
+    (with-current-buffer buffer
+      (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+       (lambda () (funcall orig-fun buffer))))))
 
 (defun ai-code-backends-infra--vterm-render-queued-output (orig-fun buffer)
   "Render queued vterm output for BUFFER using ORIG-FUN."
@@ -386,6 +431,8 @@ returns to normal terminal interaction."
     (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-notification-tracker)
     (when ai-code-backends-infra-vterm-anti-flicker
       (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer))
+    (advice-add 'vterm--delayed-redraw :around
+                #'ai-code-backends-infra--vterm-preserve-viewport-on-redraw)
     (setq ai-code-backends-infra--vterm-advices-installed t)))
 
 (defun ai-code-backends-infra-vterm-create-session (buffer-name working-dir command env-vars)

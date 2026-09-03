@@ -3527,6 +3527,185 @@ The prefix argument should also force instance-name prompting."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-vterm-window-scrolled-away-p-rejects-dead-window ()
+  "Anything that is not a live window is never treated as scrolled away."
+  (should-not (ai-code-backends-infra--vterm-window-scrolled-away-p nil))
+  (should-not (ai-code-backends-infra--vterm-window-scrolled-away-p 'fake-window)))
+
+(ert-deftest test-ai-code-backends-infra-vterm-frozen-windows-freezes-all-in-copy-mode ()
+  "`vterm-copy-mode' freezes every window, even one showing the buffer end."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-frozen-copy-mode*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode t)
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) nil)))
+              (should (equal (ai-code-backends-infra--vterm-frozen-windows)
+                             (list (selected-window)))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-frozen-windows-skips-following-window ()
+  "A window still showing the buffer end keeps following new output."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-frozen-following*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) nil)))
+              (should (null (ai-code-backends-infra--vterm-frozen-windows))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-frozen-windows-freezes-scrolled-away-window ()
+  "A window scrolled away from the buffer end is frozen without copy mode."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-frozen-scrolled*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) t)))
+              (should (equal (ai-code-backends-infra--vterm-frozen-windows)
+                             (list (selected-window)))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-render-preserving-view-freezes-scrolled-away-window ()
+  "Rendering keeps a scrolled-away viewport stable outside `vterm-copy-mode'."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-scrolled-away-render*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (dotimes (line 80)
+              (insert (format "line %02d\n" line)))
+            (goto-char (point-min))
+            (forward-line 25)
+            (set-window-start (selected-window) (point))
+            (forward-line 4)
+            (set-window-point (selected-window) (point))
+            (let ((original-start (window-start))
+                  (original-window-point (window-point))
+                  (original-point (point)))
+              (cl-letf (((symbol-function
+                          'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                         (lambda (_window) t)))
+                (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+                 (lambda ()
+                   ;; Mimic vterm recentering the window on the terminal cursor.
+                   (goto-char (point-max))
+                   (insert "tail\n")
+                   (set-window-start (selected-window) (point-max))
+                   (set-window-point (selected-window) (point-max)))))
+              (should (= (window-start) original-start))
+              (should (= (window-point) original-window-point))
+              (should (= (point) original-point)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-render-preserving-view-follows-output-at-bottom ()
+  "Rendering leaves a window that still shows the buffer end alone."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-following-render*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (dotimes (line 80)
+              (insert (format "line %02d\n" line)))
+            (goto-char (point-min))
+            (set-window-start (selected-window) (point-min))
+            (set-window-point (selected-window) (point-min))
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) nil)))
+              (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+               (lambda ()
+                 (goto-char (point-max))
+                 (insert "tail\n")
+                 (set-window-start (selected-window) (point-max))
+                 (set-window-point (selected-window) (point-max)))))
+            ;; Nothing was frozen, so the viewport and point follow the output.
+            (should (= (window-start) (point-max)))
+            (should (= (window-point) (point-max)))
+            (should (= (point) (point-max)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-preserve-viewport-on-redraw-freezes-session-buffer ()
+  "The redraw advice keeps a scrolled-away session viewport stable."
+  (let ((buffer (generate-new-buffer "*testclaude[redraw-freeze]*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (dotimes (line 80)
+              (insert (format "line %02d\n" line)))
+            (goto-char (point-min))
+            (forward-line 25)
+            (set-window-start (selected-window) (point))
+            (set-window-point (selected-window) (point))
+            (let ((original-start (window-start))
+                  (redrawn nil))
+              (cl-letf (((symbol-function
+                          'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                         (lambda (_window) t)))
+                (ai-code-backends-infra--vterm-preserve-viewport-on-redraw
+                 (lambda (redraw-buffer)
+                   (setq redrawn redraw-buffer)
+                   (goto-char (point-max))
+                   (set-window-start (selected-window) (point-max))
+                   (set-window-point (selected-window) (point-max)))
+                 buffer))
+              (should (eq redrawn buffer))
+              (should (= (window-start) original-start)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-preserve-viewport-on-redraw-passes-through-other-buffers ()
+  "Non-session buffers redraw without viewport preservation."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-plain-redraw*")))
+    (unwind-protect
+        (let ((redrawn nil)
+              (preserved nil))
+          (cl-letf (((symbol-function
+                      'ai-code-backends-infra--vterm-render-preserving-copy-mode-view)
+                     (lambda (render-fn)
+                       (setq preserved t)
+                       (funcall render-fn))))
+            (ai-code-backends-infra--vterm-preserve-viewport-on-redraw
+             (lambda (redraw-buffer) (setq redrawn redraw-buffer))
+             buffer))
+          (should (eq redrawn buffer))
+          (should-not preserved))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-configure-vterm-buffer-installs-redraw-viewport-advice ()
+  "Configuring a vterm buffer should wrap vterm's delayed redraw."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+    (let ((ai-code-backends-infra--vterm-advices-installed nil)
+          (installed nil))
+      (cl-letf (((symbol-function 'advice-add)
+                 (lambda (symbol _how function &rest _args)
+                   (push (cons symbol function) installed))))
+        (ai-code-backends-infra--configure-vterm-buffer))
+      (should (member (cons 'vterm--delayed-redraw
+                            #'ai-code-backends-infra--vterm-preserve-viewport-on-redraw)
+                      installed)))))
+
 (ert-deftest test-ai-code-backends-infra-vterm-render-queued-output-skips-dead-process ()
   "Queued output should be dropped when the buffer has no live process."
   (with-temp-buffer
