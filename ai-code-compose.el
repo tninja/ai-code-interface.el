@@ -14,6 +14,10 @@
 (require 'cl-lib)
 (require 'subr-x)
 
+(declare-function ai-code--prompt-filepath-capf "ai-code-prompt-mode" ())
+(declare-function ai-code--prompt-auto-trigger-filepath-completion
+                  "ai-code-prompt-mode" ())
+
 ;;;###autoload
 (defcustom ai-code-use-compose-buffer nil
   "When non-nil, edit supported free-form AI prompts in a compose buffer.
@@ -88,10 +92,19 @@ prompt text that benefits from full Emacs editing."
            "    \\[ai-code-compose-accept] send"
            "    \\[ai-code-compose-cancel] cancel")))
 
+(defun ai-code-compose--setup-path-completion ()
+  "Reuse prompt-mode @file and #symbol completion in the compose buffer."
+  (when (require 'ai-code-prompt-mode nil t)
+    (add-hook 'completion-at-point-functions
+              #'ai-code--prompt-filepath-capf nil t)
+    (add-hook 'post-self-insert-hook
+              #'ai-code--prompt-auto-trigger-filepath-completion nil t)))
+
 (define-derived-mode ai-code-compose-mode text-mode "AI Compose"
   "Major mode for editing a free-form prompt before an ai-code command uses it."
   (visual-line-mode 1)
-  (setq-local header-line-format '(:eval (ai-code-compose--header-line))))
+  (setq-local header-line-format '(:eval (ai-code-compose--header-line)))
+  (ai-code-compose--setup-path-completion))
 
 (define-key ai-code-compose-mode-map (kbd "C-c C-c") #'ai-code-compose-accept)
 (define-key ai-code-compose-mode-map (kbd "C-c C-k") #'ai-code-compose-cancel)
