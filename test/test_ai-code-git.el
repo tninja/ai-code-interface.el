@@ -15,6 +15,7 @@
 
 (declare-function difftastic-magit-diff "difftastic" ())
 (declare-function magit-worktree-status "magit-worktree" ())
+(declare-function magit-worktree-delete "magit-worktree" (worktree))
 
 (ert-deftest ai-code-test-ai-code-git-does-not-eagerly-load-github-module ()
   "Loading `ai-code-git' should not eagerly load `ai-code-github'."
@@ -361,17 +362,54 @@ confirmed and the command is aborted."
       (delete-directory temp-worktree-root t)
       (delete-directory temp-git-root t))))
 
-(ert-deftest ai-code-test-git-worktree-action-without-prefix-calls-worktree-branch ()
-  "Without prefix arg, dispatch to `ai-code-git-worktree-branch'."
-  (let (captured-fn)
-    (cl-letf (((symbol-function 'call-interactively)
+(defun ai-code-test--run-worktree-action (choice)
+  "Run `ai-code-git-worktree-action' selecting CHOICE and return the command.
+CHOICE is the completion candidate string to answer with.  The returned
+value is the symbol handed to `call-interactively'."
+  (let (captured-fn captured-default)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _collection &optional _pred _require-match
+                                _initial _hist default &rest _)
+                 (setq captured-default default)
+                 (or choice default)))
+              ((symbol-function 'call-interactively)
                (lambda (fn &optional _record-flag _keys)
                  (setq captured-fn fn))))
-      (ai-code-git-worktree-action nil)
-      (should (eq captured-fn #'ai-code-git-worktree-branch)))))
+      (ai-code-git-worktree-action))
+    (cons captured-fn captured-default)))
 
-(ert-deftest ai-code-test-git-worktree-action-with-prefix-opens-dired ()
-  "With prefix arg, open Dired on the repo worktree directory."
+(ert-deftest ai-code-test-git-worktree-action-defaults-to-worktree-branch ()
+  "Accepting the default completion dispatches to `ai-code-git-worktree-branch'."
+  (let ((result (ai-code-test--run-worktree-action nil)))
+    (should (eq (car result) #'ai-code-git-worktree-branch))
+    (should (equal (cdr result) (caar ai-code--worktree-action-choices)))))
+
+(ert-deftest ai-code-test-git-worktree-action-dispatches-open-dir ()
+  "Selecting the Dired entry dispatches to `ai-code-git-worktree-open-dir'."
+  (should (eq (car (ai-code-test--run-worktree-action
+                    "Open worktree directory (Dired)"))
+              #'ai-code-git-worktree-open-dir)))
+
+(ert-deftest ai-code-test-git-worktree-action-dispatches-visit ()
+  "Selecting the visit entry dispatches to `magit-worktree-status'."
+  (should (eq (car (ai-code-test--run-worktree-action "Visit existing worktree"))
+              #'magit-worktree-status)))
+
+(ert-deftest ai-code-test-git-worktree-action-dispatches-delete ()
+  "Selecting the delete entry dispatches to `magit-worktree-delete'."
+  (should (eq (car (ai-code-test--run-worktree-action "Delete worktree"))
+              #'magit-worktree-delete)))
+
+(ert-deftest ai-code-test-git-worktree-action-magit-entries-ignore-worktree-root ()
+  "Magit-backed entries work even when `ai-code-git-worktree-root' is unset."
+  (let ((ai-code-git-worktree-root nil))
+    (should (eq (car (ai-code-test--run-worktree-action "Delete worktree"))
+                #'magit-worktree-delete))
+    (should (eq (car (ai-code-test--run-worktree-action "Visit existing worktree"))
+                #'magit-worktree-status))))
+
+(ert-deftest ai-code-test-git-worktree-open-dir-opens-dired ()
+  "`ai-code-git-worktree-open-dir' opens Dired on the repo worktree directory."
   (let* ((temp-worktree-root (make-temp-file "wt-root" t))
          (repo-dir (expand-file-name "ai-code-interface.el" temp-worktree-root))
          (ai-code-git-worktree-root temp-worktree-root)
@@ -382,16 +420,35 @@ confirmed and the command is aborted."
                    (lambda () "/tmp/fake/ai-code-interface.el/"))
                   ((symbol-function 'dired)
                    (lambda (dir) (setq dired-called-with dir))))
-          (ai-code-git-worktree-action '(4))
+          (ai-code-git-worktree-open-dir)
           (should (equal dired-called-with repo-dir)))
       (delete-directory temp-worktree-root t))))
 
-(ert-deftest ai-code-test-git-worktree-action-with-prefix-errors-when-missing ()
-  "With prefix arg, signal error when worktree directory does not exist."
+(ert-deftest ai-code-test-git-worktree-open-dir-errors-when-missing ()
+  "`ai-code-git-worktree-open-dir' errors when the worktree directory is absent."
   (let ((ai-code-git-worktree-root (expand-file-name "nonexistent-wt" temporary-file-directory)))
     (cl-letf (((symbol-function 'ai-code--validate-git-repository)
                (lambda () "/tmp/fake/some-repo/")))
-      (should-error (ai-code-git-worktree-action '(4)) :type 'user-error))))
+      (should-error (ai-code-git-worktree-open-dir) :type 'user-error))))
+
+(ert-deftest ai-code-test-git-worktree-open-dir-errors-without-worktree-root ()
+  "`ai-code-git-worktree-open-dir' errors when the worktree root is unconfigured."
+  (let ((ai-code-git-worktree-root nil))
+    (should-error (ai-code-git-worktree-open-dir) :type 'user-error))
+  (let ((ai-code-git-worktree-root ""))
+    (should-error (ai-code-git-worktree-open-dir) :type 'user-error)))
+
+(ert-deftest ai-code-test-git-worktree-branch-errors-without-worktree-root ()
+  "`ai-code-git-worktree-branch' errors when the worktree root is unconfigured.
+The directory and Git entry points are stubbed so that a regression fails the
+test instead of creating a real worktree next to the repository."
+  (let ((ai-code-git-worktree-root nil))
+    (cl-letf (((symbol-function 'make-directory)
+               (lambda (&rest _) (ert-fail "Must not create a directory")))
+              ((symbol-function 'magit-call-git)
+               (lambda (&rest _) (ert-fail "Must not invoke git"))))
+      (should-error (ai-code-git-worktree-branch "feature/x" "main")
+                    :type 'user-error))))
 
 (ert-deftest ai-code-test-git-worktree-branch-opens-dired-after-creation ()
   "After creating worktree, open Dired on the worktree path instead of Magit status."

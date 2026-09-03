@@ -623,7 +623,7 @@ Shows the current backend label to the right."
   ("b" "Build/Test/Diagnostics (AI follow-up)" ai-code-build-or-test-project)
   ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
   ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
-  ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action)
+  ("w" "Git worktree actions" ai-code-git-worktree-action)
   )
 
 (transient-define-group ai-code--menu-other-tools

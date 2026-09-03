@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Expand `C-c a w` into a worktree action menu: create, open directory, visit, delete
 - Merge the AI session checkpoint (`P`) into agent handoff (`H`), dispatching on buffer type
 - Load a handoff section from anywhere inside it, not only from its headline
 

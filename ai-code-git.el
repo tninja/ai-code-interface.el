@@ -32,6 +32,7 @@
 (declare-function magit-rev-verify "magit-git" (rev))
 (declare-function magit-run-git "magit-git" (&rest args))
 (declare-function magit-worktree-status "magit-worktree" ())
+(declare-function magit-worktree-delete "magit-worktree" (worktree))
 (declare-function difftastic-magit-diff "difftastic" ())
 (declare-function ai-code-pull-or-review-diff-file "ai-code-github" ())
  (declare-function ai-code--open-git-web-compare "ai-code-github" (start end))
@@ -202,7 +203,7 @@ Return the git root directory if valid, otherwise signal an error."
       (user-error "Not in a git repository"))))
 
 (defun ai-code--git-current-changes-p ()
-  "Return non-nil when the current repository has changes to commit."
+  "Return non-nil when the current repository needs a commit."
   (let ((status (magit-git-output "status" "--porcelain")))
     (and status (not (string-empty-p status)))))
 
@@ -247,7 +248,7 @@ Return the git root directory if valid, otherwise signal an error."
 
 ;;;###autoload
 (defun ai-code-git-commit-current-changes ()
-  "Commit the current working-tree changes and optionally push them.
+  "Commit the current working tree state and optionally push it.
 Prompt for a commit message first.  When the message is empty, stage all
 changes, generate a message from the exact staged diff, and let the user edit
 that generated message before committing.  Finally ask whether to push the
@@ -853,6 +854,12 @@ buffer from which this command was invoked, instead of visiting the file."
   (let ((repo-name (file-name-nondirectory (directory-file-name git-root))))
     (expand-file-name repo-name ai-code-git-worktree-root)))
 
+(defun ai-code--validate-git-worktree-root ()
+  "Signal a user error unless `ai-code-git-worktree-root' is configured."
+  (unless (and (stringp ai-code-git-worktree-root)
+               (> (length ai-code-git-worktree-root) 0))
+    (user-error "Please configure `ai-code-git-worktree-root` first")))
+
 (defun ai-code--worktree-default-branch-name (start-point)
   "Return a default new branch name derived from START-POINT, or nil.
 When START-POINT is a remote branch such as \"origin/topic\", suggest
@@ -903,6 +910,7 @@ never be confirmed and the whole command has to be aborted."
 The worktree path for START-POINT is
 `ai-code-git-worktree-root/REPO-NAME/BRANCH'."
   (interactive (ai-code--read-worktree-branch-args))
+  (ai-code--validate-git-worktree-root)
   (let* ((git-root (ai-code--validate-git-repository))
          (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root))
          (path (expand-file-name branch repo-worktree-dir))
@@ -950,22 +958,41 @@ BRANCH is used as the default task name."
           (ai-code--set-session-project-root worktree-path))))))
 
 ;;;###autoload
-(defun ai-code-git-worktree-action (&optional prefix)
-  "Dispatch worktree action by PREFIX.
-Without PREFIX, call `ai-code-git-worktree-branch'.
-With PREFIX (for example \\[universal-argument]), open Dired on
-the centralized worktree directory."
-  (interactive "P")
-  (unless (and (stringp ai-code-git-worktree-root)
-               (> (length ai-code-git-worktree-root) 0))
-    (user-error "Please configure `ai-code-git-worktree-root` first"))
-  (if prefix
-      (let* ((git-root (ai-code--validate-git-repository))
-             (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root)))
-        (if (file-directory-p repo-worktree-dir)
-            (dired repo-worktree-dir)
-          (user-error "Worktree directory does not exist: %s" repo-worktree-dir)))
-    (call-interactively #'ai-code-git-worktree-branch)))
+(defun ai-code-git-worktree-open-dir ()
+  "Open Dired on the centralized worktree directory of the current repository.
+The directory is `ai-code-git-worktree-root/REPO-NAME'."
+  (interactive)
+  (ai-code--validate-git-worktree-root)
+  (let* ((git-root (ai-code--validate-git-repository))
+         (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root)))
+    (if (file-directory-p repo-worktree-dir)
+        (dired repo-worktree-dir)
+      (user-error "Worktree directory does not exist: %s" repo-worktree-dir))))
+
+(defconst ai-code--worktree-action-choices
+  '(("New branch and worktree"         . ai-code-git-worktree-branch)
+    ("Open worktree directory (Dired)" . ai-code-git-worktree-open-dir)
+    ("Visit existing worktree"         . magit-worktree-status)
+    ("Delete worktree"                 . magit-worktree-delete))
+  "Worktree actions offered by `ai-code-git-worktree-action'.
+The first entry is used as the completion default so that accepting the
+default keeps the historical behavior of creating a new worktree.")
+
+;;;###autoload
+(defun ai-code-git-worktree-action ()
+  "Choose a Git worktree action and run it.
+Candidates come from `ai-code--worktree-action-choices'.  The Magit-backed
+entries do not require `ai-code-git-worktree-root' to be configured."
+  (interactive)
+  (let* ((default-choice (caar ai-code--worktree-action-choices))
+         (choice (completing-read "Worktree action: "
+                                  (mapcar #'car ai-code--worktree-action-choices)
+                                  nil t nil nil default-choice))
+         (command (alist-get choice ai-code--worktree-action-choices
+                             nil nil #'string=)))
+    ;; Every candidate is a command with its own interactive spec, so it must
+    ;; be dispatched with `call-interactively' rather than `funcall'.
+    (call-interactively command)))
 
 (provide 'ai-code-git)
 
