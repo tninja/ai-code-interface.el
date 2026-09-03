@@ -293,6 +293,33 @@ The result is a cons of whether SYMBOL is bound and its default value."
         (should (equal (plist-get result :args) '("--resume")))
         (should (equal (plist-get result :command) "claude --resume"))))))
 
+(ert-deftest test-ai-code-backends-infra--resolve-start-command-expands-home-program ()
+  "A home-relative executable path should reach terminals as an absolute path."
+  (let* ((program "~/bin/codex")
+         (resolved
+          (ai-code-backends-infra--resolve-start-command
+           program nil nil "Codex")))
+    (should
+     (equal
+      (plist-get resolved :command)
+      (shell-quote-argument (expand-file-name program))))))
+
+(ert-deftest test-ai-code-backends-infra--resolve-start-command-preserves-default-boundaries ()
+  "Accepting prompted defaults should preserve each argument boundary."
+  (cl-letf (((symbol-function 'read-string)
+             (lambda (_prompt initial-input &rest _args)
+               initial-input)))
+    (let* ((switches
+            '("--header" "Authorization: Bearer default-header-secret"))
+           (resolved
+            (ai-code-backends-infra--resolve-start-command
+             "codex" switches t "Codex")))
+      (should (equal (plist-get resolved :args) switches))
+      (should
+       (equal
+        (split-string-shell-command (plist-get resolved :command))
+        (cons "codex" switches))))))
+
 (ert-deftest test-ai-code-backends-infra-session-working-directory-prompts-with-prefix ()
   "A prefix argument should prompt for the working directory."
   (let (seen)
@@ -3971,34 +3998,23 @@ The prefix argument should also force instance-name prompting."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
-(ert-deftest test-ai-code-backends-infra-handle-session-start-failure-shows-live-buffer ()
-  "Startup failure should preserve and show a live buffer with an error message."
-  (let* ((session-key '("/tmp/ai-code-start-failure/" . "default"))
-         (process-table (make-hash-table :test 'equal))
-         (buffer (get-buffer-create "*ai-code-start-failure*"))
-         (calls nil))
-    (unwind-protect
-        (progn
-          (puthash session-key 'mock-process process-table)
-          (cl-letf (((symbol-function 'pop-to-buffer)
-                     (lambda (target-buffer &rest _args)
-                       (push (list :pop target-buffer) calls)
-                       nil))
-                    ((symbol-function 'message)
-                     (lambda (format-string &rest args)
-                       (push (apply #'format format-string args) calls)
-                       nil)))
-            (ai-code-backends-infra--handle-session-start-failure
-             buffer
-             session-key
-             process-table)
-            (should-not (gethash session-key process-table))
-            (should (equal (nreverse calls)
-                           (list (list :pop buffer)
-                                 "CLI failed to start - see buffer for error details")))))
-      (when (buffer-live-p buffer)
-        (kill-buffer buffer)))))
-
+(ert-deftest test-ai-code-backends-infra--handle-session-start-failure-delegates-reporting ()
+  "Startup failure should clear session state and delegate safe reporting."
+  (with-temp-buffer
+    (let ((buffer (current-buffer))
+          (session-key '("/tmp/ai-code-start-failure/" . "default"))
+          (process-table (make-hash-table :test 'equal))
+          reported)
+      (setq-local ai-code-backends-infra--session-prefix "codex")
+      (puthash session-key 'mock-process process-table)
+      (cl-letf (((symbol-function 'ai-code-startup-diagnostics-report)
+                 (lambda (&rest args)
+                   (setq reported args))))
+        (ai-code-backends-infra--handle-session-start-failure
+         buffer session-key process-table nil nil))
+      (should-not (gethash session-key process-table))
+      (should (equal reported
+                     (list buffer 'mock-process "codex" nil))))))
 (ert-deftest test-ai-code-backends-infra-configure-session-buffer-does-not-bind-manual-navigation ()
   "Configuring a session buffer should not add a manual `C-c g' navigation feature."
   (let ((buffer (generate-new-buffer "*ai-code-session-config*")))
