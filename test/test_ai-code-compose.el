@@ -82,6 +82,20 @@
       (should (ai-code--confirm-and-send "Edit: " long-prompt))
       (should (equal sent "minibuffer edit")))))
 
+(ert-deftest ai-code-compose-test-mode-reuses-prompt-path-completion ()
+  "Compose mode installs the same @file/#symbol completion used by prompt mode."
+  (with-temp-buffer
+    (ai-code-compose-mode)
+    (should (memq #'ai-code--prompt-filepath-capf
+                  completion-at-point-functions))
+    (should (memq #'ai-code--prompt-auto-trigger-filepath-completion
+                  post-self-insert-hook))
+    (let (triggered)
+      (cl-letf (((symbol-function 'ai-code--prompt-auto-trigger-filepath-completion)
+                 (lambda () (setq triggered t))))
+        (run-hooks 'post-self-insert-hook))
+      (should triggered))))
+
 (ert-deftest ai-code-compose-test-accept-keeps-leading-and-trims-trailing-space ()
   "Accept returns edited text while removing accidental trailing whitespace."
   (with-temp-buffer
