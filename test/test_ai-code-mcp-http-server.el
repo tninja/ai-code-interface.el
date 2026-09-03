@@ -168,6 +168,29 @@
          (kill-buffer source-buffer))
        (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-http-server-does-not-leave-visible-client-buffers ()
+  "Accepted connections should not leave visible client buffers behind."
+  (let ((ai-code-mcp-http-server-port nil)
+        (ai-code-mcp-http-server--server nil)
+        (ai-code-mcp-http-server--port nil)
+        (buffers-before (buffer-list))
+        leaked-buffers)
+    (unwind-protect
+        (let ((port (ai-code-mcp-http-server-ensure)))
+          (ai-code-test-mcp-http--exchange port "GET" "/mcp" nil "")
+          (setq leaked-buffers
+                (seq-filter
+                 (lambda (buffer)
+                   (and (not (memq buffer buffers-before))
+                        (string-prefix-p "ai-code-mcp-http-server <"
+                                         (buffer-name buffer))))
+                 (buffer-list)))
+          (should-not leaked-buffers))
+      (ai-code-mcp-http-server-stop)
+      (dolist (buffer leaked-buffers)
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
 (ert-deftest ai-code-test-mcp-http-server-discovers-modern-protocol-over-socket ()
   "Modern clients should discover capabilities without a session handshake."
   (ai-code-test-mcp-http--with-server
