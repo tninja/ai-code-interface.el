@@ -853,6 +853,84 @@
       (when (buffer-live-p source-buffer)
         (kill-buffer source-buffer)))))
 
+(defun ai-code-test-mcp-http--stray-server-buffers ()
+  "Return buffers Emacs derived from the MCP server process name.
+Emacs names the buffer it creates for an accepted connection after the
+server process, so a leaked one reads as
+`ai-code-mcp-http-server <127.0.0.1:PORT>' in the buffer list."
+  (seq-filter (lambda (buffer)
+                (string-prefix-p "ai-code-mcp-http-server <"
+                                 (buffer-name buffer)))
+              (buffer-list)))
+
+(defun ai-code-test-mcp-http--loopback-server-available-p ()
+  "Return non-nil when this environment can bind a loopback server socket."
+  (let ((probe (ignore-errors
+                 (make-network-process :name "ai-code-mcp-http-bind-probe"
+                                       :server t
+                                       :host "127.0.0.1"
+                                       :service 0
+                                       :noquery t))))
+    (when probe
+      (delete-process probe)
+      t)))
+
+(ert-deftest ai-code-test-mcp-http-server-accept-leaves-no-client-buffer ()
+  "Accepting a connection must leave no buffer attached to the client.
+The transport keeps request bytes in the process plist, so a client never
+needs a buffer, and any buffer Emacs already derived for it must be killed
+rather than merely detached."
+  (let* ((inherited (generate-new-buffer
+                     "ai-code-mcp-http-server <127.0.0.1:65000>"))
+         (client (make-pipe-process :name "ai-code-mcp-http-accept-test"
+                                    :buffer inherited
+                                    :noquery t)))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-http-server--accept nil client "connection")
+          (should-not (process-buffer client))
+          (should-not (buffer-live-p inherited))
+          (should-not (ai-code-test-mcp-http--stray-server-buffers)))
+      (when (process-live-p client)
+        (delete-process client))
+      (when (buffer-live-p inherited)
+        (kill-buffer inherited)))))
+
+(ert-deftest ai-code-test-mcp-http-server-listens-with-non-default-filter ()
+  "The listening socket must carry a real filter function.
+Emacs derives a per-connection buffer only when the server filter is the
+default one, so an explicit filter is what keeps connections buffer-free."
+  (let ((captured nil)
+        (ai-code-mcp-http-server-port nil)
+        (ai-code-mcp-http-server--server nil)
+        (ai-code-mcp-http-server--port nil))
+    (cl-letf (((symbol-function 'make-network-process)
+               (lambda (&rest args)
+                 (setq captured args)
+                 'ai-code-test-fake-server))
+              ((symbol-function 'process-contact)
+               (lambda (&rest _args) 65001)))
+      (ai-code-mcp-http-server--start))
+    (let ((filter (plist-get captured :filter)))
+      (should (functionp filter))
+      (should-not (eq filter t))
+      (should-not (eq filter #'internal-default-process-filter)))))
+
+(ert-deftest ai-code-test-mcp-http-server-requests-leave-no-stray-buffers ()
+  "Serving requests must not accumulate buffers named after the server."
+  (unless (ai-code-test-mcp-http--loopback-server-available-p)
+    (ert-skip "Cannot bind a loopback server socket in this environment"))
+  (ai-code-test-mcp-http--with-server
+      (port "stray-buffer-token" 'ready)
+    (dotimes (_ 3)
+      (ai-code-test-mcp-http--exchange
+       port "POST" "/mcp"
+       '(("Authorization" . "Bearer stray-buffer-token")
+         ("Content-Type" . "application/json")
+         ("Accept" . "application/json, text/event-stream"))
+       (json-encode '((jsonrpc . "2.0") (id . 1) (method . "ping")))))
+    (should-not (ai-code-test-mcp-http--stray-server-buffers))))
+
 (provide 'test_ai-code-mcp-http-server)
 
 ;;; test_ai-code-mcp-http-server.el ends here

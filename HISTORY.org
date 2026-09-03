@@ -4,6 +4,7 @@
 ** Main branch change
 - Merge the AI session checkpoint (`P`) into agent handoff (`H`), dispatching on buffer type
 - Load a handoff section from anywhere inside it, not only from its headline
+- Fix: stop the MCP HTTP server from leaking one buffer per request
 
 ** 1.95
 - Default PR target branch to the reflog-recorded parent branch

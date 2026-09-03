@@ -81,6 +81,12 @@ When nil, an available port is selected automatically."
                  :host "127.0.0.1"
                  :service (or ai-code-mcp-http-server-port 0)
                  :noquery t
+                 ;; Emacs derives a buffer named after this process for every
+                 ;; accepted connection unless the server carries a non-default
+                 ;; filter.  Installing the real filter here keeps those
+                 ;; `ai-code-mcp-http-server <127.0.0.1:PORT>' buffers, one per
+                 ;; request, out of the user's buffer list.
+                 :filter #'ai-code-mcp-http-server--filter
                  :log #'ai-code-mcp-http-server--accept)))
     (setq ai-code-mcp-http-server--server server
           ai-code-mcp-http-server--port (process-contact server :service))))
@@ -88,11 +94,20 @@ When nil, an available port is selected automatically."
 (defun ai-code-mcp-http-server--accept (_server client _message)
   "Initialize accepted CLIENT process."
   (set-process-query-on-exit-flag client nil)
-  (set-process-buffer client (generate-new-buffer " *ai-code-mcp-http-client*"))
+  (ai-code-mcp-http-server--detach-client-buffer client)
   (set-process-coding-system client 'binary 'binary)
   (process-put client :data "")
   (set-process-filter client #'ai-code-mcp-http-server--filter)
   (set-process-sentinel client #'ai-code-mcp-http-server--client-sentinel))
+
+(defun ai-code-mcp-http-server--detach-client-buffer (client)
+  "Detach and kill any buffer Emacs attached to the accepted CLIENT.
+Request bytes live in the process plist, so a client never needs a
+buffer.  Detaching without killing would strand one buffer per request."
+  (let ((buffer (process-buffer client)))
+    (set-process-buffer client nil)
+    (when (buffer-live-p buffer)
+      (kill-buffer buffer))))
 
 (defun ai-code-mcp-http-server--client-sentinel (process _event)
   "Clean up PROCESS buffer after the client disconnects."
