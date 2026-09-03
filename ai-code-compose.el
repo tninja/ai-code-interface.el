@@ -38,7 +38,7 @@ affected."
 This list is consulted only when `ai-code-use-compose-buffer' is non-nil.
 Add commands here when their `ai-code-read-string' input is natural-language
 prompt text that benefits from full Emacs editing."
-  :type '(repeat function)
+  :type '(repeat symbol)
   :group 'ai-code)
 
 (defvar-local ai-code-compose--result nil
@@ -78,17 +78,20 @@ prompt text that benefits from full Emacs editing."
         ai-code-compose--cancelled t)
   (exit-recursive-edit))
 
+(defun ai-code-compose--header-line ()
+  "Return the header line for the current compose buffer."
+  (substitute-command-keys
+   (concat "AI Compose"
+           (when (and ai-code-compose--prompt-label
+                      (not (string-empty-p ai-code-compose--prompt-label)))
+             (format " — %s" (string-trim ai-code-compose--prompt-label)))
+           "    \\[ai-code-compose-accept] send"
+           "    \\[ai-code-compose-cancel] cancel")))
+
 (define-derived-mode ai-code-compose-mode text-mode "AI Compose"
   "Major mode for editing a free-form prompt before an ai-code command uses it."
   (visual-line-mode 1)
-  (setq-local header-line-format
-              (substitute-command-keys
-               (concat "AI Compose"
-                       (when (and ai-code-compose--prompt-label
-                                  (not (string-empty-p ai-code-compose--prompt-label)))
-                         (format " — %s" (string-trim ai-code-compose--prompt-label)))
-                       "    \\[ai-code-compose-accept] send"
-                       "    \\[ai-code-compose-cancel] cancel"))))
+  (setq-local header-line-format '(:eval (ai-code-compose--header-line))))
 
 (define-key ai-code-compose-mode-map (kbd "C-c C-c") #'ai-code-compose-accept)
 (define-key ai-code-compose-mode-map (kbd "C-c C-k") #'ai-code-compose-cancel)
@@ -106,9 +109,9 @@ callers can keep their current prompt-building and sending flow unchanged."
     (unwind-protect
         (save-window-excursion
           (pop-to-buffer compose-buffer)
+          (ai-code-compose-mode)
           (setq-local default-directory origin-directory)
           (setq-local ai-code-compose--prompt-label prompt)
-          (ai-code-compose-mode)
           (when initial-input
             (insert initial-input))
           (goto-char (point-max))
