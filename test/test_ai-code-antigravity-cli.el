@@ -36,7 +36,29 @@
                 ai-code-antigravity-cli--processes))
     (should (equal (plist-get captured-options :session-prefix) "antigravity"))
     (should (eq (plist-get captured-options :escape-function)
-                #'ai-code-antigravity-cli-send-escape))))
+                #'ai-code-antigravity-cli-send-escape))
+    (should (functionp (plist-get captured-options :prepare-launch)))))
+
+(ert-deftest ai-code-test-antigravity-cli-start-prepares-mcp-launch ()
+  "Antigravity startup should prepare its MCP launch through the shared adapter."
+  (let (captured-options
+        captured-call)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--start-cli-session)
+               (lambda (options _arg)
+                 (setq captured-options options)))
+              ((symbol-function 'ai-code-mcp-agent-prepare-launch)
+               (lambda (backend working-dir argv)
+                 (setq captured-call (list backend working-dir argv))
+                 '(:argv ("agy")))))
+      (ai-code-antigravity-cli)
+      (should
+       (equal '(:argv ("agy"))
+              (funcall (plist-get captured-options :prepare-launch)
+                       "/tmp/project/"
+                       '("agy" "--continue"))))
+      (should
+       (equal '(antigravity "/tmp/project/" ("agy" "--continue"))
+              captured-call)))))
 
 (provide 'test_ai-code-antigravity-cli)
 

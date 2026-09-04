@@ -323,7 +323,7 @@ When nil, an available port is selected automatically."
           (unless envelope-error
             (if modern
                 (ai-code-mcp-http-server--modern-transport-error
-                 method params request)
+                 method params request context)
               (ai-code-mcp-http-server--legacy-transport-error
                method request context)))))
     (cond
@@ -380,8 +380,8 @@ When nil, an available port is selected automatically."
         (equal body-version ai-code-mcp--modern-protocol-version))))
 
 (defun ai-code-mcp-http-server--modern-transport-error
-    (method params request)
-  "Return a modern transport error for METHOD, PARAMS, and REQUEST."
+    (method params request context)
+  "Return a modern transport error for METHOD, PARAMS, REQUEST, and CONTEXT."
   (let* ((headers (plist-get request :headers))
          (header-version (cdr (assoc "mcp-protocol-version" headers)))
          (header-method (cdr (assoc "mcp-method" headers)))
@@ -400,6 +400,11 @@ When nil, an available port is selected automatically."
          (requires-name
           (member method '("tools/call" "resources/read" "prompts/get"))))
     (cond
+     ((not (ai-code-mcp-http-server--modern-protocol-enabled-p context))
+      (list :code -32022
+            :message "Unsupported protocol version"
+            :data `((supported . [])
+                    (requested . ,(or body-version header-version)))))
      ((or (null version-entry) (not (stringp body-version))
           (null capabilities-entry))
       (list :code -32602
@@ -421,6 +426,11 @@ When nil, an available port is selected automatically."
                        body-name)))
       (list :code -32020
             :message "Header mismatch: Mcp-Name")))))
+
+(defun ai-code-mcp-http-server--modern-protocol-enabled-p (context)
+  "Return whether CONTEXT permits the stateless modern MCP protocol."
+  (or (not (plist-member context :modern-protocol-enabled))
+      (plist-get context :modern-protocol-enabled)))
 
 (defun ai-code-mcp-http-server--decode-header-value (value)
   "Decode modern MCP header VALUE, including its Base64 sentinel form."
