@@ -305,22 +305,25 @@ screenshot inside Codex cli:
 
 ***** Use It with an AI CLI
 
-Set the backend to =claude-code=, =codex=, or =github-copilot-cli= and start a session with =C-c a a=. AI Code will:
+Set the backend to =claude-code=, =codex=, =github-copilot-cli=, or =antigravity= and start a session with =C-c a a=. AI Code will:
 - start a local Emacs MCP HTTP server
 - register the current project/buffer as the MCP session context
 - inject a session-scoped MCP config into that agent session automatically
 
-Auto-wiring is currently enabled for =claude-code=, =codex=, and =github-copilot-cli=.
+Auto-wiring is currently enabled for =claude-code=, =codex=, =github-copilot-cli=, =open-interpreter=, and =antigravity=.
+
+Antigravity does not expand environment variables in MCP headers, so AI Code temporarily writes the session token to =.agents/mcp_config.json= with private permissions. Existing JSON configuration is merged and restored byte for byte when the last Antigravity session exits. If the file changes outside AI Code while a session is active, cleanup leaves the edited file untouched rather than overwriting it.
 
 If you disabled it before, enable it again with:
 
 #+begin_src emacs-lisp
-(setq ai-code-mcp-agent-enabled-backends '(claude-code codex github-copilot-cli))
+(setq ai-code-mcp-agent-enabled-backends
+      '(claude-code codex github-copilot-cli open-interpreter antigravity))
 #+end_src
 
 ***** Make Sure It Works
 
-1. Start =claude-code=, =codex=, or =github-copilot-cli= with =C-c a a= from the file or project you want to work on.
+1. Start =claude-code=, =codex=, =github-copilot-cli=, =open-interpreter=, or =antigravity= with =C-c a a= from the file or project you want to work on.
 2. Switch to the agent buffer and run =M-x ai-code-mcp-agent-show-buffer-status=.
 
 If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has attached MCP to this session.
@@ -555,6 +558,9 @@ To transfer development work between different AI coding backends (e.g., from Co
      point at a different binary or pass additional flags. After that, select the backend through
      `ai-code-select-backend` or bind a helper in your config.
      The resume command adds =--continue= automatically.
+     Emacs MCP tools are wired automatically through a temporary workspace
+     =.agents/mcp_config.json= entry when this backend is enabled in
+     =ai-code-mcp-agent-enabled-backends=.
 
 **** Muse Code setup
      Install Muse Code on macOS or Linux with:

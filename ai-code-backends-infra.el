@@ -1339,6 +1339,17 @@ behavior."
         (message "CLI failed to start - see buffer for error details"))
     (message "CLI failed to start - process exited immediately")))
 
+(defun ai-code-backends-infra--cleanup-failed-launch (cleanup-fn)
+  "Call CLEANUP-FN after a failed launch without masking the startup error."
+  (when cleanup-fn
+    (condition-case err
+        (funcall cleanup-fn)
+      (error
+       (display-warning
+        'ai-code-backends-infra
+        (format "Failed to clean up CLI launch resources: %s"
+                (error-message-string err)))))))
+
 (defun ai-code-backends-infra--start-cli-session (options arg)
   "Start a generic CLI session described by OPTIONS and prefix ARG.
 When ARG is non-nil, prompt for CLI args, working directory, and
@@ -1507,8 +1518,12 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
               env-vars
             (ai-code-editor-viewport-environment env-vars)))
          (buffer-and-process
-          (ai-code-backends-infra--create-terminal-session
-           resolved-buffer-name working-dir command editor-environment))
+          (condition-case err
+              (ai-code-backends-infra--create-terminal-session
+               resolved-buffer-name working-dir command editor-environment)
+            (error
+             (ai-code-backends-infra--cleanup-failed-launch cleanup-fn)
+             (signal (car err) (cdr err)))))
          (new-buffer (car buffer-and-process))
          (process (cdr buffer-and-process)))
     (puthash session-key process process-table)
@@ -1532,10 +1547,12 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
            task-file)
           (ai-code-backends-infra--remember-file-session-buffer
            prefix source-buffer new-buffer))
-      (ai-code-backends-infra--handle-session-start-failure
-       new-buffer
-       session-key
-       process-table))))
+      (unwind-protect
+          (ai-code-backends-infra--handle-session-start-failure
+           new-buffer
+           session-key
+           process-table)
+        (ai-code-backends-infra--cleanup-failed-launch cleanup-fn)))))
 
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn

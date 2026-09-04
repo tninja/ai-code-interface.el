@@ -137,7 +137,7 @@
    (when name `(("Mcp-Name" . ,name)))))
 
 (defun ai-code-test-mcp-http--modern-meta ()
-  "Return required per-request metadata for modern MCP tests."
+  "Return required per-request metadata for a modern MCP test."
   `((_meta
      . ((io.modelcontextprotocol/protocolVersion . "2026-07-28")
         (io.modelcontextprotocol/clientInfo
@@ -218,6 +218,51 @@
       (should (alist-get 'tools (alist-get 'capabilities result)))
       (should-not (assoc "mcp-session-id"
                          (ai-code-test-mcp-http-response-headers response))))))
+
+(ert-deftest ai-code-test-mcp-http-server-scopes-modern-protocol-opt-out ()
+  "A session may reject modern discovery while retaining legacy MCP support."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp-server-tools nil)
+        (ai-code-mcp-http-server-port nil)
+        (ai-code-mcp-http-server--server nil)
+        (ai-code-mcp-http-server--port nil)
+        (project-dir (make-temp-file "ai-code-mcp-http-legacy-only-" t))
+        (source-buffer (generate-new-buffer " *ai-code-mcp-http-legacy-only*")))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-register-session
+           "legacy-only-session" project-dir source-buffer
+           '(:token "legacy-only-token"
+             :state pending
+             :modern-protocol-enabled nil))
+          (let* ((port (ai-code-mcp-http-server-ensure))
+                 (modern-response
+                  (ai-code-test-mcp-http--exchange
+                   port "POST" "/mcp"
+                   (ai-code-test-mcp-http--modern-headers
+                    "legacy-only-token" "server/discover")
+                   (json-encode
+                    `((jsonrpc . "2.0")
+                      (id . "discover-opt-out")
+                      (method . "server/discover")
+                      (params . ,(ai-code-test-mcp-http--modern-meta))))))
+                 (modern-payload
+                  (json-parse-string
+                   (ai-code-test-mcp-http-response-body modern-response)
+                   :object-type 'alist :array-type 'list))
+                 (legacy-response
+                  (ai-code-test-mcp-http--legacy-initialize
+                   port "legacy-only-token")))
+            (should (= 400
+                       (ai-code-test-mcp-http-response-status modern-response)))
+            (should (= -32022
+                       (alist-get 'code (alist-get 'error modern-payload))))
+            (should (= 200
+                       (ai-code-test-mcp-http-response-status legacy-response)))))
+      (ai-code-mcp-http-server-stop)
+      (when (buffer-live-p source-buffer)
+        (kill-buffer source-buffer))
+      (delete-directory project-dir t))))
 
 (ert-deftest ai-code-test-mcp-http-server-validates-modern-mirrored-headers ()
   "Modern mirrored headers must agree with the JSON-RPC body."
@@ -353,13 +398,13 @@
                       (params . ((protocolVersion . "2025-11-25")
                                  (capabilities . ())
                                  (clientInfo . ((name . "ert")
-                                                (version . "1")))))))))
+                                                (version . "1"))))))))))
             (should (= 401 (ai-code-test-mcp-http-response-status response)))
             (should (string-empty-p
                      (ai-code-test-mcp-http-response-body response)))))
       (ai-code-mcp-http-server-stop)
       (when (buffer-live-p source-buffer)
-        (kill-buffer source-buffer))))))
+        (kill-buffer source-buffer)))))
 
 (ert-deftest ai-code-test-mcp-http-server-rejects-expired-bearer ()
   "An expired per-launch bearer token should no longer authenticate."
