@@ -34,6 +34,9 @@ than five lines, enabling this option replaces the previous minibuffer
 (defvar-local ai-code-compose--prompt-label nil
   "Prompt label shown in the current compose buffer header line.")
 
+(defconst ai-code-compose-buffer-name "*AI Compose*"
+  "Name of the temporary compose buffer.")
+
 (defun ai-code-compose-accept ()
   "Accept the current compose buffer and return to the calling command."
   (interactive)
@@ -75,6 +78,13 @@ than five lines, enabling this option replaces the previous minibuffer
 (define-key ai-code-compose-mode-map (kbd "C-c C-c") #'ai-code-compose-accept)
 (define-key ai-code-compose-mode-map (kbd "C-c C-k") #'ai-code-compose-cancel)
 
+(defun ai-code-compose--new-buffer ()
+  "Kill any stale compose buffer, then return a fresh compose buffer."
+  (when-let ((stale (get-buffer ai-code-compose-buffer-name)))
+    (when (buffer-live-p stale)
+      (kill-buffer stale)))
+  (generate-new-buffer ai-code-compose-buffer-name))
+
 (defun ai-code-compose-read (prompt &optional initial-input _candidate-list)
   "Edit and return prompt text in a temporary compose buffer.
 PROMPT is shown in the header line and INITIAL-INPUT seeds the buffer.
@@ -82,7 +92,7 @@ _CANDIDATE-LIST is accepted for compatibility with `ai-code-read-string'.
 Return nil when the user cancels.  The function is synchronous so existing
 callers can keep their current prompt-building and sending flow unchanged."
   (let* ((origin-directory default-directory)
-         (compose-buffer (generate-new-buffer "*AI Compose*"))
+         (compose-buffer (ai-code-compose--new-buffer))
          result
          cancelled)
     (unwind-protect
