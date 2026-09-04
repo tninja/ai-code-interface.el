@@ -54,24 +54,19 @@ Uses `read-string' directly to avoid `helm-mode' intercepting `completing-read'.
 ;;;###autoload
 (defun ai-code-read-string (prompt &optional initial-input candidate-list)
   "Read a string from the user with PROMPT and optional INITIAL-INPUT.
-CANDIDATE-LIST provides additional completion options if provided.
-When `ai-code-use-compose-buffer' is enabled for the current command,
-edit the prompt in a temporary compose buffer instead."
-  (if (ai-code-compose-should-use-p)
-      (ai-code-compose-read prompt initial-input candidate-list)
-    (funcall ai-code--read-string-fn prompt initial-input candidate-list)))
+CANDIDATE-LIST provides additional completion options if provided."
+  (funcall ai-code--read-string-fn prompt initial-input candidate-list))
 
 (defun ai-code--confirm-and-send (prompt-label initial-prompt)
   "Let user edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI.
 Returns non-nil on successful send."
-  (when-let* ((prompt (cond
-                       ((ai-code-compose-should-use-p)
-                        (ai-code-read-string prompt-label initial-prompt))
-                       ((and initial-prompt
-                             (> (length (split-string initial-prompt "\n")) 5))
-                        (read-string prompt-label initial-prompt))
-                       (t
-                        (ai-code-read-string prompt-label initial-prompt)))))
+  (when-let* ((prompt
+               (if (and initial-prompt
+                        (> (length (split-string initial-prompt "\n")) 5))
+                   (if ai-code-use-compose-buffer
+                       (ai-code-compose-read prompt-label initial-prompt)
+                     (read-string prompt-label initial-prompt))
+                 (ai-code-read-string prompt-label initial-prompt))))
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
@@ -234,7 +229,7 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
   (let ((patterns
          '("^[ \t]*\\(?:async[ \t]+\\)?\\(?:def\\|class\\|function\\|func\\|fn\\|sub\\|proc\\|method\\|interface\\|struct\\|enum\\|type\\|trait\\|module\\|namespace\\)[ \t]+\\([[:word:]_.$:\\-]+\\)"
            "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*("
-           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{:]")))
+           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{:]") ))
     (catch 'found
       (dolist (pattern patterns)
         (when (string-match pattern line)
