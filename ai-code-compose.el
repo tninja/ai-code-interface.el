@@ -4,13 +4,10 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Optional full-buffer editor for long AI prompts.  The compose buffer only
-;; edits and returns text; existing ai-code commands continue to own context
-;; assembly, prompt suffixes, harness behavior, backend selection, and sending.
-;;
-;; Compose intentionally reuses the existing `ai-code--confirm-and-send'
-;; threshold: it is eligible only when INITIAL-PROMPT is longer than five
-;; lines.  Which interactive command produced the prompt is irrelevant.
+;; Optional full-buffer editor for long AI prompts.  This file only provides
+;; the compose UI; `ai-code--confirm-and-send' decides when to use it.
+;; Existing ai-code commands continue to own context assembly, prompt suffixes,
+;; harness behavior, backend selection, and sending.
 
 ;;; Code:
 
@@ -19,17 +16,14 @@
 
 ;;;###autoload
 (defcustom ai-code-use-compose-buffer nil
-  "When non-nil, edit long confirmation prompts in a compose buffer.
+  "When non-nil, use a compose buffer for prompts longer than five lines.
 
-This replaces the existing minibuffer `read-string' editing only when
-`ai-code--confirm-and-send' receives an initial prompt longer than five lines.
-Shorter prompts keep their existing input UI, and the originating command does
-not affect compose eligibility."
+`ai-code--confirm-and-send' keeps its existing five-line threshold.  Prompts
+with five lines or fewer keep their existing input UI.  For prompts longer
+than five lines, enabling this option replaces the previous minibuffer
+`read-string' editor with `ai-code-compose-read'."
   :type 'boolean
   :group 'ai-code)
-
-(defvar ai-code-compose--eligible-p nil
-  "Dynamically bound non-nil while editing an eligible long prompt.")
 
 (defvar-local ai-code-compose--result nil
   "Accepted text from the current compose buffer.")
@@ -39,31 +33,6 @@ not affect compose eligibility."
 
 (defvar-local ai-code-compose--prompt-label nil
   "Prompt label shown in the current compose buffer header line.")
-
-(defun ai-code-compose--long-prompt-p (prompt)
-  "Return non-nil when PROMPT exceeds the existing five-line threshold."
-  (and prompt
-       (> (length (split-string prompt "\n")) 5)))
-
-(defun ai-code-compose-should-use-p ()
-  "Return non-nil when the current prompt should use a compose buffer."
-  (and ai-code-use-compose-buffer
-       ai-code-compose--eligible-p))
-
-(defun ai-code-compose--confirm-and-send-around
-    (original prompt-label initial-prompt)
-  "Call ORIGINAL with compose eligibility derived from INITIAL-PROMPT.
-PROMPT-LABEL and INITIAL-PROMPT are the arguments of
-`ai-code--confirm-and-send'."
-  (let ((ai-code-compose--eligible-p
-         (ai-code-compose--long-prompt-p initial-prompt)))
-    (funcall original prompt-label initial-prompt)))
-
-(with-eval-after-load 'ai-code-input
-  (unless (advice-member-p #'ai-code-compose--confirm-and-send-around
-                           'ai-code--confirm-and-send)
-    (advice-add 'ai-code--confirm-and-send :around
-                #'ai-code-compose--confirm-and-send-around)))
 
 (defun ai-code-compose-accept ()
   "Accept the current compose buffer and return to the calling command."
