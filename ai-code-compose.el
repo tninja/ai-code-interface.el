@@ -16,11 +16,11 @@
 
 ;;;###autoload
 (defcustom ai-code-use-compose-buffer nil
-  "When non-nil, use a compose buffer for prompts longer than five lines.
+  "When non-nil, use a compose buffer for prompts longer than two lines.
 
-`ai-code--confirm-and-send' keeps its existing five-line threshold.  Prompts
-with five lines or fewer keep their existing input UI.  For prompts longer
-than five lines, enabling this option replaces the previous minibuffer
+`ai-code--confirm-and-send' keeps its existing two-line threshold.  Prompts
+with two lines or fewer keep their existing input UI.  For prompts longer
+than two lines, enabling this option replaces the previous minibuffer
 `read-string' editor with `ai-code-compose-read'."
   :type 'boolean
   :group 'ai-code)

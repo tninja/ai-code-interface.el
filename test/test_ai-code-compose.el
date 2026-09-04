@@ -15,12 +15,12 @@
       (should (equal (ai-code-read-string "Change: " "one\ntwo\nthree\nfour\nfive\nsix")
                      "existing reader")))))
 
-(ert-deftest ai-code-compose-test-five-line-confirm-keeps-existing-reader ()
-  "Five-line prompts stay on the existing reader even when compose is enabled."
+(ert-deftest ai-code-compose-test-two-line-confirm-keeps-existing-reader ()
+  "Two-line prompts stay on the existing reader even when compose is enabled."
   (let ((ai-code-use-compose-buffer t)
         (ai-code--read-string-fn (lambda (&rest _args) "edited short prompt"))
         (this-command 'ai-code-send-quick-prompt)
-        (prompt "one\ntwo\nthree\nfour\nfive")
+        (prompt "one\ntwo")
         sent)
     (cl-letf (((symbol-function 'ai-code-compose-read)
                (lambda (&rest _args)
@@ -33,15 +33,15 @@
       (should (equal sent "edited short prompt")))))
 
 (ert-deftest ai-code-compose-test-long-confirm-uses-compose-when-enabled ()
-  "Prompts over five lines use compose regardless of the originating command."
+  "Prompts over two lines use compose regardless of the originating command."
   (let ((ai-code-use-compose-buffer t)
         ;; Deliberately use a command unrelated to the original allow-list to
         ;; prove command identity is not part of compose eligibility.
         (this-command 'ai-code-commit-current-change)
-        (long-prompt "one\ntwo\nthree\nfour\nfive\nsix")
+        (long-prompt "one\ntwo\nthree")
         sent)
     (cl-letf (((symbol-function 'ai-code-compose-read)
-               (lambda (_prompt initial-input _candidate-list)
+               (lambda (_prompt initial-input &rest _args)
                  (should (equal initial-input long-prompt))
                  "edited long prompt"))
               ((symbol-function 'read-string)

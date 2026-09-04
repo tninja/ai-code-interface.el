@@ -62,7 +62,7 @@ CANDIDATE-LIST provides additional completion options if provided."
 Returns non-nil on successful send."
   (when-let* ((prompt
                (if (and initial-prompt
-                        (> (length (split-string initial-prompt "\n")) 5))
+                        (> (length (split-string initial-prompt "\n")) 2))
                    (if ai-code-use-compose-buffer
                        (ai-code-compose-read prompt-label initial-prompt)
                      (read-string prompt-label initial-prompt))
