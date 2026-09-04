@@ -229,7 +229,7 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
   (let ((patterns
          '("^[ \t]*\\(?:async[ \t]+\\)?\\(?:def\\|class\\|function\\|func\\|fn\\|sub\\|proc\\|method\\|interface\\|struct\\|enum\\|type\\|trait\\|module\\|namespace\\)[ \t]+\\([[:word:]_.$:\\-]+\\)"
            "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*("
-           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{:]") ))
+           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{: ]")))
     (catch 'found
       (dolist (pattern patterns)
         (when (string-match pattern line)
