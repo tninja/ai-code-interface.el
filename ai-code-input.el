@@ -227,11 +227,9 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
 (defun ai-code--extract-symbol-from-line (line)
   "Extract a likely symbol identifier from LINE."
   (let ((patterns
-         (list
-          "^[ \t]*\\(?:async[ \t]+\\)?\\(?:def\\|class\\|function\\|func\\|fn\\|sub\\|proc\\|method\\|interface\\|struct\\|enum\\|type\\|trait\\|module\\|namespace\\)[ \t]+\\([[:word:]_.$:\\-]+\\)"
-          "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*("
-          "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{: ]"
-          )))
+         '("^[ \t]*\\(?:async[ \t]+\\)?\\(?:def\\|class\\|function\\|func\\|fn\\|sub\\|proc\\|method\\|interface\\|struct\\|enum\\|type\\|trait\\|module\\|namespace\\)[ \t]+\\([[:word:]_.$:\\-]+\\)"
+           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*("
+           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{:]") ))
     (catch 'found
       (dolist (pattern patterns)
         (when (string-match pattern line)
@@ -574,7 +572,7 @@ annotation via `completion-extra-properties'."
   "Regexp matching clickable http/https session links.")
 
 (defconst ai-code--session-clickable-link-regexp
-  (concat "\\(?:" ai-code-session-link-url-regexp
+  (concat "\\(?:" ai-code--session-link-url-regexp
           "\\)\\|\\(?:" ai-code--session-link-file-regexp
           "\\)")
   "Regexp matching file and URL links in session buffers.")
