@@ -3999,6 +3999,46 @@ The prefix argument should also force instance-name prompting."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-create-new-session-cleans-failed-launch ()
+  "An immediately failed CLI launch should release its prepared resources."
+  (let* ((working-dir "/tmp/ai-code-failed-launch-cleanup/")
+         (buffer-name "*ai-code-failed-launch-cleanup*")
+         (buffer (get-buffer-create buffer-name))
+         (process-table (make-hash-table :test 'equal))
+         (cleanup-count 0)
+         (failure-count 0))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                   (lambda (&rest _args)
+                     (cons buffer 'failed-process)))
+                  ((symbol-function 'sleep-for) #'ignore)
+                  ((symbol-function 'process-live-p) (lambda (_process) nil))
+                  ((symbol-function 'ai-code-backends-infra--handle-session-start-failure)
+                   (lambda (&rest _args)
+                     (cl-incf failure-count))))
+          (ai-code-backends-infra--create-new-session
+           buffer-name working-dir '("agy") nil
+           'session-key process-table "default" "antigravity"
+           nil (lambda () (cl-incf cleanup-count)) nil nil nil buffer)
+          (should (= 1 failure-count))
+          (should (= 1 cleanup-count)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-create-new-session-cleans-create-error ()
+  "A terminal creation error should release its prepared launch resources."
+  (let ((cleanup-count 0))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--create-terminal-session)
+               (lambda (&rest _args)
+                 (error "Terminal creation failed"))))
+      (should-error
+       (ai-code-backends-infra--create-new-session
+        "*ai-code-create-error*" "/tmp/ai-code-create-error/" '("agy") nil
+        'session-key (make-hash-table :test 'equal) "default" "antigravity"
+        nil (lambda () (cl-incf cleanup-count)) nil nil nil (current-buffer))
+       :type 'error)
+      (should (= 1 cleanup-count)))))
+
 (ert-deftest test-ai-code-backends-infra-configure-session-buffer-does-not-bind-manual-navigation ()
   "Configuring a session buffer should not add a manual `C-c g' navigation feature."
   (let ((buffer (generate-new-buffer "*ai-code-session-config*")))
