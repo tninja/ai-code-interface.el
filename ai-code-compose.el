@@ -4,46 +4,32 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Optional full-buffer editor for free-form AI prompts.  The compose buffer
-;; only edits and returns text; existing ai-code commands continue to own
-;; context assembly, prompt suffixes, harness behavior, backend selection, and
-;; sending.
+;; Optional full-buffer editor for long AI prompts.  The compose buffer only
+;; edits and returns text; existing ai-code commands continue to own context
+;; assembly, prompt suffixes, harness behavior, backend selection, and sending.
+;;
+;; Compose intentionally reuses the existing `ai-code--confirm-and-send'
+;; threshold: it is eligible only when INITIAL-PROMPT is longer than five
+;; lines.  Which interactive command produced the prompt is irrelevant.
 
 ;;; Code:
 
-(require 'cl-lib)
 (require 'subr-x)
-
-(declare-function ai-code--prompt-filepath-capf "ai-code-prompt-mode" ())
-(declare-function ai-code--prompt-auto-trigger-filepath-completion
-                  "ai-code-prompt-mode" ())
+(require 'ai-code-prompt-mode)
 
 ;;;###autoload
 (defcustom ai-code-use-compose-buffer nil
-  "When non-nil, edit supported free-form AI prompts in a compose buffer.
-The existing minibuffer/Helm input remains the default when this option is nil.
-Only commands listed in `ai-code-compose-buffer-commands' use the compose
-buffer, so short inputs such as commit messages and backend choices are not
-affected."
+  "When non-nil, edit long confirmation prompts in a compose buffer.
+
+This replaces the existing minibuffer `read-string' editing only when
+`ai-code--confirm-and-send' receives an initial prompt longer than five lines.
+Shorter prompts keep their existing input UI, and the originating command does
+not affect compose eligibility."
   :type 'boolean
   :group 'ai-code)
 
-;;;###autoload
-(defcustom ai-code-compose-buffer-commands
-  '(ai-code-send-command
-    ai-code-code-change
-    ai-code-ask-question
-    ai-code-implement-todo
-    ai-code-investigate-exception
-    ai-code-refactor-book-method
-    ai-code-send-quick-prompt
-    ai-code-search-notes-with-ai)
-  "Interactive commands whose free-form prompts may use a compose buffer.
-This list is consulted only when `ai-code-use-compose-buffer' is non-nil.
-Add commands here when their `ai-code-read-string' input is natural-language
-prompt text that benefits from full Emacs editing."
-  :type '(repeat symbol)
-  :group 'ai-code)
+(defvar ai-code-compose--eligible-p nil
+  "Dynamically bound non-nil while editing an eligible long prompt.")
 
 (defvar-local ai-code-compose--result nil
   "Accepted text from the current compose buffer.")
@@ -54,15 +40,30 @@ prompt text that benefits from full Emacs editing."
 (defvar-local ai-code-compose--prompt-label nil
   "Prompt label shown in the current compose buffer header line.")
 
+(defun ai-code-compose--long-prompt-p (prompt)
+  "Return non-nil when PROMPT exceeds the existing five-line threshold."
+  (and prompt
+       (> (length (split-string prompt "\n")) 5)))
+
 (defun ai-code-compose-should-use-p ()
-  "Return non-nil when the current command should use a compose buffer."
+  "Return non-nil when the current prompt should use a compose buffer."
   (and ai-code-use-compose-buffer
-       (cl-some (lambda (command)
-                  (and command
-                       (memq command ai-code-compose-buffer-commands)))
-                (list this-command
-                      (and (boundp 'real-this-command)
-                           real-this-command)))))
+       ai-code-compose--eligible-p))
+
+(defun ai-code-compose--confirm-and-send-around
+    (original prompt-label initial-prompt)
+  "Call ORIGINAL with compose eligibility derived from INITIAL-PROMPT.
+PROMPT-LABEL and INITIAL-PROMPT are the arguments of
+`ai-code--confirm-and-send'."
+  (let ((ai-code-compose--eligible-p
+         (ai-code-compose--long-prompt-p initial-prompt)))
+    (funcall original prompt-label initial-prompt)))
+
+(with-eval-after-load 'ai-code-input
+  (unless (advice-member-p #'ai-code-compose--confirm-and-send-around
+                           'ai-code--confirm-and-send)
+    (advice-add 'ai-code--confirm-and-send :around
+                #'ai-code-compose--confirm-and-send-around)))
 
 (defun ai-code-compose-accept ()
   "Accept the current compose buffer and return to the calling command."
@@ -92,19 +93,15 @@ prompt text that benefits from full Emacs editing."
            "    \\[ai-code-compose-accept] send"
            "    \\[ai-code-compose-cancel] cancel")))
 
-(defun ai-code-compose--setup-path-completion ()
-  "Reuse prompt-mode @file and #symbol completion in the compose buffer."
-  (when (require 'ai-code-prompt-mode nil t)
-    (add-hook 'completion-at-point-functions
-              #'ai-code--prompt-filepath-capf nil t)
-    (add-hook 'post-self-insert-hook
-              #'ai-code--prompt-auto-trigger-filepath-completion nil t)))
-
 (define-derived-mode ai-code-compose-mode text-mode "AI Compose"
-  "Major mode for editing a free-form prompt before an ai-code command uses it."
+  "Major mode for editing a long prompt before an ai-code command uses it."
   (visual-line-mode 1)
   (setq-local header-line-format '(:eval (ai-code-compose--header-line)))
-  (ai-code-compose--setup-path-completion))
+  ;; Reuse the prompt-file completion implementation rather than maintaining
+  ;; a second path/symbol discovery stack for compose buffers.
+  (add-hook 'completion-at-point-functions #'ai-code--prompt-filepath-capf nil t)
+  (add-hook 'post-self-insert-hook
+            #'ai-code--prompt-auto-trigger-filepath-completion nil t))
 
 (define-key ai-code-compose-mode-map (kbd "C-c C-c") #'ai-code-compose-accept)
 (define-key ai-code-compose-mode-map (kbd "C-c C-k") #'ai-code-compose-cancel)
