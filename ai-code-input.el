@@ -16,6 +16,7 @@
 (require 'magit)
 (require 'ai-code-utils)
 (require 'ai-code-session-link)
+(require 'ai-code-compose)
 (require 'subr-x)
 
 (declare-function browse-url "browse-url" (url &optional new-window))
@@ -53,16 +54,24 @@ Uses `read-string' directly to avoid `helm-mode' intercepting `completing-read'.
 ;;;###autoload
 (defun ai-code-read-string (prompt &optional initial-input candidate-list)
   "Read a string from the user with PROMPT and optional INITIAL-INPUT.
-CANDIDATE-LIST provides additional completion options if provided."
-  (funcall ai-code--read-string-fn prompt initial-input candidate-list))
+CANDIDATE-LIST provides additional completion options if provided.
+When `ai-code-use-compose-buffer' is enabled for the current command,
+edit the prompt in a temporary compose buffer instead."
+  (if (ai-code-compose-should-use-p)
+      (ai-code-compose-read prompt initial-input candidate-list)
+    (funcall ai-code--read-string-fn prompt initial-input candidate-list)))
 
 (defun ai-code--confirm-and-send (prompt-label initial-prompt)
   "Let user edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI.
 Returns non-nil on successful send."
-  (when-let* ((prompt (if (and initial-prompt
-                               (> (length (split-string initial-prompt "\n")) 5))
-                          (read-string prompt-label initial-prompt)
-                        (ai-code-read-string prompt-label initial-prompt))))
+  (when-let* ((prompt (cond
+                       ((ai-code-compose-should-use-p)
+                        (ai-code-read-string prompt-label initial-prompt))
+                       ((and initial-prompt
+                             (> (length (split-string initial-prompt "\n")) 5))
+                        (read-string prompt-label initial-prompt))
+                       (t
+                        (ai-code-read-string prompt-label initial-prompt)))))
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
