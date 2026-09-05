@@ -79,11 +79,24 @@ active region line range, then the current function, then the file path."
               (format "%s#%s" file-reference function-name)
             file-reference)))))))
 
+(defun ai-code--dired-explicitly-marked-files ()
+  "Return the files explicitly marked in the current Dired buffer.
+Return nil when nothing is marked.  `dired-get-marked-files' falls back
+to the file at point when no mark exists, so a single entry equal to
+that file is not an explicit mark."
+  (let ((all-marked (ignore-errors (dired-get-marked-files)))
+        (file-at-point (ignore-errors (dired-get-filename nil t))))
+    (unless (and (= (length all-marked) 1)
+                 file-at-point
+                 (equal (car all-marked) file-at-point))
+      all-marked)))
+
 ;;;###autoload
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
   "Copy the current buffer's file path or selected text to clipboard.
 If in a magit status buffer, copy the current branch name.
-If in a Dired buffer, copy the file at point or directory path.
+If in a Dired buffer, copy the marked files and directories, one path
+per line, falling back to the file at point or the directory path.
 In a regular file buffer, append the selected region's line range or
 the current function name to the file path.  Preserve selected text
 before that context reference.
@@ -109,18 +122,18 @@ with @ prefix if within git repo."
                context-reference)))
           ;; If current buffer is a dired buffer
           ((derived-mode-p 'dired-mode)
-           (let* ((file-at-point (ignore-errors (dired-get-file-for-visit)))
-                  (git-root-truename (ai-code--git-root)))
-             (if file-at-point
-                 ;; If there's a file under cursor, copy its processed path
-                 (if (and git-root-truename (not arg))
-                     (ai-code--process-word-for-filepath file-at-point git-root-truename)
-                   file-at-point)
-               ;; If no file under cursor, copy the dired directory path
-               (let ((dir-path (dired-current-directory)))
-                 (if (and git-root-truename (not arg))
-                     (ai-code--process-word-for-filepath dir-path git-root-truename)
-                   dir-path)))))
+           (let* ((git-root-truename (ai-code--git-root))
+                  ;; Marked items win; otherwise keep the previous behavior of
+                  ;; copying the file under cursor, then the dired directory.
+                  (targets (or (ai-code--dired-explicitly-marked-files)
+                               (list (or (ignore-errors (dired-get-file-for-visit))
+                                         (dired-current-directory))))))
+             (mapconcat (lambda (path)
+                          (if (and git-root-truename (not arg))
+                              (ai-code--process-word-for-filepath path git-root-truename)
+                            path))
+                        targets
+                        "\n")))
           ;; For other buffer types, return nil
           (t nil))))
     (if path-to-copy
@@ -546,16 +559,9 @@ in the form filepath#Lstart-Lend."
                                        ordered-roots
                                        nil t nil nil (car ordered-roots))))))
     (if (derived-mode-p 'dired-mode)
-        (let* ((all-marked (dired-get-marked-files))
-               (file-at-point (dired-get-filename nil t))
-               (has-marks (and all-marked
-                               (not (and (= (length all-marked) 1)
-                                         file-at-point
-                                         (equal (car all-marked) file-at-point)))))
-               (targets (cond
-                         (has-marks all-marked)
-                         (file-at-point (list file-at-point))
-                         (t nil))))
+        (let* ((file-at-point (dired-get-filename nil t))
+               (targets (or (ai-code--dired-explicitly-marked-files)
+                            (when file-at-point (list file-at-point)))))
           (unless targets
             (user-error "No file or directory selected in Dired"))
           (dolist (path targets)

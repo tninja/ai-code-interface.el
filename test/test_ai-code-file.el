@@ -819,6 +819,103 @@ everything is cleaned up afterward."
         (kill-buffer source-buffer))
       (delete-directory repo-root t))))
 
+(defmacro ai-code-file-test--with-dired-repo (root buffer &rest body)
+  "Run BODY inside a Dired buffer for a temporary repository.
+ROOT is bound to the repository root truename and BUFFER to its Dired
+buffer.  The repository contains a.el, b.el and sub/.  `magit-toplevel'
+reports ROOT and `kill-ring' starts empty inside BODY."
+  (declare (indent 2))
+  `(let* ((,root (file-name-as-directory
+                  (file-truename (make-temp-file "ai-code-dired-copy-" t))))
+          (,buffer nil))
+     (unwind-protect
+         (progn
+           (with-temp-file (expand-file-name "a.el" ,root) (insert ";; a\n"))
+           (with-temp-file (expand-file-name "b.el" ,root) (insert ";; b\n"))
+           (make-directory (expand-file-name "sub" ,root) t)
+           (setq ,buffer (dired-noselect ,root))
+           (with-current-buffer ,buffer
+             (cl-letf (((symbol-function 'magit-toplevel)
+                        (lambda (&optional _dir) ,root)))
+               (let ((kill-ring nil))
+                 ,@body))))
+       (when (buffer-live-p ,buffer)
+         (kill-buffer ,buffer))
+       (delete-directory ,root t))))
+
+(defun ai-code-file-test--select-context-action (action)
+  "Return a `completing-read' replacement that always answers ACTION."
+  (lambda (&rest _args) action))
+
+(ert-deftest ai-code-test-context-action-copies-dired-marked-files ()
+  "Copy context copies every marked Dired item, one path per line."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "a.el" repo-root))
+    (dired-mark 1)
+    (dired-goto-file (expand-file-name "sub" repo-root))
+    (dired-mark 1)
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action "Copy context")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) "@a.el\n@sub"))))
+
+(ert-deftest ai-code-test-context-action-copies-dired-marked-files-full-path ()
+  "Copy context with full path copies marked Dired items as absolute paths."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "a.el" repo-root))
+    (dired-mark 1)
+    (dired-goto-file (expand-file-name "sub" repo-root))
+    (dired-mark 1)
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action
+                "Copy context with full path")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t)
+                   (concat (expand-file-name "a.el" repo-root)
+                           "\n"
+                           (expand-file-name "sub" repo-root))))))
+
+(ert-deftest ai-code-test-context-action-copies-single-dired-mark-without-newline ()
+  "A single marked item wins over the file at point and carries no newline."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "a.el" repo-root))
+    (dired-mark 1)
+    (dired-goto-file (expand-file-name "b.el" repo-root))
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action "Copy context")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) "@a.el"))))
+
+(ert-deftest ai-code-test-context-action-copies-dired-file-at-point-without-marks ()
+  "Without marks the copy action keeps copying the Dired file at point."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "b.el" repo-root))
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action "Copy context")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) "@b.el"))))
+
+(ert-deftest ai-code-test-context-action-copies-dired-directory-without-file-at-point ()
+  "Without marks or a file at point the copy action keeps copying the directory."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (goto-char (point-min))
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action
+                "Copy context with full path")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) (dired-current-directory)))))
+
+(ert-deftest ai-code-test-add-context-stores-dired-marked-files ()
+  "Adding context from Dired keeps storing the marked items only."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (let ((ai-code--repo-context-info (make-hash-table :test #'equal)))
+      (dired-goto-file (expand-file-name "a.el" repo-root))
+      (dired-mark 1)
+      (dired-goto-file (expand-file-name "b.el" repo-root))
+      (ai-code-add-context)
+      (should (equal (gethash repo-root ai-code--repo-context-info)
+                     (list (expand-file-name "a.el" repo-root)))))))
+
 (ert-deftest ai-code-test-context-action-add-calls-add-context ()
   "Test that selecting 'Add context' calls `ai-code-add-context' and lists."
   (let ((add-called nil)
