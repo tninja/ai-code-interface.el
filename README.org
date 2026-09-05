@@ -402,6 +402,10 @@ Instead of manually telling the AI what to do after every code change or discuss
   #+begin_src emacs-lisp
   (setq ai-code-grill-me-enabled t)
   #+end_src
+- `ai-code-use-compose-buffer`: when non-nil, edit prompts longer than two lines in a full =*AI Compose*= buffer instead of the minibuffer. Accept with =C-c C-c=, cancel with =C-c C-k=; =@= file completion works as in prompt buffers. Every invocation starts from a fresh buffer and any stale compose buffer is discarded. Disabled by default; enable it with:
+  #+begin_src emacs-lisp
+  (setq ai-code-use-compose-buffer t)
+  #+end_src
 - [[https://github.com/obra/superpowers][obra/superpowers]] pair well with these features.
 
 With the built-in =get_diagnostics= MCP tool, the loop can move further left:

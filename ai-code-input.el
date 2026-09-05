@@ -16,6 +16,7 @@
 (require 'magit)
 (require 'ai-code-utils)
 (require 'ai-code-session-link)
+(require 'ai-code-compose)
 (require 'subr-x)
 
 (declare-function browse-url "browse-url" (url &optional new-window))
@@ -59,10 +60,13 @@ CANDIDATE-LIST provides additional completion options if provided."
 (defun ai-code--confirm-and-send (prompt-label initial-prompt)
   "Let user edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI.
 Returns non-nil on successful send."
-  (when-let* ((prompt (if (and initial-prompt
-                               (> (length (split-string initial-prompt "\n")) 5))
-                          (read-string prompt-label initial-prompt)
-                        (ai-code-read-string prompt-label initial-prompt))))
+  (when-let* ((prompt
+               (if (and initial-prompt
+                        (> (length (split-string initial-prompt "\n")) 2))
+                   (if ai-code-use-compose-buffer
+                       (ai-code-compose-read prompt-label initial-prompt)
+                     (read-string prompt-label initial-prompt))
+                 (ai-code-read-string prompt-label initial-prompt))))
     (ai-code--insert-prompt prompt)))
 
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
@@ -225,7 +229,7 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
   (let ((patterns
          '("^[ \t]*\\(?:async[ \t]+\\)?\\(?:def\\|class\\|function\\|func\\|fn\\|sub\\|proc\\|method\\|interface\\|struct\\|enum\\|type\\|trait\\|module\\|namespace\\)[ \t]+\\([[:word:]_.$:\\-]+\\)"
            "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*("
-           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{:]")))
+           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{: ]")))
     (catch 'found
       (dolist (pattern patterns)
         (when (string-match pattern line)

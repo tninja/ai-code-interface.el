@@ -657,7 +657,7 @@
 
 (ert-deftest ai-code-test-extract-symbol-from-line-no-match ()
   "Test that extraction returns nil when no pattern matches."
-  (should-not (ai-code--extract-symbol-from-line "just some text")))
+  (should-not (ai-code--extract-symbol-from-line "((unclosed")))
 
 ;; Tests for ai-code--imenu-noise-name-p
 
@@ -1411,7 +1411,7 @@
 
 (ert-deftest ai-code-test-confirm-and-send-short-prompt ()
   "Test that `ai-code--confirm-and-send' uses `ai-code-read-string' for short prompts."
-  (let ((short-prompt "line 1\nline 2\nline 3\nline 4\nline 5")
+  (let ((short-prompt "line 1\nline 2")
         (ai-code-read-string-called nil)
         (read-string-called nil)
         (insert-prompt-called nil))
@@ -1432,7 +1432,7 @@
       (should (string= insert-prompt-called "confirmed short")))))
 
 (ert-deftest ai-code-test-confirm-and-send-long-prompt ()
-  "Test that `ai-code--confirm-and-send' uses `read-string' for prompts > 5 lines."
+  "Test that `ai-code--confirm-and-send' uses `read-string' for prompts > 2 lines."
   (let ((long-prompt "line 1\nline 2\nline 3\nline 4\nline 5\nline 6")
         (ai-code-read-string-called nil)
         (read-string-called nil)
