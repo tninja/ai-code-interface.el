@@ -2,9 +2,19 @@
 * Release history
 
 ** Main branch change
+
+** 1.96
+- Copy all marked Dired items in the @ context copy actions
+- feat: Add MCP support for Antigravity CLI, solution from lesteral
+- Add optional compose buffer for long prompts
+- Freeze scrolled-away vterm viewports during redraw
 - Expand `C-c a w` into a worktree action menu: create, open directory, visit, delete
+- Prevent MCP HTTP client buffer leaks
+- Fix: C-c a w silently aborts at the new branch name prompt
 - Merge the AI session checkpoint (`P`) into agent handoff (`H`), dispatching on buffer type
 - Load a handoff section from anywhere inside it, not only from its headline
+- Add Evidence-First Coding Harness
+- Improve native Windows support with Ghostel fallback
 
 ** 1.95
 - Default PR target branch to the reflog-recorded parent branch
