@@ -16,6 +16,7 @@
 (defvar ai-code--harness-loading)
 
 (require 'ai-code-input)
+(require 'ai-code-magit)
 (require 'ai-code-prompt-mode)
 (let ((ai-code--harness-loading t))
   (require 'ai-code-change))
@@ -154,6 +155,7 @@ to persist history."
 ;;;###autoload
 (defun ai-code-ask-question (arg)
   "Generate prompt to ask questions about specific code.
+In Magit, ask about selected textual hunks without changing code.
 With a prefix argument \[universal-argument], append the clipboard
 contents as context.  If current buffer is a file, keep existing logic.
 If current buffer is a Dired buffer:
@@ -170,6 +172,8 @@ Argument ARG is the prefix argument."
   (interactive "P")
   ;; DONE: similar to ai-code-code-change, when todo-info is available, call ai-code-implement-todo
   (cond
+   ((derived-mode-p 'magit-mode)
+    (ai-code-magit-prompt 'question arg))
    ((derived-mode-p 'dired-mode)
     (let ((clipboard-context (when arg (ai-code--get-clipboard-text))))
       (ai-code--ask-question-dired clipboard-context)))
@@ -416,6 +420,7 @@ Argument ARG is the prefix argument."
 ;;;###autoload
 (defun ai-code-explain ()
   "Generate prompt to explain code at different levels.
+In Magit, explain the behavior changes in selected textual hunks.
 If current buffer is a Dired buffer and under cursor is a directory or
 file, explain that directory or file using relative path as context
 \(start with @ character).  If a region is selected, explain that
@@ -425,6 +430,8 @@ change.  Inserts the prompt into the AI prompt file and optionally
 sends to AI."
   (interactive)
   (cond
+   ((derived-mode-p 'magit-mode)
+    (ai-code-magit-prompt 'explain))
    ;; Handle dired buffer
    ((derived-mode-p 'dired-mode)
     (ai-code--explain-dired))

@@ -510,11 +510,15 @@ If WORD is a file path, it's converted to a relative path."
 The function checks each non-whitespace token in the prompt; if a token is a
 file path within the current git repository it is replaced with a relative
 path prefixed with @.  Original whitespace is preserved.
+Text with the `ai-code-verbatim' property is kept unchanged.
 NOTE: This does not handle file paths containing spaces."
   (if-let* ((git-root-truename (ai-code--git-root)))
       (replace-regexp-in-string
        "[^ \t\n]+"
-       (lambda (word) (ai-code--process-word-for-filepath word git-root-truename))
+       (lambda (word)
+         (if (get-text-property 0 'ai-code-verbatim word)
+             word
+           (ai-code--process-word-for-filepath word git-root-truename)))
        prompt-text t t)
     ;; Not in a git repo, return original prompt
     prompt-text))
