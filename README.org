@@ -247,6 +247,41 @@ Example (focused refactor with curated context):
 3) Place the cursor in the target function and run `C-c a c` to request a change.
 The generated prompt will include the function/region scope, visible file list, and stored repo context entries, giving the AI exactly the surrounding information it needs.
 
+**** Agent actions on Magit hunks
+
+Place point on a textual hunk in Magit status, diff, or revision buffers,
+then use the existing AI commands:
+
+| Key | Action on selected hunks |
+|-----+--------------------------|
+| =C-c a x= | Explain behavior changes, assumptions, and risks (read-only) |
+| =C-c a q= | Ask a question about the patch (read-only) |
+| =C-c a c= | Apply requested feedback to current working-tree source |
+| =C-c a t= | Add useful missing regression tests for the existing change |
+| =C-c a @= | Add or copy a patch snapshot through the context menu |
+
+Use Magit's section selection to select multiple sibling hunk headings.
+A text selection inside one hunk includes the complete hunk and marks the
+selected excerpt as the focus. Invalid selections, binary diffs, combined
+merge hunks, and file headings are rejected by the hunk actions. The copy
+command still copies the branch name elsewhere in a Magit status buffer.
+
+Context includes the repository, file paths, displayed diff provenance,
+HEAD at capture, and capture time. Stored hunks are snapshots: refresh Magit
+and capture again to update them. Staged hunks describe the index; edit and
+test requests tell the agent to re-read current source, preserve unrelated
+changes, and avoid staging or committing. Historical diffs support explain,
+question, and context capture; switch to a current status hunk before asking
+for edits or tests.
+
+In Magit, =C-c a t= checks existing coverage and adds tests only where useful.
+The agent runs verification and reports commands and results. It does not
+claim a test-first Red/Green cycle for code already written, and it reports
+production failures without changing production code. This action and the
+read-only actions suppress automatic implementation TDD suffixes for that
+send. File-buffer TDD behavior is unchanged. =C-u= adds clipboard context to
+hunk questions and change requests, as it does in file buffers.
+
 - MCP can provide critical context to AI model. You can use C-c a g to open and add mcp config for corresponding AI coding CLI. Examples MCPs:
   - [[https://github.com/github/github-mcp-server][Github MCP]]
   - [[https://github.com/sooperset/mcp-atlassian][Atlassian MCP]]

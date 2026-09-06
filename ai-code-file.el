@@ -16,6 +16,7 @@
 
 (require 'ai-code-utils)
 (require 'ai-code-input)
+(require 'ai-code-magit)
 (require 'ai-code-prompt-mode)
 
 
@@ -94,7 +95,8 @@ that file is not an explicit mark."
 ;;;###autoload
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
   "Copy the current buffer's file path or selected text to clipboard.
-If in a magit status buffer, copy the current branch name.
+In Magit, copy selected textual hunks as a patch snapshot.
+Elsewhere in a Magit status buffer, copy the current branch name.
 If in a Dired buffer, copy the marked files and directories, one path
 per line, falling back to the file at point or the directory path.
 In a regular file buffer, append the selected region's line range or
@@ -106,6 +108,10 @@ with @ prefix if within git repo."
   (interactive "P")
   (let ((path-to-copy
          (cond
+          ((and (derived-mode-p 'magit-mode)
+                (or (use-region-p) (ai-code-magit-hunk-p)
+                    (not (derived-mode-p 'magit-status-mode))))
+           (plist-get (ai-code-magit-context) :text))
           ;; If current buffer is a magit status buffer
           ((derived-mode-p 'magit-status-mode)
            (magit-get-current-branch))
@@ -514,66 +520,72 @@ Otherwise, ask AI to generate a build command."
 ;;;###autoload
 (defun ai-code-add-context ()
   "Capture current buffer context and store it per selected repository root.
+In Magit, store selected textual hunks as a snapshot for that repository.
 If current buffer is not inside a Git repository, select from known repository
 roots gathered from existing context entries and visible/session buffers.
 When no region is selected, use the full file path and current function
 \(if any).  When a region is active, use the file path with line range
 in the form filepath#Lstart-Lend."
   (interactive)
-  (let* ((current-root (ai-code--git-root))
-         (all-roots (let ((roots '()))
-                      (walk-windows
-                       (lambda (w)
-                         (with-current-buffer (window-buffer w)
-                           (let ((root (ai-code--git-root)))
-                             (when (and root (not (member root roots)))
-                               (push root roots)))))
-                       nil 'current-frame)
-                      (when (fboundp 'ai-code-backends-infra--session-buffer-p)
-                        (dolist (buf (buffer-list))
-                          (when (ai-code-backends-infra--session-buffer-p buf)
-                            (with-current-buffer buf
-                              (let ((root (ai-code--git-root)))
-                                (when (and root (not (member root roots)))
-                                  (push root roots)))))))
-                      (nreverse roots)))
-         (existing-roots (let ((roots '()))
-                           (maphash (lambda (root _contexts)
-                                      (when (and (stringp root)
-                                                 (not (member root roots)))
-                                        (push root roots)))
-                                    ai-code--repo-context-info)
-                           (sort roots #'string<)))
-         (candidate-roots (sort (delete-dups (append existing-roots all-roots))
-                                #'string<))
-         (ordered-roots (if (and current-root (member current-root candidate-roots))
-                            (cons current-root (remove current-root candidate-roots))
-                          candidate-roots))
-         (repo-root (cond
-                     ((null ordered-roots)
-                      (user-error "Not inside a Git repository"))
-                     ((= (length ordered-roots) 1)
-                      (car ordered-roots))
-                     (t
-                      (completing-read "Select Git repository for context: "
-                                       ordered-roots
-                                       nil t nil nil (car ordered-roots))))))
-    (if (derived-mode-p 'dired-mode)
-        (let* ((file-at-point (dired-get-filename nil t))
-               (targets (or (ai-code--dired-explicitly-marked-files)
-                            (when file-at-point (list file-at-point)))))
-          (unless targets
-            (user-error "No file or directory selected in Dired"))
-          (dolist (path targets)
-            (ai-code--store-context-entry repo-root path))
-          (message "Added context for %s: %s"
-                   repo-root
-                   (mapconcat #'identity targets ", ")))
-      (unless buffer-file-name
-        (user-error "Current buffer is not visiting a file"))
-      (let ((context (ai-code--current-file-context-reference t)))
-        (ai-code--store-context-entry repo-root context)
-        (message "Added context for %s: %s" repo-root context)))))
+  (if (derived-mode-p 'magit-mode)
+      (let* ((context (ai-code-magit-context))
+             (root (plist-get context :root)))
+        (ai-code--store-context-entry root (plist-get context :text))
+        (message "Added Magit hunk snapshot for %s" root))
+    (let* ((current-root (ai-code--git-root))
+           (all-roots (let ((roots '()))
+                        (walk-windows
+                         (lambda (w)
+                           (with-current-buffer (window-buffer w)
+                             (let ((root (ai-code--git-root)))
+                               (when (and root (not (member root roots)))
+                                 (push root roots)))))
+                         nil 'current-frame)
+                        (when (fboundp 'ai-code-backends-infra--session-buffer-p)
+                          (dolist (buf (buffer-list))
+                            (when (ai-code-backends-infra--session-buffer-p buf)
+                              (with-current-buffer buf
+                                (let ((root (ai-code--git-root)))
+                                  (when (and root (not (member root roots)))
+                                    (push root roots)))))))
+                        (nreverse roots)))
+           (existing-roots (let ((roots '()))
+                             (maphash (lambda (root _contexts)
+                                        (when (and (stringp root)
+                                                   (not (member root roots)))
+                                          (push root roots)))
+                                      ai-code--repo-context-info)
+                             (sort roots #'string<)))
+           (candidate-roots (sort (delete-dups (append existing-roots all-roots))
+                                  #'string<))
+           (ordered-roots (if (and current-root (member current-root candidate-roots))
+                              (cons current-root (remove current-root candidate-roots))
+                            candidate-roots))
+           (repo-root (cond
+                       ((null ordered-roots)
+                        (user-error "Not inside a Git repository"))
+                       ((= (length ordered-roots) 1)
+                        (car ordered-roots))
+                       (t
+                        (completing-read "Select Git repository for context: "
+                                         ordered-roots
+                                         nil t nil nil (car ordered-roots))))))
+      (if (derived-mode-p 'dired-mode)
+          (let* ((file-at-point (dired-get-filename nil t))
+                 (targets (or (ai-code--dired-explicitly-marked-files)
+                              (when file-at-point (list file-at-point)))))
+            (unless targets
+              (user-error "No file or directory selected in Dired"))
+            (dolist (path targets)
+              (ai-code--store-context-entry repo-root path))
+            (message "Added context for %s: %s"
+                     repo-root
+                     (mapconcat #'identity targets ", ")))
+        (unless buffer-file-name
+          (user-error "Current buffer is not visiting a file"))
+        (let ((context (ai-code--current-file-context-reference t)))
+          (ai-code--store-context-entry repo-root context)
+          (message "Added context for %s: %s" repo-root context))))))
 
 (defun ai-code-list-context ()
   "Display stored context entries grouped by Git repository."
