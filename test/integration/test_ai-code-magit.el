@@ -311,5 +311,21 @@
         (should (string-match-p (regexp-quote (if addition "--- /dev/null" "+++ /dev/null")) text))
         (should (string-match-p (if addition "hello" "goodbye") text))))))
 
+(ert-deftest ai-code-magit-snapshot-survives-prompt-path-preprocessing ()
+  "Keep patch tokens literal when captured context is reused in a prompt."
+  (ai-code-magit-test--with-diff
+    (let ((ai-code--repo-context-info (make-hash-table :test 'equal)))
+      (ai-code-add-context)
+      (let* ((stored (ai-code--format-repo-context-info))
+             (prompt (concat "outside " stored))
+             (patch "diff --git a/src/old.el b/src/example.el"))
+        (cl-letf (((symbol-function 'ai-code--process-word-for-filepath)
+                   (lambda (word _) (concat "@" word))))
+          (let ((processed (ai-code--preprocess-prompt-text prompt)))
+            (should (string-prefix-p "@outside " processed))
+            (should (string-match-p (regexp-quote patch) processed))
+            (should (string-match-p (regexp-quote "-old-value\n+new-value")
+                                    processed))))))))
+
 (provide 'test_ai-code-magit)
 ;;; test_ai-code-magit.el ends here
