@@ -41,6 +41,13 @@ jobs:
             --eval "(mapc #'load-file (file-expand-wildcards \"test/test_*.el\"))" \
             -f ert-run-tests-batch-and-exit
 
+      - name: Run real Magit integration tests
+        run: |
+          emacs -Q --batch -L . \
+            --eval "(progn (require 'package) (package-initialize) (require 'magit))" \
+            -l test/integration/test_ai-code-magit.el \
+            -f ert-run-tests-batch-and-exit
+
   windows-platform:
     runs-on: windows-latest
 

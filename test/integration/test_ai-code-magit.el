@@ -10,6 +10,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'magit-diff)
+(require 'magit-status)
 (require 'ai-code-change)
 (require 'ai-code-discussion)
 (require 'ai-code-agile)
