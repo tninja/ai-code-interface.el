@@ -219,5 +219,97 @@
         (ai-code-copy-buffer-file-name-to-clipboard))
       (should (string-match-p "new-value" copied)))))
 
+(ert-deftest ai-code-magit-context-menu-preserves-snapshot ()
+  "Capture multiple hunks before the context menu can alter the selection."
+  (dolist (action '("Copy context" "Add context"))
+    (ai-code-magit-test--with-diff
+      (set-mark (oref first-hunk start))
+      (goto-char (oref second-hunk start))
+      (setq mark-active t)
+      (let ((ai-code--repo-context-info (make-hash-table :test 'equal))
+            copied)
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _)
+                     (setq mark-active nil)
+                     (goto-char (oref second-hunk start))
+                     action))
+                  ((symbol-function 'kill-new)
+                   (lambda (text &rest _) (setq copied text)))
+                  ((symbol-function 'ai-code-list-context) #'ignore))
+          (ai-code-context-action nil))
+        (let ((text (or copied (car (gethash "/tmp/ai-code-magit-project/"
+                                            ai-code--repo-context-info)))))
+          (should (string-match-p "new-value" text))
+          (should (string-match-p "new-other" text)))))))
+
+(ert-deftest ai-code-magit-context-real-revision-identity ()
+  "Capture Magit's revision and resolved OID, not merely current HEAD."
+  (ai-code-magit-test--with-diff
+    (setq major-mode 'magit-revision-mode)
+    (setq-local magit-buffer-revision "release~2")
+    (setq-local magit-buffer-revision-oid "abcdef0123456789")
+    (let ((text (plist-get (ai-code-magit-context) :text)))
+      (should (string-match-p "release~2" text))
+      (should (string-match-p "abcdef0123456789" text)))))
+
+(ert-deftest ai-code-magit-context-diff-range-and-direction ()
+  "Preserve a displayed base and reversal instead of assuming index to disk."
+  (ai-code-magit-test--with-diff
+    (setq major-mode 'magit-diff-mode)
+    (setq-local magit-buffer-diff-type 'unstaged)
+    (setq-local magit-buffer-diff-range "HEAD")
+    (setq-local magit-buffer-diff-range-oids '("0123456789abcdef"))
+    (setq-local magit-buffer-diff-args '("-R" "--ignore-space-change"))
+    (let ((text (plist-get (ai-code-magit-context) :text)))
+      (should (string-match-p "range=\\"HEAD\\"" text))
+      (should (string-match-p "-R" text))
+      (should-not (string-match-p "index -> working tree" text)))))
+
+(ert-deftest ai-code-magit-read-only-disables-implementation-harness ()
+  "Read-only commands suppress persistent TDD suffixes for their handoff."
+  (ai-code-magit-test--with-diff
+    (dolist (command '(ai-code-explain ai-code-ask-question))
+      (let ((ai-code-auto-test-type 'tdd)
+            (seen 'unset))
+        (cl-letf (((symbol-function 'ai-code--insert-prompt)
+                   (lambda (_) (setq seen ai-code-auto-test-type)))
+                  ((symbol-function 'ai-code-read-string)
+                   (lambda (&rest _) "Why?")))
+          (if (eq command 'ai-code-ask-question)
+              (funcall command nil)
+            (funcall command)))
+        (should-not seen)
+        (should (eq ai-code-auto-test-type 'tdd))))))
+
+(ert-deftest ai-code-magit-context-washed-addition-and-deletion ()
+  "Extract real Magit parser output, preserving /dev/null and patch headers."
+  (dolist (addition '(t nil))
+    (ai-code-magit-test--with-diff
+      (erase-buffer)
+      (magit-insert-section (root)
+        (magit-insert-section (unstaged)
+          (magit-insert-heading "Unstaged changes")
+          (let ((start (point)))
+            (insert
+             (if addition
+                 (concat "diff --git added.el added.el\n"
+                         "new file mode 100644\n"
+                         "index 0000000..e69de29\n"
+                         "--- /dev/null\n+++ added.el\n"
+                         "@@ -0,0 +1 @@\n+hello\n")
+               (concat "diff --git deleted.el deleted.el\n"
+                       "deleted file mode 100644\n"
+                       "index e69de29..0000000\n"
+                       "--- deleted.el\n+++ /dev/null\n"
+                       "@@ -1 +0,0 @@\n-goodbye\n")))
+            (goto-char start)
+            (magit-diff-wash-diffs nil))))
+      (goto-char (point-min))
+      (re-search-forward "^@@")
+      (let ((text (plist-get (ai-code-magit-context) :text)))
+        (should (string-match-p (if addition "Path: added.el" "Path: deleted.el") text))
+        (should (string-match-p (regexp-quote (if addition "--- /dev/null" "+++ /dev/null")) text))
+        (should (string-match-p (if addition "hello" "goodbye") text))))))
+
 (provide 'test_ai-code-magit)
 ;;; test_ai-code-magit.el ends here
