@@ -625,22 +625,40 @@ With prefix ARG, clear all repositories."
 (defun ai-code-context-action (_arg)
   "Copy, add, show, or clear context entries via `completing-read'.
 Presents copy actions first, followed by Add context, Show context, and
-Clear context.  The prefix argument ARG is ignored."
+Clear context.  The prefix argument ARG is ignored.
+Capture selected Magit hunks before opening the menu."
   (interactive "P")
-  (let ((action (completing-read "Context action: "
-                                 '("Copy context"
-                                   "Copy context with full path"
-                                   "Add context"
-                                   "Show context"
-                                   "Clear context")
-                                 nil t)))
+  (let* ((snapshot
+          (when (and (derived-mode-p 'magit-mode)
+                     (or (use-region-p) (ai-code-magit-hunk-p)))
+            (condition-case err
+                (ai-code-magit-context)
+              (user-error err))))
+         (action (completing-read "Context action: "
+                                  '("Copy context"
+                                    "Copy context with full path"
+                                    "Add context"
+                                    "Show context"
+                                    "Clear context")
+                                  nil t)))
+    ;; Invalid selections must not prevent listing or clearing stored context.
+    (when (and (eq (car snapshot) 'user-error)
+               (member action '("Copy context" "Copy context with full path"
+                                "Add context")))
+      (signal (car snapshot) (cdr snapshot)))
     (pcase action
-      ("Copy context"
-       (ai-code-copy-buffer-file-name-to-clipboard))
-      ("Copy context with full path"
-       (ai-code-copy-buffer-file-name-to-clipboard t))
+      ((or "Copy context" "Copy context with full path")
+       (if snapshot
+           (progn
+             (kill-new (plist-get snapshot :text))
+             (message "Copied Magit hunk snapshot"))
+         (ai-code-copy-buffer-file-name-to-clipboard
+          (equal action "Copy context with full path"))))
       ("Add context"
-       (call-interactively #'ai-code-add-context)
+       (if snapshot
+           (ai-code--store-context-entry (plist-get snapshot :root)
+                                         (plist-get snapshot :text))
+         (call-interactively #'ai-code-add-context))
        (ai-code-list-context))
       ("Show context"
        (ai-code-list-context))

@@ -261,7 +261,7 @@
     (setq-local magit-buffer-diff-range-oids '("0123456789abcdef"))
     (setq-local magit-buffer-diff-args '("-R" "--ignore-space-change"))
     (let ((text (plist-get (ai-code-magit-context) :text)))
-      (should (string-match-p "range=\\"HEAD\\"" text))
+      (should (string-match-p (regexp-quote "range=\"HEAD\"") text))
       (should (string-match-p "-R" text))
       (should-not (string-match-p "index -> working tree" text)))))
 

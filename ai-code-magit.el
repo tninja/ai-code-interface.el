@@ -13,6 +13,9 @@
 (require 'eieio)
 (require 'subr-x)
 
+;; Make section slots known to the compiler without eagerly loading Magit.
+(eval-when-compile (require 'magit))
+
 (declare-function magit-current-section "magit-section" ())
 (declare-function magit-region-sections "magit-section" (&optional condition multiple))
 (declare-function magit-diff-type "magit-diff" (&optional section))
@@ -30,6 +33,8 @@
 (defvar magit-buffer-diff-typearg)
 (defvar magit-buffer-diff-args)
 (defvar magit-buffer-refname)
+(defvar magit-buffer-revision)
+(defvar magit-buffer-revision-oid)
 (defvar ai-code-auto-test-type)
 (defvar ai-code-change--generic-note)
 
@@ -68,8 +73,11 @@
        ('staged "HEAD -> index")
        ('unstaged "index -> working tree")
        (_ "Historical or other displayed diff")))
-   (when (bound-and-true-p magit-buffer-refname)
-     (format "\nRevision: %s" magit-buffer-refname))))
+   (when-let ((revision (or (bound-and-true-p magit-buffer-revision)
+                           (bound-and-true-p magit-buffer-refname))))
+     (format "\nRevision: %s" revision))
+   (when (bound-and-true-p magit-buffer-revision-oid)
+     (format "\nRevision OID: %s" magit-buffer-revision-oid))))
 
 (defun ai-code-magit-context ()
   "Capture selected textual Magit hunks as a context plist.
