@@ -247,6 +247,12 @@ Example (focused refactor with curated context):
 3) Place the cursor in the target function and run `C-c a c` to request a change.
 The generated prompt will include the function/region scope, visible file list, and stored repo context entries, giving the AI exactly the surrounding information it needs.
 
+- MCP can provide critical context to AI model. You can use C-c a g to open and add mcp config for corresponding AI coding CLI. Examples MCPs:
+  - [[https://github.com/github/github-mcp-server][Github MCP]]
+  - [[https://github.com/sooperset/mcp-atlassian][Atlassian MCP]]
+  - [[https://github.com/crystaldba/postgres-mcp][Postgresql MCP]] / Sqlite MCP
+  - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
+
 **** Agent actions on Magit hunks
 
 Place point on a textual hunk in Magit status, diff, or revision buffers,
@@ -281,12 +287,6 @@ production failures without changing production code. This action and the
 read-only actions suppress automatic implementation TDD suffixes for that
 send. File-buffer TDD behavior is unchanged. =C-u= adds clipboard context to
 hunk questions and change requests, as it does in file buffers.
-
-- MCP can provide critical context to AI model. You can use C-c a g to open and add mcp config for corresponding AI coding CLI. Examples MCPs:
-  - [[https://github.com/github/github-mcp-server][Github MCP]]
-  - [[https://github.com/sooperset/mcp-atlassian][Atlassian MCP]]
-  - [[https://github.com/crystaldba/postgres-mcp][Postgresql MCP]] / Sqlite MCP
-  - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
 
 **** Built-in Emacs MCP Tools
 
