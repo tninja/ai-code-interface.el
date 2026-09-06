@@ -16,6 +16,7 @@
 (require 'org)
 
 (require 'ai-code-input)
+(require 'ai-code-magit)
 (require 'ai-code-prompt-mode)
 
 (declare-function ai-code-read-string "ai-code-input")
@@ -364,6 +365,7 @@ contents as context.  If a region is selected, change that specific
 region.  Otherwise, change the function under cursor.  If nothing is
 selected and no function context, prompts for general code change.
 Inserts the prompt into the AI prompt file and optionally sends to AI.
+In Magit, apply feedback to selected textual hunks in current source.
 Argument ARG is the prefix argument."
   (interactive "P")
   ;; DONE: when current file is dired buffer: 1. when there is marked
@@ -372,6 +374,8 @@ Argument ARG is the prefix argument."
   ;; above context and other context such as repository context, and
   ;; send the full prompt to LLM. Otherwise, using current code path.
   (cond
+   ((derived-mode-p 'magit-mode)
+    (ai-code-magit-prompt 'change arg))
    ((derived-mode-p 'dired-mode)
     (ai-code--handle-dired-code-change arg))
    (t

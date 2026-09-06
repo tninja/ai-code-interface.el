@@ -12,6 +12,7 @@
 (defvar ai-code--harness-loading)
 
 (require 'ai-code-input)
+(require 'ai-code-magit)
 (require 'ai-code-prompt-mode)
 (let ((ai-code--harness-loading t))
   (require 'ai-code-change))
@@ -993,61 +994,64 @@ to fix code."
 ;;;###autoload
 (defun ai-code-tdd-cycle ()
   "Guide through Test Driven Development cycle (Red-Green-Refactor).
+In Magit, add tests for existing hunk changes; the agent runs verification.
 Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
-  ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
-  (let* ((region-active (region-active-p))
-         (scope-context
-          (if region-active
-              (ai-code--scope-context-for-region
-               (region-beginning) (region-end))
-            (ai-code--current-line-scope-context)))
-         (function-name (plist-get scope-context :function-name))
-         ;; Capture region text early, before completing-read may deactivate the mark.
-         ;; Only capture when in a non-test source buffer so it mirrors the same guard
-         ;; used by ai-code--tdd-source-function-context-p.
-         (region-text (when (and region-active
-                                 buffer-file-name
-                                 (derived-mode-p 'prog-mode)
-                                 (let ((case-fold-search t))
-                                   (not (string-match-p "test" (file-name-nondirectory buffer-file-name)))))
-                        (buffer-substring-no-properties (region-beginning) (region-end))))
-         (use-write-test-stage (or (ai-code--tdd-source-function-context-p function-name)
-                                   (and region-text (not (string-empty-p region-text)))))
-         (red-stage-label (cond
-                           ((and use-write-test-stage region-text)
-                            "1. Red (Write test for selected region)")
-                           (use-write-test-stage
-                            (format "1. Red (Write test for %s)" function-name))
-                           (t
-                            "1. Red (Write failing test)")))
-         (cycle-stage (completing-read
-                       "Select TDD stage: "
-                       (list "0. Run unit-tests"
-                             red-stage-label
-                             "2. Green (Make test pass)"
-                             "3. Blue (Refactor, improve code quality)"
-                             "4. Red + Green (One prompt)"
-                             "5. Red + Green + Blue (One prompt)")
-                       nil t))
-         (stage-num (string-to-number (substring cycle-stage 0 1))))
-    (cond
-     ;; Run tests
-     ((= stage-num 0) (ai-code-run-test))
-     ;; Red stage - write failing test
-     ((= stage-num 1)
-      (if use-write-test-stage
-          (ai-code--write-test function-name region-text)
-        (ai-code--tdd-red-stage function-name)))
-     ;; Green stage - make test pass
-     ((= stage-num 2) (ai-code--tdd-green-stage function-name))
-     ;; Refactor stage - call the main refactoring function in TDD mode
-     ((= stage-num 3) (ai-code-refactor-book-method t))
-     ;; Red + Green combined in one prompt
-     ((= stage-num 4) (ai-code--tdd-red-green-stage function-name))
-     ;; Red + Green + Blue combined in one prompt
-     ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name)))))
+  (if (derived-mode-p 'magit-mode)
+      (ai-code-magit-prompt 'tests)
+    ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
+    (let* ((region-active (region-active-p))
+           (scope-context
+            (if region-active
+                (ai-code--scope-context-for-region
+                 (region-beginning) (region-end))
+              (ai-code--current-line-scope-context)))
+           (function-name (plist-get scope-context :function-name))
+           ;; Capture region text early, before completing-read may deactivate the mark.
+           ;; Only capture when in a non-test source buffer so it mirrors the same guard
+           ;; used by ai-code--tdd-source-function-context-p.
+           (region-text (when (and region-active
+                                   buffer-file-name
+                                   (derived-mode-p 'prog-mode)
+                                   (let ((case-fold-search t))
+                                     (not (string-match-p "test" (file-name-nondirectory buffer-file-name)))))
+                          (buffer-substring-no-properties (region-beginning) (region-end))))
+           (use-write-test-stage (or (ai-code--tdd-source-function-context-p function-name)
+                                     (and region-text (not (string-empty-p region-text)))))
+           (red-stage-label (cond
+                             ((and use-write-test-stage region-text)
+                              "1. Red (Write test for selected region)")
+                             (use-write-test-stage
+                              (format "1. Red (Write test for %s)" function-name))
+                             (t
+                              "1. Red (Write failing test)")))
+           (cycle-stage (completing-read
+                         "Select TDD stage: "
+                         (list "0. Run unit-tests"
+                               red-stage-label
+                               "2. Green (Make test pass)"
+                               "3. Blue (Refactor, improve code quality)"
+                               "4. Red + Green (One prompt)"
+                               "5. Red + Green + Blue (One prompt)")
+                         nil t))
+           (stage-num (string-to-number (substring cycle-stage 0 1))))
+      (cond
+       ;; Run tests
+       ((= stage-num 0) (ai-code-run-test))
+       ;; Red stage - write failing test
+       ((= stage-num 1)
+        (if use-write-test-stage
+            (ai-code--write-test function-name region-text)
+          (ai-code--tdd-red-stage function-name)))
+       ;; Green stage - make test pass
+       ((= stage-num 2) (ai-code--tdd-green-stage function-name))
+       ;; Refactor stage - call the main refactoring function in TDD mode
+       ((= stage-num 3) (ai-code-refactor-book-method t))
+       ;; Red + Green combined in one prompt
+       ((= stage-num 4) (ai-code--tdd-red-green-stage function-name))
+       ;; Red + Green + Blue combined in one prompt
+       ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name))))))
 
 (provide 'ai-code-agile)
 
