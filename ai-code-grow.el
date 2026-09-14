@@ -1,11 +1,12 @@
-;;; ai-code-grow.el --- Grow one next value step for an Org task -*- lexical-binding: t; -*-
+;;; ai-code-grow.el --- Discuss one next value step for an Org task -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Choose one next independently useful, verifiable child step for an existing
-;; Org task headline.  This intentionally avoids generating a full roadmap.
+;; Discuss one next independently useful, verifiable growth step for an existing
+;; Org task headline.  The first turn is discussion-only; writing the result back
+;; to the Org task requires explicit user approval.
 
 ;;; Code:
 
@@ -53,7 +54,7 @@ inside an Org headline subtree."
           :title (org-get-heading t t t t))))
 
 (defun ai-code-grow--build-prompt (context)
-  "Build the Grow Next Step prompt from CONTEXT."
+  "Build the Grow Next Step discussion prompt from CONTEXT."
   (let ((harness (ai-code-grow--harness-file))
         (file (plist-get context :file))
         (line (plist-get context :line))
@@ -64,22 +65,23 @@ inside an Org headline subtree."
      (concat
       "Read the local harness file @%s and follow it for this request.\n"
       "Target the existing Org headline %S at line %d in @%s.\n\n"
-      "Choose exactly one next value-growing direct child TODO step for that headline. "
+      "Discuss exactly one recommended next value-growing step for that headline. "
       "If no child step exists yet, this is simply the first step. "
       "Use completed children, current code, tests, and task context to decide what should grow next. "
-      "Do not generate a roadmap or later steps. Preserve the parent headline and description. "
-      "Do not modify program code, tests, configuration, or other files, and do not implement the step. Stop after updating the Org task.")
+      "Do not generate a roadmap or later steps, and do not edit any file yet. "
+      "Keep the response concise and end by asking whether I want to discuss the step further or write it back as a direct child TODO under the target headline.")
      (ai-code-grow--prompt-path harness)
      title line (ai-code-grow--prompt-path file))))
 
 ;;;###autoload
 (defun ai-code-grow-next-step ()
-  "Choose one next value-growing child step for the current Org headline.
+  "Discuss one next value-growing step for the current Org headline.
 
-The AI may inspect the repository for context, but it may modify only the next
-direct child task under the current Org headline.  The generated step should
-leave the software in a useful, independently verifiable state.  Implementation
-remains a separate workflow, such as `ai-code-implement-todo'."
+The AI may inspect the repository for context, but the first turn is discussion
+only.  It recommends one useful, independently verifiable next step and asks
+whether to discuss further or write the result back as a direct child TODO.
+Writing the task file requires explicit user approval in the AI conversation;
+implementation remains a separate workflow, such as `ai-code-implement-todo'."
   (interactive)
   (let ((context (ai-code-grow--heading-context)))
     (when (buffer-modified-p)
