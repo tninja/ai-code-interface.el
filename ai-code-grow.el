@@ -98,11 +98,13 @@ implementation remains a separate workflow, such as `ai-code-implement-todo'."
 
 ;;;###autoload
 (with-eval-after-load 'ai-code
-  (unless (ignore-errors
-            (transient-get-suffix 'ai-code--menu-agile-development "y"))
-    (transient-append-suffix
-      'ai-code--menu-agile-development "t"
-      '("y" "Grow Design" ai-code-grow-design))))
+  (dolist (prefix '(ai-code-menu-default ai-code-menu-2-columns))
+    (when (and (commandp prefix)
+               (not (ignore-errors (transient-get-suffix prefix "y"))))
+      (transient-append-suffix
+       prefix '(0 -1)
+       ["Growth"
+        ("y" "Grow Task Design" ai-code-grow-design)]))))
 
 (provide 'ai-code-grow)
 
