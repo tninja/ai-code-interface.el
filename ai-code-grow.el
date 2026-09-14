@@ -1,11 +1,11 @@
-;;; ai-code-grow.el --- Value-growing Org task breakdown for AI Code -*- lexical-binding: t; -*-
+;;; ai-code-grow.el --- Grow one next value step for an Org task -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Break an existing Org headline into an ordered sequence of sub-tasks that
-;; grow software through independently useful, verifiable states.
+;; Choose one next independently useful, verifiable child step for an existing
+;; Org task headline.  This intentionally avoids generating a full roadmap.
 
 ;;; Code:
 
@@ -26,7 +26,7 @@
         default-directory))))
 
 (defun ai-code-grow--harness-file ()
-  "Return the bundled growing-design harness file."
+  "Return the bundled next-growth-step harness file."
   (expand-file-name "prompt/growing-design.v1.md"
                     (ai-code-grow--package-directory)))
 
@@ -44,7 +44,7 @@ Signal a user error unless the current buffer is a saved Org file and point is
 inside an Org headline subtree."
   (unless (and (derived-mode-p 'org-mode)
                (stringp buffer-file-name))
-    (user-error "Grow Org Heading must be run from a saved Org file"))
+    (user-error "Grow Next Step must be run from a saved Org file"))
   (save-excursion
     (unless (ignore-errors (org-back-to-heading t) t)
       (user-error "Point is not inside an Org headline"))
@@ -53,32 +53,33 @@ inside an Org headline subtree."
           :title (org-get-heading t t t t))))
 
 (defun ai-code-grow--build-prompt (context)
-  "Build the Grow Org Heading prompt from CONTEXT."
+  "Build the Grow Next Step prompt from CONTEXT."
   (let ((harness (ai-code-grow--harness-file))
         (file (plist-get context :file))
         (line (plist-get context :line))
         (title (plist-get context :title)))
     (unless (file-readable-p harness)
-      (user-error "Growing Design harness is not readable: %s" harness))
+      (user-error "Grow Next Step harness is not readable: %s" harness))
     (format
      (concat
       "Read the local harness file @%s and follow it for this request.\n"
       "Target the existing Org headline %S at line %d in @%s.\n\n"
-      "Break down that headline into an ordered sequence of value-growing child TODO sub-headlines. "
-      "Create or revise only sub-tasks under that headline; preserve the parent headline and its existing description. "
-      "Each sub-task must leave the software in a useful, independently verifiable state and build naturally on the previous step. "
-      "Do not modify program code, tests, configuration, or other files, and do not implement any sub-task. Stop after updating the Org breakdown.")
+      "Choose exactly one next value-growing direct child TODO step for that headline. "
+      "If no child step exists yet, this is simply the first step. "
+      "Use completed children, current code, tests, and task context to decide what should grow next. "
+      "Do not generate a roadmap or later steps. Preserve the parent headline and description. "
+      "Do not modify program code, tests, configuration, or other files, and do not implement the step. Stop after updating the Org task.")
      (ai-code-grow--prompt-path harness)
      title line (ai-code-grow--prompt-path file))))
 
 ;;;###autoload
-(defun ai-code-grow-heading ()
-  "Break the current Org headline into value-growing sub-tasks.
+(defun ai-code-grow-next-step ()
+  "Choose one next value-growing child step for the current Org headline.
 
-The AI may inspect the repository for context, but it may modify only sub-tasks
-under the current Org headline.  The generated steps should each deliver a
-useful, independently verifiable software state.  Implementation remains a
-separate workflow, such as `ai-code-implement-todo'."
+The AI may inspect the repository for context, but it may modify only the next
+direct child task under the current Org headline.  The generated step should
+leave the software in a useful, independently verifiable state.  Implementation
+remains a separate workflow, such as `ai-code-implement-todo'."
   (interactive)
   (let ((context (ai-code-grow--heading-context)))
     (when (buffer-modified-p)
@@ -93,7 +94,7 @@ separate workflow, such as `ai-code-implement-todo'."
       (transient-append-suffix
        prefix '(0 -1)
        ["Growth"
-        ("y" "Grow Org Heading" ai-code-grow-heading)]))))
+        ("y" "Grow Next Step" ai-code-grow-next-step)]))))
 
 (provide 'ai-code-grow)
 
