@@ -1,17 +1,15 @@
-;;; ai-code-grow.el --- Evolutionary design workflow for AI Code -*- lexical-binding: t; -*-
+;;; ai-code-grow.el --- Value-growing Org task breakdown for AI Code -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Grow software through one independently valuable, verifiable increment at a
-;; time.  The workflow keeps the evolving design in an Org task file and asks
-;; the AI to update that design before implementation begins.
+;; Break an existing Org headline into an ordered sequence of sub-tasks that
+;; grow software through independently useful, verifiable states.
 
 ;;; Code:
 
 (require 'org)
-(require 'subr-x)
 (require 'transient)
 (require 'ai-code-utils)
 
@@ -40,61 +38,52 @@ Use a repository-relative path when FILE is inside the current repository."
         (file-relative-name file root)
       file)))
 
-(defun ai-code-grow--current-task-file ()
-  "Return the current saved Org task file or signal a user error."
+(defun ai-code-grow--heading-context ()
+  "Return context for the Org headline containing point.
+Signal a user error unless the current buffer is a saved Org file and point is
+inside an Org headline subtree."
   (unless (and (derived-mode-p 'org-mode)
                (stringp buffer-file-name))
-    (user-error "Grow Design must be run from a saved Org task file"))
-  (expand-file-name buffer-file-name))
-
-(defun ai-code-grow--ensure-design-heading ()
-  "Ensure the current Org buffer has a top-level Growing Design heading.
-Insert it immediately before Code Change when that heading exists.
-Return non-nil when a heading was inserted."
+    (user-error "Grow Org Heading must be run from a saved Org file"))
   (save-excursion
-    (goto-char (point-min))
-    (if (re-search-forward "^\\* Growing Design[ \t]*$" nil t)
-        nil
-      (goto-char (point-min))
-      (if (re-search-forward "^\\* Code Change[ \t]*$" nil t)
-          (goto-char (match-beginning 0))
-        (goto-char (point-max))
-        (unless (bolp)
-          (insert "\n"))
-        (insert "\n"))
-      (insert "* Growing Design\n\n")
-      t)))
+    (unless (ignore-errors (org-back-to-heading t) t)
+      (user-error "Point is not inside an Org headline"))
+    (list :file (expand-file-name buffer-file-name)
+          :line (line-number-at-pos)
+          :title (org-get-heading t t t t))))
 
-(defun ai-code-grow--build-prompt (task-file)
-  "Build the Grow Design prompt for TASK-FILE."
-  (let ((harness (ai-code-grow--harness-file)))
+(defun ai-code-grow--build-prompt (context)
+  "Build the Grow Org Heading prompt from CONTEXT."
+  (let ((harness (ai-code-grow--harness-file))
+        (file (plist-get context :file))
+        (line (plist-get context :line))
+        (title (plist-get context :title)))
     (unless (file-readable-p harness)
       (user-error "Growing Design harness is not readable: %s" harness))
     (format
      (concat
       "Read the local harness file @%s and follow it for this request.\n"
-      "The living design document is the Org task file @%s.\n\n"
-      "Inspect the current repository, tests, and existing task-file evidence as needed. "
-      "Update only the task file's top-level * Growing Design section. "
-      "Do not modify program code, tests, configuration, or other project files. "
-      "Select or refine only one next growth increment, make its delivered user value and verification explicit, then stop.")
+      "Target the existing Org headline %S at line %d in @%s.\n\n"
+      "Break down that headline into an ordered sequence of value-growing child TODO sub-headlines. "
+      "Create or revise only sub-tasks under that headline; preserve the parent headline and its existing description. "
+      "Each sub-task must leave the software in a useful, independently verifiable state and build naturally on the previous step. "
+      "Do not modify program code, tests, configuration, or other files, and do not implement any sub-task. Stop after updating the Org breakdown.")
      (ai-code-grow--prompt-path harness)
-     (ai-code-grow--prompt-path task-file))))
+     title line (ai-code-grow--prompt-path file))))
 
 ;;;###autoload
-(defun ai-code-grow-design ()
-  "Evolve the current task file toward one next valuable software increment.
+(defun ai-code-grow-heading ()
+  "Break the current Org headline into value-growing sub-tasks.
 
-The command creates a top-level `Growing Design' section when needed, saves the
-task file so the AI can read the latest contents, and sends a design-only
-prompt.  The AI may inspect the repository but must update only the task file;
-implementation remains a separate workflow, such as `ai-code-implement-todo'."
+The AI may inspect the repository for context, but it may modify only sub-tasks
+under the current Org headline.  The generated steps should each deliver a
+useful, independently verifiable software state.  Implementation remains a
+separate workflow, such as `ai-code-implement-todo'."
   (interactive)
-  (let ((task-file (ai-code-grow--current-task-file)))
-    (ai-code-grow--ensure-design-heading)
+  (let ((context (ai-code-grow--heading-context)))
     (when (buffer-modified-p)
       (save-buffer))
-    (ai-code--insert-prompt (ai-code-grow--build-prompt task-file))))
+    (ai-code--insert-prompt (ai-code-grow--build-prompt context))))
 
 ;;;###autoload
 (with-eval-after-load 'ai-code
@@ -104,7 +93,7 @@ implementation remains a separate workflow, such as `ai-code-implement-todo'."
       (transient-append-suffix
        prefix '(0 -1)
        ["Growth"
-        ("y" "Grow Task Design" ai-code-grow-design)]))))
+        ("y" "Grow Org Heading" ai-code-grow-heading)]))))
 
 (provide 'ai-code-grow)
 
