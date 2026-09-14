@@ -26,21 +26,22 @@
     (insert "No headline yet.\n")
     (should-error (ai-code-grow--heading-context) :type 'user-error)))
 
-(ert-deftest ai-code-grow-test-build-prompt-generates-only-next-step ()
-  "Prompt requests one next direct child and explicitly rejects a roadmap."
+(ert-deftest ai-code-grow-test-build-prompt-starts-discussion-only ()
+  "Prompt discusses one next step before any Org write-back."
   (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _dir) nil)))
     (let ((prompt (ai-code-grow--build-prompt
                    '(:file "/tmp/task.org" :line 7 :title "Build assistant"))))
       (should (string-match-p "growing-design\\.v1\\.md" prompt))
       (should (string-match-p "Build assistant" prompt))
       (should (string-match-p "line 7" prompt))
-      (should (string-match-p "exactly one next value-growing direct child TODO step" prompt))
+      (should (string-match-p "Discuss exactly one recommended next value-growing step" prompt))
       (should (string-match-p "no child step exists yet, this is simply the first step" prompt))
       (should (string-match-p "Do not generate a roadmap or later steps" prompt))
-      (should (string-match-p "Do not modify program code" prompt)))))
+      (should (string-match-p "do not edit any file yet" prompt))
+      (should (string-match-p "discuss the step further or write it back" prompt)))))
 
-(ert-deftest ai-code-grow-test-command-saves-current-org-file-before-sending ()
-  "The command saves current Org edits before asking for the next step."
+(ert-deftest ai-code-grow-test-command-saves-current-org-file-before-discussion ()
+  "The command saves current Org edits before starting the discussion."
   (let* ((file (make-temp-file "ai-code-grow-" nil ".org"
                                "* TODO Build something useful\nInitial idea.\n"))
          (buffer (find-file-noselect file))
@@ -61,24 +62,25 @@
           (should-not (buffer-modified-p))
           (with-temp-buffer
             (insert-file-contents file)
-            (should (string-match-p "More context" (buffer-string)))))
+            (should (string-match-p "More context" (buffer-string)))
+            (should-not (string-match-p "^\\*\\* TODO" (buffer-string)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer))
       (delete-file file))))
 
-(ert-deftest ai-code-grow-test-harness-requires-one-value-step ()
-  "Harness requests one valuable step rather than a full breakdown."
+(ert-deftest ai-code-grow-test-harness-requires-discussion-before-writeback ()
+  "Harness discusses one valuable step and requires approval before write-back."
   (with-temp-buffer
     (insert-file-contents (ai-code-grow--harness-file))
     (let ((text (buffer-string)))
-      (should (string-match-p "Choose exactly one next growth step" text))
+      (should (string-match-p "Discuss exactly one next growth step" text))
       (should (string-match-p "not to produce a roadmap" text))
       (should (string-match-p "unicycle -> bicycle -> motorcycle -> car" text))
       (should (string-match-p "wheel -> chassis -> engine -> car" text))
-      (should (string-match-p "Generate or refine exactly one direct child `TODO`" text))
-      (should (string-match-p "unfinished direct child" text))
-      (should (string-match-p "independently verifiable" text))
-      (should (string-match-p "Do not speculate about later steps" text)))))
+      (should (string-match-p "do not modify the Org file or any other file" text))
+      (should (string-match-p "discuss the proposal further or write it back" text))
+      (should (string-match-p "Only after the user explicitly asks to write it back" text))
+      (should (string-match-p "independently verifiable" text)))))
 
 (provide 'test-ai-code-grow)
 
