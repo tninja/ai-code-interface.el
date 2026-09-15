@@ -65,7 +65,7 @@
 ;;   :config
 ;;   ;; use codex as backend, other options are 'pi, 'gemini, 'github-copilot-cli, 'open-interpreter, 'opencode, 'kilo, 'grok, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro, 'codebuddy, 'aider, 'agent-shell, 'eca
 ;;   (ai-code-set-backend 'codex) ;; set your preferred backend
-;;   ;; Optional: use a narrower two-column transient menu on smaller frames
+;;   ;; Optional: use a narrower transient menu on smaller frames
 ;;   ;; (setq ai-code-menu-layout 'two-columns)
 ;;   (global-set-key (kbd "C-c a") #'ai-code-menu)
 ;;   ;; Optional: Try ghostel or eat as an backend infra
