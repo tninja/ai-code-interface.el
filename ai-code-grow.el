@@ -11,7 +11,6 @@
 ;;; Code:
 
 (require 'org)
-(require 'transient)
 (require 'ai-code-utils)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
@@ -87,16 +86,6 @@ implementation remains a separate workflow, such as `ai-code-implement-todo'."
     (when (buffer-modified-p)
       (save-buffer))
     (ai-code--insert-prompt (ai-code-grow--build-prompt context))))
-
-;;;###autoload
-(with-eval-after-load 'ai-code
-  (dolist (prefix '(ai-code-menu-default ai-code-menu-2-columns))
-    (when (and (commandp prefix)
-               (not (ignore-errors (transient-get-suffix prefix "y"))))
-      (transient-append-suffix
-       prefix '(0 -1)
-       ["Growth"
-        ("y" "Grow Next Step" ai-code-grow-next-step)]))))
 
 (provide 'ai-code-grow)
 
