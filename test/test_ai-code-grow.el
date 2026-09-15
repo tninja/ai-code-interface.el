@@ -4,6 +4,7 @@
 (require 'cl-lib)
 (require 'org)
 (require 'ai-code-grow)
+(require 'ai-code)
 
 (ert-deftest ai-code-grow-test-heading-context-uses-containing-headline ()
   "Point in a headline body resolves to that existing headline."
@@ -81,6 +82,15 @@
       (should (string-match-p "discuss the proposal further or write it back" text))
       (should (string-match-p "Only after the user explicitly asks to write it back" text))
       (should (string-match-p "independently verifiable" text)))))
+
+(ert-deftest ai-code-grow-test-agile-menu-exposes-grow-next-step ()
+  "Agile Development menu exposes Grow Next Step directly."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "y")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-grow-next-step))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Grow Next Step"))))
 
 (provide 'test-ai-code-grow)
 
