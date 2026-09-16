@@ -9,8 +9,8 @@
 ;; that ai-code generated itself are dropped by prefix, so the candidates are
 ;; the wording you would otherwise retype.  Point
 ;; `ai-code-prompt-completion-files' at a prompt library you keep by hand to
-;; complete from that too, and from the notes org-roam tracks when it is
-;; installed.
+;; complete from that too, and set `ai-code-prompt-completion-use-org-roam'
+;; when the library lives in org-roam.
 ;;
 ;; The capf is installed in `ai-code-prompt-mode' buffers on load, so
 ;; `completion-at-point' (M-TAB) offers your earlier prompts with no setup
@@ -107,12 +107,14 @@ runs.  Remote (Tramp) files are skipped."
   :group 'ai-code)
 
 ;;;###autoload
-(defcustom ai-code-prompt-completion-use-org-roam t
+(defcustom ai-code-prompt-completion-use-org-roam nil
   "Whether the notes org-roam tracks join the prompt candidates.
 They are read like `ai-code-prompt-completion-files': one prompt per
-headline, nothing filtered out.  Org-roam is optional and nothing looks
-for it unless it is installed; when it is, building the index loads it
-and reads every note once.  Set this to nil to skip that."
+top-level headline, nothing filtered out.  That suits a note written as
+a prompt library and not a whole zettelkasten, where the sections are
+prose and there can be thousands of them, which is why this is off by
+default.  Turning it on loads org-roam, when installed, to ask it which
+notes it tracks."
   :type 'boolean
   :group 'ai-code)
 

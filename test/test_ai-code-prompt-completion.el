@@ -318,7 +318,8 @@ and the exit function are exercised together."
 
 (ert-deftest ai-code-prompt-completion-test-extra-files-default-to-none ()
   "Nothing outside the history files is read until the user asks for it."
-  (should-not (default-value 'ai-code-prompt-completion-files)))
+  (should-not (default-value 'ai-code-prompt-completion-files))
+  (should-not (default-value 'ai-code-prompt-completion-use-org-roam)))
 
 (ert-deftest ai-code-prompt-completion-test-indexes-extra-org-file ()
   "A prompt library kept by hand joins the candidates."
