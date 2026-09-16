@@ -396,11 +396,14 @@ Tolerates Ghostel hard-wrapping via
   "Patterns used to detect image file references with looser path syntax.")
 
 (defconst ai-code-session-link--reference-wrapper-left-regexp
-  (rx (+ (any "\"'`<([{")))
+  ;; `in' rather than its synonym `any': package-lint reads the latter as a
+  ;; call to the Emacs 31.1 function of that name and errors on our
+  ;; (emacs "29.1") requirement.
+  (rx (+ (in "\"'`<([{")))
   "Regexp matching wrapper characters before a session file reference.")
 
 (defconst ai-code-session-link--reference-wrapper-right-regexp
-  (rx (+ (any "\"'`>)}],.;:!?")))
+  (rx (+ (in "\"'`>)}],.;:!?")))
   "Regexp matching wrapper characters after a session file reference.")
 
 (defvar-local ai-code-session-link--linkify-timer nil
