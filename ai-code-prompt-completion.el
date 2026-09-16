@@ -8,9 +8,11 @@
 ;; `ai-code-prompt-file-name' history file this machine knows about.  Prompts
 ;; that ai-code generated itself are dropped by prefix, so the candidates are
 ;; the wording you would otherwise retype.  Point
-;; `ai-code-prompt-completion-files' at a prompt library you keep by hand to
-;; complete from that too, and set `ai-code-prompt-completion-use-org-roam'
-;; when the library lives in org-roam.
+;; `ai-code-prompt-completion-files' at documents of your own -- a prompt
+;; library you keep by hand, a diary, any Org file whose wording you reuse --
+;; to complete from every headline and the text under it as well, and set
+;; `ai-code-prompt-completion-use-org-roam' when those documents are notes
+;; org-roam tracks.
 ;;
 ;; The capf is installed in `ai-code-prompt-mode' buffers on load, so
 ;; `completion-at-point' (M-TAB) offers your earlier prompts with no setup
@@ -97,21 +99,24 @@ repositories projectile does not track."
 ;;;###autoload
 (defcustom ai-code-prompt-completion-files nil
   "Extra files to complete prompts from, beside the recorded history.
-Point this at a prompt library you keep by hand.  Each top-level Org
-headline in such a file offers its body, or its own text when it has no
-body; a file without headlines is split on blank lines.  None of the
+Point this at a prompt library you keep by hand, at a diary, at any Org
+file whose wording you reuse.  Every headline in such a file offers two
+prompts, however deep it sits: the headline itself and the text written
+under it.  Whatever stands before the first headline, which is the whole
+of a file written without any, is split on blank lines.  None of the
 history filters apply here -- you wrote these files to complete from --
-so a curated prompt is offered whatever it starts with or how long it
-runs.  Remote (Tramp) files are skipped."
+so a prompt is offered whatever it starts with or how long it runs, save
+for a heading of a word or two, quicker typed than picked from a popup.
+Remote (Tramp) files are skipped."
   :type '(repeat file)
   :group 'ai-code)
 
 ;;;###autoload
 (defcustom ai-code-prompt-completion-use-org-roam nil
   "Whether the notes org-roam tracks join the prompt candidates.
-They are read like `ai-code-prompt-completion-files': one prompt per
-top-level headline, nothing filtered out.  That suits a note written as
-a prompt library and not a whole zettelkasten, where the sections are
+They are read like `ai-code-prompt-completion-files': every headline and
+the text under it, nothing filtered out.  That suits a note written as a
+prompt library and not a whole zettelkasten, where the sections are
 prose and there can be thousands of them, which is why this is off by
 default.  Turning it on loads org-roam, when installed, to ask it which
 notes it tracks."
@@ -219,28 +224,11 @@ document from splitting into a pile of candidate fragments."
                       (string-trim headline))
       (string-match-p "\\`[ \t\n]*:PROPERTIES:" body)))
 
-(defun ai-code-prompt-completion--history-entry (headline body)
-  "Return the reusable prompt recorded under HEADLINE as BODY, or nil."
-  (and (ai-code-prompt-completion--recorded-entry-p headline body)
-       (ai-code-prompt-completion--reusable-entry body)))
-
-(defun ai-code-prompt-completion--curated-entry (headline body)
-  "Return the prompt a hand-curated file keeps under HEADLINE, or nil.
-BODY is the prompt; a headline written without one is the prompt
-itself.  Nothing is filtered out, unlike recorded history: the file
-exists to be completed from."
-  (let ((text (string-trim (ai-code-prompt-completion--strip-drawer body)))
-        (title (string-trim headline)))
-    (cond ((not (string-empty-p text)) text)
-          ((not (string-empty-p title)) title))))
-
-(defun ai-code-prompt-completion--parse-buffer (&optional entry-function)
-  "Return the prompts under the top-level headlines in this buffer.
-ENTRY-FUNCTION turns a headline and its body into the prompt to index,
-or nil to skip it; it defaults to the rules for recorded history."
-  (let ((make-entry (or entry-function
-                        #'ai-code-prompt-completion--history-entry))
-        entries)
+(defun ai-code-prompt-completion--parse-buffer ()
+  "Return the prompts recorded under the top-level headlines in this buffer.
+Only the top level is read: pasted text whose own lines start with
+\"* \" would otherwise split one recorded prompt into fragments."
+  (let (entries)
     (goto-char (point-min))
     (while (re-search-forward "^\\* \\(.*\\)$" nil t)
       (let ((headline (match-string-no-properties 1)))
@@ -249,38 +237,130 @@ or nil to skip it; it defaults to the rules for recorded history."
                (end (if (re-search-forward "^\\* " nil t)
                         (match-beginning 0)
                       (point-max)))
-               (body (buffer-substring-no-properties start end))
-               (entry (funcall make-entry headline body)))
+               (body (buffer-substring-no-properties start end)))
           (goto-char end)
-          (when entry
-            (push entry entries)))))
+          (when (ai-code-prompt-completion--recorded-entry-p headline body)
+            (let ((entry (ai-code-prompt-completion--reusable-entry body)))
+              (when entry
+                (push entry entries)))))))
     (nreverse entries)))
 
 (defconst ai-code-prompt-completion--metadata-line-regexp
-  "\\`[ \t]*\\(?:#\\+\\|:[A-Za-z_]+:\\)"
-  "An Org keyword or property drawer line, which is never a prompt.")
+  "\\`[ \t]*\\(?:#\\|:[A-Za-z_]+:\\)"
+  "An Org comment, keyword or drawer line, which is never prompt text.")
 
-(defun ai-code-prompt-completion--prompt-block-p (block)
-  "Return non-nil when BLOCK is prompt text rather than Org bookkeeping.
-An org-roam note opens with an ID drawer and a `#+title:'; neither is
-something to offer back."
-  (cl-notevery (lambda (line)
-                 (string-match-p
-                  ai-code-prompt-completion--metadata-line-regexp line))
-               (split-string block "\n" t)))
+(defun ai-code-prompt-completion--strip-metadata (text)
+  "Return TEXT without the Org bookkeeping it opens with.
+A note opens with an ID drawer and a `#+title:', an archived entry with
+a drawer of its own; none of that is something to offer back."
+  (let ((lines (split-string text "\n")))
+    (while (and lines
+                (string-match-p ai-code-prompt-completion--metadata-line-regexp
+                                (car lines)))
+      (setq lines (cdr lines)))
+    (string-trim (string-join lines "\n"))))
 
-(defun ai-code-prompt-completion--parse-curated-buffer ()
-  "Return the prompts a hand-curated file or note offers.
-Headlines carry one prompt each; a file written without them is a plain
-list of prompts separated by blank lines."
+(defconst ai-code-prompt-completion--minimum-length 12
+  "Shortest text a document is asked to offer as a prompt.
+A heading of a word or two is quicker to type than to pick out of a
+popup, and a diary is full of them: \"Note\", \"Work\", \"Scrum\".")
+
+(defun ai-code-prompt-completion--document-prompt (text)
+  "Return the prompt TEXT offers a document's reader, or nil when none."
+  (let ((prompt (ai-code-prompt-completion--strip-metadata text)))
+    (when (>= (length prompt) ai-code-prompt-completion--minimum-length)
+      prompt)))
+
+(defconst ai-code-prompt-completion--tags-regexp
+  "[ \t]+:\\(?:[[:alnum:]_@#%]+:\\)+\\'"
+  "The tags Org writes at the end of a headline, which are not prompt text.")
+
+(defconst ai-code-prompt-completion--cookie-regexp
+  "[ \t]*\\[[0-9]*\\(?:/[0-9]*\\|%\\)\\]"
+  "A statistics cookie, which counts children rather than saying anything.
+Dropping it also keeps \"Work [0/3]\" and \"Work [1/3]\" from standing as
+two prompts.")
+
+(defconst ai-code-prompt-completion--link-regexp
+  "\\[\\[\\([^][]+\\)\\]\\(?:\\[\\([^][]+\\)\\]\\)?\\]"
+  "An Org link, whose description or target is the text it shows.")
+
+(defconst ai-code-prompt-completion--calendar-headline-regexp
+  "\\`[0-9]\\{4\\}\\(?:-[0-9]\\{2\\}\\)\\{0,2\\}\\(?:[ \t]+[[:alpha:]]+\\)?\\'"
+  "A datetree headline: a year, a month or a day, and maybe its name.
+Those say where in a diary an entry sits, never what to prompt with.")
+
+(defun ai-code-prompt-completion--unlink (text)
+  "Return TEXT with each Org link replaced by the words it shows."
+  (replace-regexp-in-string
+   ai-code-prompt-completion--link-regexp
+   (lambda (link) (or (match-string 2 link) (match-string 1 link)))
+   text t t))
+
+(defun ai-code-prompt-completion--headline-text (headline)
+  "Return the prompt HEADLINE itself is, or nil when it is not one.
+The markup a headline is written with -- trailing tags, a statistics
+cookie, a link wrapper -- is not part of the prompt, and a datetree
+headline is scaffolding that drops out while the entries under it stay."
+  (let ((text (string-trim
+               (ai-code-prompt-completion--unlink
+                (replace-regexp-in-string
+                 ai-code-prompt-completion--cookie-regexp ""
+                 (replace-regexp-in-string
+                  ai-code-prompt-completion--tags-regexp ""
+                  (string-trim headline)))))))
+    (unless (or (string-empty-p text)
+                (string-match-p
+                 ai-code-prompt-completion--calendar-headline-regexp text))
+      text)))
+
+(defun ai-code-prompt-completion--headline-body ()
+  "Return the text written under the headline point is on, or nil when none.
+Point ends at the next headline, of whatever depth, so a section offers
+its own text and leaves its children to speak for themselves."
+  (forward-line 1)
+  (let* ((start (point))
+         (end (if (re-search-forward "^\\*+ " nil t)
+                  (match-beginning 0)
+                (point-max))))
+    (goto-char end)
+    (ai-code-prompt-completion--document-prompt
+     (buffer-substring-no-properties start end))))
+
+(defun ai-code-prompt-completion--parse-blocks (text)
+  "Return the prompts TEXT holds, one per blank-line-separated block."
+  (delq nil
+        (mapcar #'ai-code-prompt-completion--document-prompt
+                (split-string text "\n[ \t]*\n" t "[ \t\n]+"))))
+
+(defun ai-code-prompt-completion--parse-document-buffer ()
+  "Return the prompts a document offers: a prompt library, a diary, a note.
+Every headline counts, however deep and whether or not it has children,
+because a leaf section of a note is as much a prompt as a top-level one.
+A headline offers two prompts: the headline itself, and the text written
+directly under it.  Whatever sits before the first headline, which is
+the whole of a note written without any, is split on blank lines.
+Nothing is filtered the way recorded history is -- you wrote these files
+to complete from -- so a prompt is offered whatever it starts with and
+however long it runs."
   (goto-char (point-min))
-  (if (re-search-forward "^\\* " nil t)
-      (ai-code-prompt-completion--parse-buffer
-       #'ai-code-prompt-completion--curated-entry)
-    (cl-remove-if-not
-     #'ai-code-prompt-completion--prompt-block-p
-     (split-string (buffer-substring-no-properties (point-min) (point-max))
-                   "\n[ \t]*\n" t "[ \t\n]+"))))
+  (let* ((start (if (re-search-forward "^\\*+ " nil t)
+                    (match-beginning 0)
+                  (point-max)))
+         (entries (nreverse
+                   (ai-code-prompt-completion--parse-blocks
+                    (buffer-substring-no-properties (point-min) start)))))
+    (goto-char start)
+    (while (re-search-forward "^\\*+ \\(.*\\)$" nil t)
+      (let* ((title (ai-code-prompt-completion--headline-text
+                     (match-string-no-properties 1)))
+             (body (ai-code-prompt-completion--headline-body)))
+        (when (and title
+                   (>= (length title)
+                       ai-code-prompt-completion--minimum-length))
+          (push title entries))
+        (when body (push body entries))))
+    (nreverse entries)))
 
 (defun ai-code-prompt-completion--read-entries (file parser)
   "Return the prompts PARSER finds in FILE, or nil when it cannot be read."
@@ -329,7 +409,7 @@ prompt the whole first line comes before the fragments cut out of it."
           (append
            (mapcan (lambda (file)
                      (ai-code-prompt-completion--read-entries
-                      file #'ai-code-prompt-completion--parse-curated-buffer))
+                      file #'ai-code-prompt-completion--parse-document-buffer))
                    extra-files)
            (mapcan (lambda (file)
                      (ai-code-prompt-completion--read-entries

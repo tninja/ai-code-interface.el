@@ -403,6 +403,110 @@ first, then the code
                    nil)))
         (should-not (ai-code-prompt-completion--extra-files))))))
 
+;;; Documents: any headline, at any depth
+
+(ert-deftest ai-code-prompt-completion-test-indexes-headline-at-any-depth ()
+  "A leaf section deep in a document is a prompt like a top-level one."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+* Notes
+** Emacs
+*** rewrite this function without recursion
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+        (should (member "rewrite this function without recursion" candidates))))))
+
+(ert-deftest ai-code-prompt-completion-test-indexes-text-under-headline ()
+  "A section offers the text written under it, and not its children's."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+* Review
+check the error handling in this file
+** Tests
+check the tests cover the new branch
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (index (ai-code-prompt-completion--ensure-index)))
+        (should (equal (gethash "check the error handling in this file"
+                                (nth 1 index))
+                       "check the error handling in this file"))
+        (should (member "check the tests cover the new branch"
+                        (nth 0 index)))))))
+
+(ert-deftest ai-code-prompt-completion-test-indexes-diary-datetree ()
+  "A diary offers what was written on a day, not the day it was written."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+* 2026
+** 2026-01 January
+*** 2026-01-02 Friday
+**** Release
+cut the release and write the announcement
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+        (should (member "cut the release and write the announcement" candidates))
+        (should-not (cl-some (lambda (candidate)
+                               (string-match-p "\\`202[0-9]" candidate))
+                             candidates))))))
+
+(ert-deftest ai-code-prompt-completion-test-headline-markup-is-not-prompt-text ()
+  "Tags, a statistics cookie and a link wrapper are markup, not wording."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+* review this diff for logical errors [1/2]   :work:emacs:
+* [[id:4e2f0e1a][write the missing tests first]]
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+        (should (member "review this diff for logical errors" candidates))
+        (should (member "write the missing tests first" candidates))))))
+
+(ert-deftest ai-code-prompt-completion-test-skips-short-headlines ()
+  "A heading of a word or two is quicker typed than picked from a popup."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+* Note
+* Scrum
+* explain the current code
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+        (should (member "explain the current code" candidates))
+        (should-not (member "Note" candidates))
+        (should-not (member "Scrum" candidates))))))
+
+(ert-deftest ai-code-prompt-completion-test-indexes-text-before-headlines ()
+  "What a note says before its first headline is offered too."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+#+title: Prompt library
+walk through the release checklist
+
+* Review
+review this diff for logical errors
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+        (should (member "walk through the release checklist" candidates))
+        (should (member "review this diff for logical errors" candidates))))))
+
+(ert-deftest ai-code-prompt-completion-test-strips-indented-drawer ()
+  "An archived entry indents its drawer, which is still not prompt text."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+* Release
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2026-01-02 Fri 10:00
+  :END:
+cut the release and write the announcement
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+        (should (member "cut the release and write the announcement"
+                        candidates))))))
+
 ;;; Org-roam notes
 
 (defmacro ai-code-prompt-completion-test--with-org-roam (files &rest body)
