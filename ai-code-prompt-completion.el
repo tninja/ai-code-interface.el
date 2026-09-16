@@ -9,16 +9,20 @@
 ;; that ai-code generated itself are dropped by prefix, so the candidates are
 ;; the wording you would otherwise retype.
 ;;
-;; This file registers nothing.  Completion frontend configuration stays
-;; yours.  With no cape setup of your own, turn the whole thing on with:
+;; The capf is installed in `ai-code-prompt-mode' buffers on load, so
+;; `completion-at-point' (M-TAB) offers your earlier prompts with no setup
+;; at all.  When cape happens to be installed it is loaded there too and
+;; its dictionary words join the same candidate list.
+;;
+;; Choosing the popup front-end is left to you.  For `company':
 ;;
 ;;   (add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion-setup)
 ;;
 ;; `cape' and `company' are optional: neither is required by this package,
-;; and both are loaded only if installed, only once setup runs.  When you
-;; already merge capfs with cape, skip the setup function and add
-;; `ai-code-prompt-completion-capf' to your own `cape-wrap-super' list --
-;; another capf at the same hook depth would simply win the race.
+;; and neither is loaded when it is not installed.  When you already merge
+;; capfs with cape, add `ai-code-prompt-completion-capf' to your own
+;; `cape-wrap-super' list -- a capf your config installed at the same hook
+;; depth answers first and this one never gets a turn.
 ;;
 ;; The capf matches the word before point, the same bounds `cape-dict' uses,
 ;; because `cape-capf-super' silently drops capfs whose start position
@@ -253,27 +257,41 @@ installed, so the prompt candidates are there either way."
       (cape-wrap-super #'ai-code-prompt-completion-capf #'cape-dict)
     (ai-code-prompt-completion-capf)))
 
+(defun ai-code-prompt-completion--enable ()
+  "Install the prompt completion capf in the current buffer.
+Added to `ai-code-prompt-mode-hook' when this file loads, so prompt
+buffers complete out of the box.  Remove it from that hook to opt out.
+
+Loads cape when it is installed, which is what lets the dictionary words
+join the prompt candidates for someone who has cape but never configured
+it."
+  (require 'cape nil t)
+  ;; Negative depth so the merged capf is consulted before whatever the
+  ;; major mode installed, the same slot a cape word-completion setup uses.
+  ;; A capf your own config already added at this depth still wins: equal
+  ;; depths run in the order they were added, and `text-mode-hook' runs
+  ;; before `ai-code-prompt-mode-hook'.
+  (add-hook 'completion-at-point-functions
+            #'ai-code-prompt-completion-dict-capf -90 t))
+
 ;;;###autoload
 (defun ai-code-prompt-completion-setup ()
-  "Turn on prompt completion in the current buffer.
-Meant for `ai-code-prompt-mode-hook':
+  "Turn on prompt completion with a `company-mode' popup.
+The capf is already installed in prompt buffers on its own, so this adds
+the popup on top of it:
 
   (add-hook \\='ai-code-prompt-mode-hook #\\='ai-code-prompt-completion-setup)
 
-Installs `ai-code-prompt-completion-dict-capf', which offers prompts you
-wrote before plus, when cape is installed, English words from
-`cape-dict'.  `company-mode' displays them unless
-`ai-code-prompt-completion-enable-company' says otherwise.
+Candidates are the prompts you wrote before plus, when cape is
+installed, English words from `cape-dict'.  Set
+`ai-code-prompt-completion-enable-company' to nil when another
+front-end such as corfu shows them instead.
 
 Skip this when you already merge capfs with cape: only the first capf at
 a given hook depth answers, so add `ai-code-prompt-completion-capf' to
 your own `cape-wrap-super' list instead of racing it."
   (interactive)
-  (require 'cape nil t)
-  ;; Negative depth so the merged capf is consulted before whatever the
-  ;; major mode installed, the same slot a cape word-completion setup uses.
-  (add-hook 'completion-at-point-functions
-            #'ai-code-prompt-completion-dict-capf -90 t)
+  (ai-code-prompt-completion--enable)
   (when (and ai-code-prompt-completion-enable-company
              (require 'company nil t)
              (fboundp 'company-mode))
@@ -287,6 +305,10 @@ your own `cape-wrap-super' list instead of racing it."
                      (ai-code-prompt-completion--build))))
     (message "AI Code: indexed %d hand-written prompt(s) from %d file(s)"
              (length (nth 0 index)) (nth 2 index))))
+
+;; Prompt buffers complete out of the box; the popup front-end stays a
+;; separate, explicit choice.
+(add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion--enable)
 
 (provide 'ai-code-prompt-completion)
 

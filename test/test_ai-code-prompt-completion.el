@@ -355,6 +355,28 @@ and the exit function are exercised together."
         (ai-code-prompt-completion-setup))
       (should-not started))))
 
+(ert-deftest ai-code-prompt-completion-test-prompt-mode-registers-capf ()
+  "Entering `ai-code-prompt-mode' installs the capf with no user setup."
+  (with-temp-buffer
+    (ai-code-prompt-mode)
+    (should (memq #'ai-code-prompt-completion-dict-capf
+                  completion-at-point-functions))
+    (should (local-variable-p 'completion-at-point-functions))
+    ;; The popup front-end stays the user's choice.
+    (should-not (bound-and-true-p company-mode))))
+
+(ert-deftest ai-code-prompt-completion-test-prompt-mode-capf-completes ()
+  "The capf installed by the mode completes a stored prompt end to end."
+  (ai-code-prompt-completion-test--with-roots
+      (list (ai-code-prompt-completion-test--make-root
+             ai-code-prompt-completion-test--corpus))
+    (with-temp-buffer
+      (ai-code-prompt-mode)
+      (insert "please Go")
+      (completion-at-point)
+      (should (equal (buffer-string)
+                     "please Go ahead with the suggested refactoring")))))
+
 (provide 'test_ai-code-prompt-completion)
 
 ;;; test_ai-code-prompt-completion.el ends here
