@@ -29,10 +29,17 @@ When NESTED is non-nil the file goes under `ai-code-files-dir-name'."
     (with-temp-file file (insert content))
     root))
 
+(defun ai-code-prompt-completion-test--make-file (content &optional suffix)
+  "Write CONTENT to a new temp file ending in SUFFIX and return its name."
+  (make-temp-file "ai-code-prompt-completion-file" nil (or suffix ".org")
+                  content))
+
 (defmacro ai-code-prompt-completion-test--with-roots (roots &rest body)
   "Run BODY with the prompt history index scoped to ROOTS only."
   (declare (indent 1))
   `(let ((ai-code-prompt-completion-roots ,roots)
+         (ai-code-prompt-completion-files nil)
+         (ai-code-prompt-completion-use-org-roam nil)
          (ai-code-prompt-fallback-directory nil)
          (ai-code-prompt-completion--index nil)
          (projectile-known-projects nil)
@@ -306,6 +313,163 @@ and the exit function are exercised together."
       (ai-code-prompt-completion-refresh)
       (should (member "second prompt"
                       (nth 0 (ai-code-prompt-completion--ensure-index)))))))
+
+;;; Hand-curated prompt files
+
+(ert-deftest ai-code-prompt-completion-test-extra-files-default-to-none ()
+  "Nothing outside the history files is read until the user asks for it."
+  (should-not (default-value 'ai-code-prompt-completion-files)))
+
+(ert-deftest ai-code-prompt-completion-test-indexes-extra-org-file ()
+  "A prompt library kept by hand joins the candidates."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+* Explain
+explain the current code to me
+
+* Review
+review this diff for logical errors
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (index (ai-code-prompt-completion--ensure-index)))
+        (should (equal (nth 2 index) 1))
+        (should (member "explain the current code to me" (nth 0 index)))
+        (should (member "review this diff for logical errors" (nth 0 index)))))))
+
+(ert-deftest ai-code-prompt-completion-test-extra-file-headline-is-a-prompt ()
+  "A headline with no body under it is itself the prompt."
+  (let ((file (ai-code-prompt-completion-test--make-file
+               "* explain the current code\n* review this diff\n")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+        (should (member "explain the current code" candidates))
+        (should (member "review this diff" candidates))))))
+
+(ert-deftest ai-code-prompt-completion-test-extra-file-without-headlines ()
+  "A plain list of prompts is split on blank lines."
+  (let ((file (ai-code-prompt-completion-test--make-file "\
+explain the current code
+
+write the missing tests
+first, then the code
+" ".txt")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (index (ai-code-prompt-completion--ensure-index)))
+        (should (member "explain the current code" (nth 0 index)))
+        (should (equal (gethash "write the missing tests" (nth 1 index))
+                       "write the missing tests\nfirst, then the code"))))))
+
+(ert-deftest ai-code-prompt-completion-test-extra-file-is-not-filtered ()
+  "A curated file keeps prompts the history filters would have dropped."
+  (let ((file (ai-code-prompt-completion-test--make-file
+               (concat "* Handoff\nGoal: hand off to the next agent\n\n"
+                       "* Release\n"
+                       (mapconcat (lambda (n) (format "step %d" n))
+                                  (number-sequence 1 8) "\n")
+                       "\n"))))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let* ((ai-code-prompt-completion-files (list file))
+             (index (ai-code-prompt-completion--ensure-index)))
+        (should (member "Goal: hand off to the next agent" (nth 0 index)))
+        (should (equal (length (split-string (gethash "step 1" (nth 1 index)) "\n"))
+                       8))))))
+
+(ert-deftest ai-code-prompt-completion-test-extra-files-join-history ()
+  "Curated prompts and recorded history end up in the same index."
+  (let ((file (ai-code-prompt-completion-test--make-file
+               "* Curated\nrun the release checklist\n")))
+    (ai-code-prompt-completion-test--with-roots
+        (list (ai-code-prompt-completion-test--make-root
+               ai-code-prompt-completion-test--corpus))
+      (let* ((ai-code-prompt-completion-files (list file))
+             (index (ai-code-prompt-completion--ensure-index)))
+        (should (equal (nth 2 index) 2))
+        (should (member "run the release checklist" (nth 0 index)))
+        (should (member "investigate the issue and answer the question"
+                        (nth 0 index)))))))
+
+(ert-deftest ai-code-prompt-completion-test-skips-remote-extra-files ()
+  "A remote curated file is never probed, so indexing cannot hang on Tramp."
+  (ai-code-prompt-completion-test--with-roots nil
+    (let ((ai-code-prompt-completion-files
+           '("/ssh:nowhere.invalid:/srv/prompts.org")))
+      (cl-letf (((symbol-function 'file-readable-p)
+                 (lambda (file)
+                   (when (file-remote-p file)
+                     (ert-fail (format "probed remote file %s" file)))
+                   nil)))
+        (should-not (ai-code-prompt-completion--extra-files))))))
+
+;;; Org-roam notes
+
+(defmacro ai-code-prompt-completion-test--with-org-roam (files &rest body)
+  "Run BODY with org-roam pretending to track FILES."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'org-roam-list-files) (lambda () ,files)))
+     ,@body))
+
+(ert-deftest ai-code-prompt-completion-test-indexes-org-roam-notes ()
+  "Notes org-roam tracks are completed from like a curated file."
+  (let ((note (ai-code-prompt-completion-test--make-file "\
+:PROPERTIES:
+:ID:       4e2f0e1a-0000-0000-0000-000000000000
+:END:
+#+title: Prompt library
+
+* Release
+walk through the release checklist
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let ((ai-code-prompt-completion-use-org-roam t))
+        (ai-code-prompt-completion-test--with-org-roam (list note)
+          (should (member "walk through the release checklist"
+                          (nth 0 (ai-code-prompt-completion--ensure-index)))))))))
+
+(ert-deftest ai-code-prompt-completion-test-org-roam-header-is-not-a-prompt ()
+  "The ID drawer and title a note opens with are not offered back."
+  (let ((note (ai-code-prompt-completion-test--make-file "\
+:PROPERTIES:
+:ID:       4e2f0e1a-0000-0000-0000-000000000000
+:END:
+#+title: Prompt library
+
+walk through the release checklist
+")))
+    (ai-code-prompt-completion-test--with-roots nil
+      (let ((ai-code-prompt-completion-use-org-roam t))
+        (ai-code-prompt-completion-test--with-org-roam (list note)
+          (let ((candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
+            (should (member "walk through the release checklist" candidates))
+            (should-not (cl-some (lambda (candidate)
+                                   (string-match-p "#\\+title\\|:ID:" candidate))
+                                 candidates))))))))
+
+(ert-deftest ai-code-prompt-completion-test-org-roam-can-be-turned-off ()
+  "With the option off org-roam is not consulted at all."
+  (let ((consulted nil))
+    (ai-code-prompt-completion-test--with-roots nil
+      (ai-code-prompt-completion-test--with-org-roam
+          (progn (setq consulted t) nil)
+        (should-not (ai-code-prompt-completion--org-roam-files))))
+    (should-not consulted)))
+
+(ert-deftest ai-code-prompt-completion-test-org-roam-absent-is-quiet ()
+  "Without org-roam installed the index is built from the other sources only."
+  (let ((definition (and (fboundp 'org-roam-list-files)
+                         (symbol-function 'org-roam-list-files))))
+    (unwind-protect
+        (progn
+          (fmakunbound 'org-roam-list-files)
+          (ai-code-prompt-completion-test--with-roots
+              (list (ai-code-prompt-completion-test--make-root
+                     ai-code-prompt-completion-test--corpus))
+            (let ((ai-code-prompt-completion-use-org-roam t))
+              (should-not (ai-code-prompt-completion--org-roam-files))
+              (should (member "investigate the issue and answer the question"
+                              (nth 0 (ai-code-prompt-completion--ensure-index)))))))
+      (when definition (fset 'org-roam-list-files definition)))))
 
 ;;; Input history file round-trip
 

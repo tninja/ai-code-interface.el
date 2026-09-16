@@ -7,7 +7,10 @@
 ;; Completion source over prompts you wrote by hand, harvested from every
 ;; `ai-code-prompt-file-name' history file this machine knows about.  Prompts
 ;; that ai-code generated itself are dropped by prefix, so the candidates are
-;; the wording you would otherwise retype.
+;; the wording you would otherwise retype.  Point
+;; `ai-code-prompt-completion-files' at a prompt library you keep by hand to
+;; complete from that too, and from the notes org-roam tracks when it is
+;; installed.
 ;;
 ;; The capf is installed in `ai-code-prompt-mode' buffers on load, so
 ;; `completion-at-point' (M-TAB) offers your earlier prompts with no setup
@@ -55,6 +58,7 @@
 (declare-function cape-wrap-super "cape" (&rest capfs))
 (declare-function cape-dict "cape" (&optional interactive))
 (declare-function company-mode "company" (&optional arg))
+(declare-function org-roam-list-files "org-roam" ())
 
 ;;;###autoload
 (defcustom ai-code-prompt-completion-template-prefixes
@@ -88,6 +92,28 @@ under `ai-code-files-dir-name'.  When `projectile' is loaded its known
 projects are searched too, so this option is only needed for
 repositories projectile does not track."
   :type '(repeat directory)
+  :group 'ai-code)
+
+;;;###autoload
+(defcustom ai-code-prompt-completion-files nil
+  "Extra files to complete prompts from, beside the recorded history.
+Point this at a prompt library you keep by hand.  Each top-level Org
+headline in such a file offers its body, or its own text when it has no
+body; a file without headlines is split on blank lines.  None of the
+history filters apply here -- you wrote these files to complete from --
+so a curated prompt is offered whatever it starts with or how long it
+runs.  Remote (Tramp) files are skipped."
+  :type '(repeat file)
+  :group 'ai-code)
+
+;;;###autoload
+(defcustom ai-code-prompt-completion-use-org-roam t
+  "Whether the notes org-roam tracks join the prompt candidates.
+They are read like `ai-code-prompt-completion-files': one prompt per
+headline, nothing filtered out.  Org-roam is optional and nothing looks
+for it unless it is installed; when it is, building the index loads it
+and reads every note once.  Set this to nil to skip that."
+  :type 'boolean
   :group 'ai-code)
 
 ;;;###autoload
@@ -133,6 +159,27 @@ from inside a completion callback."
             (push (file-truename file) files)))))
     (delete-dups (nreverse files))))
 
+(defun ai-code-prompt-completion--org-roam-files ()
+  "Return the org-roam notes to complete from, if any.
+Org-roam is asked only when it is installed, and a broken install is
+ignored rather than allowed to break completion."
+  (when (and ai-code-prompt-completion-use-org-roam
+             (fboundp 'org-roam-list-files))
+    (ignore-errors (org-roam-list-files))))
+
+(defun ai-code-prompt-completion--extra-files ()
+  "Return the readable files completed from beside the recorded history.
+Those are `ai-code-prompt-completion-files' and the org-roam notes.
+Remote files are skipped for the same reason remote roots are."
+  (let (files)
+    (dolist (file (append ai-code-prompt-completion-files
+                          (ai-code-prompt-completion--org-roam-files)))
+      (when (and (stringp file)
+                 (not (file-remote-p file))
+                 (file-readable-p file))
+        (push (file-truename file) files)))
+    (delete-dups (nreverse files))))
+
 (defun ai-code-prompt-completion--strip-drawer (text)
   "Return TEXT without a leading Org property drawer."
   (if (string-match "\\`[ \t\n]*:PROPERTIES:\n\\(?:.*\n\\)*?:END:\n" text)
@@ -170,9 +217,28 @@ document from splitting into a pile of candidate fragments."
                       (string-trim headline))
       (string-match-p "\\`[ \t\n]*:PROPERTIES:" body)))
 
-(defun ai-code-prompt-completion--parse-buffer ()
-  "Return reusable prompt bodies under top-level headlines in this buffer."
-  (let (entries)
+(defun ai-code-prompt-completion--history-entry (headline body)
+  "Return the reusable prompt recorded under HEADLINE as BODY, or nil."
+  (and (ai-code-prompt-completion--recorded-entry-p headline body)
+       (ai-code-prompt-completion--reusable-entry body)))
+
+(defun ai-code-prompt-completion--curated-entry (headline body)
+  "Return the prompt a hand-curated file keeps under HEADLINE, or nil.
+BODY is the prompt; a headline written without one is the prompt
+itself.  Nothing is filtered out, unlike recorded history: the file
+exists to be completed from."
+  (let ((text (string-trim (ai-code-prompt-completion--strip-drawer body)))
+        (title (string-trim headline)))
+    (cond ((not (string-empty-p text)) text)
+          ((not (string-empty-p title)) title))))
+
+(defun ai-code-prompt-completion--parse-buffer (&optional entry-function)
+  "Return the prompts under the top-level headlines in this buffer.
+ENTRY-FUNCTION turns a headline and its body into the prompt to index,
+or nil to skip it; it defaults to the rules for recorded history."
+  (let ((make-entry (or entry-function
+                        #'ai-code-prompt-completion--history-entry))
+        entries)
     (goto-char (point-min))
     (while (re-search-forward "^\\* \\(.*\\)$" nil t)
       (let ((headline (match-string-no-properties 1)))
@@ -182,12 +248,45 @@ document from splitting into a pile of candidate fragments."
                         (match-beginning 0)
                       (point-max)))
                (body (buffer-substring-no-properties start end))
-               (entry (and (ai-code-prompt-completion--recorded-entry-p headline body)
-                           (ai-code-prompt-completion--reusable-entry body))))
+               (entry (funcall make-entry headline body)))
           (goto-char end)
           (when entry
             (push entry entries)))))
     (nreverse entries)))
+
+(defconst ai-code-prompt-completion--metadata-line-regexp
+  "\\`[ \t]*\\(?:#\\+\\|:[A-Za-z_]+:\\)"
+  "An Org keyword or property drawer line, which is never a prompt.")
+
+(defun ai-code-prompt-completion--prompt-block-p (block)
+  "Return non-nil when BLOCK is prompt text rather than Org bookkeeping.
+An org-roam note opens with an ID drawer and a `#+title:'; neither is
+something to offer back."
+  (cl-notevery (lambda (line)
+                 (string-match-p
+                  ai-code-prompt-completion--metadata-line-regexp line))
+               (split-string block "\n" t)))
+
+(defun ai-code-prompt-completion--parse-curated-buffer ()
+  "Return the prompts a hand-curated file or note offers.
+Headlines carry one prompt each; a file written without them is a plain
+list of prompts separated by blank lines."
+  (goto-char (point-min))
+  (if (re-search-forward "^\\* " nil t)
+      (ai-code-prompt-completion--parse-buffer
+       #'ai-code-prompt-completion--curated-entry)
+    (cl-remove-if-not
+     #'ai-code-prompt-completion--prompt-block-p
+     (split-string (buffer-substring-no-properties (point-min) (point-max))
+                   "\n[ \t]*\n" t "[ \t\n]+"))))
+
+(defun ai-code-prompt-completion--read-entries (file parser)
+  "Return the prompts PARSER finds in FILE, or nil when it cannot be read."
+  (with-temp-buffer
+    (condition-case nil
+        (insert-file-contents file)
+      (error nil))
+    (funcall parser)))
 
 (defun ai-code-prompt-completion--display (text)
   "Return the popup string for TEXT, truncated to fit."
@@ -215,24 +314,31 @@ the middle of a prompt recall the prompt around it."
     (nreverse offsets)))
 
 (defun ai-code-prompt-completion--build ()
-  "Scan every prompt history file and return a fresh index.
+  "Scan every prompt file and return a fresh index.
 Candidates are ordered by how often the prompt was written, so the
-wording you reach for most lands at the top of the popup.  Within one
+wording you reach for most lands at the top of the popup.  A prompt you
+curated by hand outranks a recorded one written as often, and within one
 prompt the whole first line comes before the fragments cut out of it."
-  (let ((counts (make-hash-table :test #'equal))
-        (expansions (make-hash-table :test #'equal))
-        (files (ai-code-prompt-completion--files))
-        (order '())
-        (candidates '()))
-    (dolist (file files)
-      (with-temp-buffer
-        (condition-case nil
-            (insert-file-contents file)
-          (error nil))
-        (dolist (entry (ai-code-prompt-completion--parse-buffer))
-          (unless (gethash entry counts)
-            (push entry order))
-          (puthash entry (1+ (or (gethash entry counts) 0)) counts))))
+  (let* ((counts (make-hash-table :test #'equal))
+         (expansions (make-hash-table :test #'equal))
+         (files (ai-code-prompt-completion--files))
+         (extra-files (ai-code-prompt-completion--extra-files))
+         (entries
+          (append
+           (mapcan (lambda (file)
+                     (ai-code-prompt-completion--read-entries
+                      file #'ai-code-prompt-completion--parse-curated-buffer))
+                   extra-files)
+           (mapcan (lambda (file)
+                     (ai-code-prompt-completion--read-entries
+                      file #'ai-code-prompt-completion--parse-buffer))
+                   files)))
+         (order '())
+         (candidates '()))
+    (dolist (entry entries)
+      (unless (gethash entry counts)
+        (push entry order))
+      (puthash entry (1+ (or (gethash entry counts) 0)) counts))
     (dolist (entry (sort (nreverse order)
                          (lambda (a b) (> (gethash a counts) (gethash b counts)))))
       (let ((line (car (split-string entry "\n"))))
@@ -244,7 +350,8 @@ prompt the whole first line comes before the fragments cut out of it."
             (unless (gethash display expansions)
               (puthash display entry expansions)
               (push display candidates))))))
-    (list (nreverse candidates) expansions (length files))))
+    (list (nreverse candidates) expansions
+          (+ (length files) (length extra-files)))))
 
 (defun ai-code-prompt-completion--ensure-index ()
   "Return the cached index, building it on first use."
@@ -306,7 +413,7 @@ ai-code-prompt-completion.el for `cape' and `company' setups."
               (candidates (nth 0 index)))
     (list (car bounds) (cdr bounds) candidates
           :exclusive 'no
-          :annotation-function (lambda (_candidate) " prompt history")
+          :annotation-function (lambda (_candidate) " prompt")
           :exit-function #'ai-code-prompt-completion--exit)))
 
 ;;;###autoload
@@ -360,11 +467,11 @@ your own `cape-wrap-super' list instead of racing it."
 
 ;;;###autoload
 (defun ai-code-prompt-completion-refresh ()
-  "Rebuild the prompt history completion index from disk."
+  "Rebuild the prompt completion index from disk."
   (interactive)
   (let ((index (setq ai-code-prompt-completion--index
                      (ai-code-prompt-completion--build))))
-    (message "AI Code: indexed %d hand-written prompt(s) from %d file(s)"
+    (message "AI Code: indexed %d prompt(s) from %d file(s)"
              (length (nth 0 index)) (nth 2 index))))
 
 ;; Prompt buffers complete out of the box; the popup front-end stays a
