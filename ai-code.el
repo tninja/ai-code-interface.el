@@ -76,8 +76,9 @@
 ;;   (setq ai-code-auto-test-type 'ask-me)
 ;;   ;; Optional: Disable numbered next steps for discussion prompts at send time
 ;;   ;; (setq ai-code-discussion-auto-follow-up-enabled nil)
-;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
-;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
+;;   ;; Optional: Show candidates as you type in task file, using company
+;;   ;; (add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion-setup)
+;;   ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
 ;;   (global-auto-revert-mode 1)
 ;;   (setq auto-revert-interval 1) ;; set to 1 second for faster update
 ;;   )
