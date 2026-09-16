@@ -69,6 +69,38 @@ Returns non-nil on successful send."
                  (ai-code-read-string prompt-label initial-prompt))))
     (ai-code--insert-prompt prompt)))
 
+(defun ai-code--read-input-history (file)
+  "Read the saved input history list from FILE.
+Return a cons of (READABLE . ENTRIES).  READABLE is nil only when FILE
+exists but does not parse as a list, which tells the caller it must not
+replace the file with a freshly built history.  Non-string elements are
+dropped: a history truncated by a non-nil `print-length' reads back with
+an ellipsis symbol in it."
+  (if (not (file-exists-p file))
+      (cons t '())
+    (condition-case nil
+        (with-temp-buffer
+          (insert-file-contents file)
+          (let ((content (buffer-string)))
+            (if (string-empty-p content)
+                (cons t '())
+              (let ((entries (read content)))
+                (if (listp entries)
+                    (cons t (cl-remove-if-not #'stringp entries))
+                  (cons nil '()))))))
+      (error (cons nil '())))))
+
+(defun ai-code--write-input-history (file entries)
+  "Save ENTRIES to FILE, keeping at most the 1000 most recent.
+Text properties are stripped and printing is left unbounded so the file
+always reads back as the list that was written."
+  (with-temp-file file
+    (let ((print-circle nil)
+          (print-length nil)
+          (print-level nil)
+          (recent (cl-subseq entries 0 (min (length entries) 1000))))
+      (insert (prin1-to-string (mapcar #'substring-no-properties recent))))))
+
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
   "Read a string with Helm completion using specified history file.
 PROMPT is the prompt string.
@@ -77,17 +109,9 @@ INITIAL-INPUT is optional initial input string.
 CANDIDATE-LIST is an optional list of candidate strings to show before history."
   ;; Load history from file
   (let* ((helm-history-file (expand-file-name history-file-name user-emacs-directory))
-         (helm-history (if (file-exists-p helm-history-file)
-                           (condition-case nil
-                               (with-temp-buffer
-                                 (insert-file-contents helm-history-file)
-                                 (let ((content (buffer-string)))
-                                   (unless (string-empty-p content)
-                                     (read content))))
-                             (error nil))
-                         '()))
+         (loaded-history (ai-code--read-input-history helm-history-file))
          ;; Use only Helm history, no CLI history
-         (history helm-history)
+         (history (cdr loaded-history))
          ;; Extract the most recent item from history (if exists)
          (most-recent (when history
                         (car history)))
@@ -113,16 +137,16 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
                  :name "Helm Read String, Use C-c C-y to edit selected command. C-b and C-f to move cursor during editing"
                  :fuzzy nil
                  :initial-input initial-input)))
-    ;; Add to history if non-empty, single-line and save
-    (unless (or (string-empty-p input) (string-match "\n" input))
-      (push input history)
-      ;; (setq history (mapcar #'substring-no-properties history))
-      (with-temp-file helm-history-file ; Save to the Helm-specific history file
-        (let ((history-entries (cl-subseq history
-                                          0 (min (length history)
-                                                 1000))))  ; Keep last 1000 entries
-          (insert (let ((print-circle nil))
-                    (prin1-to-string history-entries))))))
+    ;; Add to history if non-empty, single-line and save.  Never rewrite a
+    ;; history file we failed to parse: that would replace every saved entry
+    ;; with this single input.
+    (cond
+     ((not (car loaded-history))
+      (message "AI Code: %s could not be parsed, input history not saved"
+               helm-history-file))
+     ((or (string-empty-p input) (string-match "\n" input)) nil)
+     (t
+      (ai-code--write-input-history helm-history-file (cons input history))))
     input))
 
 (defun ai-code-helm-read-string (prompt &optional initial-input candidate-list)

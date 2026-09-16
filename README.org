@@ -152,6 +152,7 @@ falls back to Ghostel. See [[./docs/windows.org][Native Windows Support]] for se
 - `flycheck`: To enable the =Fix Flycheck errors in scope= action under =C-c a b= and the `ai-code-flycheck-fix-errors-in-scope` command.
 - `yasnippet`: For snippet support in the prompt file. A library of snippets is included.
   - (emacs built-in) abbrev + skeleton is also a good way to expand prompt. [[./etc/prompt_expand_with_abbrev_skeleton.el][example abbrev to solve / iterate leetcode problem with tdd (need to set ai-code-auto-test-type with tdd)]], [[./examples/leetcode][example problem resolved]]
+- `cape` / `company`: For inline completion of prompts you have written before, described under [[*Reusing Prompts You Already Wrote][Reusing Prompts You Already Wrote]]. `cape` adds English word completion to the same popup and `company` displays it. Neither is required by AI Code, neither is loaded unless you opt in with `ai-code-prompt-completion-setup`, and prompt completion still works through the built-in `completion-at-point` (`M-TAB`) with neither installed.
 - `projectile`: For project root initialization.
 - `helm-gtags`: For tags creation and symbol navigation fallback from clickable session symbols.
 
@@ -197,6 +198,7 @@ appends the destination PNG path when invoking it:
 - *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), debug Emacs runtime issues (`d`), auto-fix Flycheck issues in scope (`f`), create or open task files (`k`), open prompt history (`p`), capture session notes straight into Org (`n`), search notes with AI (`/`), and dictate prompts with speech-to-text (`:`).
 - *Architecture Document Generation*: Derive practical architecture documents for the current repository with `C-c a A` (`ai-code-derive-architecture-document`). The command can generate architecture guardrails, a C4 PlantUML overview, a lightweight DDD context, or a test context document under `.ai.code.files/architecture/` so future AI coding sessions can reuse module boundaries, dependency rules, runtime flows, and validation expectations. See [[./docs/architecture/c4-overview.org][the C4 architecture overview for this repository]] for an example C4 diagram guide.
 - *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` inside a Git repository), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized. If the preferred prompt-history location is not writable, AI Code falls back to `~/.ai.code.files/.ai.code.prompt.org`; customize `ai-code-prompt-fallback-directory` to change that location or set it to nil to disable fallback. Prompt sending still proceeds with a warning when prompt history cannot be written.
+  - Prompts you typed by hand can be completed back inline with `ai-code-prompt-completion-capf`, indexed across every repository. See [[*Reusing Prompts You Already Wrote][Reusing Prompts You Already Wrote]].
 - *Interactive Chat & Context Tools*: Dedicated buffers hold long-running chats, automatically enriched with file paths, diffs, and history from Magit or Git commands for richer AI responses.
 - *AI-Assisted Bash Commands*: From Dired, shell, eshell, or vterm, run `C-c a !` and type natural-language commands prefixed with `:` (e.g., `:count lines of python code recursively`); the tool generates the shell command for review and executes it in a compile buffer.
 
@@ -218,6 +220,38 @@ appends the destination PNG path when invoking it:
 - *Speech to Text Input*: Press `C-c a`, then `:` (`ai-code-speech-to-text-input`). Speak your prompt, press `RET` to stop recording, then choose whether to insert the transcription into the current buffer, send it to the active AI coding session after editing it in `ai-code-read-string`, or copy it to the clipboard.
 - *Agent Handoff*: When switching AI backends or pausing work, press `C-c a H` to have the AI write a neutral handoff log into the task file. Later, in a new backend session, run `C-u C-c a H` to feed the entire handoff history back to the new agent.
 
+
+*** Reusing Prompts You Already Wrote
+
+Most of what you retype into a prompt is wording, not structure: "explain the current code", "go ahead with the suggested refactoring", the handoff instructions you send at every backend switch. `ai-code-prompt-completion-capf` completes those from the prompt history files AI Code already keeps.
+
+It indexes every prompt history file it can find, not only the current repository's: each root in `projectile-known-projects` when projectile is loaded, any directory listed in `ai-code-prompt-completion-roots`, the current directory, and the fallback location. Remote (Tramp) roots are skipped, so completion never opens a connection.
+
+Prompts that AI Code generated itself are left out, because a command can already regenerate them. They are recognized by their opening text, listed in `ai-code-prompt-completion-template-prefixes`; add a prefix there when a command starts producing wording you do not want offered back. Entries longer than `ai-code-prompt-completion-max-lines` (5) are skipped as well, since long history entries are one-off pastes such as stack traces. Candidates are ordered by how often you wrote them, shown as their truncated first line, and inserted whole.
+
+AI Code never registers the capf behind your back; your completion setup stays yours. One line turns on the whole thing:
+
+#+begin_src emacs-lisp
+(add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion-setup)
+#+end_src
+
+That installs `ai-code-prompt-completion-dict-capf`, which offers prompts you wrote before and, when =cape= is installed, English words from `cape-dict` in the same popup. `company-mode` displays them; set `ai-code-prompt-completion-enable-company` to nil if another front-end such as corfu does that job, or if you would rather call `completion-at-point` (=M-TAB=) by hand.
+
+Both =cape= and =company= are optional. Neither is a dependency of AI Code, neither is loaded until the setup function runs, and each is skipped when it is not installed -- with neither one present you still get prompt completion through the built-in `completion-at-point`.
+
+If you already merge capfs with cape, skip the setup function and add the capf to your own list instead. Only the first capf at a given hook depth gets to answer, so a second entry would just race yours:
+
+#+begin_src emacs-lisp
+(defun my/prose-capf ()
+  (cape-wrap-super #'ai-code-prompt-completion-capf
+                   #'cape-dict #'cape-dabbrev))
+#+end_src
+
+The capf completes the word before point, the same bounds `cape-dict` uses. That is deliberate: `cape-wrap-super` silently drops any capf whose start position disagrees with the first one in its list.
+
+Recall is by prefix: type the start of a prompt's first line. A `flex` or `substring` completion style does not help here, whatever your `completion-styles` says, because the capf declares itself non-exclusive so it never shadows `cape-dict` or Copilot, and Emacs only offers a non-exclusive capf once plain prefix completion could succeed (see the `:exclusive` handling in `completion--capf-wrapper`).
+
+The index is built the first time completion runs and is then cached for the session; a few dozen prompt files scan in a fraction of a second. Run `ai-code-prompt-completion-refresh` to pick up prompts written since.
 
 *** Context Engineering
 
