@@ -28,11 +28,19 @@
 ;; because `cape-capf-super' silently drops capfs whose start position
 ;; disagrees with the first one.
 ;;
-;; Recall is by prefix: the word before point has to start a candidate.  The
-;; capf is non-exclusive so it never shadows `cape-dict' or Copilot, and
-;; `completion--capf-wrapper' only offers a non-exclusive capf once plain
-;; prefix completion could succeed -- a `flex' style never gets a chance to
-;; match from the middle of a candidate.
+;; A prompt is recalled from any word in its first line, not only from the
+;; opening one: every word start is indexed as a candidate of its own, and
+;; choosing one inserts the whole prompt.  Picking such a candidate rewrites
+;; the line from its start whenever what you typed there is the opening of
+;; that same prompt, so a prompt you were halfway through retyping does not
+;; end up with its first words doubled.
+;;
+;; Indexing word starts rather than matching non-prefix is deliberate.  The
+;; capf is non-exclusive so it never shadows `cape-dict', the `@file' capf or
+;; Copilot, and `completion--capf-wrapper' only offers a non-exclusive capf
+;; once plain prefix completion could succeed.  Making the candidates
+;; prefix-matchable keeps that guarantee; a `flex' style, where the user has
+;; one, then matches the rest of the candidate as a bonus.
 ;;
 ;; The index is built on first use and cached for the rest of the session.
 ;; Run `ai-code-prompt-completion-refresh' to pick up prompts written since.
@@ -181,18 +189,36 @@ document from splitting into a pile of candidate fragments."
             (push entry entries)))))
     (nreverse entries)))
 
-(defun ai-code-prompt-completion--display (entry)
-  "Return the popup string for ENTRY, its first line truncated to fit."
-  (let ((first-line (car (split-string entry "\n"))))
-    (if (> (length first-line) ai-code-prompt-completion--display-width)
-        (concat (substring first-line 0 (1- ai-code-prompt-completion--display-width))
-                "…")
-      first-line)))
+(defun ai-code-prompt-completion--display (text)
+  "Return the popup string for TEXT, truncated to fit."
+  (if (> (length text) ai-code-prompt-completion--display-width)
+      (concat (substring text 0 (1- ai-code-prompt-completion--display-width))
+              "…")
+    text))
+
+(defconst ai-code-prompt-completion--word-regexp "[A-Za-z0-9_-]\\{3,\\}"
+  "Regexp for a word worth recalling a prompt by.
+Shorter words such as \"to\" would drag every prompt into the popup on
+two keystrokes.")
+
+(defun ai-code-prompt-completion--word-offsets (line)
+  "Return the offsets in LINE a candidate may start at.
+Zero comes first, so the whole line stays a candidate, followed by the
+start of every word long enough to type.  Those are what let a word in
+the middle of a prompt recall the prompt around it."
+  (let ((start 0)
+        (offsets (list 0)))
+    (while (string-match ai-code-prompt-completion--word-regexp line start)
+      (unless (zerop (match-beginning 0))
+        (push (match-beginning 0) offsets))
+      (setq start (match-end 0)))
+    (nreverse offsets)))
 
 (defun ai-code-prompt-completion--build ()
   "Scan every prompt history file and return a fresh index.
 Candidates are ordered by how often the prompt was written, so the
-wording you reach for most lands at the top of the popup."
+wording you reach for most lands at the top of the popup.  Within one
+prompt the whole first line comes before the fragments cut out of it."
   (let ((counts (make-hash-table :test #'equal))
         (expansions (make-hash-table :test #'equal))
         (files (ai-code-prompt-completion--files))
@@ -209,12 +235,15 @@ wording you reach for most lands at the top of the popup."
           (puthash entry (1+ (or (gethash entry counts) 0)) counts))))
     (dolist (entry (sort (nreverse order)
                          (lambda (a b) (> (gethash a counts) (gethash b counts)))))
-      (let ((display (ai-code-prompt-completion--display entry)))
-        ;; Two prompts can share a first line; the more frequent one, which
-        ;; sorts first, keeps the slot.
-        (unless (gethash display expansions)
-          (puthash display entry expansions)
-          (push display candidates))))
+      (let ((line (car (split-string entry "\n"))))
+        (dolist (offset (ai-code-prompt-completion--word-offsets line))
+          (let ((display (ai-code-prompt-completion--display
+                          (substring line offset))))
+            ;; Two prompts can share a first line or a tail; the more
+            ;; frequent one, which sorts first, keeps the slot.
+            (unless (gethash display expansions)
+              (puthash display entry expansions)
+              (push display candidates))))))
     (list (nreverse candidates) expansions (length files))))
 
 (defun ai-code-prompt-completion--ensure-index ()
@@ -222,23 +251,55 @@ wording you reach for most lands at the top of the popup."
   (or ai-code-prompt-completion--index
       (setq ai-code-prompt-completion--index (ai-code-prompt-completion--build))))
 
+(defconst ai-code-prompt-completion--line-prefix-regexp
+  "[ \t]*\\(?:\\*+ \\|[-+] \\|[0-9]+[.)] \\)?"
+  "Org headline stars, list bullet or list number opening a line.
+Kept in place when a candidate expands back to the start of the line.")
+
+(defun ai-code-prompt-completion--line-content-start ()
+  "Return where the text of the current line starts.
+That is after any Org bullet or headline stars, so expanding a prompt
+inside a list item does not eat the item's own marker."
+  (save-excursion
+    (goto-char (line-beginning-position))
+    (when (looking-at ai-code-prompt-completion--line-prefix-regexp)
+      (goto-char (match-end 0)))
+    (point)))
+
 (defun ai-code-prompt-completion--exit (candidate status)
-  "Expand CANDIDATE to the full prompt it abbreviates once STATUS is `finished'."
+  "Expand CANDIDATE to the full prompt it abbreviates once STATUS is `finished'.
+A candidate can start at a word in the middle of the prompt, so the
+replacement reaches back to the start of the line whenever what is
+already typed there opens that same prompt.  Anything else on the line,
+a \"TODO: \" you wrote yourself for instance, is left alone."
   (when (eq status 'finished)
     (let* ((key (substring-no-properties candidate))
            (full (gethash key (nth 1 (ai-code-prompt-completion--ensure-index)))))
-      (when (and full (not (equal full key)))
-        (delete-region (max (point-min) (- (point) (length candidate))) (point))
-        (insert full)))))
+      (when full
+        (let* ((word-start (max (point-min) (- (point) (length candidate))))
+               (line-start (ai-code-prompt-completion--line-content-start))
+               (start (if (and (< line-start word-start)
+                               (string-prefix-p
+                                (buffer-substring-no-properties line-start
+                                                                word-start)
+                                full t))
+                          line-start
+                        word-start)))
+          (unless (equal full (buffer-substring-no-properties start (point)))
+            (delete-region start (point))
+            (insert full)))))))
 
 ;;;###autoload
 (defun ai-code-prompt-completion-capf ()
   "Complete the word before point against hand-written prompt history.
-Return nil when there is no word at point, so the capf stays out of the
-way.  Choosing a candidate inserts the full prompt it abbreviates.
+The word may be any word of a stored prompt, not only its first, so a
+distinctive word in the middle recalls the prompt around it.  Return nil
+when there is no word at point, so the capf stays out of the way.
+Choosing a candidate inserts the full prompt it abbreviates.
 
-Register this yourself; ai-code never adds it to
-`completion-at-point-functions'.  See the commentary in
+`ai-code-prompt-mode' buffers install
+`ai-code-prompt-completion-dict-capf' on their own; register this one
+when you merge capfs yourself.  See the commentary in
 ai-code-prompt-completion.el for `cape' and `company' setups."
   (when-let* ((bounds (bounds-of-thing-at-point 'word))
               (index (ai-code-prompt-completion--ensure-index))

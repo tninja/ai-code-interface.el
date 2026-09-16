@@ -88,7 +88,7 @@ investigate the issue and answer the question
              "* [2026-01-01 Thu 10:00]\nshort prompt\n
 * [2026-01-02 Fri 10:00]\nline1\nline2\nline3\nline4\nline5\nline6\n"))
     (let ((candidates (nth 0 (ai-code-prompt-completion--ensure-index))))
-      (should (equal candidates '("short prompt"))))))
+      (should (equal candidates '("short prompt" "prompt"))))))
 
 (ert-deftest ai-code-prompt-completion-test-orders-by-frequency ()
   "The prompt written most often sorts to the top of the popup."
@@ -127,7 +127,8 @@ explain what this is for
 list the modules
 "))
     (should (equal (nth 0 (ai-code-prompt-completion--ensure-index))
-                   '("summarize the design document")))))
+                   '("summarize the design document" "the design document"
+                     "design document" "document")))))
 
 (ert-deftest ai-code-prompt-completion-test-keeps-gptel-headline-entries ()
   "A generated headline still counts when the property drawer is present."
@@ -139,8 +140,8 @@ list the modules
 :END:
 split the parser into smaller functions
 "))
-    (should (equal (nth 0 (ai-code-prompt-completion--ensure-index))
-                   '("split the parser into smaller functions")))))
+    (should (equal (car (nth 0 (ai-code-prompt-completion--ensure-index)))
+                   "split the parser into smaller functions"))))
 
 (ert-deftest ai-code-prompt-completion-test-skips-remote-roots ()
   "A remote project root is never probed, so indexing cannot hang on Tramp."
@@ -183,6 +184,78 @@ and the exit function are exercised together."
       (should (equal (buffer-string)
                      "please Go ahead with the suggested refactoring")))))
 
+(ert-deftest ai-code-prompt-completion-test-recall-from-middle-word ()
+  "A word from the middle of a prompt stands for the whole prompt."
+  (ai-code-prompt-completion-test--with-roots
+      (list (ai-code-prompt-completion-test--make-root
+             ai-code-prompt-completion-test--corpus))
+    (let ((index (ai-code-prompt-completion--ensure-index)))
+      (should (member "refactoring" (nth 0 index)))
+      (should (equal (gethash "refactoring" (nth 1 index))
+                     "Go ahead with the suggested refactoring")))))
+
+(ert-deftest ai-code-prompt-completion-test-skips-short-words ()
+  "Words too short to be worth typing do not become candidates."
+  (ai-code-prompt-completion-test--with-roots
+      (list (ai-code-prompt-completion-test--make-root
+             "* [2026-01-01 Thu 10:00]\ndo it now\n"))
+    (should (equal (nth 0 (ai-code-prompt-completion--ensure-index))
+                   '("do it now" "now")))))
+
+(ert-deftest ai-code-prompt-completion-test-whole-line-before-its-tails ()
+  "The full first line is offered ahead of the fragments cut out of it."
+  (ai-code-prompt-completion-test--with-roots
+      (list (ai-code-prompt-completion-test--make-root
+             ai-code-prompt-completion-test--corpus))
+    (let* ((candidates (nth 0 (ai-code-prompt-completion--ensure-index)))
+           (whole (cl-position "Go ahead with the suggested refactoring"
+                               candidates :test #'equal))
+           (tail (cl-position "refactoring" candidates :test #'equal)))
+      (should whole)
+      (should tail)
+      (should (< whole tail)))))
+
+(ert-deftest ai-code-prompt-completion-test-mid-line-recall-keeps-one-copy ()
+  "Recalling from a middle word rewrites the line instead of doubling it."
+  (ai-code-prompt-completion-test--with-roots
+      (list (ai-code-prompt-completion-test--make-root
+             ai-code-prompt-completion-test--corpus))
+    (with-temp-buffer
+      (setq-local completion-at-point-functions
+                  (list #'ai-code-prompt-completion-capf))
+      (insert "Go ahead with the suggested refac")
+      (completion-at-point)
+      (should (equal (buffer-string)
+                     "Go ahead with the suggested refactoring")))))
+
+(ert-deftest ai-code-prompt-completion-test-keeps-unrelated-text-on-the-line ()
+  "Text that is not the opening of the prompt stays where the user put it."
+  (ai-code-prompt-completion-test--with-roots
+      (list (ai-code-prompt-completion-test--make-root
+             ai-code-prompt-completion-test--corpus))
+    (with-temp-buffer
+      (setq-local completion-at-point-functions
+                  (list #'ai-code-prompt-completion-capf))
+      (insert "TODO: refac")
+      (completion-at-point)
+      (should (equal (buffer-string)
+                     "TODO: Go ahead with the suggested refactoring")))))
+
+(ert-deftest ai-code-prompt-completion-test-keeps-org-line-prefix ()
+  "An Org bullet or headline survives a rewrite back to the line start."
+  (ai-code-prompt-completion-test--with-roots
+      (list (ai-code-prompt-completion-test--make-root
+             ai-code-prompt-completion-test--corpus))
+    (dolist (prefix '("- " "** " "1. "))
+      (with-temp-buffer
+        (setq-local completion-at-point-functions
+                    (list #'ai-code-prompt-completion-capf))
+        (insert prefix "Go ahead with the suggested refac")
+        (completion-at-point)
+        (should (equal (buffer-string)
+                       (concat prefix
+                               "Go ahead with the suggested refactoring")))))))
+
 (ert-deftest ai-code-prompt-completion-test-capf-quiet-without-word ()
   "With no word before point the capf declines, leaving other capfs alone."
   (ai-code-prompt-completion-test--with-roots
@@ -223,13 +296,13 @@ and the exit function are exercised together."
                "* [2026-01-01 Thu 10:00]\nfirst prompt\n")))
     (ai-code-prompt-completion-test--with-roots (list root)
       (should (equal (nth 0 (ai-code-prompt-completion--ensure-index))
-                     '("first prompt")))
+                     '("first prompt" "prompt")))
       (with-temp-file (expand-file-name ai-code-prompt-file-name root)
         (insert "* [2026-01-01 Thu 10:00]\nfirst prompt\n
 * [2026-01-02 Fri 10:00]\nsecond prompt\n"))
       ;; The cache is deliberately sticky until asked to rebuild.
       (should (equal (nth 0 (ai-code-prompt-completion--ensure-index))
-                     '("first prompt")))
+                     '("first prompt" "prompt")))
       (ai-code-prompt-completion-refresh)
       (should (member "second prompt"
                       (nth 0 (ai-code-prompt-completion--ensure-index)))))))
