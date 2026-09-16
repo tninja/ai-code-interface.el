@@ -223,48 +223,25 @@ appends the destination PNG path when invoking it:
 
 *** Reusing Prompts You Already Wrote
 
-Most of what you retype into a prompt is wording, not structure: "explain the current code", "go ahead with the suggested refactoring", the handoff instructions you send at every backend switch. `ai-code-prompt-completion-capf` completes those from the prompt history files AI Code already keeps.
+Most of what you retype into a prompt is wording, not structure: "explain the current code", the handoff instructions you send at every backend switch. This completes those from the prompt history files AI Code already keeps, across every repository it knows about -- projectile's known projects, `ai-code-prompt-completion-roots`, the current directory and the fallback location, with remote (Tramp) roots skipped so completion never opens a connection.
 
-It indexes every prompt history file it can find, not only the current repository's: each root in `projectile-known-projects` when projectile is loaded, any directory listed in `ai-code-prompt-completion-roots`, the current directory, and the fallback location. Remote (Tramp) roots are skipped, so completion never opens a connection.
-
-Prompts that AI Code generated itself are left out, because a command can already regenerate them. They are recognized by their opening text, listed in `ai-code-prompt-completion-template-prefixes`; add a prefix there when a command starts producing wording you do not want offered back. Entries longer than `ai-code-prompt-completion-max-lines` (5) are skipped as well, since long history entries are one-off pastes such as stack traces. Candidates are ordered by how often you wrote them, shown as their truncated first line, and inserted whole.
-
-This needs no configuration. Opening a prompt file installs the capf, so `completion-at-point` (=M-TAB=) offers your earlier prompts right away. If =cape= is installed, it is loaded in those buffers too and English words from `cape-dict` join the same candidate list -- you do not need a cape setup of your own for that.
-
-What AI Code will not decide for you is the popup front-end. To have candidates appear as you type, with =company=:
+It needs no configuration: opening a prompt file installs the capf, so `completion-at-point` (=M-TAB=) offers your earlier prompts right away, and if =cape= is installed its `cape-dict` words join the same candidate list. Only the popup front-end is left to you:
 
 #+begin_src emacs-lisp
+;; Show candidates as you type, using company
 (add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion-setup)
 #+end_src
 
-Set `ai-code-prompt-completion-enable-company` to nil if another front-end such as corfu does that job. Both =cape= and =company= are optional: neither is a dependency of AI Code, neither is loaded when it is not installed, and with neither present the prompt candidates still work through the built-in `completion-at-point`. To keep prompt buffers out of this entirely, `(remove-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion--enable)`.
+Both =cape= and =company= are optional: neither is a dependency, and neither is loaded when it is not installed. Set `ai-code-prompt-completion-enable-company` to nil when a front-end such as corfu shows the candidates instead, or `(remove-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion--enable)` to opt out completely. If your own config already merges capfs with cape, add `ai-code-prompt-completion-capf` to that list rather than relying on the default: the first capf at a given hook depth answers, and yours is added first.
 
-If you already merge capfs with cape, add this one to your own list rather than relying on the default. Only the first capf at a given hook depth gets to answer, and a capf your config installed through `text-mode-hook` is added first, so it answers before this one:
+Candidates are the prompts you wrote by hand, ranked by how often you wrote them, shown as a truncated first line and inserted whole. Prompts AI Code generated itself are left out by prefix (`ai-code-prompt-completion-template-prefixes`), and anything longer than `ai-code-prompt-completion-max-lines` is dropped as a one-off paste. Recall is by prefix -- a `flex` style cannot help here, because Emacs only offers a non-exclusive capf once plain prefix completion could succeed. The index is cached for the session; `ai-code-prompt-completion-refresh` rebuilds it.
 
-#+begin_src emacs-lisp
-(defun my/prose-capf ()
-  (if (derived-mode-p 'ai-code-prompt-mode)
-      (cape-wrap-super #'ai-code-prompt-completion-capf
-                       #'cape-dict #'cape-dabbrev)
-    (cape-wrap-super #'cape-dict #'cape-dabbrev)))
-#+end_src
-
-The capf completes the word before point, the same bounds `cape-dict` uses. That is deliberate: `cape-wrap-super` silently drops any capf whose start position disagrees with the first one in its list.
-
-Recall is by prefix: type the start of a prompt's first line. A `flex` or `substring` completion style does not help here, whatever your `completion-styles` says, because the capf declares itself non-exclusive so it never shadows `cape-dict` or Copilot, and Emacs only offers a non-exclusive capf once plain prefix completion could succeed (see the `:exclusive` handling in `completion--capf-wrapper`).
-
-One note on the dictionary half: `cape-dict` reads `/usr/share/dict/words` by default, which on macOS is Webster's 1934 edition, so candidates include words no one has typed since. A modern list is one command away:
+One caveat on the dictionary half: `cape-dict` reads `/usr/share/dict/words`, which on macOS is Webster's 1934 edition. For a modern list, generate one and point `cape-dict-file` at it:
 
 #+begin_src sh
 aspell -d en dump master | aspell -l en expand | tr ' ' '\n' | sort -u \
   > ~/.emacs.d/dict-en.txt
 #+end_src
-
-#+begin_src emacs-lisp
-(setq cape-dict-file "~/.emacs.d/dict-en.txt")
-#+end_src
-
-The index is built the first time completion runs and is then cached for the session; a few dozen prompt files scan in a fraction of a second. Run `ai-code-prompt-completion-refresh` to pick up prompts written since.
 
 *** Context Engineering
 
