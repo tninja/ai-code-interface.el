@@ -768,6 +768,61 @@ everything is cleaned up afterward."
       (should (equal (current-kill 0 t)
                      "third in /tmp/sample.el#L3-L3")))))
 
+(ert-deftest ai-code-test-copy-file-context-short-region-includes-text ()
+  "A region of 5 lines or fewer should keep including the selected text."
+  (with-temp-buffer
+    (insert "l1\nl2\nl3\nl4\nl5\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 4)
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "l1\nl2\nl3\nl4\nl5 in /tmp/sample.el#L1-L5")))))
+
+(ert-deftest ai-code-test-copy-file-context-long-region-uses-line-range-only ()
+  "A region longer than 5 lines should copy only the file line range."
+  (with-temp-buffer
+    (insert "l1\nl2\nl3\nl4\nl5\nl6\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 5)
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "/tmp/sample.el#L1-L6")))))
+
+(ert-deftest ai-code-test-context-action-long-region-copies-line-range-only ()
+  "C-c a @ copy actions should omit text for regions longer than 5 lines."
+  (with-temp-buffer
+    (insert "l1\nl2\nl3\nl4\nl5\nl6\nl7\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 6)
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil)
+          (selected-actions '("Copy context"
+                              "Copy context with full path")))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _args) (pop selected-actions)))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _dir) nil)))
+        (ai-code-context-action nil)
+        (should (equal (current-kill 0 t) "/tmp/sample.el#L1-L7"))
+        (ai-code-context-action nil)
+        (should (equal (current-kill 0 t) "/tmp/sample.el#L1-L7"))))))
+
 (ert-deftest ai-code-test-context-action-copies-scoped-context ()
   "Test that context actions copy function and region references."
   (let* ((repo-root (make-temp-file "ai-code-context-copy-" t))

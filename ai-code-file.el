@@ -36,6 +36,14 @@
   :type 'string
   :group 'ai-code)
 
+(defcustom ai-code-region-text-max-lines 5
+  "Maximum number of region lines whose text is kept in context references.
+When the selected region spans more lines than this, context actions
+such as `ai-code-copy-buffer-file-name-to-clipboard' copy only the file
+path with the line range, without the region text."
+  :type 'integer
+  :group 'ai-code)
+
 ;; Variables that will be defined in ai-code.el
 (defvar ai-code-use-prompt-suffix)
 (defvar ai-code-prompt-suffix)
@@ -101,7 +109,8 @@ If in a Dired buffer, copy the marked files and directories, one path
 per line, falling back to the file at point or the directory path.
 In a regular file buffer, append the selected region's line range or
 the current function name to the file path.  Preserve selected text
-before that context reference.
+before that context reference, unless the region spans more than 5
+lines; then only the file path with line range is copied.
 With prefix argument ARG \[universal-argument], always return full path
 instead of processed path.  File paths are processed to relative paths
 with @ prefix if within git repo."
@@ -119,7 +128,9 @@ with @ prefix if within git repo."
           ((buffer-file-name)
            (let ((context-reference
                   (ai-code--current-file-context-reference arg)))
-             (if (use-region-p)
+             (if (and (use-region-p)
+                      (<= (count-lines (region-beginning) (region-end))
+                          ai-code-region-text-max-lines))
                  (format "%s in %s"
                          (buffer-substring-no-properties
                           (region-beginning)
