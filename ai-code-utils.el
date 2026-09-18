@@ -34,7 +34,6 @@
 (declare-function treesit-node-parent "treesit" (node))
 (declare-function treesit-node-children "treesit" (node &optional named))
 (declare-function treesit-node-child-by-field-name "treesit" (node field-name))
-(declare-function treesit-parser-root-node "treesit" (parser))
 
 (defvar ai-code--repo-context-info (make-hash-table :test #'equal)
   "Hash table storing context info lists per Git repository root.")
@@ -277,90 +276,6 @@ Otherwise, return the first source line of NODE."
                          (line-end-position))))))
            (text (buffer-substring-no-properties start end)))
       (string-trim text))))
-
-(defconst ai-code--treesit-defun-node-types
-  '("function_definition" "function_declaration" "method_definition"
-    "method_declaration" "function_item" "method_item" "function" "method"
-    "arrow_function" "generator_function" "generator_function_declaration"
-    "constructor" "constructor_declaration" "procedure_definition" "procedure"
-    "func_definition" "async_function_definition")
-  "Tree-sitter node types that define a function or method.")
-
-(defun ai-code--treesit-defun-node-p (node-type)
-  "Return non-nil when NODE-TYPE represents a function-like definition."
-  (and (stringp node-type)
-       (member node-type ai-code--treesit-defun-node-types)))
-
-(defun ai-code--treesit-symbol-node-p (node-type)
-  "Return non-nil when NODE-TYPE is a class-like or function-like symbol."
-  (or (ai-code--treesit-enclosing-type-node-p node-type)
-      (ai-code--treesit-defun-node-p node-type)))
-
-(defun ai-code--treesit--qualified-name (node name)
-  "Return qualified name for NODE with base NAME.
-Prefix with the full enclosing type path."
-  (let* ((enclosing-names
-          (let ((names nil)
-                (cur (treesit-node-parent node)))
-            (while cur
-              (when (ai-code--treesit-class-like-node-p cur)
-                (when-let ((n (ai-code--treesit-node-name cur)))
-                  (push n names)))
-              (setq cur (treesit-node-parent cur)))
-            names))
-         (prefix (when enclosing-names
-                   (mapconcat #'identity enclosing-names "."))))
-    (if (and prefix (not (string-empty-p prefix)))
-        (concat prefix "." name)
-      name)))
-
-(defun ai-code--treesit--symbol-entry (node node-type name)
-  "Build a symbol plist for NODE of NODE-TYPE with NAME."
-  (let* ((qualified (ai-code--treesit--qualified-name node name))
-         (header (ai-code--treesit-node-header node))
-         (start (ignore-errors (treesit-node-start node)))
-         (end (ignore-errors (treesit-node-end node)))
-         (line (when (and start (integerp start))
-                 (line-number-at-pos start)))
-         (range (when (and (integerp start) (integerp end))
-                  (cons start end))))
-    (list :name name
-          :qualified qualified
-          :type node-type
-          :header header
-          :range range
-          :line line
-          :node node)))
-
-(defun ai-code--treesit--collect-symbols (root)
-  "Collect symbol plists from Tree-sitter ROOT node in file order."
-  (let ((stack (list root))
-        (result nil))
-    (while stack
-      (let ((node (pop stack)))
-        (when node
-          (let ((node-type (ignore-errors (treesit-node-type node))))
-            (when (and node-type (ai-code--treesit-symbol-node-p node-type))
-              (when-let ((name (ai-code--treesit-node-name node)))
-                (push (ai-code--treesit--symbol-entry node node-type name) result)))
-            (let ((children (ignore-errors (treesit-node-children node t))))
-              (when children
-                (dolist (child (reverse children))
-                  (push child stack))))))))
-    (nreverse result)))
-
-(defun ai-code--treesit-file-symbols (&optional buffer)
-  "Return Tree-sitter symbol plists for BUFFER in file-definition order.
-BUFFER defaults to `current-buffer'.  Each plist contains
-`:qualified', `:name', `:type', `:header', `:range' and `:line'.
-Return nil when Tree-sitter is unavailable."
-  (let ((buf (or buffer (current-buffer))))
-    (when (ai-code--treesit-available-p buf)
-      (with-current-buffer buf
-        (when-let* ((parsers (ignore-errors (treesit-parser-list buf)))
-                    (parser (car parsers))
-                    (root (ignore-errors (treesit-parser-root-node parser))))
-          (ai-code--treesit--collect-symbols root))))))
 
 (defun ai-code--current-line-semantic-position ()
   "Return the first non-whitespace position on the current line.
