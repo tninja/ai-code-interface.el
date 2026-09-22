@@ -246,7 +246,9 @@
   "D should open Magit status setup for the session repository."
   (ai-code-test-session--with-clean-registry
    (let ((session-buffer (get-buffer-create "*codex[diff]*"))
-         (repo-root (make-temp-file "ai-code-dashboard-diff-" t))
+         ;; Resolve the temporary directory, because the dashboard reports the
+         ;; repository root canonicalized and /var is a symlink on macOS.
+         (repo-root (file-truename (make-temp-file "ai-code-dashboard-diff-" t)))
          dashboard-buffer
          opened-repo)
      (unwind-protect

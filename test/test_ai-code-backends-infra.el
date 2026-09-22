@@ -138,6 +138,13 @@ The result is a cons of whether SYMBOL is bound and its default value."
       (set-default symbol (cdr state))
     (makunbound symbol)))
 
+(defun test-ai-code-backends-infra--session-dir (directory)
+  "Return DIRECTORY the way session bookkeeping stores it.
+Session keys are canonicalized with `file-truename', so a key built from a
+literal path has to be resolved the same way to match.  This matters where
+the platform makes the literal path a symlink, such as /tmp on macOS."
+  (file-name-as-directory (file-truename directory)))
+
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
   (should-not (ai-code-backends-infra--output-meaningful-p nil))
@@ -2059,7 +2066,9 @@ The prefix argument should also force instance-name prompting."
            nil
            "echo hi")
           (should (eq captured-table ai-code-backends-infra--processes))
-          (should (eq (gethash (cons working-dir "default")
+          (should (eq (gethash (cons (test-ai-code-backends-infra--session-dir
+                                     working-dir)
+                                    "default")
                                ai-code-backends-infra--processes)
                       'mock-process)))
        (when (buffer-live-p buffer)
@@ -2075,7 +2084,9 @@ The prefix argument should also force instance-name prompting."
          (cleanup-count 0))
     (unwind-protect
         (progn
-          (puthash (cons working-dir "default") process process-table)
+          (puthash (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "default")
+                   process process-table)
           (cl-letf (((symbol-function 'process-live-p)
                      (lambda (candidate) (eq candidate process)))
                     ((symbol-function 'ai-code-backends-infra--reuse-existing-session)
@@ -2355,7 +2366,8 @@ The prefix argument should also force instance-name prompting."
       (should (equal (plist-get context :buffer-name)
                      "*codex[ai-code-session-target:review]*"))
       (should (equal (plist-get context :session-key)
-                     (cons working-dir "review")))
+                     (cons (test-ai-code-backends-infra--session-dir working-dir)
+                           "review")))
       (should-not prompt-called))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-does-not-prefill-prompt-buffer-filename ()
@@ -2398,7 +2410,8 @@ The prefix argument should also force instance-name prompting."
     (should (equal (plist-get context :buffer-name)
                    "*codex[ai-code-session-target:manual-session]*"))
     (should (equal (plist-get context :session-key)
-                   (cons working-dir "manual-session")))))
+                   (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "manual-session")))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-prefills-source-buffer-branch ()
   "Source buffers should seed new instance names from the current branch."
@@ -2463,7 +2476,8 @@ The prefix argument should also force instance-name prompting."
     (should (equal (plist-get context :buffer-name)
                    "*codex[ai-code-session-target:feat/first-session]*"))
     (should (equal (plist-get context :session-key)
-                   (cons working-dir "feat/first-session")))))
+                   (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "feat/first-session")))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-sanitizes-branch-name ()
   "Branch-derived instance names should keep session buffer names parseable."
@@ -2518,7 +2532,8 @@ The prefix argument should also force instance-name prompting."
     (should (equal (plist-get context :buffer-name)
                    "*codex[ai-code-session-target]*"))
     (should (equal (plist-get context :session-key)
-                   (cons working-dir "default")))))
+                   (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "default")))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-context-includes-runtime-state ()
   "Resolved session context should include target data plus buffer and process."
@@ -2530,7 +2545,9 @@ The prefix argument should also force instance-name prompting."
          (context nil))
     (unwind-protect
         (progn
-          (puthash (cons working-dir "default") process process-table)
+          (puthash (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "default")
+                   process process-table)
           (setq context
                 (ai-code-backends-infra--resolve-session-context
                  working-dir
@@ -2542,7 +2559,9 @@ The prefix argument should also force instance-name prompting."
           (should (equal (plist-get context :instance-name) "default"))
           (should (equal (plist-get context :buffer-name) buffer-name))
           (should (equal (plist-get context :session-key)
-                         (cons working-dir "default")))
+                         (cons (test-ai-code-backends-infra--session-dir
+                                working-dir)
+                               "default")))
           (should (eq (plist-get context :buffer) buffer))
           (should (eq (plist-get context :existing-process) process)))
       (when (buffer-live-p buffer)
