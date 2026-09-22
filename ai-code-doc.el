@@ -28,6 +28,21 @@
     ("Derive Test Context Document" . ai-code-derive-test-context))
   "Choices for `ai-code-derive-architecture-document'.")
 
+(defun ai-code-doc--emit-prompt (title prompt)
+  "Insert PROMPT under a TITLE headline at point, or send it to the AI.
+In `ai-code-prompt-mode' the prompt is written into the current buffer
+under the cursor, as an Org section at the level of the surrounding
+section, and no AI request is made.  Everywhere else PROMPT is handed to
+`ai-code--insert-prompt' as usual."
+  (if (derived-mode-p 'ai-code-prompt-mode)
+      (let ((level (or (org-current-level) 1)))
+        (unless (bolp)
+          (insert "\n"))
+        (insert (make-string level ?*) " " title " ")
+        (org-insert-time-stamp (current-time) t t)
+        (insert "\n" prompt "\n"))
+    (ai-code--insert-prompt prompt)))
+
 ;;;###autoload
 (defun ai-code-derive-architecture-document ()
   "Derive an architecture document by selecting one of the available options."
@@ -312,8 +327,8 @@ Default value is English."
       (if-let ((final-prompt
                 (ai-code-plain-read-string "Prompt: " initial-prompt)))
           (progn
-            (ai-code--insert-prompt final-prompt)
-            (message "Requested architecture guardrails for %s" git-root))
+            (ai-code-doc--emit-prompt "Derive Architecture Guardrails" final-prompt)
+            (message "Architecture guardrails prompt ready for %s" git-root))
         (message "Architecture guardrails request cancelled")))))
 
 ;;;###autoload
@@ -332,7 +347,7 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive DDD context prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+        (ai-code-doc--emit-prompt "Derive DDD Context for Repo" final-prompt)))))
 
 ;;;###autoload
 (defun ai-code-derive-test-context ()
@@ -350,7 +365,7 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive Test Context prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+        (ai-code-doc--emit-prompt "Derive Test Context Document" final-prompt)))))
 
 ;;;###autoload
 (defun ai-code-derive-c4-plantuml ()
@@ -368,7 +383,8 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive C4 PlantUML prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+        (ai-code-doc--emit-prompt "Derive C4 PlantUML Architecture Document"
+                                  final-prompt)))))
 
 ;;;###autoload
 (defun ai-code-derive-repo-map ()
@@ -386,7 +402,7 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive repository map prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code--insert-prompt final-prompt)))))
+        (ai-code-doc--emit-prompt "Derive Repository Map" final-prompt)))))
 
 (provide 'ai-code-doc)
 ;;; ai-code-doc.el ends here

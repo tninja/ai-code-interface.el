@@ -373,6 +373,54 @@ everything is cleaned up afterward."
        (should (string-match-p (regexp-quote "Generate the document in German.")
                                captured-final-prompt))))))
 
+(ert-deftest ai-code-test-derive-ddd-context-inserts-into-prompt-mode-buffer ()
+  "In `ai-code-prompt-mode' the DDD prompt is written at point instead of sent."
+  (ai-code-file-with-test-env
+   (let (sent-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (lambda (&rest _args) "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq sent-prompt prompt))))
+       (with-temp-buffer
+         (ai-code-prompt-mode)
+         (insert "* Existing task\n** Sub task\n")
+         (goto-char (point-max))
+         (ai-code-derive-ddd-context)
+         (should-not sent-prompt)
+         (should (string-match-p "^\\*\\* Derive DDD Context for Repo \\["
+                                 (buffer-string)))
+         (should (string-match-p
+                  (regexp-quote "Domain-Driven Design (DDD) style context document")
+                  (buffer-string))))))))
+
+(ert-deftest ai-code-test-derive-architecture-guardrails-inserts-into-prompt-mode-buffer ()
+  "In `ai-code-prompt-mode' the guardrails prompt is written at point, not sent."
+  (ai-code-file-with-test-env
+   (let (sent-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (lambda (&rest _args) "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq sent-prompt prompt))))
+       (with-temp-buffer
+         (ai-code-prompt-mode)
+         (insert "* Existing task\n")
+         (goto-char (point-max))
+         (ai-code-derive-architecture-guardrails)
+         (should-not sent-prompt)
+         (should (string-match-p "^\\* Derive Architecture Guardrails \\["
+                                 (buffer-string)))
+         (should (string-match-p
+                  (regexp-quote "Derive a lightweight architecture guardrails document")
+                  (buffer-string))))))))
+
 (provide 'test_ai-code-doc)
 ;;; test_ai-code-doc.el ends here
 ;;; test_ai-code-doc.el ends here
