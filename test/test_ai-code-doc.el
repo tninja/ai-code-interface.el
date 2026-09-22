@@ -40,6 +40,12 @@ everything is cleaned up afterward."
        (when (file-directory-p test-dir)
          (delete-directory test-dir t)))))
 
+(defun ai-code-test--doc-read-string (topic language)
+  "Return a `read-string' stand-in answering TOPIC and LANGUAGE.
+The document topic question is recognized by its prompt prefix."
+  (lambda (prompt &rest _args)
+    (if (string-prefix-p "Document topic" prompt) topic language)))
+
 (ert-deftest ai-code-test-menu-agile-development-includes-derive-architecture-document-entry ()
   "Test that Agile Development menu exposes architecture document derivation."
   (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "A")))
@@ -102,7 +108,7 @@ everything is cleaned up afterward."
                    (lambda (&optional _dir)
                      tmp-root))
                   ((symbol-function 'read-string)
-                   (lambda (&rest _args) "English"))
+                   (ai-code-test--doc-read-string "" "English"))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (prompt initial-input)
                      (should (equal prompt "Prompt: "))
@@ -152,7 +158,7 @@ everything is cleaned up afterward."
                      (lambda (&optional _dir)
                        tmp-root))
                     ((symbol-function 'read-string)
-                     (lambda (&rest _args) "English"))
+                     (ai-code-test--doc-read-string "" "English"))
                     ((symbol-function 'ai-code-plain-read-string)
                      (lambda (_prompt initial-input)
                        initial-input))
@@ -182,7 +188,7 @@ everything is cleaned up afterward."
                    (lambda (&optional _dir)
                      tmp-root))
                   ((symbol-function 'read-string)
-                   (lambda (&rest _args) "English"))
+                   (ai-code-test--doc-read-string "" "English"))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (_prompt _initial-input)
                      nil))
@@ -209,7 +215,7 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir)
                   default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (prompt &optional initial-input)
                   (setq captured-read-prompt prompt
@@ -226,6 +232,8 @@ everything is cleaned up afterward."
        (should (string-match-p
                 "\\.ai\\.code\\.files/architecture/domain-context\\.org"
                 captured-initial-prompt))
+       (should-not (string-match-p "Scope this document to the topic"
+                                   captured-initial-prompt))
        (should (string-match-p "\\*\\* Notes and Uncertainties"
                                captured-initial-prompt))
        (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol_or_line][description_text]]")
@@ -243,7 +251,7 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir)
                   default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code--format-repo-context-info)
                 (lambda ()
                   "\nStored repository context:\n  - Preserve existing CLI UX"))
@@ -275,7 +283,7 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir)
                   default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (prompt &optional initial-input)
                   (setq captured-read-prompt prompt
@@ -311,9 +319,11 @@ everything is cleaned up afterward."
                    (lambda (&optional _dir) tmp-root))
                   ((symbol-function 'read-string)
                    (lambda (prompt &optional initial-input &rest _args)
-                     (setq captured-language-prompt prompt
-                           captured-language-default initial-input)
-                     mock-lang))
+                     (if (string-prefix-p "Document topic" prompt)
+                         ""
+                       (setq captured-language-prompt prompt
+                             captured-language-default initial-input)
+                       mock-lang)))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (_prompt initial-input) initial-input))
                   ((symbol-function 'ai-code--insert-prompt)
@@ -336,9 +346,11 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir) default-directory))
                ((symbol-function 'read-string)
                 (lambda (prompt &optional initial-input &rest _args)
-                  (setq captured-language-prompt prompt
-                        captured-language-default initial-input)
-                  mock-lang))
+                  (if (string-prefix-p "Document topic" prompt)
+                      ""
+                    (setq captured-language-prompt prompt
+                          captured-language-default initial-input)
+                    mock-lang)))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
@@ -360,9 +372,11 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir) default-directory))
                ((symbol-function 'read-string)
                 (lambda (prompt &optional initial-input &rest _args)
-                  (setq captured-language-prompt prompt
-                        captured-language-default initial-input)
-                  mock-lang))
+                  (if (string-prefix-p "Document topic" prompt)
+                      ""
+                    (setq captured-language-prompt prompt
+                          captured-language-default initial-input)
+                    mock-lang)))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
@@ -380,7 +394,7 @@ everything is cleaned up afterward."
      (cl-letf (((symbol-function 'ai-code--git-root)
                 (lambda (&optional _dir) default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt &optional initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
@@ -404,7 +418,7 @@ everything is cleaned up afterward."
      (cl-letf (((symbol-function 'ai-code--git-root)
                 (lambda (&optional _dir) default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
@@ -420,6 +434,61 @@ everything is cleaned up afterward."
          (should (string-match-p
                   (regexp-quote "Derive a lightweight architecture guardrails document")
                   (buffer-string))))))))
+
+(ert-deftest ai-code-test-derive-ddd-context-scopes-to-topic ()
+  "A non-empty document topic narrows the DDD prompt and its output file."
+  (ai-code-file-with-test-env
+   (let (captured-topic-prompt
+         inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (lambda (prompt &rest _args)
+                  (cond ((string-prefix-p "Document topic" prompt)
+                         (setq captured-topic-prompt prompt)
+                         "Prompt Pipeline")
+                        (t "English"))))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-ddd-context)
+       (should (equal captured-topic-prompt
+                      "Document topic (empty for whole repo): "))
+       (should (string-match-p
+                (regexp-quote "Scope this document to the topic: Prompt Pipeline")
+                inserted-prompt))
+       (should (string-match-p
+                (regexp-quote ".ai.code.files/architecture/domain-context-prompt-pipeline.org")
+                inserted-prompt))
+       (should (file-exists-p
+                (expand-file-name
+                 ".ai.code.files/architecture/domain-context-prompt-pipeline.org"
+                 default-directory)))))))
+
+(ert-deftest ai-code-test-derive-architecture-guardrails-scopes-to-topic ()
+  "A non-empty document topic narrows the guardrails prompt and its output file."
+  (ai-code-file-with-test-env
+   (let (inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--doc-read-string "Git Integration" "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-architecture-guardrails)
+       (should (string-match-p
+                (regexp-quote "Scope this document to the topic: Git Integration")
+                inserted-prompt))
+       (should (string-match-p
+                (regexp-quote "@.ai.code.files/architecture/guardrails-git-integration.org")
+                inserted-prompt))
+       (should (file-exists-p
+                (expand-file-name
+                 ".ai.code.files/architecture/guardrails-git-integration.org"
+                 default-directory)))))))
 
 (provide 'test_ai-code-doc)
 ;;; test_ai-code-doc.el ends here

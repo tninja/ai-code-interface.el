@@ -65,6 +65,44 @@ Default value is English."
   "Prompt for the language and append it to BASE-PROMPT."
   (concat base-prompt (format "\nGenerate the document in %s." (ai-code--read-document-language))))
 
+(defun ai-code--read-document-topic ()
+  "Ask which topic the document should cover.
+Return nil for an empty answer, which means the whole repository."
+  (let ((topic (string-trim
+                (read-string "Document topic (empty for whole repo): "))))
+    (unless (string-empty-p topic) topic)))
+
+(defun ai-code--topic-file-name (file-name topic)
+  "Return FILE-NAME with a slug of TOPIC added to its base name.
+FILE-NAME is returned unchanged when TOPIC is nil, so whole-repository
+documents keep their well-known path and topic documents never overwrite
+them."
+  (if topic
+      (let ((slug (string-trim
+                   (downcase (replace-regexp-in-string "[^A-Za-z0-9]+" "-" topic))
+                   "-+" "-+")))
+        (format "%s-%s.%s"
+                (file-name-sans-extension file-name)
+                (if (string-empty-p slug) "topic" slug)
+                (file-name-extension file-name)))
+    file-name))
+
+(defun ai-code--append-document-topic (base-prompt topic)
+  "Append TOPIC scoping instructions to BASE-PROMPT.
+BASE-PROMPT is returned unchanged when TOPIC is nil."
+  (if topic
+      (concat base-prompt
+              (format "\nScope this document to the topic: %s.\n" topic)
+              "Only cover the code, tests, and docs relevant to this topic, and state which parts of the repository are out of scope.\n")
+    base-prompt))
+
+(defun ai-code--finalize-document-prompt (base-prompt topic)
+  "Append the TOPIC scope and the document language to BASE-PROMPT.
+The topic is added first so that the language question stays the last one
+asked before the prompt is edited."
+  (ai-code--append-document-language
+   (ai-code--append-document-topic base-prompt topic)))
+
 (defconst ai-code-ddd-context-output-relative-path
   ".ai.code.files/architecture/domain-context.org"
   "Repository-relative path for the derived DDD context document.")
@@ -120,8 +158,9 @@ Default value is English."
       (write-region "" nil target-file nil 'silent))
     target-file))
 
-(defun ai-code--derive-ddd-context-prompt (git-root)
-  "Build and return a formatted DDD context derivation prompt string for GIT-ROOT."
+(defun ai-code--derive-ddd-context-prompt (git-root &optional topic)
+  "Build and return a formatted DDD context derivation prompt string for GIT-ROOT.
+TOPIC narrows the output file name when non-nil."
   (concat
    "Derive a lightweight Domain-Driven Design (DDD) style context document for this existing repository.\n"
    "Do not assume the repository already follows DDD today.\n"
@@ -133,7 +172,7 @@ Default value is English."
    "When referencing any code file, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
-            ai-code-ddd-context-output-relative-path)
+            (ai-code--topic-file-name ai-code-ddd-context-output-relative-path topic))
    "Use this structure:\n"
    "* Domain Context\n\n"
    "** Purpose\n"
@@ -145,8 +184,9 @@ Default value is English."
    "** Testing Ideas\n"
    "** Notes and Uncertainties"))
 
-(defun ai-code--derive-test-context-prompt (git-root)
-  "Build and return Test Context prompt for GIT-ROOT."
+(defun ai-code--derive-test-context-prompt (git-root &optional topic)
+  "Build and return Test Context prompt for GIT-ROOT.
+TOPIC narrows the output file name when non-nil."
   (concat
    "Derive a lightweight Test Context and Verification Guide document for this existing repository.\n"
    "Analyze the existing tests, test runner configuration, and mocking/verification patterns.\n"
@@ -155,7 +195,7 @@ Default value is English."
    "When referencing any test file, source file, test case, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
-            ai-code-test-context-output-relative-path)
+            (ai-code--topic-file-name ai-code-test-context-output-relative-path topic))
    "Use this structure:\n"
    "* Test Context and Verification Guide\n\n"
    "** Purpose\n"
@@ -166,8 +206,9 @@ Default value is English."
    "** Coverage Gaps & Actionable Testing Ideas\n"
    "** Notes and Uncertainties"))
 
-(defun ai-code--derive-c4-plantuml-prompt (git-root)
-  "Build and return a C4 PlantUML architecture document prompt for GIT-ROOT."
+(defun ai-code--derive-c4-plantuml-prompt (git-root &optional topic)
+  "Build and return a C4 PlantUML architecture document prompt for GIT-ROOT.
+TOPIC narrows the output file name when non-nil."
   (concat
    "Derive a C4-style architecture overview document for this existing repository.\n"
    "Generate the document as Org mode and embed PlantUML C4 diagrams in Org Babel source blocks.\n"
@@ -183,7 +224,7 @@ Default value is English."
    "Use PlantUML C4 includes such as !include <C4/C4_Context>, !include <C4/C4_Container>, and !include <C4/C4_Component> when appropriate.\n"
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
-            ai-code-c4-plantuml-output-relative-path)
+            (ai-code--topic-file-name ai-code-c4-plantuml-output-relative-path topic))
    "Use this Org structure:\n"
    "#+TITLE: C4 Architecture Overview\n\n"
    "* Purpose\n"
@@ -211,8 +252,9 @@ Default value is English."
    "* Source Evidence\n"
    "Provide a table mapping important claims to Org links pointing at source evidence."))
 
-(defun ai-code--derive-repo-map-prompt (git-root)
-  "Build and return a repository map derivation prompt for GIT-ROOT."
+(defun ai-code--derive-repo-map-prompt (git-root &optional topic)
+  "Build and return a repository map derivation prompt for GIT-ROOT.
+TOPIC narrows the output file name when non-nil."
   (concat
    "Derive a lightweight Repository Map document for this existing repository.\n"
    "The primary goal is to help a new human contributor or AI coding agent quickly understand how to read and navigate the codebase.\n"
@@ -228,7 +270,7 @@ Default value is English."
    "Use Org Babel PlantUML blocks with :file when adding diagrams.\n"
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
-           ai-code-repo-map-output-relative-path)
+           (ai-code--topic-file-name ai-code-repo-map-output-relative-path topic))
    "Use this Org structure:\n"
    "#+TITLE: Repository Map\n\n"
    "* Purpose\n"
@@ -258,22 +300,27 @@ Default value is English."
    "* Source Evidence\n"
    "Provide a table mapping important claims to Org links pointing at source evidence."))
 
-(defun ai-code--architecture-guardrails-relative-path ()
-  "Return the repo-relative path for the architecture guardrails file."
+(defun ai-code--architecture-guardrails-relative-path (&optional topic)
+  "Return the repo-relative path for the architecture guardrails file.
+TOPIC narrows the file name when non-nil."
   (concat ai-code-files-dir-name "/"
           ai-code-file--architecture-guardrails-directory-name "/"
-          ai-code-file--architecture-guardrails-file-name))
+          (ai-code--topic-file-name
+           ai-code-file--architecture-guardrails-file-name topic)))
 
-(defun ai-code--architecture-guardrails-file-path ()
-  "Return the absolute path for the architecture guardrails file."
-  (expand-file-name ai-code-file--architecture-guardrails-file-name
+(defun ai-code--architecture-guardrails-file-path (&optional topic)
+  "Return the absolute path for the architecture guardrails file.
+TOPIC narrows the file name when non-nil."
+  (expand-file-name (ai-code--topic-file-name
+                     ai-code-file--architecture-guardrails-file-name topic)
                     (expand-file-name
                      ai-code-file--architecture-guardrails-directory-name
                      (ai-code--ensure-files-directory))))
 
-(defun ai-code--ensure-architecture-guardrails-file ()
-  "Create the architecture guardrails file with a starter template if missing."
-  (let ((target-file (ai-code--architecture-guardrails-file-path)))
+(defun ai-code--ensure-architecture-guardrails-file (&optional topic)
+  "Create the architecture guardrails file with a starter template if missing.
+TOPIC narrows the file name when non-nil."
+  (let ((target-file (ai-code--architecture-guardrails-file-path topic)))
     (unless (file-directory-p (file-name-directory target-file))
       (make-directory (file-name-directory target-file) t))
     (unless (file-exists-p target-file)
@@ -281,9 +328,10 @@ Default value is English."
         (insert ai-code-file--architecture-guardrails-template)))
     target-file))
 
-(defun ai-code--build-architecture-guardrails-prompt (git-root)
-  "Build the default prompt to derive architecture guardrails for GIT-ROOT."
-  (let ((relative-path (ai-code--architecture-guardrails-relative-path)))
+(defun ai-code--build-architecture-guardrails-prompt (git-root &optional topic)
+  "Build the default prompt to derive architecture guardrails for GIT-ROOT.
+TOPIC narrows the output file name when non-nil."
+  (let ((relative-path (ai-code--architecture-guardrails-relative-path topic)))
     (mapconcat
      #'identity
      (list "Derive a lightweight architecture guardrails document for this existing repository."
@@ -321,9 +369,10 @@ Default value is English."
   (let ((git-root (ai-code--git-root)))
     (unless git-root
       (user-error "Not in a git repository"))
-    (ai-code--ensure-architecture-guardrails-file)
-    (let* ((base-prompt (ai-code--build-architecture-guardrails-prompt git-root))
-           (initial-prompt (ai-code--append-document-language base-prompt)))
+    (let* ((topic (ai-code--read-document-topic))
+           (base-prompt (ai-code--build-architecture-guardrails-prompt git-root topic))
+           (initial-prompt (ai-code--finalize-document-prompt base-prompt topic)))
+      (ai-code--ensure-architecture-guardrails-file topic)
       (if-let ((final-prompt
                 (ai-code-plain-read-string "Prompt: " initial-prompt)))
           (progn
@@ -338,12 +387,14 @@ The target Org file under `.ai.code.files/architecture/' is created if it does
 not already exist, so the backend has a concrete document to create or update."
   (interactive)
   (let* ((git-root (or (ai-code--git-root)
-                       (user-error "Not inside a Git repository"))))
-    (ai-code--ensure-architecture-document-file "domain-context.org")
+                       (user-error "Not inside a Git repository")))
+         (topic (ai-code--read-document-topic)))
+    (ai-code--ensure-architecture-document-file
+     (ai-code--topic-file-name "domain-context.org" topic))
     (let* ((base-prompt
-            (concat (ai-code--derive-ddd-context-prompt git-root)
+            (concat (ai-code--derive-ddd-context-prompt git-root topic)
                     (or (ai-code--format-repo-context-info) "")))
-           (initial-prompt (ai-code--append-document-language base-prompt))
+           (initial-prompt (ai-code--finalize-document-prompt base-prompt topic))
            (final-prompt (ai-code-plain-read-string "Derive DDD context prompt: "
                                                     initial-prompt)))
       (when final-prompt
@@ -356,12 +407,14 @@ The target Org file under `.ai.code.files/architecture/' is created if it does
 not already exist, so the backend has a concrete document to create or update."
   (interactive)
   (let* ((git-root (or (ai-code--git-root)
-                       (user-error "Not inside a Git repository"))))
-    (ai-code--ensure-architecture-document-file "test-context.org")
+                       (user-error "Not inside a Git repository")))
+         (topic (ai-code--read-document-topic)))
+    (ai-code--ensure-architecture-document-file
+     (ai-code--topic-file-name "test-context.org" topic))
     (let* ((base-prompt
-            (concat (ai-code--derive-test-context-prompt git-root)
+            (concat (ai-code--derive-test-context-prompt git-root topic)
                     (or (ai-code--format-repo-context-info) "")))
-           (initial-prompt (ai-code--append-document-language base-prompt))
+           (initial-prompt (ai-code--finalize-document-prompt base-prompt topic))
            (final-prompt (ai-code-plain-read-string "Derive Test Context prompt: "
                                                     initial-prompt)))
       (when final-prompt
@@ -374,12 +427,14 @@ The target Org file under `.ai.code.files/architecture/' is created if it does
 not already exist, so the backend has a concrete document to create or update."
   (interactive)
   (let* ((git-root (or (ai-code--git-root)
-                       (user-error "Not inside a Git repository"))))
-    (ai-code--ensure-architecture-document-file "c4-overview.org")
+                       (user-error "Not inside a Git repository")))
+         (topic (ai-code--read-document-topic)))
+    (ai-code--ensure-architecture-document-file
+     (ai-code--topic-file-name "c4-overview.org" topic))
     (let* ((base-prompt
-            (concat (ai-code--derive-c4-plantuml-prompt git-root)
+            (concat (ai-code--derive-c4-plantuml-prompt git-root topic)
                     (or (ai-code--format-repo-context-info) "")))
-           (initial-prompt (ai-code--append-document-language base-prompt))
+           (initial-prompt (ai-code--finalize-document-prompt base-prompt topic))
            (final-prompt (ai-code-plain-read-string "Derive C4 PlantUML prompt: "
                                                     initial-prompt)))
       (when final-prompt
@@ -393,12 +448,14 @@ The target Org file under `.ai.code.files/architecture/' is created if it does
 not already exist, so the backend has a concrete document to create or update."
   (interactive)
   (let* ((git-root (or (ai-code--git-root)
-                       (user-error "Not inside a Git repository"))))
-    (ai-code--ensure-architecture-document-file "repo-map.org")
+                       (user-error "Not inside a Git repository")))
+         (topic (ai-code--read-document-topic)))
+    (ai-code--ensure-architecture-document-file
+     (ai-code--topic-file-name "repo-map.org" topic))
     (let* ((base-prompt
-            (concat (ai-code--derive-repo-map-prompt git-root)
+            (concat (ai-code--derive-repo-map-prompt git-root topic)
                     (or (ai-code--format-repo-context-info) "")))
-           (initial-prompt (ai-code--append-document-language base-prompt))
+           (initial-prompt (ai-code--finalize-document-prompt base-prompt topic))
            (final-prompt (ai-code-plain-read-string "Derive repository map prompt: "
                                                     initial-prompt)))
       (when final-prompt
