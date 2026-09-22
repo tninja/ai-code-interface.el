@@ -148,6 +148,21 @@ asked before the prompt is edited."
              "\n")
   "Initial Org template for architecture guardrails.")
 
+(defun ai-code--org-link-instruction (output-relative-path)
+  "Return the Org link rules for a document written to OUTPUT-RELATIVE-PATH.
+Links are relative to the document itself, so one \"../\" is needed per
+directory level OUTPUT-RELATIVE-PATH sits in below the repository root."
+  (let* ((depth (length (split-string
+                         (or (file-name-directory output-relative-path) "")
+                         "/" t)))
+         (prefix (apply #'concat (make-list depth "../"))))
+    (concat
+     (format "When referencing any file, folder, module, function, variable, type, or test case, you MUST write it as a relative Org-mode link in the format [[file:%spath/to/file::symbol][description]] so that the reader can jump from the document straight to the code.\n"
+             prefix)
+     "Point each link at the definition: use ::symbol as the search target, and fall back to ::<line-number> only when there is no named symbol to search for.\n"
+     "Only link to paths and symbols you have actually confirmed in the repository; when you cannot confirm a definition, say so in plain text instead of guessing a link.\n"
+     "Add the link at the first mention in each section, in every table cell that names a file or a symbol, and in the explanatory notes that follow each diagram.\n")))
+
 (defun ai-code--ensure-architecture-document-file (file-name)
   "Ensure an architecture document named FILE-NAME exists and return its path."
   (let* ((files-dir (ai-code--ensure-files-directory))
@@ -169,7 +184,7 @@ TOPIC narrows the output file name when non-nil."
    "Mark uncertainty explicitly.\n"
    "Keep the output practical, concise, and useful for future AI coding tasks.\n"
    "Do not suggest large refactors unless you list them separately as optional future ideas.\n"
-   "When referencing any code file, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
+   (ai-code--org-link-instruction ai-code-ddd-context-output-relative-path)
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
             (ai-code--topic-file-name ai-code-ddd-context-output-relative-path topic))
@@ -192,7 +207,7 @@ TOPIC narrows the output file name when non-nil."
    "Analyze the existing tests, test runner configuration, and mocking/verification patterns.\n"
    "Explain how the tests demonstrate and safeguard core business invariants.\n"
    "Keep the output practical, concise, and useful for future AI coding tasks.\n"
-   "When referencing any test file, source file, test case, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
+   (ai-code--org-link-instruction ai-code-test-context-output-relative-path)
    (format "Repository root: %s\n" git-root)
    (format "Create or update the Org file at %s.\n\n"
             (ai-code--topic-file-name ai-code-test-context-output-relative-path topic))
@@ -218,7 +233,7 @@ TOPIC narrows the output file name when non-nil."
    "Mark uncertain boundaries, relationships, and naming choices explicitly.\n"
    "Prefer fewer boxes and clearer relationships over large, noisy diagrams.\n"
    "Use C4 only as an architectural draft for human review.\n"
-   "When referencing any code file, folder, module, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
+   (ai-code--org-link-instruction ai-code-c4-plantuml-output-relative-path)
    "For every diagram, include explanatory notes after the PlantUML block that summarize what the diagram shows and what remains uncertain.\n"
    "Use Org Babel blocks like #+begin_src plantuml :file c4-context.svg :exports both and include @startuml / @enduml inside each block.\n"
    "Use PlantUML C4 includes such as !include <C4/C4_Context>, !include <C4/C4_Container>, and !include <C4/C4_Component> when appropriate.\n"
@@ -265,7 +280,7 @@ TOPIC narrows the output file name when non-nil."
    "Mark uncertainty explicitly when a file or directory purpose is inferred rather than documented.\n"
    "Prefer practical guidance over abstract architecture theory.\n"
    "Keep the document concise enough to be reused in future AI coding prompts.\n"
-   "When referencing any code file, folder, module, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description_text]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory).\n"
+   (ai-code--org-link-instruction ai-code-repo-map-output-relative-path)
    "Use text and tables as the main format. Include at most two small PlantUML diagrams only when they improve navigation: one top-level dependency or module graph, and optionally one suggested reading-path graph.\n"
    "Use Org Babel PlantUML blocks with :file when adding diagrams.\n"
    (format "Repository root: %s\n" git-root)
@@ -346,7 +361,7 @@ TOPIC narrows the output file name when non-nil."
            "Focus on what helps future AI coding sessions avoid breaking boundaries or introducing messy dependencies."
            "Do not suggest large refactors unless clearly separated as optional future ideas."
            "Keep it concise, practical, and small enough to reuse in future AI prompts."
-           "When referencing any code file, folder, module, function, variable, or type, you MUST provide a relative Org-mode link in the format [[file:../../path/to/file::symbol_or_line][description]] pointing to its definition in the codebase (relative to the .ai.code.files/architecture/ output directory)."
+           (string-trim-right (ai-code--org-link-instruction relative-path))
            ""
            "Use this Org structure:"
            "#+TITLE: Architecture Guardrails"

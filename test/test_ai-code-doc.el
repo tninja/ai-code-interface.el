@@ -139,7 +139,7 @@ The document topic question is recognized by its prompt prefix."
                                   captured-initial-prompt))
           (should (string-match-p (regexp-quote "Org-mode format")
                                   captured-initial-prompt))
-          (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol_or_line][description]]")
+          (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol][description]]")
                                   captured-initial-prompt))
           (should (equal captured-final-prompt captured-initial-prompt)))
       (ignore-errors (delete-directory tmp-root t)))))
@@ -236,7 +236,7 @@ The document topic question is recognized by its prompt prefix."
                                    captured-initial-prompt))
        (should (string-match-p "\\*\\* Notes and Uncertainties"
                                captured-initial-prompt))
-       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol_or_line][description_text]]")
+       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol][description]]")
                                captured-initial-prompt))
        (should (equal inserted-prompt captured-initial-prompt))
        (should (file-exists-p
@@ -300,7 +300,7 @@ The document topic question is recognized by its prompt prefix."
        (should (string-match-p
                 "\\.ai\\.code\\.files/architecture/test-context\\.org"
                 captured-initial-prompt))
-       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol_or_line][description_text]]")
+       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol][description]]")
                                captured-initial-prompt))
        (should (equal inserted-prompt captured-initial-prompt))
        (should (file-exists-p
@@ -489,6 +489,35 @@ The document topic question is recognized by its prompt prefix."
                 (expand-file-name
                  ".ai.code.files/architecture/guardrails-git-integration.org"
                  default-directory)))))))
+
+(ert-deftest ai-code-test-document-prompts-require-verified-org-links ()
+  "Every derived document prompt asks for verified relative Org links."
+  (dolist (builder '(ai-code--derive-ddd-context-prompt
+                     ai-code--derive-test-context-prompt
+                     ai-code--derive-c4-plantuml-prompt
+                     ai-code--derive-repo-map-prompt
+                     ai-code--build-architecture-guardrails-prompt))
+    (let ((prompt (funcall builder "/tmp/repo")))
+      (should (string-match-p
+               (regexp-quote "[[file:../../path/to/file::symbol][description]]")
+               prompt))
+      (should (string-match-p
+               (regexp-quote "fall back to ::<line-number> only when")
+               prompt))
+      (should (string-match-p
+               (regexp-quote "Only link to paths and symbols you have actually confirmed")
+               prompt))
+      (should (string-match-p (regexp-quote "first mention in each section")
+                              prompt)))))
+
+(ert-deftest ai-code-test-org-link-instruction-prefix-follows-output-depth ()
+  "The relative link prefix is derived from the document output depth."
+  (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol]")
+                          (ai-code--org-link-instruction "a/b/doc.org")))
+  (should (string-match-p (regexp-quote "[[file:../path/to/file::symbol]")
+                          (ai-code--org-link-instruction "a/doc.org")))
+  (should (string-match-p (regexp-quote "[[file:path/to/file::symbol]")
+                          (ai-code--org-link-instruction "doc.org"))))
 
 (provide 'test_ai-code-doc)
 ;;; test_ai-code-doc.el ends here
