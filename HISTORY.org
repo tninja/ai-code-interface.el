@@ -2,6 +2,10 @@
 * Release history
 
 ** Main branch change
+- Feat: Architecture docs get topic scoping, navigable code links, and in-buffer prompts
+- Chore: C-c a @: copy file + line range only for regions longer than 5 lines
+- Feat: complete prompts you already wrote; fix input history data loss
+- Feat: discuss the next valuable growth step for Org tasks
 - Feat: choose which enclosing Org section scopes a prompt, and reference oversized sections by line range instead of inlining them
 - Feat: use selected Magit hunks for agent explain, change, and test actions
 
