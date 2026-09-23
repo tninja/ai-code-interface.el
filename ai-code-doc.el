@@ -20,6 +20,8 @@
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--ensure-files-directory "ai-code-utils")
 (declare-function ai-code--get-git-web-repo-url "ai-code-github" ())
+(declare-function magit-git-string "magit-git" (&rest args))
+(declare-function magit-git-success "magit-git" (&rest args))
 
 (defconst ai-code--architecture-document-choices
   '(("Derive Architecture Guardrails" . ai-code-derive-architecture-guardrails)
@@ -29,7 +31,7 @@
     ("Derive Test Context Document" . ai-code-derive-test-context))
   "Choices for `ai-code-derive-architecture-document'.")
 
-(defun ai-code-doc--emit-prompt (title prompt)
+(defun ai-code--doc-emit-prompt (title prompt)
   "Insert PROMPT under a TITLE headline at point, or send it to the AI.
 In `ai-code-prompt-mode' the prompt is written into the current buffer
 under the cursor, as an Org section at the level of the surrounding
@@ -74,7 +76,8 @@ Return nil for an empty answer, which means the whole repository."
     (unless (string-empty-p topic) topic)))
 
 (defun ai-code--topic-file-name (file-name topic)
-  "Return FILE-NAME with a slug of TOPIC added to its base name.
+  "Return FILE-NAME with a slug and stable digest of TOPIC in its base name.
+The digest distinguishes topics whose readable slugs are identical.
 FILE-NAME is returned unchanged when TOPIC is nil, so whole-repository
 documents keep their well-known path and topic documents never overwrite
 them."
@@ -82,9 +85,12 @@ them."
       (let ((slug (string-trim
                    (downcase (replace-regexp-in-string "[^A-Za-z0-9]+" "-" topic))
                    "-+" "-+")))
-        (format "%s-%s.%s"
+        (format "%s-%s-%s.%s"
                 (file-name-sans-extension file-name)
                 (if (string-empty-p slug) "topic" slug)
+                (substring (secure-hash 'sha256
+                                        (encode-coding-string topic 'utf-8))
+                           0 12)
                 (file-name-extension file-name)))
     file-name))
 
@@ -152,7 +158,7 @@ asked before the prompt is edited."
 (defun ai-code--doc-github-repo-url ()
   "Return the GitHub web URL of the current repository, or nil.
 Only GitHub remotes are recognized, because the generated links use the
-GitHub /blob/HEAD/ URL shape.  Any failure to reach Git or to parse the
+GitHub /blob/REVISION/ URL shape.  Any failure to reach Git or to parse the
 remote simply yields nil, which keeps documents on local file links."
   (ignore-errors
     (require 'ai-code-github)
@@ -160,11 +166,27 @@ remote simply yields nil, which keeps documents on local file links."
       (when (and url (string-match-p "\\`https://[^/]*github[^/]*/" url))
         url))))
 
+(defun ai-code--doc-github-source-url ()
+  "Return a GitHub URL pinned to the analyzed commit, or nil.
+Require unchanged tracked files and an origin remote-tracking ref that
+contains HEAD.  Unpublished commits and Git failures use local links.
+Remote-tracking refs are checked locally; no network request is made."
+  (ignore-errors
+    (let* ((repo-url (ai-code--doc-github-repo-url))
+           (revision (and repo-url
+                          (magit-git-string "rev-parse" "--verify" "HEAD"))))
+      (when (and revision
+                 (magit-git-success "diff" "--quiet" revision "--")
+                 (magit-git-string "for-each-ref" "--format=%(refname)"
+                                   (concat "--contains=" revision)
+                                   "refs/remotes/origin/"))
+        (format "%s/blob/%s" repo-url revision)))))
+
 (defun ai-code--read-document-link-style ()
   "Ask whether code references should link to GitHub or to local files.
-Return `github' or `local'.  The question is skipped when the repository
-has no GitHub remote, because only local links can work then."
-  (if (and (ai-code--doc-github-repo-url)
+Return `github' or `local'.  Skip the question unless the analyzed commit
+is known on a GitHub origin and tracked files are unchanged."
+  (if (and (ai-code--doc-github-source-url)
            (string-prefix-p
             "g"
             (string-trim (read-string "Link code references to (github or local): "
@@ -190,14 +212,16 @@ absolute path."
            (format "For a file inside this repository, use a relative link: [[file:%spath/to/file::symbol][description]].\n"
                    prefix)
            "For a file outside this repository, use an absolute link: [[file:/absolute/path/to/file::symbol][description]].\n"))
-         (repo-url (and (eq link-style 'github) (ai-code--doc-github-repo-url))))
+         (source-url (and (eq link-style 'github)
+                          (ai-code--doc-github-source-url))))
     (concat
      "When referencing any file, folder, module, function, variable, type, or test case, you MUST turn it into a link so that the reader can jump from the document straight to the code.\n"
-     (if repo-url
+     (if source-url
          (concat
-          (format "Use a GitHub link, which opens in a browser: [[%s/blob/HEAD/path/to/file#L42][description]], anchored at the line where the definition starts.\n"
-                  repo-url)
-          "When the code is not on the GitHub remote, for example an untracked, ignored, or generated file, fall back to a local link instead:\n"
+          (format "Use a GitHub link, which opens in a browser: [[%s/path/to/file#L42][description]], anchored at the line where the definition starts.\n"
+                  source-url)
+          "Keep the commit ID in the URL; do not replace it with HEAD or a branch name. Verify that the referenced file and lines match this commit and that it is available on GitHub.\n"
+          "For files outside this repository, untracked, ignored, generated, or locally modified files, or when the commit is unavailable on GitHub, fall back to a local link instead:\n"
           local-rules)
        local-rules)
      "Point each link at the definition: in a local link use ::symbol as the search target, and fall back to ::<line-number> only when there is no named symbol to search for.\n"
@@ -439,7 +463,7 @@ selects how code references are linked."
       (if-let ((final-prompt
                 (ai-code-plain-read-string "Prompt: " initial-prompt)))
           (progn
-            (ai-code-doc--emit-prompt "Derive Architecture Guardrails" final-prompt)
+            (ai-code--doc-emit-prompt "Derive Architecture Guardrails" final-prompt)
             (message "Architecture guardrails prompt ready for %s" git-root))
         (message "Architecture guardrails request cancelled")))))
 
@@ -462,7 +486,7 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive DDD context prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code-doc--emit-prompt "Derive DDD Context for Repo" final-prompt)))))
+        (ai-code--doc-emit-prompt "Derive DDD Context for Repo" final-prompt)))))
 
 ;;;###autoload
 (defun ai-code-derive-test-context ()
@@ -483,7 +507,7 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive Test Context prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code-doc--emit-prompt "Derive Test Context Document" final-prompt)))))
+        (ai-code--doc-emit-prompt "Derive Test Context Document" final-prompt)))))
 
 ;;;###autoload
 (defun ai-code-derive-c4-plantuml ()
@@ -504,7 +528,7 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive C4 PlantUML prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code-doc--emit-prompt "Derive C4 PlantUML Architecture Document"
+        (ai-code--doc-emit-prompt "Derive C4 PlantUML Architecture Document"
                                   final-prompt)))))
 
 ;;;###autoload
@@ -526,7 +550,7 @@ not already exist, so the backend has a concrete document to create or update."
            (final-prompt (ai-code-plain-read-string "Derive repository map prompt: "
                                                     initial-prompt)))
       (when final-prompt
-        (ai-code-doc--emit-prompt "Derive Repository Map" final-prompt)))))
+        (ai-code--doc-emit-prompt "Derive Repository Map" final-prompt)))))
 
 (provide 'ai-code-doc)
 ;;; ai-code-doc.el ends here

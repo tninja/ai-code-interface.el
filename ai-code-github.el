@@ -444,17 +444,26 @@ ARG is the optional prefix argument to force including context."
   "Get Git repository web URL from git remote.
 Returns the HTTPS URL of the repository for web browsing.
 Supports GitHub, GitLab, Bitbucket, and other Git hosting services.
+Accepts HTTPS, SCP-style SSH, and ssh:// remotes, including SSH ports.
 Returns nil if unable to construct a web URL."
   (let* ((remote-url (magit-git-string "config" "--get" "remote.origin.url")))
     (when (and remote-url (stringp remote-url) (not (string-empty-p remote-url)))
       (cond
        ;; HTTPS URL: https://host.com/user/repo.git or https://host.com/user/repo
-       ((string-match "https://\\([^/]+\\)/\\(.+\\)" remote-url)
+       ((string-match "\\`https://\\([^/]+\\)/\\(.+\\)\\'" remote-url)
         (let ((host (match-string 1 remote-url))
               (path (match-string 2 remote-url)))
           (format "https://%s/%s" host (replace-regexp-in-string "\\.git$" "" path))))
-       ;; SSH URL: git@host.com:user/repo.git or git@host.com:user/repo
-       ((string-match "git@\\([^:]+\\):\\(.+\\)" remote-url)
+       ;; SSH URI: ssh://git@host.com[:port]/user/repo.git
+       ;; An SSH transport port is not the web server's HTTPS port.
+       ((string-match
+         "\\`ssh://\\(?:[^/@]+@\\)?\\([^/:]+\\)\\(?::[0-9]+\\)?/\\(.+\\)\\'"
+         remote-url)
+        (let ((host (match-string 1 remote-url))
+              (path (match-string 2 remote-url)))
+          (format "https://%s/%s" host (replace-regexp-in-string "\\.git$" "" path))))
+       ;; SCP-style SSH: git@host.com:user/repo.git
+       ((string-match "\\`git@\\([^/:]+\\):\\(.+\\)\\'" remote-url)
         (let ((host (match-string 1 remote-url))
               (path (match-string 2 remote-url)))
           (format "https://%s/%s" host (replace-regexp-in-string "\\.git$" "" path))))

@@ -25,7 +25,7 @@
 (require 'ai-code)
 
 (defmacro ai-code-file-with-test-env (&rest body)
-  "Set up a temporary environment for testing file operations.
+  "Run BODY in a temporary environment for testing file operations.
 This macro creates a temporary directory structure and ensures
 everything is cleaned up afterward."
   `(let* ((test-dir (expand-file-name "test-file-ops/" temporary-file-directory))
@@ -459,11 +459,11 @@ The document topic question is recognized by its prompt prefix."
                 (regexp-quote "Scope this document to the topic: Prompt Pipeline")
                 inserted-prompt))
        (should (string-match-p
-                (regexp-quote ".ai.code.files/architecture/domain-context-prompt-pipeline.org")
+                (regexp-quote ".ai.code.files/architecture/domain-context-prompt-pipeline-13b070827c7b.org")
                 inserted-prompt))
        (should (file-exists-p
                 (expand-file-name
-                 ".ai.code.files/architecture/domain-context-prompt-pipeline.org"
+                 ".ai.code.files/architecture/domain-context-prompt-pipeline-13b070827c7b.org"
                  default-directory)))))))
 
 (ert-deftest ai-code-test-derive-architecture-guardrails-scopes-to-topic ()
@@ -483,11 +483,11 @@ The document topic question is recognized by its prompt prefix."
                 (regexp-quote "Scope this document to the topic: Git Integration")
                 inserted-prompt))
        (should (string-match-p
-                (regexp-quote "@.ai.code.files/architecture/guardrails-git-integration.org")
+                (regexp-quote "@.ai.code.files/architecture/guardrails-git-integration-cd172722a457.org")
                 inserted-prompt))
        (should (file-exists-p
                 (expand-file-name
-                 ".ai.code.files/architecture/guardrails-git-integration.org"
+                 ".ai.code.files/architecture/guardrails-git-integration-cd172722a457.org"
                  default-directory)))))))
 
 (ert-deftest ai-code-test-document-prompts-require-verified-org-links ()
@@ -518,6 +518,109 @@ The document topic question is recognized by its prompt prefix."
                           (ai-code--org-link-instruction "a/doc.org")))
   (should (string-match-p (regexp-quote "[[file:path/to/file::symbol]")
                           (ai-code--org-link-instruction "doc.org"))))
+
+(ert-deftest test-ai-code-doc--topic-file-name-distinguishes-lossy-slugs ()
+  "Distinct topics must not update the same output document."
+  (let* ((topics '("\u8ba4\u8bc1" "\u652f\u4ed8" "C++" "C#" "c#"))
+         (paths (mapcar (lambda (topic)
+                          (ai-code--topic-file-name "docs/domain-context.org"
+                                                    topic))
+                        topics)))
+    (should (= (length topics) (length (delete-dups (copy-sequence paths)))))
+    (dolist (path paths)
+      (should (equal (file-name-directory path) "docs/"))
+      (should (equal (file-name-extension path) "org")))
+    (should (equal (car paths)
+                   (ai-code--topic-file-name "docs/domain-context.org"
+                                             (car topics))))))
+
+(ert-deftest test-ai-code-doc--topic-file-name-preserves-repository-path ()
+  "Whole-repository documents retain their established output path."
+  (should (equal (ai-code--topic-file-name "docs/domain-context.org" nil)
+                 "docs/domain-context.org")))
+
+(ert-deftest test-ai-code-doc--github-links-follow-analyzed-revision ()
+  "Pin feature-branch links and use local links for unpublished or dirty code."
+  (let* ((repo (make-temp-file "ai-code-doc-git-" t))
+         (default-directory (file-name-as-directory repo))
+         (process-environment (append '("GIT_CONFIG_GLOBAL=/dev/null"
+                                        "GIT_CONFIG_NOSYSTEM=1")
+                                      process-environment)))
+    (unwind-protect
+        ;; Execute real Git queries even when other test files stub Magit.
+        (cl-letf (((symbol-function 'magit-git-string)
+                   (lambda (&rest args)
+                     (with-temp-buffer
+                       (when (zerop (apply #'process-file "git" nil t nil args))
+                         (car (split-string (buffer-string) "\n" t))))))
+                  ((symbol-function 'magit-git-success)
+                   (lambda (&rest args)
+                     (zerop (apply #'process-file "git" nil nil nil args)))))
+          (cl-labels ((git (&rest args)
+                        (should (zerop
+                                 (apply #'process-file "git" nil nil nil
+                                        "-c" "user.name=Document Test"
+                                        "-c" "user.email=doc@example.com"
+                                        "-c" "commit.gpgsign=false" args)))))
+            (git "init" "-q" "-b" "main")
+            (git "remote" "add" "origin" "ssh://git@github.com/org/repo.git")
+            ;; An unborn repository cannot supply a source revision.
+            (should-not (ai-code--doc-github-source-url))
+            (with-temp-file "source.txt" (insert "Main definition\n"))
+            (with-temp-file ".gitignore" (insert "generated.txt\n"))
+            (git "add" ".")
+            (git "commit" "-qm" "Initial source")
+            (git "update-ref" "refs/remotes/origin/main" "HEAD")
+            (git "checkout" "-qb" "feature")
+            (with-temp-file "source.txt" (insert "Feature definition\n"))
+            (git "commit" "-qam" "Feature source")
+            ;; A commit on another remote does not prove origin has it.
+            (git "update-ref" "refs/remotes/upstream/feature" "HEAD")
+            (should-not (ai-code--doc-github-source-url))
+            (cl-letf (((symbol-function 'read-string)
+                       (lambda (&rest _) (ert-fail "Unexpected link question"))))
+              (should (eq (ai-code--read-document-link-style) 'local)))
+            (git "update-ref" "refs/remotes/origin/feature" "HEAD")
+            (let* ((revision (magit-git-string "rev-parse" "HEAD"))
+                   (source-url (concat "https://github.com/org/repo/blob/"
+                                       revision)))
+              (should (equal (ai-code--doc-github-source-url) source-url))
+              (cl-letf (((symbol-function 'read-string)
+                         (lambda (&rest _) "github")))
+                (should (eq (ai-code--read-document-link-style) 'github)))
+              (let ((prompt (ai-code--org-link-instruction "a/b/doc.org" 'github)))
+                (should (string-match-p (regexp-quote (concat source-url "/"))
+                                        prompt))
+                (should-not (string-match-p "/blob/HEAD/" prompt))
+                (should (string-match-p "untracked, ignored" prompt)))
+              ;; New document files must not disable links to committed code.
+              (with-temp-file "doc.org" (insert "Draft document\n"))
+              (with-temp-file "generated.txt" (insert "Generated output\n"))
+              (should (equal (ai-code--doc-github-source-url) source-url))
+              (git "checkout" "--detach" "-q")
+              (should (equal (ai-code--doc-github-source-url) source-url))
+              ;; Both unstaged and staged edits invalidate committed line numbers.
+              (with-temp-file "source.txt" (insert "Local definition\n"))
+              (should-not (ai-code--doc-github-source-url))
+              (git "add" "source.txt")
+              (should-not (ai-code--doc-github-source-url))
+              (let ((prompt (ai-code--org-link-instruction "a/b/doc.org" 'github)))
+                (should-not (string-match-p "https://github.com" prompt))
+                (should (string-match-p
+                         (regexp-quote "[[file:../../path/to/file::symbol]")
+                         prompt))))))
+      (delete-directory repo t))))
+
+(ert-deftest test-ai-code-doc--github-source-url-handles-git-failure ()
+  "An unavailable Git command must leave local document links usable."
+  (cl-letf (((symbol-function 'ai-code--doc-github-repo-url)
+             (lambda () "https://github.com/org/repo"))
+            ((symbol-function 'magit-git-string)
+             (lambda (&rest _) (error "Git unavailable"))))
+    (should-not (ai-code--doc-github-source-url))
+    (should (string-match-p
+             (regexp-quote "[[file:path/to/file::symbol]")
+             (ai-code--org-link-instruction "doc.org" 'github)))))
 
 (provide 'test_ai-code-doc)
 ;;; test_ai-code-doc.el ends here
