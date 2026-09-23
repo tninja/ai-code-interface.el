@@ -30,16 +30,17 @@
     ("Derive DDD Context for Repo" . ai-code-derive-ddd-context)
     ("Derive Test Context Document" . ai-code-derive-test-context)
     ("Derive Unit Test to Help Understand the Topic" . ai-code-derive-topic-unit-tests))
-  ;; DONE: add an option: Derive Unit Test to Help Understand the topic. Given the current repo and a user entered topic, generate unit-tests to help the user understand code related to the topic. These tests should be written in one or more unit-test class. Tests / Class should be organized in a way to help user understand the code related to the topic gradually, from very basic to advance, from common use case to edge case. Make sure the test code is easy to understand and well commented. The tests should be runnable. The purpose is to let user understand the code related to the topic by reading and running the tests.
   "Choices for `ai-code-derive-architecture-document'.")
 
 (defun ai-code--doc-emit-prompt (title prompt)
   "Insert PROMPT under a TITLE headline at point, or send it to the AI.
-In `ai-code-prompt-mode' the prompt is written into the current buffer
-under the cursor, as an Org section at the level of the surrounding
-section, and no AI request is made.  Everywhere else PROMPT is handed to
-`ai-code--insert-prompt' as usual."
-  (if (derived-mode-p 'ai-code-prompt-mode)
+In `ai-code-prompt-mode' the user is asked whether to write the prompt
+into the current buffer, as an Org section at the level of the
+surrounding section, in which case no AI request is made.  When the
+answer is no, and everywhere outside `ai-code-prompt-mode', PROMPT is
+handed to `ai-code--insert-prompt' as usual."
+  (if (and (derived-mode-p 'ai-code-prompt-mode)
+           (y-or-n-p "Insert prompt into this buffer instead of sending it to the AI? "))
       (let ((level (or (org-current-level) 1)))
         (unless (bolp)
           (insert "\n"))

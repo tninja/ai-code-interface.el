@@ -416,7 +416,8 @@ The unit test topic question is recognized by its prompt prefix."
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt &optional initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
-                (lambda (prompt) (setq sent-prompt prompt))))
+                (lambda (prompt) (setq sent-prompt prompt)))
+               ((symbol-function 'y-or-n-p) (lambda (&rest _args) t)))
        (with-temp-buffer
          (ai-code-prompt-mode)
          (insert "* Existing task\n** Sub task\n")
@@ -429,6 +430,27 @@ The unit test topic question is recognized by its prompt prefix."
                   (regexp-quote "Domain-Driven Design (DDD) style context document")
                   (buffer-string))))))))
 
+(ert-deftest ai-code-test-doc-emit-prompt-declines-buffer-dump-and-sends-to-ai ()
+  "Declining the question in `ai-code-prompt-mode' sends the prompt to the AI.
+The buffer dump must stay opt-in, so a no answer falls back to the
+behavior used outside `ai-code-prompt-mode'."
+  (let (sent-prompt
+        captured-question)
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (question)
+                 (setq captured-question question)
+                 nil))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt) (setq sent-prompt prompt))))
+      (with-temp-buffer
+        (ai-code-prompt-mode)
+        (insert "* Existing task\n")
+        (goto-char (point-max))
+        (ai-code--doc-emit-prompt "Derive Repository Map" "PROMPT BODY")
+        (should captured-question)
+        (should (equal sent-prompt "PROMPT BODY"))
+        (should (equal (buffer-string) "* Existing task\n"))))))
+
 (ert-deftest ai-code-test-derive-architecture-guardrails-inserts-into-prompt-mode-buffer ()
   "In `ai-code-prompt-mode' the guardrails prompt is written at point, not sent."
   (ai-code-file-with-test-env
@@ -440,7 +462,8 @@ The unit test topic question is recognized by its prompt prefix."
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
-                (lambda (prompt) (setq sent-prompt prompt))))
+                (lambda (prompt) (setq sent-prompt prompt)))
+               ((symbol-function 'y-or-n-p) (lambda (&rest _args) t)))
        (with-temp-buffer
          (ai-code-prompt-mode)
          (insert "* Existing task\n")
