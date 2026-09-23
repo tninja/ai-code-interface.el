@@ -28,7 +28,9 @@
     ("Derive C4 PlantUML Architecture Document" . ai-code-derive-c4-plantuml)
     ("Derive Repository Map" . ai-code-derive-repo-map)
     ("Derive DDD Context for Repo" . ai-code-derive-ddd-context)
-    ("Derive Test Context Document" . ai-code-derive-test-context))
+    ("Derive Test Context Document" . ai-code-derive-test-context)
+    ("Derive Unit Test to Help Understand the Topic" . ai-code-derive-topic-unit-tests))
+  ;; DONE: add an option: Derive Unit Test to Help Understand the topic. Given the current repo and a user entered topic, generate unit-tests to help the user understand code related to the topic. These tests should be written in one or more unit-test class. Tests / Class should be organized in a way to help user understand the code related to the topic gradually, from very basic to advance, from common use case to edge case. Make sure the test code is easy to understand and well commented. The tests should be runnable. The purpose is to let user understand the code related to the topic by reading and running the tests.
   "Choices for `ai-code-derive-architecture-document'.")
 
 (defun ai-code--doc-emit-prompt (title prompt)
@@ -384,6 +386,34 @@ selects how code references are linked."
    "* Source Evidence\n"
    "Provide a table mapping important claims to Org links pointing at source evidence."))
 
+(defun ai-code--read-unit-test-topic ()
+  "Read the topic the derived unit tests must explain.
+An empty topic leaves the backend nothing to teach, so it is rejected
+instead of falling back to the whole repository."
+  (let ((topic (string-trim (read-string "Unit test topic: "))))
+    (if (string-empty-p topic)
+        (user-error "A topic is required to derive unit tests")
+      topic)))
+
+(defun ai-code--derive-topic-unit-tests-prompt (git-root topic)
+  "Build a prompt asking AI to write learning unit tests for TOPIC in GIT-ROOT.
+The generated tests are ordinary runnable tests of the code that already
+exists, so they belong beside the repository's own tests instead of under
+`.ai.code.files/', and they carry no Org link instructions."
+  (concat
+   (format "Write runnable unit tests whose purpose is to teach a reader the code related to this topic: %s.\n"
+           topic)
+   "These tests are a reading aid first and a safety net second: every assertion must document how the existing code already behaves.\n"
+   "Read the relevant code before writing anything, and assert only behavior you have confirmed in this repository. Never assert an invented API.\n"
+   "Use the test framework, naming convention, directory layout, fixtures, and build integration this repository already uses, so the tests run with the project's normal test command.\n"
+   "Group the tests into one or more test classes or files whose names make clear that they are learning tests for this topic.\n"
+   "Order them as a reading path: the most basic entry point first, then the common use cases, then the advanced behavior, then the edge and error cases. State that order in a header comment and keep each file readable from top to bottom.\n"
+   "Keep every test small and independent, prefer literal expected values over computed ones, and mock only what the reader does not need to understand.\n"
+   "Comment each test with what the reader should learn from it and which source file and symbol it exercises.\n"
+   "Do not modify production code. When a behavior cannot be exercised without changing it, explain the obstacle in a comment instead of adding a test that would fail.\n"
+   (format "Repository root: %s\n" git-root)
+   "Finally, report the files you created and the exact command that runs these tests.\n"))
+
 (defun ai-code--architecture-guardrails-relative-path (&optional topic)
   "Return the repo-relative path for the architecture guardrails file.
 TOPIC narrows the file name when non-nil."
@@ -551,6 +581,29 @@ not already exist, so the backend has a concrete document to create or update."
                                                     initial-prompt)))
       (when final-prompt
         (ai-code--doc-emit-prompt "Derive Repository Map" final-prompt)))))
+
+;;;###autoload
+(defun ai-code-derive-topic-unit-tests ()
+  "Ask AI to write runnable unit tests that explain a topic in the current repo.
+Unlike the other derivation commands this one produces test code beside
+the repository's own tests, so a topic is required and no Org document is
+created."
+  (interactive)
+  (let* ((git-root (or (ai-code--git-root)
+                       (user-error "Not inside a Git repository")))
+         (topic (ai-code--read-unit-test-topic))
+         (base-prompt
+          (concat (ai-code--derive-topic-unit-tests-prompt git-root topic)
+                  (or (ai-code--format-repo-context-info) "")))
+         (initial-prompt
+          (concat base-prompt
+                  (format "Write the test comments and any explanation in %s.\n"
+                          (ai-code--read-document-language))))
+         (final-prompt (ai-code-plain-read-string "Derive topic unit tests prompt: "
+                                                  initial-prompt)))
+    (when final-prompt
+      (ai-code--doc-emit-prompt "Derive Unit Test to Help Understand the Topic"
+                                final-prompt))))
 
 (provide 'ai-code-doc)
 ;;; ai-code-doc.el ends here
