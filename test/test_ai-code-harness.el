@@ -43,6 +43,14 @@
                            "--eval" form)))
         (list exit-code (buffer-string))))))
 
+(defun ai-code-harness-test--error-reported-p (output)
+  "Return non-nil when OUTPUT contains an Emacs \"Error:\" report.
+The match is case sensitive on purpose: `case-fold-search' defaults to t
+in batch mode, so a case-insensitive search also matches lower-case
+\"error:\" text in platform noise the inferior Emacs writes to stderr."
+  (let ((case-fold-search nil))
+    (string-match-p "Error:" output)))
+
 (defun ai-code-harness-test--grill-context (origin-command)
   "Return a Grill prompt context for ORIGIN-COMMAND."
   (ai-code--make-prompt-context
@@ -76,7 +84,7 @@
           "'ai-code-code-change)) "
           "(kill-emacs 1)))"))))
     (should (equal exit-code 0))
-    (should-not (string-match-p "Error:" output))))
+    (should-not (ai-code-harness-test--error-reported-p output))))
 
 (ert-deftest ai-code-test-grill-autoloaded-entry-loads-harness ()
   "Loading an autoloaded entry module should install the Grill provider."
@@ -98,7 +106,7 @@
           "'ai-code-code-change)) "
           "(kill-emacs 1)))"))))
     (should (equal exit-code 0))
-    (should-not (string-match-p "Error:" output))))
+    (should-not (ai-code-harness-test--error-reported-p output))))
 
 (ert-deftest ai-code-test-grill-harness-reload-removes-legacy-prompt-advice ()
   "Reloading the harness should remove legacy Grill prompt advice."

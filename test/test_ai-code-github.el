@@ -693,6 +693,24 @@ branch as the PR base."
     (should (string-match-p "Class definition: class GreetingService:" captured-prompt))
     (should (string-match-p "Function definition: defun hello-world ()" captured-prompt))))
 
+(ert-deftest test-ai-code-github--get-git-web-repo-url-supports-remote-formats ()
+  "Normalize supported remotes without treating SSH ports as path segments."
+  (dolist (entry '(("https://github.com/org/repo.git" . "https://github.com/org/repo")
+                   ("https://gitlab.example:8443/org/repo" . "https://gitlab.example:8443/org/repo")
+                   ("git@github.com:org/repo.git" . "https://github.com/org/repo")
+                   ("ssh://git@github.com/org/repo.git" . "https://github.com/org/repo")
+                   ("ssh://git@github.com:22/org/repo.git" . "https://github.com/org/repo")
+                   ("ssh://github.com/org/repo" . "https://github.com/org/repo")
+                   ("ssh://git@gitlab.example:2222/group/repo.git" . "https://gitlab.example/group/repo")
+                   ("ssh://git@github.com:invalid/org/repo.git" . nil)
+                   ("/tmp/git@github.com:org/repo.git" . nil)
+                   ("/tmp/https://github.com/org/repo.git" . nil)
+                   ("" . nil)
+                   (nil . nil)))
+    (cl-letf (((symbol-function 'magit-git-string)
+               (lambda (&rest _) (car entry))))
+      (should (equal (ai-code--get-git-web-repo-url) (cdr entry))))))
+
 (provide 'test_ai-code-github)
 
 ;;; test_ai-code-github.el ends here
