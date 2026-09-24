@@ -1,4 +1,4 @@
-;;; ai-code.el --- Unified interface for AI coding backends such as Codex CLI, Antigravity CLI, Claude Code, Opencode, etc -*- lexical-binding: t; -*-
+;;; ai-code.el --- Unified interface for AI coding backends such as Codex CLI, Pi, Antigravity CLI, Claude Code, etc -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; Assisted-by:
@@ -9,7 +9,7 @@
 ;; - MuseCode:Muse-Spark-1.2
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
-;; Version: 1.960
+;; Version: 1.970
 ;; Package-Requires: ((emacs "29.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 

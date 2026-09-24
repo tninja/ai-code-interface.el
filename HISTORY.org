@@ -2,6 +2,9 @@
 * Release history
 
 ** Main branch change
+
+** 1.97
+- Chore: Derive learning unit tests for a topic; make in-buffer prompt dump opt-in
 - Feat: Architecture docs get topic scoping, navigable code links, and in-buffer prompts
 - Chore: C-c a @: copy file + line range only for regions longer than 5 lines
 - Feat: complete prompts you already wrote; fix input history data loss
