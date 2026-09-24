@@ -598,7 +598,7 @@ created."
                   (or (ai-code--format-repo-context-info) "")))
          (initial-prompt
           (concat base-prompt
-                  (format "Write the test comments and any explanation in %s.\n"
+                  (format "\nWrite the test comments and any explanation in %s.\n"
                           (ai-code--read-document-language))))
          (final-prompt (ai-code-plain-read-string "Derive topic unit tests prompt: "
                                                   initial-prompt)))

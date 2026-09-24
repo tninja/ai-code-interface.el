@@ -697,6 +697,29 @@ behavior used outside `ai-code-prompt-mode'."
                     (expand-file-name ".ai.code.files/architecture"
                                       default-directory)))))))
 
+(ert-deftest ai-code-test-derive-topic-unit-tests-separates-stored-repo-context ()
+  "Stored repository context must not run into the language directive.
+`ai-code--format-repo-context-info' ends without a newline, so the
+directive has to supply the separator itself or the last context entry is
+corrupted."
+  (ai-code-file-with-test-env
+   (let (inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--unit-test-read-string "Prompt Pipeline" "English"))
+               ((symbol-function 'ai-code--format-repo-context-info)
+                (lambda ()
+                  "\nStored repository context:\n  - Preserve existing CLI UX"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-topic-unit-tests)
+       (should (string-match-p
+                (regexp-quote "  - Preserve existing CLI UX\nWrite the test comments")
+                inserted-prompt))))))
+
 (ert-deftest ai-code-test-derive-topic-unit-tests-requires-a-topic ()
   "An empty topic gives the backend nothing to teach, so it must be rejected."
   (ai-code-file-with-test-env
