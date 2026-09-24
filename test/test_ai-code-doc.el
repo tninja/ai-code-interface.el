@@ -46,6 +46,12 @@ The document topic question is recognized by its prompt prefix."
   (lambda (prompt &rest _args)
     (if (string-prefix-p "Document topic" prompt) topic language)))
 
+(defun ai-code-test--unit-test-read-string (topic language)
+  "Return a `read-string' stand-in answering TOPIC and LANGUAGE.
+The unit test topic question is recognized by its prompt prefix."
+  (lambda (prompt &rest _args)
+    (if (string-prefix-p "Unit test topic" prompt) topic language)))
+
 (ert-deftest ai-code-test-menu-agile-development-includes-derive-architecture-document-entry ()
   "Test that Agile Development menu exposes architecture document derivation."
   (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "A")))
@@ -96,6 +102,18 @@ The document topic question is recognized by its prompt prefix."
                  (setq called 'test-context))))
       (ai-code-derive-architecture-document))
     (should (eq called 'test-context))))
+
+(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-topic-unit-tests ()
+  "Test that architecture document derivation dispatches to topic unit tests."
+  (let (called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 "Derive Unit Test to Help Understand the Topic"))
+              ((symbol-function 'ai-code-derive-topic-unit-tests)
+               (lambda ()
+                 (setq called 'topic-unit-tests))))
+      (ai-code-derive-architecture-document))
+    (should (eq called 'topic-unit-tests))))
 
 (ert-deftest ai-code-test-derive-architecture-guardrails-creates-template-and-prompt ()
   "Test `ai-code-derive-architecture-guardrails' initializes the Org file and prompt."
@@ -398,7 +416,8 @@ The document topic question is recognized by its prompt prefix."
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt &optional initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
-                (lambda (prompt) (setq sent-prompt prompt))))
+                (lambda (prompt) (setq sent-prompt prompt)))
+               ((symbol-function 'y-or-n-p) (lambda (&rest _args) t)))
        (with-temp-buffer
          (ai-code-prompt-mode)
          (insert "* Existing task\n** Sub task\n")
@@ -411,6 +430,27 @@ The document topic question is recognized by its prompt prefix."
                   (regexp-quote "Domain-Driven Design (DDD) style context document")
                   (buffer-string))))))))
 
+(ert-deftest ai-code-test-doc-emit-prompt-declines-buffer-dump-and-sends-to-ai ()
+  "Declining the question in `ai-code-prompt-mode' sends the prompt to the AI.
+The buffer dump must stay opt-in, so a no answer falls back to the
+behavior used outside `ai-code-prompt-mode'."
+  (let (sent-prompt
+        captured-question)
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (question)
+                 (setq captured-question question)
+                 nil))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt) (setq sent-prompt prompt))))
+      (with-temp-buffer
+        (ai-code-prompt-mode)
+        (insert "* Existing task\n")
+        (goto-char (point-max))
+        (ai-code--doc-emit-prompt "Derive Repository Map" "PROMPT BODY")
+        (should captured-question)
+        (should (equal sent-prompt "PROMPT BODY"))
+        (should (equal (buffer-string) "* Existing task\n"))))))
+
 (ert-deftest ai-code-test-derive-architecture-guardrails-inserts-into-prompt-mode-buffer ()
   "In `ai-code-prompt-mode' the guardrails prompt is written at point, not sent."
   (ai-code-file-with-test-env
@@ -422,7 +462,8 @@ The document topic question is recognized by its prompt prefix."
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
-                (lambda (prompt) (setq sent-prompt prompt))))
+                (lambda (prompt) (setq sent-prompt prompt)))
+               ((symbol-function 'y-or-n-p) (lambda (&rest _args) t)))
        (with-temp-buffer
          (ai-code-prompt-mode)
          (insert "* Existing task\n")
@@ -621,6 +662,84 @@ The document topic question is recognized by its prompt prefix."
     (should (string-match-p
              (regexp-quote "[[file:path/to/file::symbol]")
              (ai-code--org-link-instruction "doc.org" 'github)))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-builds-learning-test-prompt ()
+  "Topic unit tests must be ordered, runnable, and create no Org document."
+  (ai-code-file-with-test-env
+   (let (captured-read-prompt
+         captured-initial-prompt
+         inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--unit-test-read-string "Prompt Pipeline" "Chinese"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (prompt &optional initial-input)
+                  (setq captured-read-prompt prompt
+                        captured-initial-prompt initial-input)
+                  initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-topic-unit-tests)
+       (should (equal captured-read-prompt "Derive topic unit tests prompt: "))
+       (should (string-match-p (regexp-quote "topic: Prompt Pipeline")
+                               captured-initial-prompt))
+       (should (string-match-p (regexp-quote "the most basic entry point first")
+                               captured-initial-prompt))
+       (should (string-match-p (regexp-quote "the project's normal test command")
+                               captured-initial-prompt))
+       (should (string-match-p
+                (regexp-quote "Write the test comments and any explanation in Chinese.")
+                captured-initial-prompt))
+       (should (equal inserted-prompt captured-initial-prompt))
+       ;; Learning tests are source code, so no architecture document is created.
+       (should-not (file-exists-p
+                    (expand-file-name ".ai.code.files/architecture"
+                                      default-directory)))))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-separates-stored-repo-context ()
+  "Stored repository context must not run into the language directive.
+`ai-code--format-repo-context-info' ends without a newline, so the
+directive has to supply the separator itself or the last context entry is
+corrupted."
+  (ai-code-file-with-test-env
+   (let (inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--unit-test-read-string "Prompt Pipeline" "English"))
+               ((symbol-function 'ai-code--format-repo-context-info)
+                (lambda ()
+                  "\nStored repository context:\n  - Preserve existing CLI UX"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-topic-unit-tests)
+       (should (string-match-p
+                (regexp-quote "  - Preserve existing CLI UX\nWrite the test comments")
+                inserted-prompt))))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-requires-a-topic ()
+  "An empty topic gives the backend nothing to teach, so it must be rejected."
+  (ai-code-file-with-test-env
+   (let (inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--unit-test-read-string "   " "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (should-error (ai-code-derive-topic-unit-tests) :type 'user-error)
+       (should-not inserted-prompt)))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-errors-outside-git-repo ()
+  "Deriving topic unit tests should require a Git repository."
+  (cl-letf (((symbol-function 'ai-code--git-root)
+             (lambda (&optional _dir) nil)))
+    (should-error (ai-code-derive-topic-unit-tests) :type 'user-error)))
 
 (provide 'test_ai-code-doc)
 ;;; test_ai-code-doc.el ends here

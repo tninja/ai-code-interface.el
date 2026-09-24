@@ -28,16 +28,19 @@
     ("Derive C4 PlantUML Architecture Document" . ai-code-derive-c4-plantuml)
     ("Derive Repository Map" . ai-code-derive-repo-map)
     ("Derive DDD Context for Repo" . ai-code-derive-ddd-context)
-    ("Derive Test Context Document" . ai-code-derive-test-context))
+    ("Derive Test Context Document" . ai-code-derive-test-context)
+    ("Derive Unit Test to Help Understand the Topic" . ai-code-derive-topic-unit-tests))
   "Choices for `ai-code-derive-architecture-document'.")
 
 (defun ai-code--doc-emit-prompt (title prompt)
   "Insert PROMPT under a TITLE headline at point, or send it to the AI.
-In `ai-code-prompt-mode' the prompt is written into the current buffer
-under the cursor, as an Org section at the level of the surrounding
-section, and no AI request is made.  Everywhere else PROMPT is handed to
-`ai-code--insert-prompt' as usual."
-  (if (derived-mode-p 'ai-code-prompt-mode)
+In `ai-code-prompt-mode' the user is asked whether to write the prompt
+into the current buffer, as an Org section at the level of the
+surrounding section, in which case no AI request is made.  When the
+answer is no, and everywhere outside `ai-code-prompt-mode', PROMPT is
+handed to `ai-code--insert-prompt' as usual."
+  (if (and (derived-mode-p 'ai-code-prompt-mode)
+           (y-or-n-p "Insert prompt into this buffer instead of sending it to the AI? "))
       (let ((level (or (org-current-level) 1)))
         (unless (bolp)
           (insert "\n"))
@@ -384,6 +387,34 @@ selects how code references are linked."
    "* Source Evidence\n"
    "Provide a table mapping important claims to Org links pointing at source evidence."))
 
+(defun ai-code--read-unit-test-topic ()
+  "Read the topic the derived unit tests must explain.
+An empty topic leaves the backend nothing to teach, so it is rejected
+instead of falling back to the whole repository."
+  (let ((topic (string-trim (read-string "Unit test topic: "))))
+    (if (string-empty-p topic)
+        (user-error "A topic is required to derive unit tests")
+      topic)))
+
+(defun ai-code--derive-topic-unit-tests-prompt (git-root topic)
+  "Build a prompt asking AI to write learning unit tests for TOPIC in GIT-ROOT.
+The generated tests are ordinary runnable tests of the code that already
+exists, so they belong beside the repository's own tests instead of under
+`.ai.code.files/', and they carry no Org link instructions."
+  (concat
+   (format "Write runnable unit tests whose purpose is to teach a reader the code related to this topic: %s.\n"
+           topic)
+   "These tests are a reading aid first and a safety net second: every assertion must document how the existing code already behaves.\n"
+   "Read the relevant code before writing anything, and assert only behavior you have confirmed in this repository. Never assert an invented API.\n"
+   "Use the test framework, naming convention, directory layout, fixtures, and build integration this repository already uses, so the tests run with the project's normal test command.\n"
+   "Group the tests into one or more test classes or files whose names make clear that they are learning tests for this topic.\n"
+   "Order them as a reading path: the most basic entry point first, then the common use cases, then the advanced behavior, then the edge and error cases. State that order in a header comment and keep each file readable from top to bottom.\n"
+   "Keep every test small and independent, prefer literal expected values over computed ones, and mock only what the reader does not need to understand.\n"
+   "Comment each test with what the reader should learn from it and which source file and symbol it exercises.\n"
+   "Do not modify production code. When a behavior cannot be exercised without changing it, explain the obstacle in a comment instead of adding a test that would fail.\n"
+   (format "Repository root: %s\n" git-root)
+   "Finally, report the files you created and the exact command that runs these tests.\n"))
+
 (defun ai-code--architecture-guardrails-relative-path (&optional topic)
   "Return the repo-relative path for the architecture guardrails file.
 TOPIC narrows the file name when non-nil."
@@ -551,6 +582,29 @@ not already exist, so the backend has a concrete document to create or update."
                                                     initial-prompt)))
       (when final-prompt
         (ai-code--doc-emit-prompt "Derive Repository Map" final-prompt)))))
+
+;;;###autoload
+(defun ai-code-derive-topic-unit-tests ()
+  "Ask AI to write runnable unit tests that explain a topic in the current repo.
+Unlike the other derivation commands this one produces test code beside
+the repository's own tests, so a topic is required and no Org document is
+created."
+  (interactive)
+  (let* ((git-root (or (ai-code--git-root)
+                       (user-error "Not inside a Git repository")))
+         (topic (ai-code--read-unit-test-topic))
+         (base-prompt
+          (concat (ai-code--derive-topic-unit-tests-prompt git-root topic)
+                  (or (ai-code--format-repo-context-info) "")))
+         (initial-prompt
+          (concat base-prompt
+                  (format "\nWrite the test comments and any explanation in %s.\n"
+                          (ai-code--read-document-language))))
+         (final-prompt (ai-code-plain-read-string "Derive topic unit tests prompt: "
+                                                  initial-prompt)))
+    (when final-prompt
+      (ai-code--doc-emit-prompt "Derive Unit Test to Help Understand the Topic"
+                                final-prompt))))
 
 (provide 'ai-code-doc)
 ;;; ai-code-doc.el ends here
