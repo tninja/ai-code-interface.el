@@ -443,7 +443,7 @@
                  (lambda () (setq called t))))
         (ai-code-refactor-book-method)
         (should called)
-        (should (equal (cl-subseq (mapcar #'car choices) 0 3)
+        (should (equal (cl-subseq choices 0 3)
                        '("Suggest Refactoring Strategy"
                          "Value-driven Simplification" "Extract Method")))))))
 
