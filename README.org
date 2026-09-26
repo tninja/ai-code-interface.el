@@ -223,6 +223,25 @@ appends the destination PNG path when invoking it:
 
 *** Reusing Prompts You Already Wrote
 
+To show Company suggestions while typing directly into an AI Code =vterm=
+session (including Claude Code and Codex), install =company= and set:
+
+#+begin_src emacs-lisp
+(setq ai-code-backends-infra-enable-terminal-completion t)
+#+end_src
+
+This works across native CLI agents using the same terminal infrastructure.
+For an existing session, run =M-x ai-code-terminal-completion-mode=.  After
+three letters, Company offers single-line prompt history and, if Cape is
+installed, dictionary words.  =TAB= accepts the selected candidate without
+submitting it; =C-n= and =C-p= choose a candidate, =ESC= dismisses, and =RET=
+still submits to the CLI.  The feature is off by default and currently
+requires =vterm=.  It tracks ordinary typing and backspace at the terminal
+cursor.  Cursor moves, pasted text, CLI history and native CLI completions
+discard the tracked suffix; keep typing to start a new completion.  It cannot
+reconstruct input edited by the CLI itself.  Multi-line history entries are
+excluded from terminal suggestions.
+
 Most of what you retype into a prompt is wording, not structure: "explain the current code", the handoff instructions you send at every backend switch. This completes those from the prompt history files AI Code already keeps, across every repository it knows about -- projectile's known projects, `ai-code-prompt-completion-roots`, the current directory and the fallback location, with remote (Tramp) roots skipped so completion never opens a connection. Point `ai-code-prompt-completion-files` (nil by default) at files of your own -- a prompt library you keep by hand, a diary, any Org file whose wording you reuse. Setting `ai-code-prompt-completion-use-org-roam` adds the notes org-roam tracks the same way -- off by default, since a whole zettelkasten contributes note sections rather than prompts. In both, every headline offers two prompts however deep it sits, its own text and the text written under it, and whatever stands before the first headline -- the whole of a file written without any -- is split on blank lines. Datetree headlines, tags, statistics cookies and link wrappers are markup rather than wording and drop out, as does a heading of a word or two, quicker typed than picked from a popup. Neither history filter below applies there: you wrote those files, so they are offered as written. A large diary is worth measuring before you point at it -- 10MB of Org indexes in about a second and contributes on the order of 10^5 candidates.
 
 It needs no configuration: opening a prompt file installs the capf, so `completion-at-point` (=M-TAB=) offers your earlier prompts right away, and if =cape= is installed its `cape-dict` words join the same candidate list. Only the popup front-end is left to you:
