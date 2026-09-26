@@ -504,7 +504,7 @@ ai-code-prompt-completion.el for `cape' and `company' setups."
 Falls back to `ai-code-prompt-completion-capf' alone when cape is not
 installed, so the prompt candidates are there either way."
   (if (fboundp 'cape-wrap-super)
-      (cape-wrap-super #'ai-code-prompt-completion-capf #'cape-dict)
+      (funcall (cape-wrap-super #'ai-code-prompt-completion-capf #'cape-dict))
     (ai-code-prompt-completion-capf)))
 
 (defun ai-code-prompt-completion--enable ()

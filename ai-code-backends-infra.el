@@ -26,6 +26,7 @@
 (require 'ai-code-backends-infra-vterm)
 (require 'ai-code-backends-infra-eat)
 (require 'ai-code-backends-infra-ghostel)
+(require 'ai-code-terminal-completion)
 
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
 (declare-function ai-code--session-project-root "ai-code-utils" ())
@@ -45,6 +46,12 @@ Can be either `vterm', `eat', or `ghostel'."
                  (const :tag "eat" eat)
                  (const :tag "ghostel" ghostel))
   :group 'ai-code-backends-infra)
+
+(defcustom ai-code-backends-infra-enable-terminal-completion nil
+  "Enable automatic Company completion in new vterm AI sessions.
+The mode can also be toggled per session with
+`ai-code-terminal-completion-mode'."
+  :type 'boolean :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-window-side 'right
   "Side of the frame where the window should appear."
@@ -542,6 +549,10 @@ ESCAPE-FN is bound to `C-<escape>' when non-nil.
 MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
   (with-current-buffer buffer
     (ai-code-backends-infra--ensure-buffer-local-keymap)
+    (when (and ai-code-backends-infra-enable-terminal-completion
+               (eq ai-code-backends-infra--session-terminal-backend 'vterm)
+               (not ai-code-terminal-completion-mode))
+      (ai-code-terminal-completion-mode 1))
     (setq-local ai-code-editor-viewport--submit-function
                 #'ai-code-backends-infra--terminal-send-return)
     (when escape-fn
