@@ -28,6 +28,9 @@
 (declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function magit-get-current-branch "magit-git" ())
+(declare-function magit-git-string "magit-git" (&rest args))
+(declare-function magit-rev-verify "magit-git" (&rest args))
 (declare-function ai-code-derive-topic-unit-tests "ai-code-doc" ())
 (declare-function dired-current-directory "dired" ())
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
@@ -40,6 +43,9 @@
   '((:name "Suggest Refactoring Strategy"
            :scopes (region global)
            :description "Let the LLM analyze the context and suggest the best refactoring technique.")
+    (:name "Value-driven Simplification"
+           :scopes (region global)
+           :description "Discuss which complexity is worth keeping, guided by business value.")
     (:name "Extract Method"
            :scopes (region global)
            :description "Extract the selected code into a new method named [METHOD_NAME]. Identify parameters and return values needed, and place the new method in an appropriate location."
@@ -699,6 +705,90 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
       (message "Requesting refactoring suggestion from AI Code Interface%s. If you are happy with the suggestion, use 'go ahead' to accept the change"
                message-suffix))))
 
+(defconst ai-code--value-simplification-discussion
+  (concat
+   "Value-driven Simplification: investigate before recommending changes. "
+   "Start with a bounded search of the relevant diff or topic, then inspect "
+   "callers, tests, and documented constraints as needed. Do not read the "
+   "entire repository or paste a large diff into the response. "
+   "Briefly identify one consequential source of complexity with file/line "
+   "evidence, distinguish code facts from guesses about business intent, "
+   "and identify affected core paths and behavior that may need protection. "
+   "Ask ONE high-value question at a time about business value, historical "
+   "constraints, what the user would keep, and how the user would simplify. "
+   "Do not assume that fewer lines are better or prescribe a full plan. "
+   "Wait for the user's answer. Challenge their proposal with concrete "
+   "dependencies, invariants, and risks; invite revisions. The user makes "
+   "the keep/simplify/delete decision. Only after the user's direction, "
+   "propose one small, independently verifiable next step with relevant "
+   "tests and rollback considerations. Discuss only: do not edit code, "
+   "remove behavior, or run mutating commands without explicit user approval.")
+  "Shared human-led discussion instructions for value simplification.")
+
+(defun ai-code--value-simplification-default-base ()
+  "Return a likely base ref for the current Git branch, or nil."
+  (or (let ((remote-head (magit-git-string
+                          "symbolic-ref" "--quiet" "--short"
+                          "refs/remotes/origin/HEAD")))
+        (and remote-head (not (string-empty-p remote-head)) remote-head))
+      (and (magit-rev-verify "main") "main")
+      (and (magit-rev-verify "master") "master")))
+
+(defun ai-code--handle-value-driven-simplification ()
+  "Discuss business value and code complexity in a branch or repository topic."
+  (let* ((root (or (ai-code--git-root)
+                   (user-error "Value-driven Simplification requires a Git repository")))
+         (default-directory (file-name-as-directory root))
+         (scope (completing-read "Analyze: "
+                                 '("Current Branch" "Repository Topic")
+                                 nil t))
+         (branch-p (string= scope "Current Branch"))
+         (branch (when branch-p (or (magit-get-current-branch) "HEAD")))
+         (base (when branch-p
+                 (string-trim (ai-code-read-string
+                               "Compare with base branch/ref: "
+                               (ai-code--value-simplification-default-base)))))
+         (merge-base (when branch-p
+                       (unless (and (not (string-empty-p base))
+                                    (magit-rev-verify base))
+                         (user-error "Select an existing base branch or ref"))
+                       (or (magit-git-string "merge-base" base "HEAD")
+                           (user-error "No common ancestor with %s" base))))
+         (include-worktree (and branch-p
+                                (y-or-n-p "Include uncommitted changes (including relevant untracked files)? ")))
+         (topic (string-trim
+                 (ai-code-read-string
+                  (if branch-p "Narrow to topic (optional): " "Repository topic: ")))))
+    (unless (or branch-p (not (string-empty-p topic)))
+      (user-error "Enter a repository topic"))
+    (let ((prompt
+           (concat
+            ai-code--value-simplification-discussion
+            "\n\nRepository: " root
+            "\nScope: " scope
+            (if branch-p
+                (format
+                 (concat "\nCurrent branch: %s\nSelected base: %s"
+                         "\nMerge-base commit: %s"
+                         "\nUncommitted changes: %s"
+                         "\nInspect committed changes from the merge-base to HEAD, "
+                         "including relevant tests. %s")
+                 branch base merge-base
+                 (if include-worktree "included" "excluded")
+                 (if include-worktree
+                     (concat "Also inspect staged and unstaged changes and "
+                             "relevant untracked files; label their provenance separately.")
+                   (concat "Do not include index, working tree, or untracked "
+                           "changes. When reading affected files, use the "
+                           "committed HEAD version rather than the working "
+                           "copy so the analysis respects this choice.")))
+              (concat "\nLocate relevant implementation, callers, tests, and "
+                      "documented constraints incrementally."))
+            (unless (string-empty-p topic) (concat "\nTopic: " topic))
+            (or (ai-code--get-context-files-string) ""))))
+      (when (ai-code--insert-prompt prompt)
+        (message "Value-driven Simplification discussion sent to AI Code Interface")))))
+
 ;;;###autoload
 (defun ai-code-refactor-book-method (&optional tdd-mode)
   "Apply refactoring techniques or request suggestions.
@@ -721,9 +811,13 @@ TDD refactor stage."
              (prompt (concat prompt-prefix prompt-suffix))
              (selected-technique (completing-read prompt technique-names nil t)))
         ;; Dispatch to appropriate handler based on user selection
-        (if (string= selected-technique "Suggest Refactoring Strategy")
-            (ai-code--handle-ask-llm-suggestion context tdd-mode)
-          (ai-code--handle-specific-refactoring selected-technique all-techniques context tdd-mode))))))
+        (cond
+         ((string= selected-technique "Suggest Refactoring Strategy")
+          (ai-code--handle-ask-llm-suggestion context tdd-mode))
+         ((string= selected-technique "Value-driven Simplification")
+          (ai-code--handle-value-driven-simplification))
+         (t (ai-code--handle-specific-refactoring
+             selected-technique all-techniques context tdd-mode)))))))
 
 (defun ai-code--ensure-test-buffer-visible ()
   "Ensure that at least one buffer in the current windows is a test file.
