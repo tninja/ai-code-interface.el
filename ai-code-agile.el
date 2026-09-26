@@ -28,6 +28,7 @@
 (declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
 (declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function ai-code-derive-topic-unit-tests "ai-code-doc" ())
 (declare-function dired-current-directory "dired" ())
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 (declare-function dired-get-marked-files "dired"
@@ -1001,6 +1002,7 @@ Works with both source code and test files that have been added to ai-code."
   (if (derived-mode-p 'magit-mode)
       (ai-code-magit-prompt 'tests)
     ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
+    ;; DONE: ai-code-derive-topic-unit-tests should be added as the last option of C-c a t, purpose is to derive the test code as tutorial and learning material for the user for given topic.
     (let* ((region-active (region-active-p))
            (scope-context
             (if region-active
@@ -1033,7 +1035,8 @@ Works with both source code and test files that have been added to ai-code."
                                "2. Green (Make test pass)"
                                "3. Blue (Refactor, improve code quality)"
                                "4. Red + Green (One prompt)"
-                               "5. Red + Green + Blue (One prompt)")
+                               "5. Red + Green + Blue (One prompt)"
+                               "6. Learning tests (Derive unit tests as a tutorial for a topic)")
                          nil t))
            (stage-num (string-to-number (substring cycle-stage 0 1))))
       (cond
@@ -1051,7 +1054,9 @@ Works with both source code and test files that have been added to ai-code."
        ;; Red + Green combined in one prompt
        ((= stage-num 4) (ai-code--tdd-red-green-stage function-name))
        ;; Red + Green + Blue combined in one prompt
-       ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name))))))
+       ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name))
+       ;; Learning tests - derive unit tests as a tutorial for a topic
+       ((= stage-num 6) (ai-code-derive-topic-unit-tests))))))
 
 (provide 'ai-code-agile)
 

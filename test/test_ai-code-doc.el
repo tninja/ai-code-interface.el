@@ -741,6 +741,69 @@ corrupted."
              (lambda (&optional _dir) nil)))
     (should-error (ai-code-derive-topic-unit-tests) :type 'user-error)))
 
+(ert-deftest ai-code-test-read-document-topic-offers-scope-at-point ()
+  "A `prog-mode' buffer offers the scope at point with its repo-relative file.
+Accepting pre-fills the editable topic; declining means the whole
+repository without asking for a topic."
+  (ai-code-file-with-test-env
+   (with-temp-buffer
+     (prog-mode)
+     (setq buffer-file-name (expand-file-name "src/Service.java" default-directory))
+     (let ((answer t)
+           asked
+           initial-input)
+       (cl-letf (((symbol-function 'ai-code--git-root)
+                  (lambda (&optional _dir) default-directory))
+                 ((symbol-function 'ai-code--current-qualified-scope-name)
+                  (lambda () "Service.run"))
+                 ((symbol-function 'y-or-n-p)
+                  (lambda (prompt) (setq asked prompt) answer))
+                 ((symbol-function 'read-string)
+                  (lambda (_prompt &optional initial &rest _)
+                    (setq initial-input initial)
+                    (concat initial " retry"))))
+         (should (equal (ai-code--read-document-topic)
+                        "Service.run (src/Service.java) retry"))
+         (should (string-match-p (regexp-quote "\"Service.run (src/Service.java)\"")
+                                 asked))
+         (should (equal initial-input "Service.run (src/Service.java)"))
+         (setq answer nil
+               initial-input 'unread)
+         (should-not (ai-code--read-document-topic))
+         (should (eq initial-input 'unread)))))))
+
+(ert-deftest ai-code-test-read-document-topic-offers-nothing-outside-prog-mode ()
+  "Outside `prog-mode' the topic is asked blank, without a y/n question."
+  (with-temp-buffer
+    (let ((initial-input 'unread))
+      (cl-letf (((symbol-function 'ai-code--current-qualified-scope-name)
+                 (lambda () "Service.run"))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _) (error "Unexpected y-or-n-p")))
+                ((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial &rest _)
+                   (setq initial-input initial)
+                   "")))
+        (should-not (ai-code--read-document-topic))
+        (should-not initial-input)))))
+
+(ert-deftest ai-code-test-read-unit-test-topic-prefills-scope-at-point ()
+  "The required unit test topic is pre-filled without a y/n question.
+A buffer that visits no file offers the scope name alone."
+  (with-temp-buffer
+    (prog-mode)
+    (let (initial-input)
+      (cl-letf (((symbol-function 'ai-code--current-qualified-scope-name)
+                 (lambda () "Service"))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _) (error "Unexpected y-or-n-p")))
+                ((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial &rest _)
+                   (setq initial-input initial)
+                   initial)))
+        (should (equal (ai-code--read-unit-test-topic) "Service"))
+        (should (equal initial-input "Service"))))))
+
 (provide 'test_ai-code-doc)
 ;;; test_ai-code-doc.el ends here
 ;;; test_ai-code-doc.el ends here
