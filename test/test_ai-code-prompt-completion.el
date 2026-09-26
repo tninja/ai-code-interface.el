@@ -16,6 +16,8 @@
 ;; Declared so the tests can bind it whether or not projectile is loaded.
 (defvar projectile-known-projects nil)
 
+(defvar cape-dict-file)
+
 (defun ai-code-prompt-completion-test--make-root (content &optional nested)
   "Create a temp project root holding a prompt file with CONTENT.
 When NESTED is non-nil the file goes under `ai-code-files-dir-name'."
@@ -665,16 +667,41 @@ walk through the release checklist
 
 (ert-deftest ai-code-prompt-completion-test-dict-capf-works-without-cape ()
   "Without cape loaded the merged capf still offers prompt candidates."
-  (should-not (fboundp 'cape-wrap-super))
-  (ai-code-prompt-completion-test--with-roots
-      (list (ai-code-prompt-completion-test--make-root
-             ai-code-prompt-completion-test--corpus))
-    (with-temp-buffer
-      (insert "Go")
-      (let ((result (ai-code-prompt-completion-dict-capf)))
-        (should result)
-        (should (member "Go ahead with the suggested refactoring"
-                        (nth 2 result)))))))
+  (cl-letf (((symbol-function 'cape-wrap-super) nil))
+    (ai-code-prompt-completion-test--with-roots
+        (list (ai-code-prompt-completion-test--make-root
+               ai-code-prompt-completion-test--corpus))
+      (with-temp-buffer
+        (insert "Go")
+        (let ((result (ai-code-prompt-completion-dict-capf)))
+          (should result)
+          (should (member "Go ahead with the suggested refactoring"
+                          (nth 2 result))))))))
+
+(ert-deftest ai-code-prompt-completion-test-dict-capf-with-cape ()
+  "Merge real Cape dictionary candidates and expand a selected prompt."
+  (skip-unless (require 'cape nil t))
+  (let ((cape-dict-file (make-temp-file "ai-code-dict" nil nil "Goody\n")))
+    (unwind-protect
+        (ai-code-prompt-completion-test--with-roots
+            (list (ai-code-prompt-completion-test--make-root
+                   ai-code-prompt-completion-test--corpus))
+          (with-temp-buffer
+            (insert "Go")
+            (let* ((result (ai-code-prompt-completion-dict-capf))
+                   (candidates (all-completions "Go" (nth 2 result))))
+              (should (equal (list (car result) (cadr result)) '(1 3)))
+              (should (member "Goody" candidates))
+              (should (member "Go ahead with the suggested refactoring"
+                              candidates)))
+            (erase-buffer)
+            (insert "Go ahead with the suggested refact")
+            (let ((completion-at-point-functions
+                   '(ai-code-prompt-completion-dict-capf)))
+              (completion-at-point))
+            (should (equal (buffer-string)
+                           "Go ahead with the suggested refactoring"))))
+      (delete-file cape-dict-file))))
 
 (ert-deftest ai-code-prompt-completion-test-setup-installs-capf ()
   "Setup installs the capf buffer-locally and does not duplicate it."
