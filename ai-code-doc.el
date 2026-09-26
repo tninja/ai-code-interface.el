@@ -71,12 +71,31 @@ Default value is English."
   "Prompt for the language and append it to BASE-PROMPT."
   (concat base-prompt (format "\nGenerate the document in %s." (ai-code--read-document-language))))
 
+(defun ai-code--topic-at-point ()
+  "Return the function or class at point as a topic, or nil.
+Only `prog-mode' buffers offer one, formatted as \"Service.run
+\(src/Service.java)\" with the file relative to the repository root.
+The file part is omitted when the buffer visits no file."
+  (when (derived-mode-p 'prog-mode)
+    (when-let* ((scope (ai-code--current-qualified-scope-name)))
+      (if buffer-file-name
+          (format "%s (%s)" scope
+                  (file-relative-name buffer-file-name (ai-code--git-root)))
+        scope))))
+
 (defun ai-code--read-document-topic ()
   "Ask which topic the document should cover.
-Return nil for an empty answer, which means the whole repository."
-  (let ((topic (string-trim
-                (read-string "Document topic (empty for whole repo): "))))
-    (unless (string-empty-p topic) topic)))
+Return nil for an empty answer, which means the whole repository.
+When `ai-code--topic-at-point' offers a topic, first ask whether to scope
+the document to it: declining means the whole repository, and accepting
+pre-fills the topic for editing."
+  (let ((at-point (ai-code--topic-at-point)))
+    (when (or (null at-point)
+              (y-or-n-p (format "Scope document to \"%s\"? " at-point)))
+      (let ((topic (string-trim
+                    (read-string "Document topic (empty for whole repo): "
+                                 at-point))))
+        (unless (string-empty-p topic) topic)))))
 
 (defun ai-code--topic-file-name (file-name topic)
   "Return FILE-NAME with a slug and stable digest of TOPIC in its base name.
@@ -390,8 +409,10 @@ selects how code references are linked."
 (defun ai-code--read-unit-test-topic ()
   "Read the topic the derived unit tests must explain.
 An empty topic leaves the backend nothing to teach, so it is rejected
-instead of falling back to the whole repository."
-  (let ((topic (string-trim (read-string "Unit test topic: "))))
+instead of falling back to the whole repository.  The topic is pre-filled
+from `ai-code--topic-at-point'."
+  (let ((topic (string-trim (read-string "Unit test topic: "
+                                         (ai-code--topic-at-point)))))
     (if (string-empty-p topic)
         (user-error "A topic is required to derive unit tests")
       topic)))
@@ -589,6 +610,7 @@ not already exist, so the backend has a concrete document to create or update."
 Unlike the other derivation commands this one produces test code beside
 the repository's own tests, so a topic is required and no Org document is
 created."
+  ;; DONE: If the current buffer is a prog-mode derived buffer (eg. java-mode, or java-ts-mode), we could pre-fill the topic with context under cursor, eg. a function, or a class.
   (interactive)
   (let* ((git-root (or (ai-code--git-root)
                        (user-error "Not inside a Git repository")))

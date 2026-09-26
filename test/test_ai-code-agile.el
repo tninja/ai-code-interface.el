@@ -164,6 +164,23 @@
         (ai-code-tdd-cycle)
         (should (equal called-function-name "my-function"))))))
 
+(ert-deftest ai-code-test-tdd-cycle-last-choice-derives-learning-tests ()
+  "Verify the last TDD stage derives learning unit tests for a topic."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (captured-choices called)
+      (cl-letf (((symbol-function 'ai-code--tdd-source-function-context-p) (lambda (_) nil))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _)
+                   (setq captured-choices collection)
+                   (car (last collection))))
+                ((symbol-function 'ai-code-derive-topic-unit-tests)
+                 (lambda () (setq called t))))
+        (ai-code-tdd-cycle)
+        (should (equal (car (last captured-choices))
+                       "6. Learning tests (Derive unit tests as a tutorial for a topic)"))
+        (should called)))))
+
 (ert-deftest ai-code-test-run-test-always-delegates-to-ai-assisted-runner ()
   "Verify `ai-code-run-test' always delegates to the AI-assisted test runner."
   (dolist (mode-setup '(emacs-lisp-mode
