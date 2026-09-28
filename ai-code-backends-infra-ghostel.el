@@ -228,6 +228,29 @@ Ordered by ascending buffer position, oldest output first.")
       (and (boundp 'ai-code-backends-infra--session-terminal-backend)
            (eq ai-code-backends-infra--session-terminal-backend 'ghostel)))))
 
+(defun ai-code-backends-infra-ghostel--pixel-anchor-around
+    (original window target)
+  "Call ORIGINAL for WINDOW and TARGET with AI session bounds recovery.
+Pixel measurement can signal `args-out-of-range' even when TARGET is within
+the buffer.  Returning nil lets Ghostel use its existing line-based anchor.
+Other errors and windows outside AI Code sessions retain their behavior."
+  (if (and (window-live-p window)
+           (ai-code-backends-infra-ghostel--ai-session-buffer-p
+            (window-buffer window)))
+      (condition-case nil
+          (funcall original window target)
+        (args-out-of-range nil))
+    (funcall original window target)))
+
+(defun ai-code-backends-infra-ghostel--install-pixel-anchor-fallback ()
+  "Install bounds recovery when Ghostel provides a pixel anchor."
+  (when (and (fboundp 'ghostel--pixel-anchor)
+             (not (advice-member-p
+                   #'ai-code-backends-infra-ghostel--pixel-anchor-around
+                   'ghostel--pixel-anchor)))
+    (advice-add 'ghostel--pixel-anchor :around
+                #'ai-code-backends-infra-ghostel--pixel-anchor-around)))
+
 (defun ai-code-backends-infra-ghostel--native-editor-transport-p ()
   "Return non-nil when Ghostel supports native editor request callbacks."
   (and (boundp 'ghostel-eval-cmds)
@@ -1062,6 +1085,15 @@ ENV-VARS are extra environment variables for the terminal process."
                            sentinel)))
           (ai-code-backends-infra-ghostel--wrap-process-filter buffer proc))
         (cons buffer proc)))))
+
+(with-eval-after-load 'ghostel
+  (ai-code-backends-infra-ghostel--install-pixel-anchor-fallback))
+
+(defun ai-code-backends-infra-ghostel-unload-function ()
+  "Remove pixel anchor advice installed by this module."
+  (advice-remove 'ghostel--pixel-anchor
+                 #'ai-code-backends-infra-ghostel--pixel-anchor-around)
+  nil)
 
 (provide 'ai-code-backends-infra-ghostel)
 ;;; ai-code-backends-infra-ghostel.el ends here

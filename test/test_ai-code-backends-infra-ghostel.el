@@ -33,6 +33,62 @@
 (declare-function ai-code-ghostel-image-preview--cached-source
                   "ai-code-ghostel-image-preview" (link-text))
 (declare-function ghostel-cursor-point "ghostel" ())
+(declare-function ghostel--pixel-anchor "ghostel" (window target))
+
+(ert-deftest test-ai-code-backends-infra-ghostel--pixel-anchor-bounds-fallback ()
+  "Only AI session windows should fall back after pixel measurement bounds errors."
+  (save-window-excursion
+    (with-temp-buffer
+      (set-window-buffer (selected-window) (current-buffer))
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (let ((window (selected-window))
+            (calls 0))
+        (cl-letf (((symbol-function 'ghostel--pixel-anchor)
+                   (lambda (_window target)
+                     (cl-incf calls)
+                     (signal 'args-out-of-range (list target target)))))
+          (unwind-protect
+              (progn
+                (ai-code-backends-infra-ghostel--install-pixel-anchor-fallback)
+                (ai-code-backends-infra-ghostel--install-pixel-anchor-fallback)
+                ;; The window's buffer, not the caller's, determines scope.
+                (with-temp-buffer
+                  (should-not (ghostel--pixel-anchor window 1)))
+                (should (= calls 1))
+                (setq-local ai-code-backends-infra--session-terminal-backend nil)
+                (should-error (ghostel--pixel-anchor window 1)
+                              :type 'args-out-of-range))
+            (advice-remove
+             'ghostel--pixel-anchor
+             #'ai-code-backends-infra-ghostel--pixel-anchor-around)))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel--pixel-anchor-preserves-results ()
+  "Successful anchors and unrelated errors should retain their original behavior."
+  (save-window-excursion
+    (with-temp-buffer
+      (set-window-buffer (selected-window) (current-buffer))
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (let ((window (selected-window))
+            (anchor '(1 0 40)))
+        (should
+         (eq anchor
+             (ai-code-backends-infra-ghostel--pixel-anchor-around
+              (lambda (win target)
+                (should (eq win window))
+                (should (= target 1))
+                anchor)
+              window 1)))
+        (should-error
+         (ai-code-backends-infra-ghostel--pixel-anchor-around
+          (lambda (&rest _) (signal 'wrong-type-argument '(integerp nil)))
+          window 1)
+         :type 'wrong-type-argument)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel--pixel-anchor-absent ()
+  "Versions without the optional pixel anchor should remain untouched."
+  (cl-letf (((symbol-function 'ghostel--pixel-anchor) nil))
+    (ai-code-backends-infra-ghostel--install-pixel-anchor-fallback)
+    (should-not (fboundp 'ghostel--pixel-anchor))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel--native-editor-transport-p-requires-osc52-callback ()
   "An editor whitelist alone should not imply OSC 52;e support."

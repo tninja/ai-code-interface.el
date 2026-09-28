@@ -613,10 +613,25 @@ ordinary pixel-scroll command."
                            (count-lines (window-start window) (point-max)))
           :intent intent)))
 
+(defun ai-code-ghostel-image-preview--function-max-args (function)
+  "Return FUNCTION's maximum argument count, looking through advice.
+Return `many' for a rest argument, as `func-arity' does.  Inspect the
+underlying argument list because an advice wrapper itself accepts any
+number of arguments, even when the wrapped function does not."
+  (let ((definition (indirect-function function)))
+    (if (subrp definition)
+        (cdr (subr-arity definition))
+      (let ((arglist (help-function-arglist function t)))
+        (cond
+         ((eq arglist t) (cdr (func-arity function)))
+         ((memq '&rest arglist) 'many)
+         (t (length (remq '&optional arglist))))))))
+
 (defun ai-code-ghostel-image-preview--set-window-vscroll
     (window vscroll)
   "Set WINDOW pixel VSCROLL while preserving it when Emacs supports that."
-  (let ((max-args (cdr (subr-arity (symbol-function 'set-window-vscroll)))))
+  (let ((max-args (ai-code-ghostel-image-preview--function-max-args
+                   #'set-window-vscroll)))
     (if (or (eq max-args 'many)
             (and (integerp max-args) (>= max-args 4)))
         (set-window-vscroll window vscroll t t)
@@ -627,11 +642,12 @@ ordinary pixel-scroll command."
   (let* ((target (point-max))
          (body-height (window-body-height window t))
          (max-args
-          (cdr (subr-arity (symbol-function 'window-text-pixel-size))))
+          (ai-code-ghostel-image-preview--function-max-args
+           #'window-text-pixel-size))
          (size
           (and (> body-height 0)
-               (integerp max-args)
-               (>= max-args 7)
+               (or (eq max-args 'many)
+                   (and (integerp max-args) (>= max-args 7)))
                (ignore-errors
                  (window-text-pixel-size
                   window (cons target (- body-height)) target nil nil))))

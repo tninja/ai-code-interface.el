@@ -26,6 +26,55 @@
 (declare-function ai-code-ghostel-image-preview--capture-output-sources
                   "ai-code-ghostel-image-preview" (output))
 
+(ert-deftest test-ai-code-ghostel-image-preview--anchor-with-advised-measurement ()
+  "Advised pixel measurements should retain pixel anchoring without subr errors."
+  (save-window-excursion
+    (with-temp-buffer
+      (insert "one\ntwo\nthree\n")
+      (set-window-buffer (selected-window) (current-buffer))
+      (let ((wrapper (lambda (original &rest args) (apply original args)))
+            measured vscroll)
+        (cl-letf (((symbol-function 'window-text-pixel-size)
+                   (lambda (&optional _window from to _x _y _mode _end)
+                     (setq measured (list from to))
+                     '(40 110 5)))
+                  ((symbol-function 'window-body-height)
+                   (lambda (&rest _) 100))
+                  ((symbol-function 'ai-code-ghostel-image-preview--set-window-vscroll)
+                   (lambda (_window value) (setq vscroll value))))
+          (unwind-protect
+              (progn
+                (advice-add 'window-text-pixel-size :around wrapper)
+                (ai-code-ghostel-image-preview--anchor-window (selected-window))
+                (should (equal measured
+                               (list (cons (point-max) -100) (point-max))))
+                (should (= (window-start) 5))
+                (should (= vscroll 10)))
+            (advice-remove 'window-text-pixel-size wrapper)))))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--vscroll-with-advice ()
+  "Advice should not hide either the old or the new vscroll signature."
+  (let ((wrapper (lambda (original &rest args) (apply original args)))
+        received)
+    (dolist (function
+             (list (lambda (window value &optional pixels)
+                     (setq received (list window value pixels)))
+                   (lambda (window value &optional pixels preserve)
+                     (setq received (list window value pixels preserve)))))
+      (let ((arity (cdr (func-arity function))))
+        (cl-letf (((symbol-function 'set-window-vscroll) function))
+          (unwind-protect
+              (progn
+                (advice-add 'set-window-vscroll :around wrapper)
+                (ai-code-ghostel-image-preview--set-window-vscroll
+                 (selected-window) 7)
+                (should
+                 (equal received
+                        (if (= arity 4)
+                            (list (selected-window) 7 t t)
+                          (list (selected-window) 7 t)))))
+            (advice-remove 'set-window-vscroll wrapper)))))))
+
 (ert-deftest test-ai-code-ghostel-image-preview--render-region-keeps-full-viewport ()
   "A known Ghostel viewport must not be truncated by the fallback scan limit."
   (with-temp-buffer
