@@ -22,6 +22,7 @@
                   "ai-code-backends-infra" ())
 (declare-function company-mode "company" (&optional arg))
 (declare-function company-auto-begin "company" ())
+(declare-function company-post-command "company" ())
 (declare-function company-abort "company" ())
 (declare-function company-select-next "company" ())
 (declare-function company-select-previous "company" ())
@@ -76,14 +77,6 @@
                            ai-code-terminal-completion--input))
     (match-string 1 ai-code-terminal-completion--input)))
 
-(defun ai-code-terminal-completion--word ()
-  "Return the tracked word only if it is visible at the terminal cursor."
-  (when-let* ((word (ai-code-terminal-completion--tracked-word)))
-    (when (and (>= (point) (+ (point-min) (length word)))
-               (string= word (buffer-substring-no-properties
-                              (- (point) (length word)) (point))))
-      word)))
-
 (defun ai-code-terminal-completion--dict (prefix)
   "Collect English dictionary candidates matching PREFIX when Cape exists."
   (when (fboundp 'cape-dict)
@@ -96,7 +89,7 @@
 (defun ai-code-terminal-completion--company (command &optional arg &rest _ignored)
   "Company backend for tracked terminal text; COMMAND and ARG are its API."
   (pcase command
-    ('prefix (ai-code-terminal-completion--word))
+    ('prefix (ai-code-terminal-completion--tracked-word))
     ('candidates
      (let* ((index (ai-code-prompt-completion--ensure-index))
             (prompts (cl-remove-if-not
@@ -132,11 +125,15 @@
                    (with-current-buffer buffer
                      (when (and ai-code-terminal-completion-mode
                                 (equal ai-code-terminal-completion--input input)
-                                (ai-code-terminal-completion--word))
+                                (ai-code-terminal-completion--tracked-word))
                        ;; Vterm is read-only.  Company needs this binding for
                        ;; its eligibility check, but never owns an insertion.
-                       (let ((buffer-read-only nil))
-                         (company-auto-begin))))))))))))
+                       (when (let ((buffer-read-only nil))
+                               (company-auto-begin))
+                         ;; Match `company-idle-begin': render the tooltip
+                         ;; and install its keymap after starting completion.
+                         (let ((this-command 'company-idle-begin))
+                           (company-post-command)))))))))))))
 
 (defun ai-code-terminal-completion--post-command ()
   "Track only plain keys that the terminal itself processed."
@@ -163,7 +160,7 @@
 (defun ai-code-terminal-completion-accept ()
   "Insert the selected Company candidate into the CLI without submitting."
   (interactive)
-  (let* ((word (ai-code-terminal-completion--word))
+  (let* ((word (ai-code-terminal-completion--tracked-word))
          (candidate (and word company-candidates
                          (nth (or company-selection 0) company-candidates)))
          (full (and candidate

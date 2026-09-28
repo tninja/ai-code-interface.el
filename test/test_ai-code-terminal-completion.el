@@ -14,6 +14,7 @@
 
 (defvar company-candidates)
 (defvar company-selection)
+(defvar company-pseudo-tooltip-overlay)
 
 (ert-deftest ai-code-terminal-completion-test-accepts-prompt-without-submitting ()
   "A matching prefix expands by terminal I/O without changing the buffer."
@@ -45,20 +46,53 @@
       (should (= (length (cdr sent)) (length "explain the cur")))
       (should (string-empty-p ai-code-terminal-completion--input)))))
 
-(ert-deftest ai-code-terminal-completion-test-stale-terminal-text-is-not-replaced ()
-  "If the CLI redraws a different input, do not send any backspaces."
+(ert-deftest ai-code-terminal-completion-test-accept-trusts-tracked-input-despite-tui-redraw ()
+  "A TUI redraw never echoes the suffix, yet Tab still expands it.
+Gating acceptance on buffer text made Tab a no-op in vterm sessions;
+resetting the tracked input on unknown commands is the staleness guard."
   (with-temp-buffer
     (insert "> changed by CLI")
     (goto-char (point-max))
     (let ((ai-code-terminal-completion-mode t)
           (ai-code-terminal-completion--input "explain the cur")
           (company-candidates '("current code"))
-          (sent nil))
-      (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-send-backspace)
-                 (lambda () (setq sent t)))
+          (company-selection 0)
+          (sent nil)
+          (index (list nil (make-hash-table :test #'equal))))
+      (cl-letf (((symbol-function 'ai-code-prompt-completion--ensure-index)
+                 (lambda () index))
+                ((symbol-function 'ai-code-backends-infra--terminal-send-backspace)
+                 (lambda () (push 'backspace sent)))
+                ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                 (lambda (string &optional paste)
+                   (push (list string paste) sent)))
                 ((symbol-function 'company-abort) (lambda () nil)))
         (ai-code-terminal-completion-accept))
-      (should-not sent))))
+      (should (equal (buffer-string) "> changed by CLI"))
+      (should (equal (car sent) '("current code" t)))
+      (should (= (length (cdr sent)) (length "cur")))
+      (should (string-empty-p ai-code-terminal-completion--input)))))
+
+(ert-deftest ai-code-terminal-completion-test-accept-refuses-multiline-candidate ()
+  "A multi-line candidate never reaches terminal input."
+  (with-temp-buffer
+    (insert "> explain")
+    (goto-char (point-max))
+    (let ((ai-code-terminal-completion-mode t)
+          (ai-code-terminal-completion--input "explain")
+          (company-candidates '("explain\nmore"))
+          (company-selection 0)
+          (sent nil))
+      (cl-letf (((symbol-function 'ai-code-prompt-completion--ensure-index)
+                 (lambda () (list nil (make-hash-table :test #'equal))))
+                ((symbol-function 'ai-code-backends-infra--terminal-send-backspace)
+                 (lambda () (setq sent t)))
+                ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                 (lambda (&rest _) (setq sent t)))
+                ((symbol-function 'company-abort) (lambda () nil)))
+        (ai-code-terminal-completion-accept))
+      (should-not sent)
+      (should (string-empty-p ai-code-terminal-completion--input)))))
 
 (ert-deftest ai-code-terminal-completion-test-unknown-edit-discards-tracking ()
   "History and cursor operations never leave a stale tracked prefix."
@@ -79,10 +113,10 @@
       (insert input)
       (let ((ai-code-terminal-completion-mode t)
             (ai-code-terminal-completion--input input))
-        (should-not (ai-code-terminal-completion--word))))))
+        (should-not (ai-code-terminal-completion--tracked-word))))))
 
 (ert-deftest ai-code-terminal-completion-test-schedules-before-cli-redraw ()
-  "Typing can schedule completion before the terminal echoes the key."
+  "Typing schedules completion before the terminal echoes the key."
   (with-temp-buffer
     (insert "> explai")
     (goto-char (point-max))
@@ -90,10 +124,21 @@
           (ai-code-terminal-completion--input "explain"))
       (unwind-protect
           (progn
-            (should-not (ai-code-terminal-completion--word))
+            (should (equal (ai-code-terminal-completion--tracked-word)
+                           "explain"))
             (ai-code-terminal-completion--schedule)
             (should (timerp ai-code-terminal-completion--timer)))
         (ai-code-terminal-completion--cancel-timer)))))
+
+(ert-deftest ai-code-terminal-completion-test-prefix-follows-tracked-input-in-tui ()
+  "A TUI redraw never echoes the suffix, yet the prefix still completes."
+  (with-temp-buffer
+    (insert "+-- ask --+\n| > expla |")
+    (goto-char (point-max))
+    (let ((ai-code-terminal-completion-mode t)
+          (ai-code-terminal-completion--input "explain"))
+      (should (equal (ai-code-terminal-completion--company 'prefix)
+                     "explain")))))
 
 (ert-deftest ai-code-terminal-completion-test-no-multiline-candidates ()
   "Do not feed multi-line history entries into terminal input."
@@ -109,13 +154,13 @@
                        '("explain the code")))))))
 
 (ert-deftest ai-code-terminal-completion-test-company-opens-over-read-only-terminal ()
-  "Company can show candidates while the terminal remains read-only."
+  "The timer displays a tooltip and installs Tab in a read-only terminal."
   (skip-unless (require 'company nil t))
   (let ((buffer (generate-new-buffer " *terminal completion test*")))
     (unwind-protect
         (save-window-excursion
           (switch-to-buffer buffer)
-          (insert "> explain")
+          (insert "| > expla |")
           (goto-char (point-max))
           (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
           (ai-code-terminal-completion-mode 1)
@@ -126,10 +171,21 @@
                                       (make-hash-table :test #'equal))))
                     ((symbol-function 'ai-code-terminal-completion--dict)
                      (lambda (_) nil)))
-            (let ((buffer-read-only nil))
-              (should (company-auto-begin)))
+            (ai-code-terminal-completion--schedule)
+            (let ((timer ai-code-terminal-completion--timer)
+                  (this-command nil))
+              (should (timerp timer))
+              ;; Run the scheduled callback without depending on wall time.
+              (cancel-timer timer)
+              (apply (timer--function timer) (timer--args timer)))
             (should (equal company-candidates '("explain the current code")))
-            (should (equal (buffer-string) "> explain"))))
+            (should (overlayp company-pseudo-tooltip-overlay))
+            (should (eq (overlay-buffer company-pseudo-tooltip-overlay) buffer))
+            (should (overlay-get company-pseudo-tooltip-overlay 'before-string))
+            (should (eq (key-binding (kbd "TAB"))
+                        #'ai-code-terminal-completion-accept))
+            (should buffer-read-only)
+            (should (equal (buffer-string) "| > expla |"))))
       (when (buffer-live-p buffer)
         (with-current-buffer buffer
           (setq buffer-read-only nil)
