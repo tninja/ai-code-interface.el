@@ -2268,6 +2268,23 @@ visible-window recovery in large terminal scrollback."
   (max ai-code-session-link--linkify-min-tail-width
        (* 2 (length (or output "")))))
 
+(defun ai-code-session-link--recent-output-start (tail-width)
+  "Return where to start rescanning the last TAIL-WIDTH characters of output.
+The rescan also covers the last screenful of lines of every window showing
+the buffer.  On a wide window a character tail can span only a TUI's input
+box and footer, leaving the response rows above them unscanned."
+  (let ((start (max (point-min) (- (point-max) tail-width)))
+        (lines (apply #'max 0
+                      (mapcar #'window-body-height
+                              (get-buffer-window-list (current-buffer) nil t)))))
+    (if (zerop lines)
+        start
+      (min start
+           (save-excursion
+             (goto-char (point-max))
+             (forward-line (- lines))
+             (line-beginning-position))))))
+
 (defun ai-code-session-link--recent-output-plain-text (output)
   "Return OUTPUT with terminal control sequences removed."
   (let* ((text (or output ""))
@@ -2323,10 +2340,9 @@ visible-window recovery in large terminal scrollback."
            (current-buffer)
            ai-code-session-link--linkify-inhibited-retry-delay)
         (setq ai-code-session-link--pending-tail-width 0)
-        (let ((end (point-max)))
-          (ai-code-session-link--linkify-session-region
-           (max (point-min) (- end tail-width))
-           end))))))
+        (ai-code-session-link--linkify-session-region
+         (ai-code-session-link--recent-output-start tail-width)
+         (point-max))))))
 
 (defun ai-code-session-link--schedule-linkify-recent-output (buffer output &optional delay)
   "Linkify recent OUTPUT in BUFFER after terminal redraw settles.
@@ -2345,10 +2361,10 @@ Optional DELAY overrides the default redraw delay in seconds."
   (when (ai-code-session-link--should-linkify-recent-output-p
          (current-buffer)
          output)
-    (let* ((visible-width (ai-code-session-link--recent-output-tail-width output))
-           (end (point-max))
-           (start (max (point-min) (- end visible-width))))
-      (ai-code-session-link--linkify-session-region start end))))
+    (ai-code-session-link--linkify-session-region
+     (ai-code-session-link--recent-output-start
+      (ai-code-session-link--recent-output-tail-width output))
+     (point-max))))
 
 
 (provide 'ai-code-session-link)

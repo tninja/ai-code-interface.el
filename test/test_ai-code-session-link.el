@@ -2788,6 +2788,28 @@ Ghostel repaints rows with identical text and no text properties."
           (should (= remove-count 0)))
       (delete-directory root t))))
 
+;; Recent-output rescan scope
+
+(ert-deftest ai-code-session-link-test-recent-output-start-covers-visible-lines ()
+  "Rescan at least the visible lines, however wide they are.
+On a wide window 512 characters can span only a TUI's input box and footer."
+  (with-temp-buffer
+    (dotimes (i 100)
+      (insert (format "row %03d %s\n" i (make-string 400 ?-))))
+    (let ((tail-only (ai-code-session-link--recent-output-start 512)))
+      (should (= tail-only (- (point-max) 512)))
+      (save-window-excursion
+        (set-window-buffer (selected-window) (current-buffer))
+        (let ((visible-start
+               (save-excursion
+                 (goto-char (point-max))
+                 (forward-line (- (window-body-height)))
+                 (point))))
+          (should (> (window-body-height) 1))
+          (should (= (ai-code-session-link--recent-output-start 512)
+                     visible-start))
+          (should (< visible-start tail-only)))))))
+
 (provide 'test_ai-code-session-link)
 
 ;;; test_ai-code-session-link.el ends here
