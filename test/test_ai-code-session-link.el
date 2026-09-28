@@ -2810,6 +2810,120 @@ On a wide window 512 characters can span only a TUI's input box and footer."
                      visible-start))
           (should (< visible-start tail-only)))))))
 
+;; Extensionless relative paths
+
+(ert-deftest ai-code-session-link-test-does-not-link-missing-extensionless-slash-paths ()
+  "Skip slash text with no extension that names no local path.
+Git refs such as fix/topic and prose such as and/or are not files."
+  (let ((root (make-temp-file "ai-code-session-links-slash-" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "bin" root))
+          (with-temp-file (expand-file-name "bin/tool" root)
+            (insert "#!/bin/sh\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "on fix/some-topic, see bin/tool and src/missing.el\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward "fix/some-topic")
+            (should-not (get-text-property (match-beginning 0)
+                                           'ai-code-session-link))
+            (search-forward "bin/tool")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-link)
+                           "bin/tool"))
+            (search-forward "src/missing.el")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-link)
+                           "src/missing.el"))))
+      (delete-directory root t))))
+
+;; Session root directory names
+
+(ert-deftest ai-code-session-link-test-does-not-link-session-root-directory-name ()
+  "Do not link the session root's name when it only looks like a file.
+Claude Code's footer prints the working directory name, such as foo.el."
+  (let* ((parent (make-temp-file "ai-code-session-links-root-name-" t))
+         (root (expand-file-name "foo.el" parent)))
+    (unwind-protect
+        (progn
+          (make-directory root)
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "  foo.el  model  bar.el\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward "foo.el")
+            (should-not (get-text-property (match-beginning 0)
+                                           'ai-code-session-link))
+            (search-forward "bar.el")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-link)
+                           "bar.el"))))
+      (delete-directory parent t))))
+
+(ert-deftest ai-code-session-link-test-links-existing-file-named-like-session-root ()
+  "Link the session root's name when a file of that name exists in it."
+  (let* ((parent (make-temp-file "ai-code-session-links-root-file-" t))
+         (root (expand-file-name "dash.el" parent)))
+    (unwind-protect
+        (progn
+          (make-directory root)
+          (with-temp-file (expand-file-name "dash.el" root)
+            (insert ";; dash\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (cl-letf (((symbol-function
+                        'ai-code-session-link--trusted-local-session-p)
+                       (lambda () t)))
+              (insert "  dash.el\n")
+              (ai-code-session-link--linkify-session-region (point-min) (point-max)))
+            (goto-char (point-min))
+            (search-forward "dash.el")
+            (should (get-text-property (match-beginning 0)
+                                       'ai-code-session-link))))
+      (delete-directory parent t))))
+
+(ert-deftest ai-code-session-link-test-links-root-name-reference-with-line-number ()
+  "Link the session root's name when it carries a line number.
+A status line prints the bare name, never foo.el:12."
+  (let* ((parent (make-temp-file "ai-code-session-links-root-line-" t))
+         (root (expand-file-name "foo.el" parent)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "src" root) t)
+          (with-temp-file (expand-file-name "src/foo.el" root)
+            (insert ";; foo\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "  foo.el  model\nSee foo.el:12 for details\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward "foo.el")
+            (should-not (get-text-property (match-beginning 0)
+                                           'ai-code-session-link))
+            (search-forward "foo.el:12")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-link)
+                           "foo.el:12"))))
+      (delete-directory parent t))))
+
+(ert-deftest ai-code-session-link-test-links-root-name-reference-with-line-number-remote-root ()
+  "Link the remote session root's name when it carries a line number."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-directory "/ssh:host:/src/foo.el/")
+    (insert "  foo.el  model\nSee foo.el:12 for details\n")
+    (ai-code-session-link--linkify-session-region (point-min) (point-max))
+    (goto-char (point-min))
+    (search-forward "foo.el")
+    (should-not (get-text-property (match-beginning 0)
+                                   'ai-code-session-link))
+    (search-forward "foo.el:12")
+    (should (equal (get-text-property (match-beginning 0)
+                                      'ai-code-session-link)
+                   "foo.el:12"))))
+
 (provide 'test_ai-code-session-link)
 
 ;;; test_ai-code-session-link.el ends here

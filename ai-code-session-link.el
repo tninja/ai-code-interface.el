@@ -598,10 +598,12 @@ Optional PROJECT-FILES supplies the project file list."
                        ai-code-session-link--basename-file-extensions))))))
 
 (defun ai-code-session-link--cheap-file-link-candidate-p
-    (path &optional root allow-local-probing)
+    (path &optional root allow-local-probing line-reference)
   "Return non-nil when PATH is worth linkifying without project scans.
 Optional ROOT is the session project root used for bounded local existence
 checks.  When ALLOW-LOCAL-PROBING is nil, only syntactic checks are used.
+LINE-REFERENCE non-nil means PATH was followed by a line number; status
+lines never print one, so the name of ROOT is then not skipped.
 Expensive project-wide resolution stays in
 `ai-code-session-link--resolve-session-file' on activation."
   (when-let* ((normalized (ai-code-session-link--normalize-file path)))
@@ -609,16 +611,31 @@ Expensive project-wide resolution stays in
       (or (and allow-local-probing
                (ai-code-session-link--resolve-existing-local-path
                 normalized root))
-          (and (not (file-name-absolute-p normalized))
-               (or (string-prefix-p "./" normalized)
-                   (string-prefix-p "../" normalized)
-                   (string-match-p "[/\\\\]" normalized)
-                   (and extension
-                        (member (downcase extension)
-                                ai-code-session-link--basename-file-extensions))))
-          (and (not allow-local-probing)
-               (ai-code-session-link--syntactic-file-link-candidate-p
-                normalized))))))
+          (and (or line-reference
+                   (not (ai-code-session-link--root-directory-name-p
+                         normalized root)))
+               (or (and (not (file-name-absolute-p normalized))
+                        (or (string-prefix-p "./" normalized)
+                            (string-prefix-p "../" normalized)
+                            ;; With probing, an existing path already
+                            ;; matched above; an extensionless one that
+                            ;; does not exist is prose or a git ref such
+                            ;; as and/or or origin/main.
+                            (and (string-match-p "[/\\\\]" normalized)
+                                 (or extension (not allow-local-probing)))
+                            (and extension
+                                 (member (downcase extension)
+                                         ai-code-session-link--basename-file-extensions))))
+                   (and (not allow-local-probing)
+                        (ai-code-session-link--syntactic-file-link-candidate-p
+                         normalized))))))))
+
+(defun ai-code-session-link--root-directory-name-p (path root)
+  "Return non-nil when PATH is just the name of the session ROOT directory.
+Status lines such as Claude Code's footer print the working directory name,
+which reads as a file name when the directory is named like one (foo.el)."
+  (and root
+       (string= path (file-name-nondirectory (directory-file-name root)))))
 
 (defun ai-code-session-link--resolve-session-file (path)
   "Resolve PATH to an existing local path or a matching project file."
@@ -1642,10 +1659,12 @@ When ALLOW-LOCAL-PROBING is nil, only syntactic checks are used."
            start end root allow-local-probing))
     (cl-labels
         ((add-link
-          (match-start match-end link-text &optional candidate-text)
+          (match-start match-end link-text
+           &optional candidate-text line-reference)
           (unless (gethash match-start seen-starts)
             (when (ai-code-session-link--cheap-file-link-candidate-p
-                   (or candidate-text link-text) root allow-local-probing)
+                   (or candidate-text link-text) root allow-local-probing
+                   line-reference)
               (puthash match-start t seen-starts)
               (push (list :start match-start
                           :end match-end
@@ -1669,7 +1688,8 @@ When ALLOW-LOCAL-PROBING is nil, only syntactic checks are used."
               (add-link
                match-start match-end
                (buffer-substring-no-properties match-start match-end)
-               path))))))
+               path
+               (and (nth 2 pattern) t)))))))
     (ai-code-session-link--sort-and-prune-links file-links)))
 
 (defun ai-code-session-link--trim-url-end (start end)
