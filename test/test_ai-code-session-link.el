@@ -2747,6 +2747,47 @@ Bare wrapped paths -- as printed by tools such as Claude, which omit the
             (when (timerp ai-code-session-link--linkify-timer)
               (cancel-timer ai-code-session-link--linkify-timer))))))))
 
+;; Terminal redraws that repaint identical text
+
+(ert-deftest ai-code-session-link-test-relinkifies-unchanged-text-after-links-are-lost ()
+  "Relinkify a region whose text is unchanged but whose links were stripped.
+Ghostel repaints rows with identical text and no text properties."
+  (let ((root (make-temp-file "ai-code-session-links-repaint-" t)))
+    (unwind-protect
+        (with-temp-buffer
+          (setq-local ai-code-backends-infra--session-directory root)
+          (insert "See src/foo.el:12 here\n")
+          (ai-code-session-link--linkify-session-region (point-min) (point-max))
+          (goto-char (point-min))
+          (search-forward "src/foo.el:12")
+          (let ((link-start (match-beginning 0))
+                (text (buffer-string)))
+            (should (get-text-property link-start 'ai-code-session-link))
+            (erase-buffer)
+            (insert (substring-no-properties text))
+            (should-not (get-text-property link-start 'ai-code-session-link))
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (should (equal (get-text-property link-start 'ai-code-session-link)
+                           "src/foo.el:12"))
+            (should (eq (get-text-property link-start 'face) 'link))))
+      (delete-directory root t))))
+
+(ert-deftest ai-code-session-link-test-skips-unchanged-region-with-links-intact ()
+  "Skip relinkification when both the text and its links are unchanged."
+  (let ((root (make-temp-file "ai-code-session-links-unchanged-" t))
+        (remove-count 0))
+    (unwind-protect
+        (with-temp-buffer
+          (setq-local ai-code-backends-infra--session-directory root)
+          (insert "See src/foo.el:12 here\n")
+          (ai-code-session-link--linkify-session-region (point-min) (point-max))
+          (cl-letf (((symbol-function
+                      'ai-code-session-link--remove-managed-properties)
+                     (lambda (&rest _) (cl-incf remove-count))))
+            (ai-code-session-link--linkify-session-region (point-min) (point-max)))
+          (should (= remove-count 0)))
+      (delete-directory root t))))
+
 (provide 'test_ai-code-session-link)
 
 ;;; test_ai-code-session-link.el ends here

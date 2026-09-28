@@ -424,6 +424,9 @@ Tolerates Ghostel hard-wrapping via
 (defvar-local ai-code-session-link--last-region-rules-version nil
   "Linkification rules version used for the last relinkified region.")
 
+(defvar-local ai-code-session-link--last-region-link-count nil
+  "Number of session link spans left by the last relinkified region pass.")
+
 (defvar ai-code-session-link--project-files-cache nil
   "Dynamic cache of project file lists used during one linkify pass.")
 
@@ -486,12 +489,28 @@ Tolerates Ghostel hard-wrapping via
       (setq ai-code-session-link--buffer-project-files-cache
             (make-hash-table :test 'equal))))
 
+(defun ai-code-session-link--count-link-spans (start end)
+  "Return the number of session link spans between START and END."
+  (let ((count 0)
+        (position start))
+    (while (< position end)
+      (when (get-text-property position 'ai-code-session-link)
+        (setq count (1+ count)))
+      (setq position (or (next-single-property-change
+                          position 'ai-code-session-link nil end)
+                         end)))
+    count))
+
 (defun ai-code-session-link--unchanged-region-p (bounds region-text)
-  "Return non-nil when BOUNDS and REGION-TEXT match the last relinkified region."
+  "Return non-nil when BOUNDS and REGION-TEXT match the last relinkified region.
+The region must also still carry the links that pass applied: terminals
+such as Ghostel repaint rows with identical text but no text properties."
   (and (equal ai-code-session-link--last-region-bounds bounds)
        (equal ai-code-session-link--last-region-rules-version
               ai-code-session-link--linkify-rules-version)
-       (equal ai-code-session-link--last-region-text region-text)))
+       (equal ai-code-session-link--last-region-text region-text)
+       (eql ai-code-session-link--last-region-link-count
+            (ai-code-session-link--count-link-spans (car bounds) (cdr bounds)))))
 
 (defun ai-code-session-link--project-files (root)
   "Return absolute project files for ROOT."
@@ -2238,7 +2257,9 @@ visible-window recovery in large terminal scrollback."
               (setq ai-code-session-link--last-region-bounds bounds
                     ai-code-session-link--last-region-text region-text
                     ai-code-session-link--last-region-rules-version
-                    ai-code-session-link--linkify-rules-version))))))
+                    ai-code-session-link--linkify-rules-version
+                    ai-code-session-link--last-region-link-count
+                    (ai-code-session-link--count-link-spans start end)))))))
       (run-hook-with-args
        'ai-code-session-link-after-linkify-functions start end)))
 
