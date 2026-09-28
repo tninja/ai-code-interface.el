@@ -676,6 +676,31 @@ Return nil so this public redraw hook never inhibits the redraw."
     (cancel-timer ai-code-backends-infra-ghostel--link-restoration-timer))
   (setq ai-code-backends-infra-ghostel--link-restoration-timer nil))
 
+(defun ai-code-backends-infra-ghostel--restore-links-after-redraw-now
+    (buffer &rest _)
+  "Restore cached session links in BUFFER right after Ghostel redraws it.
+Emacs may redisplay before the zero-delay restoration timer fires, showing
+repainted rows without their links for one frame.  Restoring here, before
+control returns to the command loop, prevents that flicker."
+  (when (and (buffer-live-p buffer)
+             (ai-code-backends-infra-ghostel--ai-session-buffer-p buffer))
+    (with-current-buffer buffer
+      (ai-code-backends-infra-ghostel--cancel-link-restoration)
+      (ai-code-backends-infra-ghostel--restore-preserved-link-spans))))
+
+(defun ai-code-backends-infra-ghostel--install-redraw-link-restoration ()
+  "Restore links synchronously after each `ghostel--redraw-now'.
+Ghostel has no public post-redraw hook, so this advises its private redraw
+entry point.  When that function is unavailable, the timer scheduled from
+`ghostel-inhibit-redraw-functions' remains the fallback."
+  (when (and (fboundp 'ghostel--redraw-now)
+             (not
+              (advice-member-p
+               #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now
+               'ghostel--redraw-now)))
+    (advice-add 'ghostel--redraw-now :after
+                #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now)))
+
 (defun ai-code-backends-infra-ghostel--floor-plain-link-detection-delay ()
   "Keep Ghostel's plain-link detection asynchronous in this buffer.
 Raise a non-positive `ghostel-plain-link-detection-delay' to
@@ -693,6 +718,7 @@ Cache spans after each linkify pass, restore them after each redraw, drop
 the pending restoration timer when the buffer dies, and keep Ghostel's
 plain-link detection asynchronous so restoration runs first."
   (ai-code-backends-infra-ghostel--floor-plain-link-detection-delay)
+  (ai-code-backends-infra-ghostel--install-redraw-link-restoration)
   (add-hook 'ghostel-inhibit-redraw-functions
             #'ai-code-backends-infra-ghostel--schedule-link-restoration t t)
   (add-hook 'ai-code-session-link-after-linkify-functions
@@ -1062,6 +1088,14 @@ ENV-VARS are extra environment variables for the terminal process."
                            sentinel)))
           (ai-code-backends-infra-ghostel--wrap-process-filter buffer proc))
         (cons buffer proc)))))
+
+(defun ai-code-backends-infra-ghostel-unload-function ()
+  "Remove the global redraw advice installed by this module.
+Return nil so `unload-feature' proceeds with normal unloading."
+  (when (fboundp 'ghostel--redraw-now)
+    (advice-remove 'ghostel--redraw-now
+                   #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now))
+  nil)
 
 (provide 'ai-code-backends-infra-ghostel)
 ;;; ai-code-backends-infra-ghostel.el ends here

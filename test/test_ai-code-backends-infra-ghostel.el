@@ -1256,5 +1256,68 @@ in `before-string' were misidentified as IME preedit overlays."
               (current-buffer))))
         (delete-overlay overlay)))))
 
+;; Synchronous link restoration after redraw
+
+(ert-deftest test-ai-code-backends-infra-ghostel-restores-links-right-after-redraw ()
+  "Links should come back before redisplay, and the fallback timer be dropped."
+  (let ((link-keymap (make-sparse-keymap)))
+    (with-temp-buffer
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (insert "Open src/foo.el:1\n")
+      (goto-char (point-min))
+      (search-forward "src/foo.el:1")
+      (let ((link-start (match-beginning 0))
+            (link-end (match-end 0))
+            (timer (run-at-time 60 nil #'ignore)))
+        (unwind-protect
+            (progn
+              (add-text-properties
+               link-start link-end
+               (list 'help-echo "fileref:/tmp/src/foo.el:1"
+                     'keymap link-keymap))
+              (ai-code-backends-infra-ghostel--cache-preserved-link-spans
+               (point-min) (point-max))
+              (remove-text-properties link-start link-end
+                                      '(help-echo nil keymap nil))
+              (setq-local ai-code-backends-infra-ghostel--link-restoration-timer
+                          timer)
+              (ai-code-backends-infra-ghostel--restore-links-after-redraw-now
+               (current-buffer))
+              (should (equal (get-text-property link-start 'help-echo)
+                             "fileref:/tmp/src/foo.el:1"))
+              (should (eq (get-text-property link-start 'keymap) link-keymap))
+              (should-not
+               ai-code-backends-infra-ghostel--link-restoration-timer)
+              (should-not (memq timer timer-list)))
+          (cancel-timer timer))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-installs-redraw-link-restoration-once ()
+  "Link preservation should advise Ghostel's redraw entry point once."
+  (let ((stubbed (not (fboundp 'ghostel--redraw-now))))
+    (when stubbed
+      (defalias 'ghostel--redraw-now (lambda (_buffer &optional _force) nil)))
+    (unwind-protect
+        (with-temp-buffer
+          (setq-local ghostel-inhibit-redraw-functions nil)
+          (setq-local ai-code-session-link-after-linkify-functions nil)
+          (ai-code-backends-infra-ghostel--install-link-preservation)
+          (ai-code-backends-infra-ghostel--install-link-preservation)
+          (should
+           (advice-member-p
+            #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now
+            'ghostel--redraw-now))
+          (advice-remove
+           'ghostel--redraw-now
+           #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now)
+          (should-not
+           (advice-member-p
+            #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now
+            'ghostel--redraw-now)))
+      (advice-remove
+       'ghostel--redraw-now
+       #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now)
+      (when stubbed
+        (fmakunbound 'ghostel--redraw-now)))))
+
 (provide 'test_ai-code-backends-infra-ghostel)
 ;;; test_ai-code-backends-infra-ghostel.el ends here
