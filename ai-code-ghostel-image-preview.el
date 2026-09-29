@@ -270,20 +270,23 @@ ordinary pixel-scroll command."
              ai-code-ghostel-image-preview--user-scrolled-windows))
       (memq window ai-code-ghostel-image-preview--user-scrolled-windows))))
 
-(defun ai-code-ghostel-image-preview--input-row-bounds ()
-  "Return the bounds of Ghostel's live cursor row, or nil."
+(defun ai-code-ghostel-image-preview--input-row-start ()
+  "Return the start of Ghostel's live cursor row, or nil."
   (when (and (boundp 'ghostel--cursor-char-pos)
              (integer-or-marker-p ghostel--cursor-char-pos))
     (save-excursion
       (goto-char (max (point-min)
                       (min (point-max) ghostel--cursor-char-pos)))
-      (cons (line-beginning-position) (line-end-position)))))
+      (line-beginning-position))))
 
 (defun ai-code-ghostel-image-preview--position-allowed-p (start _end)
-  "Return non-nil when an image preview may begin at START."
-  (if-let* ((input-bounds
-             (ai-code-ghostel-image-preview--input-row-bounds)))
-      (not (<= (car input-bounds) start (cdr input-bounds)))
+  "Return non-nil when an image preview may begin at START.
+Rows from the live cursor row down hold the TUI's input box, its file
+completion menu, and its status lines, so file names there are not
+previewed."
+  (if-let* ((input-start
+             (ai-code-ghostel-image-preview--input-row-start)))
+      (< start input-start)
     t))
 
 (defun ai-code-ghostel-image-preview--overlays-in-region (start end)

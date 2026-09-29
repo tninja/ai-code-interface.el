@@ -53,6 +53,26 @@
         (when was-bound
           (set 'ghostel--cursor-char-pos saved))))))
 
+(ert-deftest test-ai-code-ghostel-image-preview--completion-menu-not-allowed ()
+  "File names completed below the input row should not be previewed."
+  (with-temp-buffer
+    (insert "Saved shot.png\n"
+            "❯ @sh\n"
+            "  shot.png\n"
+            "  sheet.png\n")
+    (goto-char (point-min))
+    (forward-line 1)
+    (setq-local ghostel--cursor-char-pos (line-end-position))
+    (cl-flet ((allowed-p (text)
+                (goto-char (point-min))
+                (search-forward text)
+                (ai-code-ghostel-image-preview--position-allowed-p
+                 (match-beginning 0) (match-end 0))))
+      (should (allowed-p "shot.png"))
+      (should-not (allowed-p "@sh"))
+      (should-not (allowed-p "  shot.png"))
+      (should-not (allowed-p "sheet.png")))))
+
 (ert-deftest test-ai-code-ghostel-image-preview--recovery-scans-images-only ()
   "Visible recovery must not run the general session-link regex pipeline."
   (let (generic-called strict-called)
