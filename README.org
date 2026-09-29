@@ -721,6 +721,8 @@ To transfer development work between different AI coding backends (e.g., from Co
   (setq ai-code-session-link-ghostel-image-preview-max-height nil)
 #+end_src
 
+  =M-x ai-code-toggle-image-preview= turns these previews off or on in all Ghostel sessions without restarting them.
+
 *** Q: Gemini CLI response is relatively slow, how to improve?
 - A: use gemini-3-flash model, it is pretty fast, with good quality (being able to solve leetcode hard problems), and it is free. You can set the following in your Emacs config:
 

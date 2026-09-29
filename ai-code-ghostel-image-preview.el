@@ -936,6 +936,30 @@ Optional DELAYS overrides the default scan delays."
         ai-code-ghostel-image-preview--output-tail "")
   (ai-code-ghostel-image-preview-mode -1))
 
+;;;###autoload
+(defun ai-code-toggle-image-preview ()
+  "Toggle local image previews in all Ghostel AI session buffers."
+  (interactive)
+  (setq ai-code-session-link-ghostel-image-preview-enabled
+        (not ai-code-session-link-ghostel-image-preview-enabled))
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when (ai-code-session-link--ghostel-session-p)
+        (cond
+         ((not ai-code-session-link-ghostel-image-preview-enabled)
+          (when ai-code-ghostel-image-preview-mode
+            (ai-code-ghostel-image-preview-disable))
+          (save-restriction
+            (widen)
+            (ai-code-session-link--delete-image-preview-overlays
+             (point-min) (point-max))))
+         ((and (not ai-code-ghostel-image-preview-mode)
+               (ai-code-session-link--image-preview-enabled-p))
+          (ai-code-ghostel-image-preview-enable))))))
+  (message "AI Code image previews %s"
+           (if ai-code-session-link-ghostel-image-preview-enabled
+               "enabled" "disabled")))
+
 (defun ai-code-ghostel-image-preview-unload-function ()
   "Remove global integration installed by this module."
   (dolist (buffer (buffer-list))

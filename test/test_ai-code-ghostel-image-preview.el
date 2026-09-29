@@ -73,6 +73,46 @@
       (should-not (allowed-p "  shot.png"))
       (should-not (allowed-p "sheet.png")))))
 
+(ert-deftest test-ai-code-ghostel-image-preview--toggle-disables-and-enables-sessions ()
+  "Toggling should clear previews in Ghostel sessions, then re-enable them."
+  (let ((session (generate-new-buffer " *ai-code-toggle-session*"))
+        (other (generate-new-buffer " *ai-code-toggle-other*"))
+        (ai-code-session-link-ghostel-image-preview-enabled t)
+        enabled disabled)
+    (unwind-protect
+        (cl-letf (((symbol-function 'display-images-p)
+                   (lambda (&optional _display) t))
+                  ((symbol-function 'ai-code-ghostel-image-preview-enable)
+                   (lambda ()
+                     (push (current-buffer) enabled)
+                     (setq-local ai-code-ghostel-image-preview-mode t)))
+                  ((symbol-function 'ai-code-ghostel-image-preview-disable)
+                   (lambda ()
+                     (push (current-buffer) disabled)
+                     (setq-local ai-code-ghostel-image-preview-mode nil)))
+                  ((symbol-function 'message) #'ignore))
+          (dolist (buffer (list session other))
+            (with-current-buffer buffer
+              (insert "Saved shot.png\n")
+              (overlay-put (make-overlay (point-min) (point-max))
+                           'ai-code-session-image-preview t)))
+          (with-current-buffer session
+            (setq-local ai-code-backends-infra--session-terminal-backend
+                        'ghostel)
+            (setq-local ai-code-ghostel-image-preview-mode t))
+          (ai-code-toggle-image-preview)
+          (should-not ai-code-session-link-ghostel-image-preview-enabled)
+          (should (equal disabled (list session)))
+          (with-current-buffer session
+            (should-not (overlays-in (point-min) (point-max))))
+          (with-current-buffer other
+            (should (overlays-in (point-min) (point-max))))
+          (ai-code-toggle-image-preview)
+          (should ai-code-session-link-ghostel-image-preview-enabled)
+          (should (equal enabled (list session))))
+      (kill-buffer session)
+      (kill-buffer other))))
+
 (ert-deftest test-ai-code-ghostel-image-preview--recovery-scans-images-only ()
   "Visible recovery must not run the general session-link regex pipeline."
   (let (generic-called strict-called)
