@@ -113,6 +113,42 @@
       (kill-buffer session)
       (kill-buffer other))))
 
+(ert-deftest test-ai-code-ghostel-image-preview--toggle-keeps-captured-sources ()
+  "Toggling off and on should keep images captured from deleted files."
+  (let ((session (generate-new-buffer " *ai-code-toggle-session*"))
+        (ai-code-session-link-ghostel-image-preview-enabled t)
+        (sources (list (list :file "/tmp/shot.png"
+                             :data "PNG"
+                             :signature '(3 . 0)))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'display-images-p)
+                   (lambda (&optional _display) t))
+                  ((symbol-function 'ai-code-ghostel-image-preview-enable)
+                   (lambda ()
+                     (setq ai-code-ghostel-image-preview--captured-sources nil)
+                     (setq-local ai-code-ghostel-image-preview-mode t)))
+                  ((symbol-function 'ai-code-ghostel-image-preview-disable)
+                   (lambda ()
+                     (setq ai-code-ghostel-image-preview--captured-sources nil)
+                     (setq-local ai-code-ghostel-image-preview-mode nil)))
+                  ((symbol-function 'message) #'ignore))
+          (with-current-buffer session
+            (setq-local ai-code-backends-infra--session-terminal-backend
+                        'ghostel)
+            (setq-local ai-code-ghostel-image-preview-mode t)
+            (setq ai-code-ghostel-image-preview--captured-sources sources))
+          (ai-code-toggle-image-preview)
+          (with-current-buffer session
+            (should-not ai-code-ghostel-image-preview-mode)
+            (should (equal ai-code-ghostel-image-preview--captured-sources
+                           sources)))
+          (ai-code-toggle-image-preview)
+          (with-current-buffer session
+            (should ai-code-ghostel-image-preview-mode)
+            (should (equal ai-code-ghostel-image-preview--captured-sources
+                           sources))))
+      (kill-buffer session))))
+
 (ert-deftest test-ai-code-ghostel-image-preview--recovery-scans-images-only ()
   "Visible recovery must not run the general session-link regex pipeline."
   (let (generic-called strict-called)

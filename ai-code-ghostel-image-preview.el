@@ -945,17 +945,21 @@ Optional DELAYS overrides the default scan delays."
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
       (when (ai-code-session-link--ghostel-session-p)
-        (cond
-         ((not ai-code-session-link-ghostel-image-preview-enabled)
-          (when ai-code-ghostel-image-preview-mode
-            (ai-code-ghostel-image-preview-disable))
-          (save-restriction
-            (widen)
-            (ai-code-session-link--delete-image-preview-overlays
-             (point-min) (point-max))))
-         ((and (not ai-code-ghostel-image-preview-mode)
-               (ai-code-session-link--image-preview-enabled-p))
-          (ai-code-ghostel-image-preview-enable))))))
+        (let ((sources ai-code-ghostel-image-preview--captured-sources))
+          (unwind-protect
+              (cond
+               ((not ai-code-session-link-ghostel-image-preview-enabled)
+                (when ai-code-ghostel-image-preview-mode
+                  (ai-code-ghostel-image-preview-disable))
+                (save-restriction
+                  (widen)
+                  (ai-code-session-link--delete-image-preview-overlays
+                   (point-min) (point-max))))
+               ((and (not ai-code-ghostel-image-preview-mode)
+                     (ai-code-session-link--image-preview-enabled-p))
+                (ai-code-ghostel-image-preview-enable)))
+            (setq ai-code-ghostel-image-preview--captured-sources
+                  sources))))))
   (message "AI Code image previews %s"
            (if ai-code-session-link-ghostel-image-preview-enabled
                "enabled" "disabled")))
