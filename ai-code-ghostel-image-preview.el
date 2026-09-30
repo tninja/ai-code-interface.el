@@ -1036,6 +1036,9 @@ the global `mwheel-scroll-down-function'."
                        ai-code-ghostel-image-preview-scroll-line-up))
       (evil-add-command-properties command :repeat nil :keep-visual t))))
 
+(with-eval-after-load 'evil
+  (ai-code-ghostel-image-preview--declare-evil-commands))
+
 (defun ai-code-ghostel-image-preview-enable ()
   "Enable stable Ghostel image previews in the current AI Code session."
   (ai-code-ghostel-image-preview--install-redraw-advice)
@@ -1049,7 +1052,6 @@ the global `mwheel-scroll-down-function'."
               #'ai-code-ghostel-image-preview--wheel-scroll-up)
   (setq-local mwheel-scroll-down-function
               #'ai-code-ghostel-image-preview--wheel-scroll-down)
-  (ai-code-ghostel-image-preview--declare-evil-commands)
   (setq ai-code-ghostel-image-preview--captured-sources nil
         ai-code-ghostel-image-preview--output-tail "")
   (add-hook 'ghostel-inhibit-anchor-functions
