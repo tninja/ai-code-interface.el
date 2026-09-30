@@ -134,6 +134,9 @@ falls back to Ghostel. See [[./docs/windows.org][Native Windows Support]] for se
     - local image paths printed by an AI CLI (for example =screenshot.png=) are previewed inline in the session buffer while the source path remains visible and clickable.
     - tall local previews can use the optional =ultra-scroll= integration
       described below.
+    - while a local preview is visible, line scrolling (=scroll-up-line=,
+      =scroll-down-line=, evil's =C-e= / =C-y=) moves by pixels, one line
+      height per step, instead of jumping a whole image.
   - [[https://github.com/dakra/ghostel][ghostel]] is under active development, please install the latest version.
   - To try it:
 
