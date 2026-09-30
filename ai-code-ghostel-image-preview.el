@@ -990,11 +990,14 @@ While a local image preview is visible, scroll by pixels so an image
 taller than one line does not pass in a single step.  Otherwise run
 the line-scroll command this one remaps."
   (interactive "p")
-  (unless (ai-code-ghostel-image-preview--scroll-lines (or count 1))
-    (funcall (ai-code-ghostel-image-preview--remapped-command
-              '(evil-scroll-line-down scroll-up-line)
-              #'scroll-up-line)
-             count)))
+  (unwind-protect
+      (unless (ai-code-ghostel-image-preview--scroll-lines (or count 1))
+        (funcall (ai-code-ghostel-image-preview--remapped-command
+                  '(evil-scroll-line-down scroll-up-line)
+                  #'scroll-up-line)
+                 count))
+    (ai-code-ghostel-image-preview--clear-user-scroll-at-live-end
+     (selected-window))))
 
 (defun ai-code-ghostel-image-preview-scroll-line-up (&optional count)
   "Scroll COUNT lines toward earlier output in an enabled Ghostel session.
@@ -1002,11 +1005,14 @@ While a local image preview is visible, scroll by pixels so an image
 taller than one line does not pass in a single step.  Otherwise run
 the line-scroll command this one remaps."
   (interactive "p")
-  (unless (ai-code-ghostel-image-preview--scroll-lines (- (or count 1)))
-    (funcall (ai-code-ghostel-image-preview--remapped-command
-              '(evil-scroll-line-up scroll-down-line)
-              #'scroll-down-line)
-             count)))
+  (unwind-protect
+      (unless (ai-code-ghostel-image-preview--scroll-lines (- (or count 1)))
+        (funcall (ai-code-ghostel-image-preview--remapped-command
+                  '(evil-scroll-line-up scroll-down-line)
+                  #'scroll-down-line)
+                 count))
+    (ai-code-ghostel-image-preview--clear-user-scroll-at-live-end
+     (selected-window))))
 
 (defun ai-code-ghostel-image-preview--wheel-scroll-up (&optional arg)
   "Scroll ARG lines toward later output for `mwheel-scroll'.

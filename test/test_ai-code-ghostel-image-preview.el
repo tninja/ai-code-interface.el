@@ -681,6 +681,30 @@
                        (up-line 1) (down-line 1))))
       (should-not pixel-called))))
 
+(ert-deftest test-ai-code-ghostel-image-preview--line-scroll-clears-scrollback-at-live-end ()
+  "Keyboard scrolling should resume following output once it reaches the end."
+  (let (handled cleared)
+    (cl-letf (((symbol-function
+                'ai-code-ghostel-image-preview--scroll-lines)
+               (lambda (_lines)
+                 (if (eq handled 'error)
+                     (signal 'end-of-buffer nil)
+                   handled)))
+              ((symbol-function
+                'ai-code-ghostel-image-preview--clear-user-scroll-at-live-end)
+               (lambda (window) (push window cleared)))
+              ((symbol-function 'scroll-up-line) #'ignore)
+              ((symbol-function 'scroll-down-line) #'ignore))
+      (dolist (state '(t nil))
+        (setq handled state)
+        (ai-code-ghostel-image-preview-scroll-line-down 1)
+        (ai-code-ghostel-image-preview-scroll-line-up 1))
+      ;; Reaching the end of the buffer is when the window meets live output.
+      (setq handled 'error)
+      (should-error (ai-code-ghostel-image-preview-scroll-line-down 1)
+                    :type 'end-of-buffer)
+      (should (equal cleared (make-list 5 (selected-window)))))))
+
 (ert-deftest test-ai-code-ghostel-image-preview--wheel-functions-use-pixels-over-preview ()
   "Plain `mwheel-scroll' should scroll by pixels only over a local preview."
   (let (preview pixels global-calls)
