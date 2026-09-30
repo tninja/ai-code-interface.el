@@ -267,7 +267,13 @@
                   ghostel-inhibit-anchor-functions))
     (should (memq #'ai-code-ghostel-image-preview--window-scroll
                   window-scroll-functions))
+    (should (eq mwheel-scroll-up-function
+                #'ai-code-ghostel-image-preview--wheel-scroll-up))
+    (should (eq mwheel-scroll-down-function
+                #'ai-code-ghostel-image-preview--wheel-scroll-down))
     (ai-code-ghostel-image-preview-disable)
+    (should-not (local-variable-p 'mwheel-scroll-up-function))
+    (should-not (local-variable-p 'mwheel-scroll-down-function))
     (should-not (bound-and-true-p ai-code-ghostel-image-preview-mode))
     (should-not ai-code-session-link-image-preview-position-function)
     (should-not ai-code-session-link-image-preview-source-function)
@@ -674,6 +680,37 @@
                      '((evil-down 2) (evil-up 4)
                        (up-line 1) (down-line 1))))
       (should-not pixel-called))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--wheel-functions-use-pixels-over-preview ()
+  "Plain `mwheel-scroll' should scroll by pixels only over a local preview."
+  (let (preview pixels global-calls)
+    (cl-letf (((symbol-function
+                'ai-code-ghostel-image-preview--window-has-preview-p)
+               (lambda (_window) preview))
+              ((symbol-function
+                'ai-code-ghostel-image-preview--note-user-scroll)
+               #'ignore)
+              ((symbol-function
+                'ai-code-ghostel-image-preview-schedule-visible-linkify)
+               #'ignore)
+              ((symbol-function
+                'ai-code-ghostel-image-preview--scroll-pixels)
+               (lambda (delta) (push delta pixels)))
+              ((symbol-function 'default-line-height) (lambda () 18)))
+      (with-temp-buffer
+        (let ((mwheel-scroll-up-function
+               (lambda (&optional arg) (push (list 'up arg) global-calls)))
+              (mwheel-scroll-down-function
+               (lambda (&optional arg) (push (list 'down arg) global-calls))))
+          (setq preview t)
+          (ai-code-ghostel-image-preview--wheel-scroll-up 3)
+          (ai-code-ghostel-image-preview--wheel-scroll-down 2)
+          ;; A page scroll has no line count and keeps the global behavior.
+          (ai-code-ghostel-image-preview--wheel-scroll-up nil)
+          (setq preview nil)
+          (ai-code-ghostel-image-preview--wheel-scroll-down 1))))
+    (should (equal (nreverse pixels) '(54 -36)))
+    (should (equal (nreverse global-calls) '((up nil) (down 1))))))
 
 (ert-deftest test-ai-code-ghostel-image-preview--pixel-scroll-keeps-rows-whole ()
   "Pixel line scrolling should keep text rows whole around image previews."

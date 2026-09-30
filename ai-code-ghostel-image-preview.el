@@ -1008,6 +1008,21 @@ the line-scroll command this one remaps."
               #'scroll-down-line)
              count)))
 
+(defun ai-code-ghostel-image-preview--wheel-scroll-up (&optional arg)
+  "Scroll ARG lines toward later output for `mwheel-scroll'.
+Scroll by pixels while a local image preview is visible; otherwise call
+the global `mwheel-scroll-up-function'."
+  (unless (ai-code-ghostel-image-preview--scroll-lines arg)
+    (funcall (default-value 'mwheel-scroll-up-function) arg)))
+
+(defun ai-code-ghostel-image-preview--wheel-scroll-down (&optional arg)
+  "Scroll ARG lines toward earlier output for `mwheel-scroll'.
+Scroll by pixels while a local image preview is visible; otherwise call
+the global `mwheel-scroll-down-function'."
+  (unless (ai-code-ghostel-image-preview--scroll-lines
+           (and (integerp arg) (- arg)))
+    (funcall (default-value 'mwheel-scroll-down-function) arg)))
+
 (defun ai-code-ghostel-image-preview--declare-evil-commands ()
   "Give the line-scroll commands the evil properties of those they remap."
   (when (fboundp 'evil-add-command-properties)
@@ -1024,6 +1039,10 @@ the line-scroll command this one remaps."
               #'ai-code-ghostel-image-preview--cached-source)
   (setq-local ai-code-session-link-image-preview-transaction-function
               #'ai-code-ghostel-image-preview--call-transaction)
+  (setq-local mwheel-scroll-up-function
+              #'ai-code-ghostel-image-preview--wheel-scroll-up)
+  (setq-local mwheel-scroll-down-function
+              #'ai-code-ghostel-image-preview--wheel-scroll-down)
   (ai-code-ghostel-image-preview--declare-evil-commands)
   (setq ai-code-ghostel-image-preview--captured-sources nil
         ai-code-ghostel-image-preview--output-tail "")
@@ -1049,6 +1068,8 @@ the line-scroll command this one remaps."
   (setq-local ai-code-session-link-image-preview-position-function nil)
   (setq-local ai-code-session-link-image-preview-source-function nil)
   (setq-local ai-code-session-link-image-preview-transaction-function nil)
+  (kill-local-variable 'mwheel-scroll-up-function)
+  (kill-local-variable 'mwheel-scroll-down-function)
   (setq ai-code-ghostel-image-preview--user-scrolled-windows nil
         ai-code-ghostel-image-preview--captured-sources nil
         ai-code-ghostel-image-preview--output-tail "")
