@@ -28,7 +28,7 @@ jobs:
                     (\"melpa\" . \"https://melpa.org/packages/\")))
             (package-initialize)
             (package-refresh-contents)
-            (dolist (pkg '(compat transient magit))
+            (dolist (pkg '(compat transient magit annotate))
               (unless (package-installed-p pkg)
                 (package-install pkg))))"
 
@@ -46,6 +46,7 @@ jobs:
           emacs -Q --batch -L . \
             --eval "(progn (require 'package) (package-initialize) (require 'magit))" \
             -l test/integration/test_ai-code-magit.el \
+            -l test/integration/test_ai-code-annotate-magit.el \
             -f ert-run-tests-batch-and-exit
 
       - name: Compile and check documentation for Magit handoff
@@ -53,8 +54,9 @@ jobs:
           emacs -Q --batch -L . \
             --eval "(progn (require 'package) (package-initialize))" \
             --eval "(progn (require 'bytecomp) (let ((byte-compile-error-on-warn t)) (unless (byte-compile-file \"ai-code-magit.el\") (kill-emacs 1))))" \
+            --eval "(let ((byte-compile-error-on-warn t)) (dolist (file '(\"ai-code-annotation.el\" \"ai-code-annotate-magit.el\")) (unless (byte-compile-file file) (kill-emacs 1))))" \
             --eval "(dolist (file '(\"ai-code-change.el\" \"ai-code-discussion.el\" \"ai-code-agile.el\" \"ai-code-file.el\" \"ai-code-prompt-mode.el\")) (unless (byte-compile-file file) (kill-emacs 1)))" \
-            --eval "(progn (require 'checkdoc) (dolist (file '(\"ai-code-magit.el\" \"ai-code-change.el\" \"ai-code-discussion.el\" \"ai-code-agile.el\" \"ai-code-file.el\" \"ai-code-prompt-mode.el\" \"test/integration/test_ai-code-magit.el\")) (checkdoc-file file)))"
+            --eval "(progn (require 'checkdoc) (dolist (file '(\"ai-code-magit.el\" \"ai-code-annotation.el\" \"ai-code-annotate-magit.el\" \"ai-code-change.el\" \"ai-code-discussion.el\" \"ai-code-agile.el\" \"ai-code-file.el\" \"ai-code-prompt-mode.el\" \"test/integration/test_ai-code-magit.el\" \"test/integration/test_ai-code-annotate-magit.el\" \"test/test_ai-code-annotation.el\")) (checkdoc-file file)))"
 
   windows-platform:
     runs-on: windows-latest
