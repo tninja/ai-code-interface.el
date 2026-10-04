@@ -6,8 +6,9 @@
 ;;; Commentary:
 
 ;; Optional Magit integration.  Enable `ai-code-annotate-magit-mode' in a status
-;; or diff buffer.  Annotate a hunk or a region with C-c C-a, preview all
-;; repository notes with C-c C-s, and copy the review with C-c C-w.
+;; or diff buffer.  Annotate a hunk or a region with C-c # a, preview all
+;; repository notes with C-c # s, and copy the review with C-c # w.
+;; Requires annotate.el 2.5.0 or newer (annotation IDs).
 ;; Notes are saved immediately, independently of Magit's disposable
 ;; buffer text.  Only exact hunk/context matches are displayed after a
 ;; refresh.  Unmatched notes remain available in the review report.
@@ -18,7 +19,6 @@
 
 (require 'cl-lib)
 
-(declare-function annotate--generate-unique-id "annotate")
 (declare-function annotate-create-annotation "annotate")
 (declare-function annotate-annotation-id "annotate")
 (declare-function annotate-all-annotations "annotate")
@@ -35,6 +35,7 @@
 (declare-function magit-rev-parse "magit-git" (rev &rest args))
 (declare-function magit-get-current-branch "magit-git")
 (declare-function magit-current-section "magit-section")
+(declare-function org-id-uuid "org-id")
 
 (defvar magit-buffer-diff-range)
 (defvar magit-root-section)
@@ -52,16 +53,27 @@
 
 (defvar ai-code-annotate-magit-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-a") #'ai-code-annotate-magit-annotate)
-    (define-key map (kbd "C-c C-d") #'ai-code-annotate-magit-delete)
-    (define-key map (kbd "C-c C-s") #'ai-code-annotate-magit-review)
-    (define-key map (kbd "C-c C-w") #'ai-code-annotate-magit-copy-review)
+    ;; C-c <punctuation> is the minor-mode space; C-c C-<letter> belongs to
+    ;; Magit's major modes (e.g. C-c C-w is `magit-copy-thing').
+    (define-key map (kbd "C-c # a") #'ai-code-annotate-magit-annotate)
+    (define-key map (kbd "C-c # d") #'ai-code-annotate-magit-delete)
+    (define-key map (kbd "C-c # s") #'ai-code-annotate-magit-review)
+    (define-key map (kbd "C-c # w") #'ai-code-annotate-magit-copy-review)
     map)
   "Keymap for `ai-code-annotate-magit-mode'.")
 
 (defvar-local ai-code--annotate-magit-overlays nil)
 (defvar-local ai-code--annotate-magit-edit-origin nil)
 (defvar-local ai-code--annotate-magit-edit-record nil)
+
+(defun ai-code--annotate-missing (purpose)
+  "Return why annotate.el cannot be used to PURPOSE, or nil if it can."
+  (cond ((not (require 'annotate nil t))
+         (format "Install annotate.el to %s" purpose))
+        ;; Annotation IDs and `annotate-create-annotation's ID argument
+        ;; first shipped in annotate.el 2.5.0.
+        ((not (fboundp 'annotate-id-from-dump))
+         (format "Upgrade annotate.el to 2.5.0 or newer to %s" purpose))))
 
 (defun ai-code--annotate-magit-read ()
   "Read saved notes; refuse to overwrite an unreadable database."
@@ -113,7 +125,10 @@
   section)
 
 (defun ai-code--annotate-magit-context (section)
-  "Return a conservative diff identity for SECTION."
+  "Return a conservative diff identity for SECTION.
+Branch and HEAD are deliberately excluded: staged and unstaged hunks do
+not change with unrelated commits or branch switches.  They are kept as
+note metadata instead."
   (let ((type (magit-diff-type section)))
     (unless (memq type '(staged unstaged committed))
       (user-error "Only staged, unstaged and committed Git hunks are supported"))
@@ -121,9 +136,7 @@
           (and (eq type 'committed)
                (or (bound-and-true-p magit-buffer-diff-range)
                    (bound-and-true-p magit-buffer-range)
-                   (bound-and-true-p magit-buffer-revision-hash)))
-          (magit-rev-parse "HEAD")
-          (magit-get-current-branch))))
+                   (bound-and-true-p magit-buffer-revision-hash))))))
 
 (defun ai-code--annotate-magit-hunk-data (section)
   "Return snapshot and buffer positions for a regular hunk SECTION."
@@ -187,7 +200,8 @@ line number for an added or deleted line."
         (user-error "Select lines within a single hunk"))
       (let ((ranges (ai-code--annotate-magit-line-ranges
                      (plist-get data :hunk) (- begin start) (- end start))))
-        (list :id (annotate--generate-unique-id)
+        (require 'org-id)
+        (list :id (org-id-uuid)
               :repository (ai-code--annotate-magit-repository)
               :branch (magit-get-current-branch)
               :head (magit-rev-parse "HEAD")
@@ -252,15 +266,18 @@ line number for an added or deleted line."
       (setq ai-code--annotate-magit-overlays (append overlays ai-code--annotate-magit-overlays)))))
 
 (defun ai-code--annotate-magit-refresh ()
-  "Restore exact matching notes after Magit recreates its sections."
+  "Restore exact matching notes after Magit recreates its sections.
+Report an unreadable database instead of signaling, so Magit still refreshes."
   (when ai-code-annotate-magit-mode
     (ai-code--annotate-magit-clear)
-    (let ((root (ai-code--annotate-magit-repository))
-          (hunks (ai-code--annotate-magit-hunks)))
-      (dolist (note (ai-code--annotate-magit-read))
-        (when (equal root (plist-get note :repository))
-          (let ((hunk (ai-code--annotate-magit-match note hunks)))
-            (when hunk (ai-code--annotate-magit-display note hunk))))))))
+    (condition-case err
+        (let ((root (ai-code--annotate-magit-repository))
+              (hunks (ai-code--annotate-magit-hunks)))
+          (dolist (note (ai-code--annotate-magit-read))
+            (when (equal root (plist-get note :repository))
+              (let ((hunk (ai-code--annotate-magit-match note hunks)))
+                (when hunk (ai-code--annotate-magit-display note hunk))))))
+      (user-error (message "%s" (error-message-string err))))))
 
 (defun ai-code--annotate-magit-refresh-repository (root)
   "Update enabled Magit buffers belonging to ROOT."
@@ -364,9 +381,9 @@ line number for an added or deleted line."
 Includes original diff snapshots even when no longer displayed.  Exporting
 does not resolve or delete notes.  REPOSITORY defaults to this worktree."
   (let* ((root (or repository (ai-code--annotate-magit-repository)))
-         (hunks (and (derived-mode-p 'magit-mode)
-                     (equal root (ai-code--annotate-magit-repository))
-                     (ai-code--annotate-magit-hunks)))
+         (checked (and (derived-mode-p 'magit-mode)
+                       (equal root (ai-code--annotate-magit-repository))))
+         (hunks (and checked (ai-code--annotate-magit-hunks)))
          (notes (cl-remove-if-not
                  (lambda (note) (equal root (plist-get note :repository)))
                  (ai-code--annotate-magit-read))))
@@ -375,7 +392,8 @@ does not resolve or delete notes.  REPOSITORY defaults to this worktree."
      "# Code review notes\n\nRepository: " root
      "\n\nSuggest how to address these notes; do not modify files. Verify each\n"
      "original diff against current code. UNMATCHED notes may be outdated\n"
-     "or outside the current diff view. Wait for user approval.\n\n"
+     "or outside the current diff view. NOT CHECKED notes were exported\n"
+     "without a Magit view of this worktree. Wait for user approval.\n\n"
      (mapconcat
       (lambda (note)
         (let* ((hunk (plist-get note :hunk))
@@ -385,7 +403,9 @@ does not resolve or delete notes.  REPOSITORY defaults to this worktree."
                                                                    (length (match-string 0 line)) 0)))) ?`)))
           (format "## %s\n\nNote ID: %s\nStatus: %s\nDiff context: %S\nBranch: %s\nHEAD at review: %s\nOld file: %s\nOld lines: %s; new lines: %s\nSelected hunk offsets: %s-%s\n\n%s\n\nOriginal hunk:\n%sdiff\n%s%s\n"
                   (plist-get note :file) (plist-get note :id)
-                  (if (ai-code--annotate-magit-match note hunks) "MATCHED" "UNMATCHED (verify snapshot)")
+                  (cond ((not checked) "NOT CHECKED (no Magit view; verify snapshot)")
+                        ((ai-code--annotate-magit-match note hunks) "MATCHED")
+                        (t "UNMATCHED (verify snapshot)"))
                   (plist-get note :context) (or (plist-get note :branch) "detached")
                   (or (plist-get note :head) "unborn")
                   (plist-get note :old-file)
@@ -426,9 +446,9 @@ their lifecycle instead.
   :group 'ai-code-annotate-magit
   (if ai-code-annotate-magit-mode
       (progn
-        (unless (require 'annotate nil t)
+        (when-let* ((problem (ai-code--annotate-missing "annotate diff hunks")))
           (setq ai-code-annotate-magit-mode nil)
-          (user-error "Install annotate.el to annotate diff hunks"))
+          (user-error "%s" problem))
         (unless (require 'magit nil t)
           (setq ai-code-annotate-magit-mode nil)
           (user-error "Install Magit to annotate diff hunks"))

@@ -18,7 +18,7 @@
     (cl-letf (((symbol-function 'require)
                (lambda (feature &rest args)
                  (if (eq feature 'annotate) nil (apply original feature args))))
-              ((symbol-function 'ai-code--insert-prompt)
+              ((symbol-function 'ai-code--write-prompt-to-file-and-send)
                (lambda (&rest _) (setq sent t))))
       (should (string-match-p "Install annotate.el"
                               (error-message-string

@@ -16,7 +16,6 @@
 (defvar annotate-file)
 (defvar annotate-mode)
 (defvar ai-code-prompt-suffix-functions)
-(defvar ai-code-prompt-preprocess-filepaths)
 (declare-function annotate-load-annotation-data "annotate")
 (declare-function annotate-filename-from-dump "annotate")
 (declare-function annotate-annotations-from-dump "annotate")
@@ -28,7 +27,9 @@
 (declare-function annotate-id-from-dump "annotate")
 (declare-function annotate-reply-to-from-dump "annotate")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--write-prompt-to-file-and-send "ai-code-prompt-mode"
+                  (prompt-text))
+(declare-function ai-code--annotate-missing "ai-code-annotate-magit" (purpose))
 (declare-function ai-code--annotate-magit-read "ai-code-annotate-magit")
 (declare-function ai-code-annotate-magit-review-string "ai-code-annotate-magit"
                   (&optional repository))
@@ -51,15 +52,15 @@ Live buffers override their saved records, including deleted annotations."
     (dolist (buffer (buffer-list))
       (with-current-buffer buffer
         (when (bound-and-true-p annotate-mode)
-          (when-let ((file (ai-code--annotation-file buffer-file-name root current-file)))
+          (when-let* ((file (ai-code--annotation-file buffer-file-name root current-file)))
             (push (expand-file-name annotate-file) databases)
             (puthash file buffer live)))))
     (dolist (database (delete-dups databases))
       (when (file-exists-p database)
         (let ((annotate-file database))
           (dolist (record (annotate-load-annotation-data))
-            (when-let ((file (ai-code--annotation-file
-                             (annotate-filename-from-dump record) root current-file)))
+            (when-let* ((file (ai-code--annotation-file
+                              (annotate-filename-from-dump record) root current-file)))
               (puthash file
                        (cl-remove-duplicates
                         (append (gethash file sources)
@@ -132,15 +133,16 @@ Live buffers override their saved records, including deleted annotations."
 ;;;###autoload
 (defun ai-code-address-code-annotation ()
   "Ask AI to suggest responses to source and Magit annotations.
-Require optional annotate.el.  Collect the current worktree's notes, or
-just the current file outside Git.  Ask for suggestions, never edits;
-the user must separately approve and request any implementation."
+Require optional annotate.el 2.5.0 or newer.  Collect the current
+worktree's notes, or just the current file outside Git.  Ask for
+suggestions, never edits; the user must separately approve and request
+any implementation."
   (interactive)
-  (unless (require 'annotate nil t)
-    (user-error "Install annotate.el to address code annotations"))
-  (require 'ai-code-utils)
   (require 'ai-code-annotate-magit)
-  (let* ((root (when-let ((directory (ai-code--git-root)))
+  (when-let* ((problem (ai-code--annotate-missing "address code annotations")))
+    (user-error "%s" problem))
+  (require 'ai-code-utils)
+  (let* ((root (when-let* ((directory (ai-code--git-root)))
                  (file-name-as-directory (file-truename directory))))
          (file (and buffer-file-name (file-truename buffer-file-name)))
          (sources (ai-code--annotation-sources root file))
@@ -163,13 +165,12 @@ the user must separately approve and request any implementation."
                    "Do NOT modify files, stage or commit changes, run mutating commands, or\n"
                    "resolve/delete annotations. Do NOT implement even if a note requests it.\n"
                    "Wait for the user to choose whether and which suggestions to implement.\n"))
-          ;; Do not append generic edit/test suffixes or Org source-summary edits.
+          ;; Do not append generic edit/test suffixes.
           (ai-code-prompt-suffix-functions nil)
-          (ai-code-prompt-preprocess-filepaths nil)
-          (directory (or root default-directory)))
-      (with-temp-buffer
-        (setq default-directory directory)
-        (ai-code--insert-prompt prompt)))))
+          (default-directory (or root default-directory)))
+      ;; Bypass `ai-code--insert-prompt' (path rewriting, Org summary offer)
+      ;; and send from the caller, which stays the session's source buffer.
+      (ai-code--write-prompt-to-file-and-send prompt))))
 
 (provide 'ai-code-annotation)
 ;;; ai-code-annotation.el ends here

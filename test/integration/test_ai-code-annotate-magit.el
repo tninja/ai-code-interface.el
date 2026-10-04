@@ -16,7 +16,6 @@
 (require 'ai-code-prompt-mode)
 
 (defvar ai-code-prompt-suffix-functions)
-(defvar ai-code-prompt-preprocess-filepaths)
 
 (defun ai-code-annotate-magit-test--git (&rest args)
   "Run Git ARGS in the test worktree and return its output."
@@ -201,6 +200,21 @@
             (should (equal (buffer-string) "broken database"))))
       (delete-directory directory t))))
 
+(ert-deftest ai-code-annotate-magit-corrupt-database-does-not-break-refresh ()
+  "An unreadable database is reported without breaking Magit refresh."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Before corruption")
+    (should ai-code--annotate-magit-overlays)
+    (with-temp-file ai-code-annotate-magit-file (insert "broken database"))
+    (let ((start (with-current-buffer (messages-buffer) (point-max))))
+      (magit-refresh-buffer)
+      (should ai-code-annotate-magit-mode)
+      (should-not ai-code--annotate-magit-overlays)
+      (should (string-match-p "Cannot read"
+                              (with-current-buffer (messages-buffer)
+                                (buffer-substring start (point-max))))))))
+
 (ert-deftest ai-code-annotate-magit-disable-only-removes-display ()
   (ai-code-annotate-magit-test--repository
     (ai-code-annotate-magit-test--select "+new")
@@ -241,14 +255,42 @@
           (should ai-code--annotate-magit-overlays)
           (should (string-match-p "Status: MATCHED" (ai-code-annotate-magit-review-string))))))))
 
-(ert-deftest ai-code-annotate-magit-branch-switch-keeps-notes-unmatched ()
+(ert-deftest ai-code-annotate-magit-branch-switch-keeps-unstaged-notes-matched ()
+  "The same unstaged hunk carried to another branch is still the same change."
   (ai-code-annotate-magit-test--repository
     (ai-code-annotate-magit-test--select "+new")
     (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Original branch review")
     (ai-code-annotate-magit-test--git "checkout" "-qb" "another-branch")
     (magit-refresh-buffer)
-    (should-not ai-code--annotate-magit-overlays)
-    (should (string-match-p "UNMATCHED" (ai-code-annotate-magit-review-string)))))
+    (should ai-code--annotate-magit-overlays)
+    (should (string-match-p "Status: MATCHED" (ai-code-annotate-magit-review-string)))))
+
+(ert-deftest ai-code-annotate-magit-unrelated-commit-keeps-unstaged-notes-matched ()
+  "Committing another file must not detach notes on an unchanged hunk."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Still relevant")
+    (with-temp-file "other.txt" (insert "other\n"))
+    (ai-code-annotate-magit-test--git "add" "other.txt")
+    (ai-code-annotate-magit-test--git "commit" "-qm" "Unrelated")
+    (magit-refresh-buffer)
+    (should ai-code--annotate-magit-overlays)
+    (should (string-match-p "Status: MATCHED" (ai-code-annotate-magit-review-string)))))
+
+(ert-deftest ai-code-annotate-magit-keys-do-not-shadow-magit ()
+  "Mode keys must be unbound in Magit status and diff buffers."
+  (ai-code-annotate-magit-test--repository
+    (let ((keys (cl-loop for command in '(ai-code-annotate-magit-annotate
+                                          ai-code-annotate-magit-delete
+                                          ai-code-annotate-magit-review
+                                          ai-code-annotate-magit-copy-review)
+                         append (where-is-internal command ai-code-annotate-magit-mode-map))))
+      (should (= (length keys) 4))
+      (dolist (view (list buffer (magit-diff-unstaged)))
+        (with-current-buffer view
+          (ai-code-annotate-magit-mode -1)
+          (dolist (key keys)
+            (should-not (key-binding key))))))))
 
 (ert-deftest ai-code-annotate-magit-removed-file-retains-deletion-note ()
   (ai-code-annotate-magit-test--repository
@@ -294,7 +336,7 @@
 (ert-deftest ai-code-annotation-empty-worktree-does-not-send ()
   "An empty worktree reports no annotations without sending a prompt."
   (ai-code-annotate-magit-test--repository
-    (cl-letf (((symbol-function 'ai-code--insert-prompt)
+    (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                (lambda (&rest _) (ert-fail "Unexpected AI handoff"))))
       (should (string-match-p "No code annotations"
                               (error-message-string
@@ -310,11 +352,9 @@
       (with-current-buffer source
         (annotate-create-annotation 1 6 "Explain first" nil 0 nil "source-id")
         (setq-local annotate-mode t))
-      (cl-letf (((symbol-function 'ai-code--insert-prompt)
+      (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                  (lambda (text)
                    (should-not ai-code-prompt-suffix-functions)
-                   (should-not ai-code-prompt-preprocess-filepaths)
-                   (should-not (derived-mode-p 'org-mode))
                    (setq prompt text))))
         (let ((ai-code-prompt-suffix-functions '(ignore)))
           (ai-code-address-code-annotation)))
@@ -371,26 +411,26 @@
       (should (string-match-p "missing-id" report))
       (should-not (string-match-p "outside-id" report)))))
 
-(ert-deftest ai-code-annotation-unmatched-hunks-remain-in-source-buffer-handoff ()
-  "Unmatched snapshots remain accessible when invoked from an Org source."
+(ert-deftest ai-code-annotation-unchecked-hunks-remain-in-source-buffer-handoff ()
+  "Snapshots stay accessible from a source buffer, without a false UNMATCHED."
   (ai-code-annotate-magit-test--repository
     (ai-code-annotate-magit-test--select "-old")
     (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Keep snapshot")
     (with-temp-buffer
       (org-mode)
       (insert "* Heading\n")
-      (cl-letf (((symbol-function 'ai-code--insert-prompt)
+      (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                  (lambda (prompt)
                    (should (string-match-p "Keep snapshot" prompt))
-                   (should (string-match-p "UNMATCHED" prompt))
-                   (should-not (derived-mode-p 'org-mode)))))
+                   (should (string-match-p "Status: NOT CHECKED" prompt))
+                   (should-not (string-match-p "Status: UNMATCHED" prompt)))))
         (ai-code-address-code-annotation)))))
 
 (ert-deftest ai-code-annotation-broken-source-database-is-not-silenced ()
   "Database errors must not be mistaken for an absence of annotations."
   (ai-code-annotate-magit-test--repository
     (with-temp-file annotate-file (insert "(broken"))
-    (cl-letf (((symbol-function 'ai-code--insert-prompt)
+    (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                (lambda (&rest _) (ert-fail "Unexpected AI handoff"))))
       (should-error (ai-code-address-code-annotation)))))
 
@@ -401,17 +441,24 @@
     (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Consider this")
     (let ((ai-code-prompt-suffix-functions
            (list (lambda (_context) "IMPLEMENT AUTOMATICALLY")))
-          sent)
+          sent sender caller)
       (with-temp-buffer
+        (setq caller (current-buffer))
         (org-mode)
         (insert "* Review\n")
+        (setq-local ai-code-prompt-suffix-functions
+                    (list (lambda (_context) "LOCAL IMPLEMENT")))
         (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path) (lambda () nil))
-                  ((symbol-function 'ai-code--send-prompt) (lambda (text) (setq sent text)))
+                  ((symbol-function 'ai-code--send-prompt)
+                   (lambda (text) (setq sent text sender (current-buffer))))
                   ((symbol-function 'y-or-n-p)
                    (lambda (&rest _) (ert-fail "Unexpected Org summary offer"))))
           (ai-code-address-code-annotation)))
+      ;; The caller, not a killed temporary buffer, is the MCP source buffer.
+      (should (eq sender caller))
       (should (string-match-p "Consider this" sent))
       (should-not (string-match-p "IMPLEMENT AUTOMATICALLY" sent))
+      (should-not (string-match-p "LOCAL IMPLEMENT" sent))
       (should-not (string-match-p "append a concise result summary" sent))
       (should (string-match-p "Wait for the user" sent))
       (should (= (length ai-code-prompt-suffix-functions) 1)))))
@@ -432,12 +479,26 @@
                    (current-buffer)))
           (with-temp-buffer
             (setq buffer-file-name file)
-            (cl-letf (((symbol-function 'ai-code--insert-prompt)
+            (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                        (lambda (text)
                          (should (string-match-p "current" text))
                          (should-not (string-match-p "other" text)))))
               (ai-code-address-code-annotation))))
       (delete-directory directory t))))
+
+(ert-deftest ai-code-annotation-old-annotate-asks-for-upgrade ()
+  "Old annotate.el without annotation IDs (< 2.5.0) must stop with a hint."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-mode -1)
+    (cl-letf (((symbol-function 'annotate-id-from-dump) nil)
+              ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+               (lambda (&rest _) (ert-fail "Unexpected AI handoff"))))
+      (should (string-match-p "annotate.el to 2.5.0"
+                              (error-message-string
+                               (should-error (ai-code-address-code-annotation)
+                                             :type 'user-error))))
+      (should-error (ai-code-annotate-magit-mode 1) :type 'user-error)
+      (should-not ai-code-annotate-magit-mode))))
 
 (ert-deftest ai-code-annotation-absent-dependency-leaves-magit-mode-disabled ()
   "A missing dependency must not leave the Magit overlay mode active."
