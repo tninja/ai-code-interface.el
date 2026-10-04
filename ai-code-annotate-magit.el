@@ -336,7 +336,7 @@ Report an unreadable database instead of signaling, so Magit still refreshes."
   (ai-code-annotate-magit-edit-cancel))
 
 (defun ai-code-annotate-magit-edit-cancel ()
-  "Close the review note editor without saving further changes."
+  "Close the review note editor without saving further edits."
   (interactive)
   (let ((origin ai-code--annotate-magit-edit-origin))
     (kill-buffer (current-buffer))
@@ -380,19 +380,23 @@ Report an unreadable database instead of signaling, so Magit still refreshes."
   "Return all saved notes for this worktree as a Markdown AI handoff.
 Includes original diff snapshots even when no longer displayed.  Exporting
 does not resolve or delete notes.  REPOSITORY defaults to this worktree.
-With ID, include only that note."
+With ID, include only that note, or the notes in a list of IDs."
   (let* ((root (or repository (ai-code--annotate-magit-repository)))
          (checked (and (derived-mode-p 'magit-mode)
                        (equal root (ai-code--annotate-magit-repository))))
          (hunks (and checked (ai-code--annotate-magit-hunks)))
          (notes (cl-remove-if-not
                  (lambda (note) (and (equal root (plist-get note :repository))
-                                     (or (null id) (equal id (plist-get note :id)))))
+                                     (or (null id)
+                                         (if (listp id) (member (plist-get note :id) id)
+                                           (equal id (plist-get note :id))))))
                  (ai-code--annotate-magit-read))))
     (unless notes (user-error "No saved review notes for this worktree"))
     (concat
      "# Code review notes\n\nRepository: " root
-     "\n\nSuggest how to address these notes; do not modify files. Verify each\n"
+     "\n\nFocus on the annotations; use original diffs as supporting context.\n"
+     "Do not perform a general code review or suggest unrelated changes.\n"
+     "Suggest how to address these notes; do not modify files. Verify each\n"
      "original diff against current code. UNMATCHED notes may be outdated\n"
      "or outside the current diff view. NOT CHECKED notes were exported\n"
      "without a Magit view of this worktree. Wait for user approval.\n\n"
@@ -403,7 +407,7 @@ With ID, include only that note."
                (fence (make-string (1+ (max 2 (cl-loop for line in (split-string hunk "\n")
                                                       maximize (if (string-match "`+" line)
                                                                    (length (match-string 0 line)) 0)))) ?`)))
-          (format "## %s\n\nNote ID: %s\nStatus: %s\nDiff context: %S\nBranch: %s\nHEAD at review: %s\nOld file: %s\nOld lines: %s; new lines: %s\nSelected hunk offsets: %s-%s\n\n%s\n\nOriginal hunk:\n%sdiff\n%s%s\n"
+          (format "## %s\n\nNote ID: %s\nStatus: %s\nDiff context: %S\nBranch: %s\nHEAD at review: %s\nOld file: %s\nOld lines: %s; new lines: %s\nSelected hunk offsets: %s-%s\n\nAnnotation (primary review request):\n%s\n\nOriginal hunk (supporting code change context):\n%sdiff\n%s%s\n"
                   (plist-get note :file) (plist-get note :id)
                   (cond ((not checked) "NOT CHECKED (no Magit view; verify snapshot)")
                         ((ai-code--annotate-magit-match note hunks) "MATCHED")

@@ -12,6 +12,7 @@
 (require 'annotate)
 (require 'ai-code-annotate-magit)
 (require 'ai-code-annotation)
+(require 'ai-code-annotation-list)
 (require 'ai-code-utils)
 (require 'ai-code-prompt-mode)
 
@@ -366,6 +367,11 @@
       (should (string-match-p (regexp-quote "@@ -1,3 +1,3 @@") prompt))
       (should (string-match-p "Current source lines: 1-1" prompt))
       (should (string-match-p "suggestions ONLY" prompt))
+      (should (string-match-p "Each annotation is the primary review request" prompt))
+      (should (string-match-p "Do not perform a general code review or suggest unrelated changes" prompt))
+      (should (string-match-p "consider replies before deciding whether it still needs action" prompt))
+      (should (string-match-p "Annotated source (supporting code context)" prompt))
+      (should (string-match-p "Original hunk (supporting code change context)" prompt))
       (should (string-match-p "Do NOT modify files" prompt))
       (should (string-match-p "Wait for the user" prompt))
       (should-not (string-match-p "Apply these review comments" prompt))
@@ -442,7 +448,8 @@
   (ai-code-annotate-magit-test--repository
     (with-temp-file annotate-file
       (prin1 `((,(expand-file-name "example.txt") (1 6 "legacy single"))
-               (,(expand-file-name "missing.txt") (1 5 "legacy first") (7 9 "legacy second")))
+               (,(expand-file-name "missing.txt") (1 5 "legacy first")
+                (7 9 "legacy second") (10 12 "legacy third")))
              (current-buffer)))
     (let (prompt)
       (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
@@ -451,9 +458,10 @@
       (should (string-match-p "legacy single" prompt))
       (should (string-match-p "legacy first" prompt))
       (should (string-match-p "legacy second" prompt))
+      (should (string-match-p "legacy third" prompt))
       (should (= (cl-count-if (lambda (line) (string-prefix-p "Note ID: legacy" line))
                               (split-string prompt "\n"))
-                 3)))))
+                 4)))))
 
 (ert-deftest ai-code-annotation-malformed-source-record-is-skipped-not-fatal ()
   "A record that cannot be rendered is marked skipped; others are still sent."
@@ -512,7 +520,7 @@
                  (lambda (&optional _) (interactive) (push 'source-delete calls))))
         (setq choice "1.")
         (ai-code-address-code-annotation)
-        (setq choice "2.")
+        (setq choice "5.")
         (ai-code-address-code-annotation)
         (with-current-buffer (find-file-noselect "example.txt")
           (setq choice "1.")
@@ -520,16 +528,16 @@
           (should annotate-mode)
           (annotate-create-annotation 1 6 "here" nil 0 nil "here-id")
           (goto-char 2)
-          (setq choice "2.")
+          (setq choice "5.")
           (ai-code-address-code-annotation)
           (goto-char (point-max))
           (should-error (ai-code-address-code-annotation) :type 'user-error)))
-      (should (equal labels '("1. Add / Edit annotation"
-                              "2. Delete annotation"
-                              "3. Clear all annotations"
-                              "4. View annotation"
-                              "5. Send current annotation to AI"
-                              "6. Send all annotations to AI")))
+      (should (equal labels '("1. Add / Edit annotation at point..."
+                              "2. Browse worktree annotations..."
+                              "3. Ask AI about annotation at point..."
+                              "4. Ask AI about worktree annotations..."
+                              "5. Delete annotation at point"
+                              "6. Clear worktree annotations...")))
       (should (equal (nreverse calls)
                      '(magit-edit magit-delete source-edit source-delete))))))
 
@@ -686,6 +694,219 @@
                    (if (eq feature 'annotate) nil (apply original feature args)))))
         (should-error (ai-code-annotate-magit-mode 1) :type 'user-error)
         (should-not ai-code-annotate-magit-mode)))))
+
+(ert-deftest ai-code-annotation-clear-preserves-all-outside-legacy-notes ()
+  "Clearing a worktree must preserve every note in outside legacy records."
+  (ai-code-annotate-magit-test--repository
+    (let ((outside (expand-file-name "../outside.txt")))
+      (with-temp-file annotate-file
+        (prin1 (list (annotate-make-record (expand-file-name "example.txt")
+                                           (list '(1 6 "inside" "first")) nil)
+                     (list outside '(1 4 "one") '(5 8 "two") '(9 12 "three")))
+               (current-buffer)))
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+        (ai-code--annotation-clear-all))
+      (let ((records (annotate-load-annotation-data)))
+        (should (= (length records) 1))
+        (should (equal (expand-file-name (caar records)) outside))
+        (should (equal (mapcar #'annotate-annotation-string
+                              (annotate-annotations-from-dump (car records)))
+                       '("one" "two" "three")))))))
+
+(ert-deftest ai-code-annotation-live-roots-retain-reply-chains ()
+  "Keep saved replies to live roots, and remove orphaned reply chains."
+  (ai-code-annotate-magit-test--repository
+    (let ((file (expand-file-name "example.txt")))
+      (with-temp-file annotate-file
+        (prin1 (list (annotate-make-record
+                      file (list '(1 6 "old root" "first" 0 nil "root")
+                                 '(nil nil "Already fixed" nil nil nil "reply" "root")
+                                 '(nil nil "Acknowledged" nil nil nil "nested" "reply")
+                                 '(nil nil "orphan" nil nil nil "orphan-id" "deleted")) nil))
+               (current-buffer)))
+      (with-current-buffer (find-file-noselect file)
+        (annotate-create-annotation 1 6 "Live root" nil 0 nil "root")
+        (setq-local annotate-mode t)
+        (let* ((source (car (ai-code--annotation-sources default-directory nil)))
+               (report (ai-code--annotation-source-report source)))
+          (should (= (length (plist-get source :notes)) 3))
+          (should (string-match-p "Already fixed" report))
+          (should (string-match-p "Acknowledged" report))
+          (should-not (string-match-p "orphan" report))
+          (goto-char 2)
+          (should (= (length (plist-get (ai-code--annotation-at-point) :notes)) 3)))
+        (mapc #'delete-overlay (annotate-all-annotations))
+        (should-not (ai-code--annotation-sources default-directory nil))))))
+
+(ert-deftest ai-code-annotation-mode-off-is-not-reported-as-missing ()
+  "Distinguish a disabled display mode from an absence of saved notes."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Saved note")
+    (ai-code-annotate-magit-mode -1)
+    (should (string-match-p "Enable ai-code-annotate-magit-mode"
+                            (error-message-string (should-error (ai-code--annotation-send-current)))))
+    (with-current-buffer (find-file-noselect "example.txt")
+      (should (string-match-p "Enable annotate-mode"
+                              (error-message-string (should-error (ai-code--annotation-send-current))))))))
+
+(ert-deftest ai-code-annotation-browser-selection-and-file-scope ()
+  "Selected and file requests exclude other notes and retain source replies."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Hunk concern")
+    (with-temp-file annotate-file
+      (prin1 (list (annotate-make-record
+                    (expand-file-name "example.txt")
+                    (list '(1 6 "Selected root" "first" 0 nil "root")
+                          '(nil nil "Selected reply" nil nil nil "reply" "root")) nil)
+                   (annotate-make-record (expand-file-name "missing.txt")
+                                         (list '(1 4 "Other file" "old" 0 nil "other")) nil))
+             (current-buffer)))
+    (let ((origin (current-buffer)) sent sender)
+      (ai-code-annotation-browse)
+      (should (derived-mode-p 'ai-code-annotation-list-mode))
+      (should (= (length ai-code--annotation-list-items) 3))
+      (let ((root (cl-find 'source ai-code--annotation-list-items
+                           :key (lambda (item) (plist-get item :kind)))))
+        (setq ai-code--annotation-list-marks (list (plist-get root :key)))
+        (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                   (lambda (text) (setq sent text sender (current-buffer)))))
+          (ai-code-annotation-list-send-selected)
+          (should (eq sender origin))
+          (should (string-match-p "Selected root" sent))
+          (should (string-match-p "Selected reply" sent))
+          (should-not (string-match-p "Hunk concern" sent))
+          (should-not (string-match-p "Other file" sent))
+          (ai-code--annotation-list-send-file (expand-file-name "example.txt"))
+          (should (string-match-p "Hunk concern" sent))
+          (should (string-match-p "Selected reply" sent))
+          (should-not (string-match-p "Other file" sent)))))))
+
+(ert-deftest ai-code-annotation-browser-stale-source-edit-and-delete ()
+  "Edit and delete stale saved source notes without modifying source files."
+  (ai-code-annotate-magit-test--repository
+    (let ((file (expand-file-name "example.txt")))
+      (with-temp-file annotate-file
+        (prin1 (list (annotate-make-record
+                      file (list '(7 10 "Stale concern" "old" 0 nil "stale")
+                                 '(nil nil "reply" nil nil nil "reply-id" "stale")) nil))
+               (current-buffer)))
+      (ai-code-annotation-browse)
+      (let ((item (car ai-code--annotation-list-items))
+            (browser (current-buffer)))
+        (should (equal (plist-get item :status) "UNMATCHED"))
+        (ai-code-annotation-list-jump)
+        (with-current-buffer "*AI Annotation Snapshot*"
+          (should (string-match-p "Stale concern" (buffer-string)))
+          (should (string-match-p "UNMATCHED" (buffer-string))))
+        (should-not (get-file-buffer file))
+        (set-buffer browser)
+        (ai-code-annotation-list-edit)
+        (erase-buffer)
+        (insert "Updated concern")
+        (ai-code-annotation-list-edit-save)
+        (should (eq (current-buffer) browser))
+        (should (equal (ai-code--annotation-list-summary (car ai-code--annotation-list-items))
+                       "Updated concern"))
+        (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+          (ai-code-annotation-list-delete))
+        (should-not ai-code--annotation-list-items)
+        (should-not (annotate-annotations-from-dump (car (annotate-load-annotation-data))))
+        (should (equal (with-temp-buffer (insert-file-contents file) (buffer-string))
+                       "first\nnew\nlast\n"))))))
+
+(ert-deftest ai-code-annotation-browser-stale-hunk-edit-and-delete ()
+  "Manage unmatched hunk notes from the browser, retaining their snapshots."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Hunk concern")
+    (with-temp-file "example.txt" (insert "first\nchanged\nlast\n"))
+    (magit-refresh-buffer)
+    (ai-code-annotation-browse)
+    (let ((item (car ai-code--annotation-list-items)))
+      (should (equal (plist-get item :status) "UNMATCHED"))
+      (ai-code-annotation-list-edit)
+      (erase-buffer)
+      (insert "Updated hunk")
+      (ai-code-annotation-list-edit-save)
+      (should (equal (plist-get (car (ai-code--annotate-magit-read)) :hunk)
+                     (plist-get (plist-get item :note) :hunk)))
+      (should (equal (plist-get (car (ai-code--annotate-magit-read)) :text) "Updated hunk"))
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+        (ai-code-annotation-list-delete))
+      (should-not (ai-code--annotate-magit-read)))))
+
+(ert-deftest ai-code-annotation-browser-live-edit-and-delete-retain-unrelated-notes ()
+  "Update live overlays and the database while retaining other notes and replies."
+  (ai-code-annotate-magit-test--repository
+    (with-current-buffer (find-file-noselect "example.txt")
+      (annotate-mode 1)
+      (annotate-create-annotation 1 6 "Live concern" nil 0 nil "live")
+      (annotate-create-annotation 7 10 "Other concern" nil 0 nil "other")
+      (annotate--make-reply-annotation (annotate-annotation-at 2) "Reviewer" "Reply")
+      (let* ((source (car (ai-code--annotation-sources default-directory nil)))
+             (note (cl-find "live" (plist-get source :notes) :key #'annotate-id-from-dump :test #'equal)))
+        (ai-code--annotation-update-source source note "Edited live")
+        (should (equal (annotate-annotation-get-annotation-text (annotate-annotation-at 2)) "Edited live"))
+        (setq source (car (ai-code--annotation-sources default-directory nil))
+              note (cl-find "live" (plist-get source :notes) :key #'annotate-id-from-dump :test #'equal))
+        (ai-code--annotation-update-source source note nil)
+        (should-not (annotate-annotation-at 2))
+        (should (annotate-annotation-at 8))
+        (should (equal (mapcar #'annotate-id-from-dump
+                              (annotate-annotations-from-dump (car (annotate-load-annotation-data))))
+                       '("other")))))))
+
+(ert-deftest ai-code-annotation-browser-does-not-send-when-marked-notes-disappear ()
+  "A disappearing selection must not fall back to sending an unrelated row."
+  (ai-code-annotate-magit-test--repository
+    (with-temp-file annotate-file
+      (prin1 (list (annotate-make-record (expand-file-name "example.txt")
+                                         (list '(1 6 "One" "first" 0 nil "one")
+                                               '(7 10 "Two" "new" 0 nil "two")) nil))
+             (current-buffer)))
+    (ai-code-annotation-browse)
+    (let* ((item (car ai-code--annotation-list-items)))
+      (setq ai-code--annotation-list-marks (list (plist-get item :key)))
+      (ai-code--annotation-update-source (plist-get item :source) (plist-get item :note) nil)
+      (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (&rest _) (ert-fail "Sent an unrelated annotation"))))
+        (should-error (ai-code-annotation-list-send-selected) :type 'user-error)))))
+
+(ert-deftest ai-code-annotation-browser-rejects-removed-or-changed-source-notes ()
+  "An editor must not resurrect removed notes or overwrite newer note text."
+  (ai-code-annotate-magit-test--repository
+    (let ((file (expand-file-name "example.txt")))
+      (with-temp-file annotate-file
+        (prin1 (list (annotate-make-record file (list '(1 6 "Original" "first" 0 nil "id")) nil))
+               (current-buffer)))
+      (let* ((source (car (ai-code--annotation-sources default-directory nil)))
+             (note (car (plist-get source :notes))))
+        (with-temp-file annotate-file
+          (prin1 (list (annotate-make-record file (list '(1 6 "Newer" "first" 0 nil "id")) nil))
+                 (current-buffer)))
+        (should-error (ai-code--annotation-update-source source note "Editor text") :type 'user-error)
+        (should (equal (annotate-annotation-string
+                        (car (annotate-annotations-from-dump (car (annotate-load-annotation-data))))) "Newer"))
+        (with-temp-file annotate-file (insert "nil\n"))
+        (should-error (ai-code--annotation-update-source source note "Editor text") :type 'user-error)
+        (should-not (annotate-load-annotation-data))))))
+
+(ert-deftest ai-code-annotation-edit-migrates-local-legacy-database-before-loading ()
+  "Enabling annotation display must not truncate a file's legacy local database."
+  (ai-code-annotate-magit-test--repository
+    (let ((annotate-file-buffer-local t)
+          (file (expand-file-name "example.txt")))
+      (with-temp-file "example.txt.notes"
+        (prin1 (list (list file '(1 6 "One") '(7 10 "Two") '(11 15 "Three")))
+               (current-buffer)))
+      (with-current-buffer (find-file-noselect file)
+        (cl-letf (((symbol-function 'annotate-annotate) (lambda (&rest _) (interactive))))
+          (ai-code--annotation-edit))
+        (should annotate-mode)
+        (should (= (length (annotate-describe-annotations)) 3))
+        (should (= (length (annotate-annotations-from-dump (car (annotate-load-annotation-data)))) 3))))))
 
 (provide 'test_ai-code-annotate-magit)
 ;;; test_ai-code-annotate-magit.el ends here
