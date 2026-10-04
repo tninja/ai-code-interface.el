@@ -376,16 +376,18 @@ Report an unreadable database instead of signaling, so Magit still refreshes."
         (t (format "%d-%d" (car range) (cdr range)))))
 
 ;;;###autoload
-(defun ai-code-annotate-magit-review-string (&optional repository)
+(defun ai-code-annotate-magit-review-string (&optional repository id)
   "Return all saved notes for this worktree as a Markdown AI handoff.
 Includes original diff snapshots even when no longer displayed.  Exporting
-does not resolve or delete notes.  REPOSITORY defaults to this worktree."
+does not resolve or delete notes.  REPOSITORY defaults to this worktree.
+With ID, include only that note."
   (let* ((root (or repository (ai-code--annotate-magit-repository)))
          (checked (and (derived-mode-p 'magit-mode)
                        (equal root (ai-code--annotate-magit-repository))))
          (hunks (and checked (ai-code--annotate-magit-hunks)))
          (notes (cl-remove-if-not
-                 (lambda (note) (equal root (plist-get note :repository)))
+                 (lambda (note) (and (equal root (plist-get note :repository))
+                                     (or (null id) (equal id (plist-get note :id)))))
                  (ai-code--annotate-magit-read))))
     (unless notes (user-error "No saved review notes for this worktree"))
     (concat
@@ -415,18 +417,22 @@ does not resolve or delete notes.  REPOSITORY defaults to this worktree."
                   (plist-get note :text) fence hunk fence)))
       notes "\n"))))
 
+(defun ai-code--annotate-show-report (name report)
+  "Display REPORT read-only in the buffer called NAME."
+  (with-current-buffer (get-buffer-create name)
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (insert report)
+      (goto-char (point-min))
+      (special-mode))
+    (display-buffer (current-buffer))))
+
 ;;;###autoload
 (defun ai-code-annotate-magit-review ()
   "Preview all saved worktree notes, including unmatched snapshots."
   (interactive)
-  (let ((report (ai-code-annotate-magit-review-string)))
-    (with-current-buffer (get-buffer-create "*Magit Review Notes*")
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert report)
-        (goto-char (point-min))
-        (special-mode))
-      (display-buffer (current-buffer)))))
+  (ai-code--annotate-show-report "*Magit Review Notes*"
+                                 (ai-code-annotate-magit-review-string)))
 
 ;;;###autoload
 (defun ai-code-annotate-magit-copy-review ()

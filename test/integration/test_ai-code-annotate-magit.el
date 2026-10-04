@@ -47,7 +47,10 @@
            (setq buffer (magit-status-setup-buffer default-directory))
            (with-current-buffer buffer
              (ai-code-annotate-magit-mode 1)
-             ,@body))
+             ;; Accept the real compose buffer unchanged instead of waiting.
+             (cl-letf (((symbol-function 'recursive-edit) #'ai-code-compose-accept)
+                       ((symbol-function 'exit-recursive-edit) #'ignore))
+               ,@body)))
        (dolist (live (buffer-list))
          (with-current-buffer live
            (when (and (string-prefix-p directory default-directory)
@@ -340,7 +343,7 @@
                (lambda (&rest _) (ert-fail "Unexpected AI handoff"))))
       (should (string-match-p "No code annotations"
                               (error-message-string
-                               (should-error (ai-code-address-code-annotation)
+                               (should-error (ai-code--annotation-send-all)
                                              :type 'user-error)))))))
 
 (ert-deftest ai-code-annotation-combines-source-and-hunks-as-suggestions ()
@@ -357,7 +360,7 @@
                    (should-not ai-code-prompt-suffix-functions)
                    (setq prompt text))))
         (let ((ai-code-prompt-suffix-functions '(ignore)))
-          (ai-code-address-code-annotation)))
+          (ai-code--annotation-send-all)))
       (should (string-match-p "Explain first" prompt))
       (should (string-match-p "Review new line" prompt))
       (should (string-match-p (regexp-quote "@@ -1,3 +1,3 @@") prompt))
@@ -424,7 +427,7 @@
                    (should (string-match-p "Keep snapshot" prompt))
                    (should (string-match-p "Status: NOT CHECKED" prompt))
                    (should-not (string-match-p "Status: UNMATCHED" prompt)))))
-        (ai-code-address-code-annotation)))))
+        (ai-code--annotation-send-all)))))
 
 (ert-deftest ai-code-annotation-broken-source-database-is-not-silenced ()
   "Database errors must not be mistaken for an absence of annotations."
@@ -432,7 +435,7 @@
     (with-temp-file annotate-file (insert "(broken"))
     (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                (lambda (&rest _) (ert-fail "Unexpected AI handoff"))))
-      (should-error (ai-code-address-code-annotation)))))
+      (should-error (ai-code--annotation-send-all)))))
 
 (ert-deftest ai-code-annotation-legacy-source-database-is-read ()
   "Legacy records list annotations after the file name, without a checksum."
@@ -444,7 +447,7 @@
     (let (prompt)
       (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                  (lambda (text) (setq prompt text))))
-        (ai-code-address-code-annotation))
+        (ai-code--annotation-send-all))
       (should (string-match-p "legacy single" prompt))
       (should (string-match-p "legacy first" prompt))
       (should (string-match-p "legacy second" prompt))
@@ -464,12 +467,149 @@
     (let (prompt)
       (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
                  (lambda (text) (setq prompt text))))
-        (ai-code-address-code-annotation))
+        (ai-code--annotation-send-all))
       (should (string-match-p "good-id" prompt))
       (should (string-match-p "bad\\.txt\n\nSKIPPED" prompt)))))
 
+(ert-deftest ai-code-annotation-compose-buffer-reviews-prompt-before-handoff ()
+  "The prompt is sent only as accepted in the compose buffer, never on cancel."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Review new line")
+    (let (sent)
+      (cl-letf (((symbol-function 'ai-code-compose-read)
+                 (lambda (_label initial)
+                   (should (string-match-p "Review new line" initial))
+                   (should (string-match-p "suggestions ONLY" initial))
+                   "EDITED PROMPT"))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (text) (setq sent text))))
+        (ai-code--annotation-send-all))
+      (should (equal sent "EDITED PROMPT")))
+    (cl-letf (((symbol-function 'ai-code-compose-read) #'ignore)
+              ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+               (lambda (&rest _) (ert-fail "Sent after cancel"))))
+      (ai-code--annotation-send-all))))
+
+(ert-deftest ai-code-annotation-menu-offers-ordered-actions-and-routes-by-buffer ()
+  "The menu lists six ordered actions; edits go to Magit or annotate.el."
+  (ai-code-annotate-magit-test--repository
+    (let (choice labels calls)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt table &rest _)
+                   (setq labels (all-completions "" table))
+                   (should (eq (completion-metadata-get
+                                (completion-metadata "" table nil) 'display-sort-function)
+                               #'identity))
+                   (cl-find choice labels :test #'string-prefix-p)))
+                ((symbol-function 'ai-code-annotate-magit-annotate)
+                 (lambda () (interactive) (push 'magit-edit calls)))
+                ((symbol-function 'ai-code-annotate-magit-delete)
+                 (lambda (&optional _) (interactive) (push 'magit-delete calls)))
+                ((symbol-function 'annotate-annotate)
+                 (lambda (&optional _) (interactive) (push 'source-edit calls)))
+                ((symbol-function 'annotate-delete-annotation)
+                 (lambda (&optional _) (interactive) (push 'source-delete calls))))
+        (setq choice "1.")
+        (ai-code-address-code-annotation)
+        (setq choice "2.")
+        (ai-code-address-code-annotation)
+        (with-current-buffer (find-file-noselect "example.txt")
+          (setq choice "1.")
+          (ai-code-address-code-annotation)
+          (should annotate-mode)
+          (annotate-create-annotation 1 6 "here" nil 0 nil "here-id")
+          (goto-char 2)
+          (setq choice "2.")
+          (ai-code-address-code-annotation)
+          (goto-char (point-max))
+          (should-error (ai-code-address-code-annotation) :type 'user-error)))
+      (should (equal labels '("1. Add / Edit annotation"
+                              "2. Delete annotation"
+                              "3. Clear all annotations"
+                              "4. View annotation"
+                              "5. Send current annotation to AI"
+                              "6. Send all annotations to AI")))
+      (should (equal (nreverse calls)
+                     '(magit-edit magit-delete source-edit source-delete))))))
+
+(ert-deftest ai-code-annotation-send-current-sends-only-note-at-point ()
+  "Send current includes only the Magit or source note at point."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "-old")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Magit other")
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Magit here")
+    (deactivate-mark)
+    (goto-char (point-min))
+    (search-forward "+ne")
+    (let (sent)
+      (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (text) (push text sent))))
+        (ai-code--annotation-send-current)
+        (with-current-buffer (find-file-noselect "example.txt")
+          (annotate-create-annotation 1 6 "Source here" nil 0 nil "here-id")
+          (annotate-create-annotation 7 10 "Source other" nil 0 nil "other-id")
+          (setq-local annotate-mode t)
+          (goto-char 2)
+          (ai-code--annotation-send-current)
+          (goto-char (point-max))
+          (should-error (ai-code--annotation-send-current) :type 'user-error)))
+      (setq sent (nreverse sent))
+      (should (= (length sent) 2))
+      (should (string-match-p "Magit here" (nth 0 sent)))
+      (should-not (string-match-p "Magit other" (nth 0 sent)))
+      (should (string-match-p "suggestions ONLY" (nth 0 sent)))
+      (should (string-match-p "Source here" (nth 1 sent)))
+      (should-not (string-match-p "Source other" (nth 1 sent)))
+      (should-not (string-match-p "Magit here" (nth 1 sent))))))
+
+(ert-deftest ai-code-annotation-clear-all-removes-only-this-worktree-after-confirmation ()
+  "Clear all asks first, then deletes this worktree's source and Magit notes."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Magit note")
+    (with-temp-file annotate-file
+      (prin1 (list (annotate-make-record (expand-file-name "missing.txt")
+                                         (list '(1 5 "saved" "code" 0 nil "saved-id")) nil)
+                   (annotate-make-record (expand-file-name "../outside.txt")
+                                         (list '(1 5 "outside" "code" 0 nil "outside-id")) nil))
+             (current-buffer)))
+    (with-current-buffer (find-file-noselect "example.txt")
+      (annotate-create-annotation 1 6 "live" nil 0 nil "live-id")
+      (setq-local annotate-mode t))
+    (cl-letf (((symbol-function 'yes-or-no-p) #'ignore))
+      (ai-code--annotation-clear-all))
+    (should (= (length (ai-code--annotation-sources default-directory nil)) 2))
+    (should (ai-code--annotate-magit-read))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (prompt) (should (string-match-p "all 3 annotations" prompt)) t)))
+      (ai-code--annotation-clear-all))
+    (should-not (ai-code--annotation-sources default-directory nil))
+    (should-not (ai-code--annotate-magit-read))
+    (should (equal (mapcar (lambda (record)
+                             (file-name-nondirectory (annotate-filename-from-dump record)))
+                           (annotate-load-annotation-data))
+                   '("outside.txt")))))
+
+(ert-deftest ai-code-annotation-view-shows-all-without-sending ()
+  "View displays every worktree annotation read-only and sends nothing."
+  (ai-code-annotate-magit-test--repository
+    (ai-code-annotate-magit-test--select "+new")
+    (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Magit view")
+    (with-current-buffer (find-file-noselect "example.txt")
+      (annotate-create-annotation 1 6 "Source view" nil 0 nil "view-id")
+      (setq-local annotate-mode t))
+    (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
+               (lambda (&rest _) (ert-fail "View must not send"))))
+      (ai-code--annotation-view))
+    (with-current-buffer "*AI Code Annotations*"
+      (should (string-match-p "Source view" (buffer-string)))
+      (should (string-match-p "Magit view" (buffer-string)))
+      (should buffer-read-only))))
+
 (ert-deftest ai-code-annotation-real-dispatch-suppresses-edit-suffix-and-org-write ()
-  "The real dispatcher must not append implementation or Org-write prompts."
+  "Sending must not append implementation or Org-write prompts."
   (ai-code-annotate-magit-test--repository
     (ai-code-annotate-magit-test--select "+new")
     (ai-code--annotate-magit-save-note (ai-code--annotate-magit-snapshot) "Consider this")
@@ -487,7 +627,7 @@
                    (lambda (text) (setq sent text sender (current-buffer))))
                   ((symbol-function 'y-or-n-p)
                    (lambda (&rest _) (ert-fail "Unexpected Org summary offer"))))
-          (ai-code-address-code-annotation)))
+          (ai-code--annotation-send-all)))
       ;; The caller, not a killed temporary buffer, is the MCP source buffer.
       (should (eq sender caller))
       (should (string-match-p "Consider this" sent))
@@ -513,11 +653,13 @@
                    (current-buffer)))
           (with-temp-buffer
             (setq buffer-file-name file)
-            (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
+            (cl-letf (((symbol-function 'recursive-edit) #'ai-code-compose-accept)
+                      ((symbol-function 'exit-recursive-edit) #'ignore)
+                      ((symbol-function 'ai-code--write-prompt-to-file-and-send)
                        (lambda (text)
                          (should (string-match-p "current" text))
                          (should-not (string-match-p "other" text)))))
-              (ai-code-address-code-annotation))))
+              (ai-code--annotation-send-all))))
       (delete-directory directory t))))
 
 (ert-deftest ai-code-annotation-old-annotate-asks-for-upgrade ()
