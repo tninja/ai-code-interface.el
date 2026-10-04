@@ -434,6 +434,40 @@
                (lambda (&rest _) (ert-fail "Unexpected AI handoff"))))
       (should-error (ai-code-address-code-annotation)))))
 
+(ert-deftest ai-code-annotation-legacy-source-database-is-read ()
+  "Legacy records list annotations after the file name, without a checksum."
+  (ai-code-annotate-magit-test--repository
+    (with-temp-file annotate-file
+      (prin1 `((,(expand-file-name "example.txt") (1 6 "legacy single"))
+               (,(expand-file-name "missing.txt") (1 5 "legacy first") (7 9 "legacy second")))
+             (current-buffer)))
+    (let (prompt)
+      (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (text) (setq prompt text))))
+        (ai-code-address-code-annotation))
+      (should (string-match-p "legacy single" prompt))
+      (should (string-match-p "legacy first" prompt))
+      (should (string-match-p "legacy second" prompt))
+      (should (= (cl-count-if (lambda (line) (string-prefix-p "Note ID: legacy" line))
+                              (split-string prompt "\n"))
+                 3)))))
+
+(ert-deftest ai-code-annotation-malformed-source-record-is-skipped-not-fatal ()
+  "A record that cannot be rendered is marked skipped; others are still sent."
+  (ai-code-annotate-magit-test--repository
+    (with-temp-file annotate-file
+      (prin1 (list (annotate-make-record (expand-file-name "example.txt")
+                                         (list '(1 6 "good" "first" 0 nil "good-id")) nil)
+                   (annotate-make-record (expand-file-name "bad.txt")
+                                         (list '(1 5 nil)) nil))
+             (current-buffer)))
+    (let (prompt)
+      (cl-letf (((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (text) (setq prompt text))))
+        (ai-code-address-code-annotation))
+      (should (string-match-p "good-id" prompt))
+      (should (string-match-p "bad\\.txt\n\nSKIPPED" prompt)))))
+
 (ert-deftest ai-code-annotation-real-dispatch-suppresses-edit-suffix-and-org-write ()
   "The real dispatcher must not append implementation or Org-write prompts."
   (ai-code-annotate-magit-test--repository

@@ -42,6 +42,15 @@
               (equal path current-file))
         path))))
 
+(defun ai-code--annotation-record-notes (record)
+  "Return RECORD's annotations, accepting annotate.el's legacy layout.
+Legacy records, written before checksums, list annotations directly
+after the file name instead of nesting them in one list."
+  (let ((notes (annotate-annotations-from-dump record)))
+    (if (integerp (car-safe notes))
+        (remq nil (cdr record))
+      notes)))
+
 (defun ai-code--annotation-sources (root current-file)
   "Collect source records in ROOT, or CURRENT-FILE outside Git.
 Read the active annotation database and databases of live annotated buffers.
@@ -64,7 +73,7 @@ Live buffers override their saved records, including deleted annotations."
               (puthash file
                        (cl-remove-duplicates
                         (append (gethash file sources)
-                                (annotate-annotations-from-dump record))
+                                (ai-code--annotation-record-notes record))
                         :test #'equal)
                        sources))))))
     (maphash (lambda (file buffer)
@@ -112,7 +121,8 @@ Live buffers override their saved records, including deleted annotations."
             (ai-code--annotation-quote quote))))
 
 (defun ai-code--annotation-source-report (source)
-  "Render SOURCE with current live or disk text, without visiting a file."
+  "Render SOURCE with current live or disk text, without visiting a file.
+Mark SOURCE as skipped if its notes cannot be rendered."
   (let* ((file (plist-get source :file))
          (buffer (plist-get source :buffer))
          (available-p (or (buffer-live-p buffer) (file-exists-p file)))
@@ -124,11 +134,14 @@ Live buffers override their saved records, including deleted annotations."
                                    note (buffer-live-p buffer) available-p))
                                 (plist-get source :notes) "\n")))))
     (concat "## Source file: " file "\n\n"
-            (if (buffer-live-p buffer)
-                (with-current-buffer buffer (funcall render))
-              (with-temp-buffer
-                (when (file-exists-p file) (insert-file-contents file))
-                (funcall render))))))
+            (condition-case err
+                (if (buffer-live-p buffer)
+                    (with-current-buffer buffer (funcall render))
+                  (with-temp-buffer
+                    (when (file-exists-p file) (insert-file-contents file))
+                    (funcall render)))
+              (error (format "SKIPPED (unreadable annotation record: %s)\n"
+                             (error-message-string err)))))))
 
 ;;;###autoload
 (defun ai-code-address-code-annotation ()
