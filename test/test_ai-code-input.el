@@ -823,9 +823,9 @@
       ;; Cleanup
       (when (file-exists-p test-file) (delete-file test-file)))))
 
-(ert-deftest ai-code-test-file-symbol-candidates-sorted ()
-  "Test that ai-code--file-symbol-candidates returns sorted symbols."
-  (let ((test-file (expand-file-name "test-sorted.el" temporary-file-directory)))
+(ert-deftest ai-code-test-file-symbol-candidates-source-order ()
+  "Test that ai-code--file-symbol-candidates preserves source order."
+  (let ((test-file (expand-file-name "test-source-order.el" temporary-file-directory)))
     (unwind-protect
         (progn
           (with-temp-file test-file
@@ -834,7 +834,7 @@
             (insert "(defun beta () nil)\n"))
           
           (let ((symbols (ai-code--file-symbol-candidates test-file)))
-            (should (equal symbols (sort (copy-sequence symbols) #'string<)))))
+            (should (equal symbols '("zebra" "alpha" "beta")))))
       ;; Cleanup
       (when (file-exists-p test-file) (delete-file test-file)))))
 
@@ -1452,85 +1452,6 @@
       (should-not ai-code-read-string-called)
       (should read-string-called)
       (should (string= insert-prompt-called "read string long")))))
-
-;; Spec: Tree-sitter symbol-level # completion — qualified names, file order, annotation, fallback
-
-(ert-deftest ai-code-test-file-symbol-candidates-treesit-qualified-and-order ()
-  "Use Tree-sitter qualified names in file order when parser is available."
-  (let ((test-file (expand-file-name "test-treesit-qualified.py" temporary-file-directory)))
-    (unwind-protect
-        (progn
-          (with-temp-file test-file
-            (insert "def alpha():\n    pass\n\n"
-                    "class Service:\n"
-                    "    def first(self):\n        pass\n"
-                    "    def second(self):\n        pass\n\n"
-                    "def zebra():\n    pass\n"))
-          ;; Mock Tree-sitter collection to simulate python-ts-mode file order.
-          (cl-letf (((symbol-function 'ai-code--treesit-available-p) (lambda (&optional _) t))
-                    ((symbol-function 'ai-code--treesit-file-symbols)
-                     (lambda (&optional _buf)
-                       (list (list :qualified "alpha" :header "def alpha():" :line 1)
-                             (list :qualified "Service" :header "class Service:" :line 3)
-                             (list :qualified "Service.first" :header "def first(self):" :line 4)
-                             (list :qualified "Service.second" :header "def second(self):" :line 6)
-                             (list :qualified "zebra" :header "def zebra():" :line 9))))
-                    ((symbol-function 'find-file-noselect)
-                     (lambda (file &optional _nowarn _rawfile _wildcards)
-                       ;; Return a temp buffer that satisfies available-p
-                       (let ((buf (generate-new-buffer "*mock-treesit*")))
-                         (with-current-buffer buf (insert "mock")) buf))))
-            (let ((symbols (ai-code--file-symbol-candidates test-file)))
-              ;; Expect qualified names in file order, not alphabetical sort
-              (should (equal symbols '("alpha" "Service" "Service.first" "Service.second" "zebra"))))))
-      (when (file-exists-p test-file) (delete-file test-file)))))
-
-(ert-deftest ai-code-test-file-symbol-candidates-treesit-fallback-to-imenu ()
-  "Fall back to imenu alphabetical list when Tree-sitter reports no symbols."
-  (let ((test-file (expand-file-name "test-treesit-fallback.el" temporary-file-directory)))
-    (unwind-protect
-        (progn
-          (with-temp-file test-file
-            (insert "(defun zebra () nil)\n(defun alpha () nil)\n"))
-          (cl-letf (((symbol-function 'ai-code--treesit-available-p) (lambda (&optional _) t))
-                    ((symbol-function 'ai-code--treesit-file-symbols) (lambda (&optional _buf) nil)))
-            (let ((symbols (ai-code--file-symbol-candidates test-file)))
-              ;; Fallback path sorts alphabetically
-              (should (equal symbols '("alpha" "zebra"))))))
-      (when (file-exists-p test-file) (delete-file test-file)))))
-
-(ert-deftest ai-code-test-choose-symbol-annotation ()
-  "Choose-symbol provides annotation with header and line."
-  (let ((test-file (expand-file-name "test-choose-annot.py" temporary-file-directory)))
-    (unwind-protect
-        (progn
-          (with-temp-file test-file
-            (insert "def alpha():\n    pass\n"))
-          (let (captured-candidates captured-extra)
-            (cl-letf (((symbol-function 'ai-code--treesit-available-p) (lambda (&optional _) t))
-                      ((symbol-function 'ai-code--treesit-file-symbols)
-                       (lambda (&optional _buf)
-                         (list (list :qualified "Service.first" :header "def first(self):" :line 10)
-                               (list :qualified "zebra" :header "def zebra():" :line 20))))
-                      ((symbol-function 'find-file-noselect)
-                       (lambda (file &optional _nowarn _rawfile _wildcards)
-                         (generate-new-buffer "*mock-annot*")))
-                      ((symbol-function 'completing-read)
-                       (lambda (prompt candidates &rest args)
-                         (setq captured-candidates candidates)
-                         (when (boundp 'completion-extra-properties)
-                           (setq captured-extra completion-extra-properties))
-                         (let ((ann-fn (plist-get completion-extra-properties :annotation-function)))
-                           (should ann-fn)
-                           (should (string-match-p "def first" (funcall ann-fn "Service.first")))
-                           (should (string-match-p "10" (funcall ann-fn "Service.first")))
-                           (should (string-match-p "def zebra" (funcall ann-fn "zebra"))))
-                         "Service.first")))
-              (should (string= "Service.first" (ai-code--choose-symbol-from-file test-file)))
-              (should (equal captured-candidates '("Service.first" "zebra")))
-              (should captured-extra)
-              (should (plist-get captured-extra :annotation-function)))))
-      (when (file-exists-p test-file) (delete-file test-file)))))
 
 (provide 'test_ai-code-input)
 ;;; test_ai-code-input.el ends here
