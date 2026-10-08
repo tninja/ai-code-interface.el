@@ -57,12 +57,18 @@ Uses `read-string' directly to avoid `helm-mode' intercepting `completing-read'.
 CANDIDATE-LIST provides additional completion options if provided."
   (funcall ai-code--read-string-fn prompt initial-input candidate-list))
 
+(defun ai-code--long-prompt-p (text)
+  "Return non-nil when TEXT spans more than two lines.
+Such text is edited with the multi-line editor instead of the default
+reader, and with a compose buffer when `ai-code-use-compose-buffer' is set."
+  (and text
+       (> (length (split-string text "\n")) 2)))
+
 (defun ai-code--confirm-and-send (prompt-label initial-prompt)
   "Let user edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI.
 Returns non-nil on successful send."
   (when-let* ((prompt
-               (if (and initial-prompt
-                        (> (length (split-string initial-prompt "\n")) 2))
+               (if (ai-code--long-prompt-p initial-prompt)
                    (if ai-code-use-compose-buffer
                        (ai-code-compose-read prompt-label initial-prompt)
                      (read-string prompt-label initial-prompt))

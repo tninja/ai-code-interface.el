@@ -727,6 +727,89 @@ test instead of creating a real worktree next to the repository."
                (ert-fail "Clean repository should not run git mutation commands"))))
     (should-error (ai-code-git-commit-current-changes) :type 'user-error)))
 
+(defun ai-code-test--commit-with-generated-message
+    (generated compose-enabled &optional compose-result)
+  "Run the commit flow with GPTel returning GENERATED.
+COMPOSE-ENABLED binds `ai-code-use-compose-buffer'.  The compose reader
+returns COMPOSE-RESULT; the minibuffer reader accepts its initial input.
+Return a plist with :minibuffer-edits, :compose-calls, :git-calls and
+:error, where :error is the signaled user-error message, if any."
+  (let ((ai-code-use-compose-buffer compose-enabled)
+        (first-read t)
+        minibuffer-edits
+        compose-calls
+        git-calls
+        error-message)
+    (cl-letf (((symbol-function 'ai-code--git-root)
+               (lambda (&optional _dir) "/tmp/repo/"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (prompt &optional initial-input _candidates)
+                 (if first-read
+                     (progn (setq first-read nil) "")
+                   (push (list prompt initial-input) minibuffer-edits)
+                   initial-input)))
+              ((symbol-function 'ai-code-compose-read)
+               (lambda (prompt &optional initial-input _candidates)
+                 (push (list prompt initial-input) compose-calls)
+                 compose-result))
+              ((symbol-function 'magit-git-output)
+               (lambda (&rest args)
+                 (if (equal args '("status" "--porcelain"))
+                     "?? new-file.el"
+                   "diff --git a/a.el b/a.el\n+new line\n")))
+              ((symbol-function 'ai-code-call-gptel-sync)
+               (lambda (_prompt) generated))
+              ((symbol-function 'magit-call-git)
+               (lambda (&rest args) (push args git-calls) 0))
+              ((symbol-function 'y-or-n-p)
+               (lambda (_prompt) nil)))
+      (condition-case err
+          (ai-code-git-commit-current-changes)
+        (user-error (setq error-message (error-message-string err)))))
+    (list :minibuffer-edits (nreverse minibuffer-edits)
+          :compose-calls (nreverse compose-calls)
+          :git-calls (nreverse git-calls)
+          :error error-message)))
+
+(ert-deftest ai-code-test-git-commit-current-changes-uses-compose-for-long-generated-message ()
+  "A multi-line generated message is edited in compose when enabled."
+  (let ((result (ai-code-test--commit-with-generated-message
+                 "Subject\n\nBody line" t "Edited subject\n\nEdited body\n")))
+    (should (equal (plist-get result :compose-calls)
+                   '(("Commit message: " "Subject\n\nBody line"))))
+    (should-not (plist-get result :minibuffer-edits))
+    (should (equal (plist-get result :git-calls)
+                   '(("add" "-A")
+                     ("commit" "-m" "Edited subject\n\nEdited body"))))))
+
+(ert-deftest ai-code-test-git-commit-current-changes-keeps-minibuffer-for-short-generated-message ()
+  "A single-line generated message keeps the minibuffer editor."
+  (let ((result (ai-code-test--commit-with-generated-message
+                 "Short subject" t "unused")))
+    (should-not (plist-get result :compose-calls))
+    (should (equal (plist-get result :minibuffer-edits)
+                   '(("Commit message: " "Short subject"))))
+    (should (equal (plist-get result :git-calls)
+                   '(("add" "-A") ("commit" "-m" "Short subject"))))))
+
+(ert-deftest ai-code-test-git-commit-current-changes-keeps-minibuffer-when-compose-disabled ()
+  "A multi-line generated message keeps the minibuffer when compose is off."
+  (let ((result (ai-code-test--commit-with-generated-message
+                 "Subject\n\nBody line" nil "unused")))
+    (should-not (plist-get result :compose-calls))
+    (should (equal (plist-get result :minibuffer-edits)
+                   '(("Commit message: " "Subject\n\nBody line"))))
+    (should (equal (plist-get result :git-calls)
+                   '(("add" "-A") ("commit" "-m" "Subject\n\nBody line"))))))
+
+(ert-deftest ai-code-test-git-commit-current-changes-compose-cancel-aborts-commit ()
+  "Cancelling the compose buffer aborts the commit."
+  (let ((result (ai-code-test--commit-with-generated-message
+                 "Subject\n\nBody line" t nil)))
+    (should (equal (plist-get result :error) "Commit message cannot be empty"))
+    (should (= (length (plist-get result :compose-calls)) 1))
+    (should-not (assoc "commit" (plist-get result :git-calls)))))
+
 (ert-deftest ai-code-test-git-push-current-branch-with-upstream ()
   "Push normally when the current branch already has an upstream."
   (let (git-calls)
