@@ -235,6 +235,35 @@ tools on the user's machine, so tool use is suppressed for the request."
              "Truncated"
              (ai-code-test--gptel-sync-error-message "Truncate this prompt")))))
 
+(ert-deftest ai-code-test-call-gptel-sync-shows-waiting-message ()
+  "The blocking wait should show progress and clear it afterwards.
+The progress message must stay out of the *Messages* log."
+  (let ((callback nil)
+        (messages nil)
+        (logged-waiting nil))
+    (ai-code-test-with-stub-gptel
+        (lambda (_question &rest args)
+          (setq callback (plist-get args :callback)))
+      (cl-letf (((symbol-function 'sit-for)
+                 (lambda (&rest _args)
+                   (funcall callback "ANSWER"
+                            '(:status "HTTP/2 200" :error nil))))
+                ((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (let ((text (and format-string
+                                    (apply #'format format-string args))))
+                     (when (and text message-log-max
+                                (string-match-p "GPTel" text))
+                       (setq logged-waiting t))
+                     (push text messages)))))
+        (should (equal "ANSWER" (ai-code-call-gptel-sync "Question")))))
+    (should (cl-some (lambda (text)
+                       (and text (string-match-p "Waiting for GPTel" text)))
+                     messages))
+    (should-not logged-waiting)
+    ;; The most recent message call clears the echo area.
+    (should (null (car messages)))))
+
 (ert-deftest ai-code-test-custom-prompt-suffix-provider-respects-switch ()
   "The custom suffix provider should honor the legacy suffix switch."
   (let ((ai-code-prompt-suffix-functions
