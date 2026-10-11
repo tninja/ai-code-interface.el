@@ -331,6 +331,10 @@ Only works when gptel package is installed, otherwise shows error message."
               (while (not done)
                 (when quit-flag
                   (keyboard-quit))
+                ;; Show progress without flooding the *Messages* log.
+                (let ((message-log-max nil))
+                  (message "Waiting for GPTel response... %ds (C-g to cancel)"
+                           (floor (- (float-time) start-time))))
                 (when (> (- (float-time) start-time) ai-code-gptel-sync-timeout)
                   ;; Try to abort any running processes
                   (gptel-abort temp-buffer)
@@ -338,7 +342,8 @@ Only works when gptel package is installed, otherwise shows error message."
                         error-info (format "Request timed out after %d seconds" ai-code-gptel-sync-timeout)))
                 ;; Use sit-for to process events and allow interruption
                 (sit-for 0.1)))
-          ;; Clean up temp buffer
+          ;; Clear the progress message and clean up temp buffer
+          (message nil)
           (when (buffer-live-p temp-buffer)
             (kill-buffer temp-buffer)))
         (cond

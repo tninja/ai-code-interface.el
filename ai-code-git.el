@@ -266,7 +266,10 @@ current branch to its remote."
         (let* ((diff (magit-git-output "diff" "--cached"))
                (generated (ai-code--git-generate-commit-message diff)))
           (setq commit-message
-                (ai-code-read-string "Commit message: " generated))))
+                (if (and ai-code-use-compose-buffer
+                         (ai-code--long-prompt-p generated))
+                    (ai-code-compose-read "Commit message: " generated)
+                  (ai-code-read-string "Commit message: " generated)))))
       (setq commit-message (string-trim (or commit-message "")))
       (when (string-empty-p commit-message)
         (user-error "Commit message cannot be empty"))

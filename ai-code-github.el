@@ -316,6 +316,7 @@ Merge Conflict Resolution Steps:
       "GitHub issue URL: "
     "Pull request URL: "))
 
+;; DONE: sub-command here should take ai-code-use-compose-buffer into consideration. when it is non-nil, it should use a compose buffer for multi-lines prompt, just like other command.
 (defconst ai-code-github--pull-or-review-pr-mode-alist
   '(("Review the PR" . review-pr)
     ("Check unresolved feedback" . check-feedback)
