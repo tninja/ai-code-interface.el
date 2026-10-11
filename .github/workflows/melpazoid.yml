@@ -27,5 +27,5 @@ jobs:
         env:
           LOCAL_REPO: ${{ github.workspace }}
           RECIPE: (ai-code :fetcher github :repo "tninja/ai-code-interface.el")
-          EXIST_OK: false
+          EXIST_OK: "true"
         run: echo $GITHUB_REF && make -C ~/melpazoid
