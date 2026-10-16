@@ -16,6 +16,7 @@
 
 (defvar vterm-copy-mode-hook)
 (defvar vterm--term)
+(defvar vterm-shell)
 (defvar eat-term-name)
 (defvar ghostel-set-title-function)
 (defvar ghostel-kill-buffer-on-exit)
@@ -139,7 +140,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
     (makunbound symbol)))
 
 (defun test-ai-code-backends-infra--session-dir (directory)
-  "Return DIRECTORY the way session bookkeeping stores it.
+  "Return DIRECTORY in the canonical form used by session bookkeeping.
 Session keys are canonicalized with `file-truename', so a key built from a
 literal path has to be resolved the same way to match.  This matters where
 the platform makes the literal path a symlink, such as /tmp on macOS."
@@ -847,6 +848,9 @@ The prefix argument should also force instance-name prompting."
                    'fake-window))
                 ((symbol-function 'window-body-width)
                  (lambda (&rest _args) 96))
+                ((symbol-function 'window-resizable)
+                 (lambda (_window delta &rest _args) delta))
+                ((symbol-function 'window-preserve-size) #'ignore)
                 ((symbol-function 'window-resize)
                  (lambda (window delta horizontal &optional _ignore)
                    (setq resize-call (list window delta horizontal)))))

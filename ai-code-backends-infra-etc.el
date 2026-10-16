@@ -12,7 +12,7 @@
 (require 'cl-lib)
 (require 'ai-code-backends-infra-platform)
 
-(declare-function ai-code-backends-infra--fit-side-window-body-width
+(declare-function ai-code-backends-infra--fit-side-window-size
                   "ai-code-backends-infra" (window))
 (declare-function ai-code-backends-infra--configure-session-buffer
                   "ai-code-backends-infra" (buffer &optional escape-fn multiline-input-sequence))
@@ -66,17 +66,13 @@
       (pcase side
         ((or 'left 'right)
          (setq ai-code-backends-infra-window-width
-               (max 1 (+ ai-code-backends-infra-window-width delta)))
-         (ai-code-backends-infra--fit-side-window-body-width window))
+               (max 1 (+ ai-code-backends-infra-window-width delta))))
         ((or 'top 'bottom)
          (setq ai-code-backends-infra-window-height
-               (max 1 (+ ai-code-backends-infra-window-height delta)))
-         (let ((height-delta (- ai-code-backends-infra-window-height
-                                (window-body-height window))))
-           (unless (zerop height-delta)
-             (window-resize window height-delta nil t))))
+               (max 1 (+ ai-code-backends-infra-window-height delta))))
         (_
          (user-error "AI panel is not in a side window")))
+      (ai-code-backends-infra--fit-side-window-size window)
       (ai-code-backends-infra--sync-terminal-dimensions buffer window))))
 
 ;;;###autoload

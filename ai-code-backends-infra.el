@@ -60,7 +60,7 @@ Can be either `vterm', `eat', or `ghostel'."
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-window-height 20
-  "Height of the side window when opened on top or bottom."
+  "Total height of the side window when opened on top or bottom."
   :type 'integer
   :group 'ai-code-backends-infra)
 
@@ -642,8 +642,7 @@ buffer is in scroll/copy mode, working around bug #1422."
                         ,@(when (memq side '(top bottom))
                             `((window-height . ,ai-code-backends-infra-window-height)
                               (preserve-size . (nil . t))))
-                        (window-parameters . ((no-delete-other-windows . t)
-                                              (window-size-fixed . ,(if (memq side '(left right)) 'width 'height))))))))
+                        (window-parameters . ((no-delete-other-windows . t)))))))
                (display-buffer buffer))
            (display-buffer buffer))))
     (setq ai-code-backends-infra--last-accessed-buffer buffer)
@@ -653,6 +652,7 @@ buffer is in scroll/copy mode, working around bug #1422."
     ;; The buffer may have been created with different dimensions before
     ;; being displayed in this window.
     (when (and window (buffer-live-p buffer))
+      (ai-code-backends-infra--configure-side-window-size window)
       (ai-code-backends-infra--sync-terminal-dimensions buffer window)
       (with-current-buffer buffer
         (when (eq ai-code-backends-infra--session-terminal-backend 'ghostel)
@@ -661,10 +661,94 @@ buffer is in scroll/copy mode, working around bug #1422."
 
 (defun ai-code-backends-infra--fit-side-window-body-width (window)
   "Resize WINDOW so its body width matches `ai-code-backends-infra-window-width'."
-  (let ((delta (- ai-code-backends-infra-window-width
-                  (window-body-width window))))
-    (unless (zerop delta)
-      (window-resize window delta t t))))
+  (ai-code-backends-infra--resize-and-preserve-window-size
+   window ai-code-backends-infra-window-width t))
+
+(defun ai-code-backends-infra--resize-and-preserve-window-size
+    (window target horizontal)
+  "Resize WINDOW toward TARGET and preserve its resulting size.
+HORIZONTAL non-nil means TARGET is a body width in columns; otherwise
+TARGET is a total height in lines.  Respect minimum sizes and other
+fixed windows.  Return non-nil only when WINDOW actually changes size."
+  (let ((size (if horizontal
+                  (window-body-width window)
+                (window-total-height window))))
+    ;; Release only this window's preservation, so competing panels cannot
+    ;; repeatedly steal space from each other when the frame is too small.
+    (window-preserve-size window horizontal nil)
+    (unwind-protect
+        (let ((delta (window-resizable window (- (max 1 target) size)
+                                       horizontal)))
+          (unless (zerop delta)
+            (window-resize window delta horizontal))
+          (not (zerop delta)))
+      ;; Preservation belongs to the current buffer and actual pixel size.
+      (window-preserve-size window horizontal t))))
+
+(defun ai-code-backends-infra--fit-side-window-size (window)
+  "Fit WINDOW to the configured size for its actual side.
+Return non-nil only when WINDOW changes size."
+  (pcase (window-parameter window 'window-side)
+    ((or 'left 'right)
+     (ai-code-backends-infra--fit-side-window-body-width window))
+    ((or 'top 'bottom)
+     (ai-code-backends-infra--resize-and-preserve-window-size
+      window ai-code-backends-infra-window-height nil))))
+
+(defun ai-code-backends-infra--managed-side-window-p (window)
+  "Return non-nil when WINDOW is a managed AI session side window."
+  (and (window-live-p window)
+       (window-parameter window 'ai-code-backends-infra-side-window)
+       (memq (window-parameter window 'window-side) '(left right top bottom))
+       (ai-code-backends-infra--session-buffer-p (window-buffer window))))
+
+(defun ai-code-backends-infra--restore-side-window-sizes (frame)
+  "Restore managed side windows on FRAME after a layout change."
+  (when (frame-live-p frame)
+    (ai-code-backends-infra--cancel-side-window-size-restore frame)
+    (when ai-code-backends-infra-use-side-window
+      (dolist (window (window-list frame 'nomini))
+        (when (ai-code-backends-infra--managed-side-window-p window)
+          (when (ai-code-backends-infra--fit-side-window-size window)
+            (ai-code-backends-infra--sync-terminal-dimensions
+             (window-buffer window) window)))))))
+
+(defun ai-code-backends-infra--schedule-side-window-size-restore (frame)
+  "Schedule one deferred side window size restoration for FRAME.
+Coalesce layout changes without resizing windows during redisplay."
+  (when (and ai-code-backends-infra-use-side-window
+             (frame-live-p frame)
+             (not (frame-parameter frame 'ai-code-backends-infra-resize-timer))
+             (cl-some #'ai-code-backends-infra--managed-side-window-p
+                      (window-list frame 'nomini)))
+    (set-frame-parameter
+     frame 'ai-code-backends-infra-resize-timer
+     (run-at-time 0.1 nil
+                  #'ai-code-backends-infra--restore-side-window-sizes frame))))
+
+(defun ai-code-backends-infra--cancel-side-window-size-restore (frame)
+  "Cancel any pending side window size restoration for FRAME."
+  (when-let* ((timer (frame-parameter
+                     frame 'ai-code-backends-infra-resize-timer)))
+    (cancel-timer timer)
+    (set-frame-parameter frame 'ai-code-backends-infra-resize-timer nil)))
+
+(defun ai-code-backends-infra--configure-side-window-size (window)
+  "Manage and refresh the size of an AI side WINDOW."
+  (when (and ai-code-backends-infra-use-side-window
+             (window-live-p window)
+             (memq (window-parameter window 'window-side)
+                   '(left right top bottom)))
+    (set-window-parameter window 'ai-code-backends-infra-side-window t)
+    ;; Older versions stored this buffer variable as an ineffective window
+    ;; parameter.  Keep size preservation local to the managed window instead.
+    (set-window-parameter window 'window-size-fixed nil)
+    (let ((changed (ai-code-backends-infra--fit-side-window-size window)))
+      (add-hook 'window-size-change-functions
+                #'ai-code-backends-infra--schedule-side-window-size-restore)
+      (add-hook 'delete-frame-functions
+                #'ai-code-backends-infra--cancel-side-window-size-restore)
+      changed)))
 
 (defun ai-code-backends-infra--sync-terminal-dimensions (buffer window)
   "Sync terminal dimensions in BUFFER to match WINDOW size.
@@ -1633,7 +1717,10 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   force-prompt
                   source-buffer)))
     (if-let* ((window (get-buffer-window buffer)))
-        (select-window window)
+        (progn
+          (when (ai-code-backends-infra--configure-side-window-size window)
+            (ai-code-backends-infra--sync-terminal-dimensions buffer window))
+          (select-window window))
       (ai-code-backends-infra--display-buffer-in-side-window buffer))))
 
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
