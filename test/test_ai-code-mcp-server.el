@@ -1549,6 +1549,8 @@ the full diagnostics list is intentionally omitted from the response."
           (let ((original-point (point)))
             (cl-letf (((symbol-function 'xref-find-backend) (lambda () 'eglot))
                       ((symbol-function 'eglot--server-capable-or-lose) #'ignore)
+                      ((symbol-function 'eglot-server-capable)
+                       (lambda (&rest _) t))
                       ((symbol-function 'eglot--current-server-or-lose) #'ignore)
                       ((symbol-function 'jsonrpc-request)
                        (lambda (_server method params &rest _)
