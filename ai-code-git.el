@@ -985,8 +985,13 @@ The directory is `ai-code-git-worktree-root/REPO-NAME'."
   :type 'boolean
   :group 'ai-code)
 
+(defcustom ai-code-git-turn-snapshot-max-history 10
+  "Maximum number of AI turn snapshots kept per repository."
+  :type 'integer
+  :group 'ai-code)
+
 (defvar ai-code-git--turn-snapshots (make-hash-table :test 'equal)
-  "Hash table mapping normalized repository roots to their latest AI turn snapshot.")
+  "Hash table mapping repository roots to turn snapshot history lists.")
 
 (defconst ai-code-git-turn-diff-buffer-name "*AI Code Turn Diff*"
   "Buffer name used to display diffs since the last AI turn snapshot.")
@@ -995,6 +1000,15 @@ The directory is `ai-code-git-worktree-root/REPO-NAME'."
   "Return normalized hash-table key for GIT-ROOT."
   (and git-root
        (file-name-as-directory (file-truename git-root))))
+
+(defun ai-code-git-turn-snapshots (&optional git-root)
+  "Return recorded AI turn snapshots for GIT-ROOT, newest first."
+  (when-let* ((root (or git-root (ai-code--git-root)))
+              (key (ai-code-git--normalize-repo-key root))
+              (stored (gethash key ai-code-git--turn-snapshots)))
+    (if (keywordp (car-safe stored))
+        (list stored)
+      stored)))
 
 (defun ai-code-git-record-turn-snapshot (&optional prompt-text git-root)
   "Record a non-destructive Git snapshot before sending PROMPT-TEXT.
@@ -1011,30 +1025,31 @@ Optional GIT-ROOT overrides repository root detection."
                   stash-commit
                 head-commit)))
         (when (and snapshot-commit (not (string-empty-p snapshot-commit)))
-          (let ((snapshot
-                 (list :commit snapshot-commit
-                       :head head-commit
-                       :untracked (ignore-errors
-                                    (magit-git-lines "ls-files" "--others"
-                                                     "--exclude-standard"))
-                       :timestamp (current-time)
-                       :prompt prompt-text)))
-            (puthash key snapshot ai-code-git--turn-snapshots)
+          (let* ((snapshot
+                  (list :commit snapshot-commit
+                        :head head-commit
+                        :untracked (ignore-errors
+                                     (magit-git-lines "ls-files" "--others"
+                                                      "--exclude-standard"))
+                        :timestamp (current-time)
+                        :prompt prompt-text))
+                 (max-history (max 1 (or ai-code-git-turn-snapshot-max-history 10)))
+                 (history (seq-take (cons snapshot (ai-code-git-turn-snapshots root))
+                                    max-history)))
+            (puthash key history ai-code-git--turn-snapshots)
             snapshot))))))
 
 (defun ai-code-git-last-turn-snapshot (&optional git-root)
   "Return the latest recorded AI turn snapshot for GIT-ROOT, or nil."
-  (when-let* ((root (or git-root (ai-code--git-root)))
-              (key (ai-code-git--normalize-repo-key root)))
-    (gethash key ai-code-git--turn-snapshots)))
+  (car (ai-code-git-turn-snapshots git-root)))
 
 (defun ai-code-git--turn-snapshot-new-untracked-files (git-root snapshot)
   "Return untracked files in GIT-ROOT created after SNAPSHOT."
   (let* ((default-directory git-root)
-         (current-untracked
-          (ignore-errors
-            (magit-git-lines "ls-files" "--others" "--exclude-standard")))
-         (prior-untracked (plist-get snapshot :untracked)))
+          (current-untracked
+           (ignore-errors
+             (magit-git-lines "ls-files" "--others" "--exclude-standard")))
+          (prior-untracked (plist-get snapshot :untracked)))
     (seq-difference current-untracked prior-untracked #'string=)))
 
 (defun ai-code-git--require-turn-snapshot (git-root)
@@ -1046,6 +1061,45 @@ Optional GIT-ROOT overrides repository root detection."
   "Return the abbreviated commit hash for SNAPSHOT."
   (let ((commit (or (plist-get snapshot :commit) "")))
     (substring commit 0 (min 7 (length commit)))))
+
+(defun ai-code-git--format-turn-snapshot-candidate (index snapshot)
+  "Format completion label for 1-based INDEX and SNAPSHOT."
+  (let* ((short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
+         (timestamp (plist-get snapshot :timestamp))
+         (time-str (if timestamp
+                       (format-time-string "%H:%M:%S" timestamp)
+                     "unknown"))
+         (prompt (string-trim (or (plist-get snapshot :prompt) "")))
+         (first-line (if (string-empty-p prompt)
+                         "(no prompt text)"
+                       (car (split-string prompt "\n")))))
+    (format "#%d [%s] %s - %s" index time-str short-sha first-line)))
+
+(defun ai-code-git-select-turn-snapshot (git-root &optional prompt)
+  "Prompt the user to select a recorded turn snapshot for GIT-ROOT with PROMPT."
+  (let ((snapshots (ai-code-git-turn-snapshots git-root)))
+    (unless snapshots
+      (user-error "No AI turn snapshot recorded for %s" git-root))
+    (if (= (length snapshots) 1)
+        (car snapshots)
+      (let* ((index 0)
+             (alist (mapcar (lambda (snap)
+                              (setq index (1+ index))
+                              (cons (ai-code-git--format-turn-snapshot-candidate
+                                     index snap)
+                                    snap))
+                            snapshots))
+             (choice (completing-read (or prompt "Select AI turn snapshot: ")
+                                      (mapcar #'car alist) nil t)))
+        (or (cdr (assoc choice alist))
+            (car snapshots))))))
+
+(defun ai-code-git--resolve-target-turn-snapshot (git-root &optional select-from-history)
+  "Return target turn snapshot for GIT-ROOT.
+When SELECT-FROM-HISTORY is non-nil, prompt across recorded history."
+  (if select-from-history
+      (ai-code-git-select-turn-snapshot git-root)
+    (ai-code-git--require-turn-snapshot git-root)))
 
 (defun ai-code-git--render-turn-diff-buffer (root snapshot diff new-untracked)
   "Render turn diff buffer for ROOT using SNAPSHOT, DIFF, and NEW-UNTRACKED."
@@ -1072,12 +1126,15 @@ Optional GIT-ROOT overrides repository root detection."
     buffer))
 
 ;;;###autoload
-(defun ai-code-git-review-turn-diff (&optional git-root)
-  "Display the Git diff and new untracked files since the last AI turn snapshot.
-Optional GIT-ROOT overrides repository root detection."
-  (interactive)
+(defun ai-code-git-review-turn-diff (&optional git-root select-from-history)
+  "Display the Git diff and new untracked files since an AI turn snapshot.
+Optional GIT-ROOT overrides repository root detection.
+When SELECT-FROM-HISTORY (interactively, prefix arg) is non-nil,
+prompt to select from recorded turn snapshot history."
+  (interactive (list nil current-prefix-arg))
   (let* ((root (or git-root (ai-code--validate-git-repository)))
-         (snapshot (ai-code-git--require-turn-snapshot root))
+         (snapshot (ai-code-git--resolve-target-turn-snapshot
+                    root select-from-history))
          (default-directory root)
          (commit (plist-get snapshot :commit))
          (short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
@@ -1092,12 +1149,15 @@ Optional GIT-ROOT overrides repository root detection."
       (ai-code-git--render-turn-diff-buffer root snapshot diff new-untracked))))
 
 ;;;###autoload
-(defun ai-code-git-revert-turn-changes (&optional git-root)
-  "Revert working tree changes back to the last AI turn snapshot.
-Optional GIT-ROOT overrides repository root detection."
-  (interactive)
+(defun ai-code-git-revert-turn-changes (&optional git-root select-from-history)
+  "Revert working tree changes back to an AI turn snapshot.
+Optional GIT-ROOT overrides repository root detection.
+When SELECT-FROM-HISTORY (interactively, prefix arg) is non-nil,
+prompt to select from recorded turn snapshot history."
+  (interactive (list nil current-prefix-arg))
   (let* ((root (or git-root (ai-code--validate-git-repository)))
-         (snapshot (ai-code-git--require-turn-snapshot root))
+         (snapshot (ai-code-git--resolve-target-turn-snapshot
+                    root select-from-history))
          (default-directory root)
          (commit (plist-get snapshot :commit))
          (short-sha (ai-code-git--turn-snapshot-short-sha snapshot))

@@ -1041,6 +1041,80 @@ Return a plist with :minibuffer-edits, :compose-calls, :git-calls and
   (should (eq (car (ai-code-test--run-worktree-action "Revert last AI turn changes"))
               #'ai-code-git-revert-turn-changes)))
 
+(ert-deftest ai-code-test-git-turn-snapshots-maintains-bounded-history-stack ()
+  "Recording multiple snapshots keeps newest first up to `ai-code-git-turn-snapshot-max-history'."
+  (let ((repo (make-temp-file "ai-code-turn-stack-" t))
+        (ai-code-git--turn-snapshots (make-hash-table :test 'equal))
+        (ai-code-git-turn-snapshot-max-history 2)
+        (commits '("1111111111111111111111111111111111111111"
+                   "2222222222222222222222222222222222222222"
+                   "3333333333333333333333333333333333333333")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'magit-git-string)
+                   (lambda (&rest args)
+                     (cond
+                      ((equal args '("stash" "create")) (pop commits))
+                      ((equal args '("rev-parse" "--verify" "HEAD")) "head-sha")
+                      (t nil))))
+                  ((symbol-function 'magit-git-lines)
+                   (lambda (&rest _args) nil)))
+          (ai-code-git-record-turn-snapshot "Turn 1" repo)
+          (ai-code-git-record-turn-snapshot "Turn 2" repo)
+          (ai-code-git-record-turn-snapshot "Turn 3" repo)
+          (let ((history (ai-code-git-turn-snapshots repo)))
+            (should (= (length history) 2))
+            (should (equal (mapcar (lambda (s) (plist-get s :prompt)) history)
+                           '("Turn 3" "Turn 2")))
+            (should (equal (plist-get (ai-code-git-last-turn-snapshot repo) :prompt)
+                           "Turn 3"))))
+      (delete-directory repo t))))
+
+(ert-deftest ai-code-test-git-review-and-revert-turn-support-selecting-historical-snapshot ()
+  "Passing SELECT-FROM-HISTORY prompts for an older snapshot in diff and revert."
+  (let ((repo (make-temp-file "ai-code-turn-select-" t))
+        (ai-code-git--turn-snapshots (make-hash-table :test 'equal))
+        (older-sha "1111111111111111111111111111111111111111")
+        (newer-sha "2222222222222222222222222222222222222222")
+        diff-args
+        git-calls)
+    (unwind-protect
+        (progn
+          (puthash (file-name-as-directory (file-truename repo))
+                   (list (list :commit newer-sha
+                               :head newer-sha
+                               :untracked nil
+                               :prompt "Second turn")
+                         (list :commit older-sha
+                               :head older-sha
+                               :untracked nil
+                               :prompt "First turn"))
+                   ai-code-git--turn-snapshots)
+          (cl-letf (((symbol-function 'completing-read)
+                     (lambda (_prompt candidates &rest _args)
+                       (car (last candidates))))
+                    ((symbol-function 'magit-git-output)
+                     (lambda (&rest args)
+                       (setq diff-args args)
+                       "diff --git a/a.el b/a.el\n+old turn diff\n"))
+                    ((symbol-function 'magit-git-lines)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'pop-to-buffer) #'ignore)
+                    ((symbol-function 'y-or-n-p) (lambda (_p) t))
+                    ((symbol-function 'magit-call-git)
+                     (lambda (&rest args)
+                       (push args git-calls)
+                       0))
+                    ((symbol-function 'message) #'ignore))
+            (let ((buf (ai-code-git-review-turn-diff repo t)))
+              (unwind-protect
+                  (should (equal diff-args (list "diff" older-sha)))
+                (when (buffer-live-p buf)
+                  (kill-buffer buf))))
+            (should (ai-code-git-revert-turn-changes repo t))
+            (should (equal git-calls
+                           (list (list "checkout" older-sha "--" "."))))))
+      (delete-directory repo t))))
+
 (provide 'test_ai-code-git)
 
 ;;; test_ai-code-git.el ends here
