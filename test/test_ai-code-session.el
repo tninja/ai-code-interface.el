@@ -593,6 +593,51 @@
        (when (buffer-live-p dashboard-buffer)
          (kill-buffer dashboard-buffer))))))
 
+(ert-deftest ai-code-test-session-dashboard-revert-turn-changes-targets-session-repo ()
+  "Pressing `R' or `U' in dashboard should call `ai-code-git-revert-turn-changes' for the session repo."
+  (ai-code-test-session--with-clean-registry
+   (let* ((session-buffer (get-buffer-create "*codex[turn-revert]*"))
+          (repo-root (file-truename (make-temp-file "ai-code-dashboard-turn-revert-" t)))
+          dashboard-buffer
+          reverted-args)
+     (unwind-protect
+         (progn
+           (ai-code-session-register
+            :buffer session-buffer
+            :backend "codex"
+            :repo-root repo-root
+            :metadata '(:status "idle" :dirty-count 1))
+           (cl-letf (((symbol-function 'get-buffer-process)
+                      (lambda (_buffer) 'mock-process))
+                     ((symbol-function 'process-live-p)
+                      (lambda (_process) t))
+                     ((symbol-function 'pop-to-buffer)
+                      (lambda (buffer &rest _args)
+                        (setq dashboard-buffer buffer)
+                        (get-buffer-window buffer)))
+                     ((symbol-function 'ai-code-git-revert-turn-changes)
+                      (lambda (&optional git-root select-from-history)
+                        (setq reverted-args (list git-root select-from-history)))))
+             (ai-code-session-dashboard)
+             (with-current-buffer dashboard-buffer
+               (should (eq (lookup-key ai-code-session-dashboard-mode-map (kbd "R"))
+                           #'ai-code-session-dashboard-revert-turn-changes))
+               (should (eq (lookup-key ai-code-session-dashboard-mode-map (kbd "U"))
+                           #'ai-code-session-dashboard-revert-turn-changes))
+               (ai-code-test-session-dashboard-goto-first-entry)
+               (ai-code-session-dashboard-revert-turn-changes nil)
+               (should (equal reverted-args
+                              (list (file-name-as-directory repo-root) nil)))
+               (ai-code-session-dashboard-revert-turn-changes '(4))
+               (should (equal reverted-args
+                              (list (file-name-as-directory repo-root) '(4)))))))
+       (when (buffer-live-p session-buffer)
+         (kill-buffer session-buffer))
+       (when (file-directory-p repo-root)
+         (delete-directory repo-root t))
+       (when (buffer-live-p dashboard-buffer)
+         (kill-buffer dashboard-buffer))))))
+
 (provide 'test_ai-code-session)
 
 ;;; test_ai-code-session.el ends here

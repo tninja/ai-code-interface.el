@@ -14,6 +14,7 @@
 (require 'tabulated-list)
 
 (declare-function ai-code-agent-handoff "ai-code-task" (&optional arg))
+(declare-function ai-code-git-revert-turn-changes "ai-code-git" (&optional git-root select-from-history))
 (declare-function ai-code-git-review-turn-diff "ai-code-git" (&optional git-root select-from-history))
 (declare-function ai-code-session-checkpoint "ai-code" ())
 (declare-function magit-get-current-branch "magit-git" ())
@@ -222,7 +223,7 @@ describe the session.  ID is optional and mainly useful when restoring state."
   "Buffer name used by the AI session dashboard.")
 
 (defconst ai-code-session-dashboard-shortcuts-hint
-  "Keys: RET visit session   t open task   H checkpoint/handoff   d turn diff   r/g refresh   k kill session   D magit status"
+  "Keys: RET visit session   t open task   H checkpoint/handoff   d turn diff   R/U revert turn   r/g refresh   k kill session   D magit status"
   "Shortcut hint shown in the dashboard mode line.")
 
 (defun ai-code-session-dashboard--insert-footer ()
@@ -366,6 +367,14 @@ With prefix ARG, prompt to select from recorded turn snapshot history."
    (ai-code-session-dashboard--repo-root-at-point)
    arg))
 
+(defun ai-code-session-dashboard-revert-turn-changes (&optional arg)
+  "Revert AI turn changes for the repository of the session on the current line.
+With prefix ARG, prompt to select from recorded turn snapshot history."
+  (interactive "P")
+  (ai-code-git-revert-turn-changes
+   (ai-code-session-dashboard--repo-root-at-point)
+   arg))
+
 (defvar ai-code-session-dashboard-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tabulated-list-mode-map)
@@ -373,6 +382,8 @@ With prefix ARG, prompt to select from recorded turn snapshot history."
     (define-key map (kbd "t") #'ai-code-session-dashboard-open-task)
     (define-key map (kbd "H") #'ai-code-session-dashboard-handoff-or-checkpoint)
     (define-key map (kbd "d") #'ai-code-session-dashboard-review-turn-diff)
+    (define-key map (kbd "R") #'ai-code-session-dashboard-revert-turn-changes)
+    (define-key map (kbd "U") #'ai-code-session-dashboard-revert-turn-changes)
     (define-key map (kbd "r") #'ai-code-session-dashboard-refresh)
     (define-key map (kbd "g") #'ai-code-session-dashboard-refresh)
     (define-key map (kbd "k") #'ai-code-session-dashboard-kill-session)
