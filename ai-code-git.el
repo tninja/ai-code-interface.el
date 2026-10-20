@@ -992,6 +992,14 @@ The directory is `ai-code-git-worktree-root/REPO-NAME'."
   :type 'integer
   :group 'ai-code)
 
+(defcustom ai-code-git-turn-snapshot-persist t
+  "When non-nil, persist turn snapshot history under `.ai.code.files/'."
+  :type 'boolean
+  :group 'ai-code)
+
+(defconst ai-code-git-turn-snapshot-file-name "turn-snapshots.el"
+  "File name under `.ai.code.files/' used to persist AI turn snapshots.")
+
 (defvar ai-code-git--turn-snapshots (make-hash-table :test 'equal)
   "Hash table mapping repository roots to turn snapshot history lists.")
 
@@ -1003,14 +1011,58 @@ The directory is `ai-code-git-worktree-root/REPO-NAME'."
   (and git-root
        (file-name-as-directory (file-truename git-root))))
 
+(defun ai-code-git--turn-snapshot-file (git-root)
+  "Return the persistence file path for GIT-ROOT turn snapshots."
+  (expand-file-name ai-code-git-turn-snapshot-file-name
+                    (expand-file-name ".ai.code.files" git-root)))
+
+(defun ai-code-git--normalize-stored-snapshots (stored)
+  "Normalize STORED snapshot entry into a list of plists."
+  (cond
+   ((null stored) nil)
+   ((keywordp (car-safe stored)) (list stored))
+   ((listp stored) stored)
+   (t nil)))
+
+(defun ai-code-git--load-turn-snapshots (git-root)
+  "Load persisted turn snapshots for GIT-ROOT, or nil."
+  (when (and ai-code-git-turn-snapshot-persist
+             git-root
+             (file-directory-p git-root))
+    (let ((file (ai-code-git--turn-snapshot-file git-root)))
+      (when (file-readable-p file)
+        (ignore-errors
+          (with-temp-buffer
+            (insert-file-contents file)
+            (goto-char (point-min))
+            (ai-code-git--normalize-stored-snapshots
+             (read (current-buffer)))))))))
+
+(defun ai-code-git--save-turn-snapshots (git-root history)
+  "Persist turn snapshot HISTORY for GIT-ROOT under `.ai.code.files/'."
+  (when (and ai-code-git-turn-snapshot-persist
+             git-root
+             (file-directory-p git-root))
+    (ignore-errors
+      (let* ((file (ai-code-git--turn-snapshot-file git-root))
+             (dir (file-name-directory file))
+             (print-length nil)
+             (print-level nil))
+        (make-directory dir t)
+        (with-temp-file file
+          (insert ";; AI Code persisted turn snapshots -*- lexical-binding: t; -*-\n")
+          (insert (prin1-to-string history) "\n"))))))
+
 (defun ai-code-git-turn-snapshots (&optional git-root)
   "Return recorded AI turn snapshots for GIT-ROOT, newest first."
   (when-let* ((root (or git-root (ai-code--git-root)))
-              (key (ai-code-git--normalize-repo-key root))
-              (stored (gethash key ai-code-git--turn-snapshots)))
-    (if (keywordp (car-safe stored))
-        (list stored)
-      stored)))
+              (key (ai-code-git--normalize-repo-key root)))
+    (let ((stored (gethash key ai-code-git--turn-snapshots)))
+      (if stored
+          (ai-code-git--normalize-stored-snapshots stored)
+        (when-let ((loaded (ai-code-git--load-turn-snapshots root)))
+          (puthash key loaded ai-code-git--turn-snapshots)
+          loaded)))))
 
 (defun ai-code-git-record-turn-snapshot (&optional prompt-text git-root)
   "Record a non-destructive Git snapshot before sending PROMPT-TEXT.
@@ -1039,6 +1091,7 @@ Optional GIT-ROOT overrides repository root detection."
                  (history (seq-take (cons snapshot (ai-code-git-turn-snapshots root))
                                     max-history)))
             (puthash key history ai-code-git--turn-snapshots)
+            (ai-code-git--save-turn-snapshots root history)
             snapshot))))))
 
 (defun ai-code-git-last-turn-snapshot (&optional git-root)
@@ -1048,10 +1101,12 @@ Optional GIT-ROOT overrides repository root detection."
 (defun ai-code-git--turn-snapshot-new-untracked-files (git-root snapshot)
   "Return untracked files in GIT-ROOT created after SNAPSHOT."
   (let* ((default-directory git-root)
-          (current-untracked
-           (ignore-errors
-             (magit-git-lines "ls-files" "--others" "--exclude-standard")))
-          (prior-untracked (plist-get snapshot :untracked)))
+         (current-untracked
+          (seq-remove (lambda (file)
+                        (string-prefix-p ".ai.code.files/" file))
+                      (ignore-errors
+                        (magit-git-lines "ls-files" "--others" "--exclude-standard"))))
+         (prior-untracked (plist-get snapshot :untracked)))
     (seq-difference current-untracked prior-untracked #'string=)))
 
 (defun ai-code-git--require-turn-snapshot (git-root)

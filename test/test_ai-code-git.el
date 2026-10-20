@@ -1166,6 +1166,42 @@ Return a plist with :minibuffer-edits, :compose-calls, :git-calls and
                   (kill-buffer buf))))))
       (delete-directory repo t))))
 
+(ert-deftest ai-code-test-git-turn-snapshots-persist-and-reload-across-sessions ()
+  "Turn snapshots should persist under `.ai.code.files/' and reload when memory cache is empty."
+  (let ((repo (make-temp-file "ai-code-turn-persist-" t))
+        (ai-code-git--turn-snapshots (make-hash-table :test 'equal))
+        (ai-code-git-turn-snapshot-persist t)
+        (commits '("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'magit-git-string)
+                   (lambda (&rest args)
+                     (cond
+                      ((equal args '("stash" "create")) (pop commits))
+                      ((equal args '("rev-parse" "--verify" "HEAD")) "head-sha")
+                      (t nil))))
+                  ((symbol-function 'magit-git-lines)
+                   (lambda (&rest _args)
+                     '(".ai.code.files/turn-snapshots.el" "user-new.el"))))
+          (ai-code-git-record-turn-snapshot "First persisted" repo)
+          (ai-code-git-record-turn-snapshot "Second persisted" repo)
+          (let ((persist-file (expand-file-name
+                               ".ai.code.files/turn-snapshots.el" repo)))
+            (should (file-exists-p persist-file)))
+          ;; Simulate Emacs restart with empty in-memory table.
+          (let ((ai-code-git--turn-snapshots (make-hash-table :test 'equal)))
+            (let ((reloaded (ai-code-git-turn-snapshots repo))
+                  (latest (ai-code-git-last-turn-snapshot repo)))
+              (should (= (length reloaded) 2))
+              (should (equal (mapcar (lambda (s) (plist-get s :prompt)) reloaded)
+                             '("Second persisted" "First persisted")))
+              (should (equal (plist-get latest :commit)
+                             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+              (should (equal (ai-code-git--turn-snapshot-new-untracked-files
+                              repo (list :untracked nil))
+                             '("user-new.el"))))))
+      (delete-directory repo t))))
+
 (provide 'test_ai-code-git)
 
 ;;; test_ai-code-git.el ends here
