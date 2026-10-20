@@ -9,6 +9,8 @@
 
 ;;; Code:
 
+(require 'button)
+(require 'diff-mode)
 (require 'magit)
 (require 'seq)
 
@@ -1101,64 +1103,12 @@ When SELECT-FROM-HISTORY is non-nil, prompt across recorded history."
       (ai-code-git-select-turn-snapshot git-root)
     (ai-code-git--require-turn-snapshot git-root)))
 
-(defun ai-code-git--render-turn-diff-buffer (root snapshot diff new-untracked)
-  "Render turn diff buffer for ROOT using SNAPSHOT, DIFF, and NEW-UNTRACKED."
-  (let ((short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
-        (buffer (get-buffer-create ai-code-git-turn-diff-buffer-name)))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (diff-mode)
-        (setq-local default-directory root)
-        (insert (format "# AI Turn Snapshot: %s\n" short-sha))
-        (when-let ((prompt (plist-get snapshot :prompt)))
-          (let ((first-line (car (split-string (string-trim prompt) "\n"))))
-            (unless (string-empty-p first-line)
-              (insert (format "# Prompt: %s\n" first-line)))))
-        (when new-untracked
-          (insert "# New untracked files:\n")
-          (dolist (file new-untracked)
-            (insert (format "#   %s\n" file))))
-        (insert "\n" diff)
-        (goto-char (point-min))
-        (setq buffer-read-only t)))
-    (pop-to-buffer buffer)
-    buffer))
+(defvar-local ai-code-git--turn-diff-snapshot nil
+  "Snapshot plist currently displayed in `*AI Code Turn Diff*'.")
 
-;;;###autoload
-(defun ai-code-git-review-turn-diff (&optional git-root select-from-history)
-  "Display the Git diff and new untracked files since an AI turn snapshot.
-Optional GIT-ROOT overrides repository root detection.
-When SELECT-FROM-HISTORY (interactively, prefix arg) is non-nil,
-prompt to select from recorded turn snapshot history."
-  (interactive (list nil current-prefix-arg))
-  (let* ((root (or git-root (ai-code--validate-git-repository)))
-         (snapshot (ai-code-git--resolve-target-turn-snapshot
-                    root select-from-history))
-         (default-directory root)
-         (commit (plist-get snapshot :commit))
-         (short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
-         (diff (or (magit-git-output "diff" commit) ""))
-         (new-untracked
-          (ai-code-git--turn-snapshot-new-untracked-files root snapshot)))
-    (if (and (string-empty-p (string-trim diff))
-             (null new-untracked))
-        (progn
-          (message "No changes since the last AI turn snapshot (%s)" short-sha)
-          nil)
-      (ai-code-git--render-turn-diff-buffer root snapshot diff new-untracked))))
-
-;;;###autoload
-(defun ai-code-git-revert-turn-changes (&optional git-root select-from-history)
-  "Revert working tree changes back to an AI turn snapshot.
-Optional GIT-ROOT overrides repository root detection.
-When SELECT-FROM-HISTORY (interactively, prefix arg) is non-nil,
-prompt to select from recorded turn snapshot history."
-  (interactive (list nil current-prefix-arg))
-  (let* ((root (or git-root (ai-code--validate-git-repository)))
-         (snapshot (ai-code-git--resolve-target-turn-snapshot
-                    root select-from-history))
-         (default-directory root)
+(defun ai-code-git--revert-to-snapshot (root snapshot)
+  "Revert working tree in ROOT back to SNAPSHOT after confirmation."
+  (let* ((default-directory root)
          (commit (plist-get snapshot :commit))
          (short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
          (new-untracked
@@ -1174,6 +1124,147 @@ prompt to select from recorded turn snapshot history."
             (delete-file abs-file))))
       (message "Reverted working tree to AI turn snapshot %s" short-sha)
       t)))
+
+(defun ai-code-git-turn-diff-revert ()
+  "Revert working tree changes to the snapshot shown in `*AI Code Turn Diff*'."
+  (interactive)
+  (let ((snapshot (or ai-code-git--turn-diff-snapshot
+                      (ai-code-git--require-turn-snapshot default-directory))))
+    (ai-code-git--revert-to-snapshot default-directory snapshot)))
+
+(defun ai-code-git--insert-turn-diff-action-button (label command)
+  "Insert a clickable action button with LABEL invoking COMMAND."
+  (insert-text-button
+   label
+   'follow-link t
+   'action (lambda (_btn)
+             (call-interactively command))))
+
+(defvar ai-code-git-turn-diff-mode-map nil
+  "Keymap used in `*AI Code Turn Diff*' buffer.")
+
+(defun ai-code-git--render-turn-diff-buffer (root snapshot diff new-untracked)
+  "Render turn diff buffer for ROOT using SNAPSHOT, DIFF, and NEW-UNTRACKED."
+  (let ((short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
+        (buffer (get-buffer-create ai-code-git-turn-diff-buffer-name)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (diff-mode)
+        (use-local-map ai-code-git-turn-diff-mode-map)
+        (setq-local default-directory root)
+        (setq-local ai-code-git--turn-diff-snapshot snapshot)
+        (insert (format "# AI Turn Snapshot: %s\n" short-sha))
+        (insert "# Actions: ")
+        (ai-code-git--insert-turn-diff-action-button
+         "[Revert (R)]" #'ai-code-git-turn-diff-revert)
+        (insert "  ")
+        (ai-code-git--insert-turn-diff-action-button
+         "[Older (p)]" #'ai-code-git-turn-diff-previous-snapshot)
+        (insert "  ")
+        (ai-code-git--insert-turn-diff-action-button
+         "[Newer (n)]" #'ai-code-git-turn-diff-next-snapshot)
+        (insert "  ")
+        (ai-code-git--insert-turn-diff-action-button
+         "[Select (s)]" #'ai-code-git-turn-diff-select-snapshot)
+        (insert "\n")
+        (when-let ((prompt (plist-get snapshot :prompt)))
+          (let ((first-line (car (split-string (string-trim prompt) "\n"))))
+            (unless (string-empty-p first-line)
+              (insert (format "# Prompt: %s\n" first-line)))))
+        (when new-untracked
+          (insert "# New untracked files:\n")
+          (dolist (file new-untracked)
+            (insert (format "#   %s\n" file))))
+        (insert "\n" diff)
+        (goto-char (point-min))
+        (setq buffer-read-only t)))
+    (pop-to-buffer buffer)
+    buffer))
+
+(defun ai-code-git--show-turn-snapshot-diff (root snapshot &optional force-render)
+  "Display diff for SNAPSHOT in ROOT.
+When FORCE-RENDER is non-nil, render the buffer even if diff is empty."
+  (let* ((default-directory root)
+         (commit (plist-get snapshot :commit))
+         (short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
+         (diff (or (magit-git-output "diff" commit) ""))
+         (new-untracked
+          (ai-code-git--turn-snapshot-new-untracked-files root snapshot)))
+    (if (and (not force-render)
+             (string-empty-p (string-trim diff))
+             (null new-untracked))
+        (progn
+          (message "No changes since the last AI turn snapshot (%s)" short-sha)
+          nil)
+      (ai-code-git--render-turn-diff-buffer root snapshot diff new-untracked))))
+
+(defun ai-code-git--turn-diff-step-snapshot (delta)
+  "Switch the turn diff buffer to snapshot at index offset DELTA."
+  (let* ((root default-directory)
+         (snapshots (ai-code-git-turn-snapshots root))
+         (current-commit (plist-get ai-code-git--turn-diff-snapshot :commit))
+         (current-idx (or (cl-position current-commit snapshots
+                                       :key (lambda (s) (plist-get s :commit))
+                                       :test #'equal)
+                          0))
+         (target-idx (+ current-idx delta)))
+    (if (and (>= target-idx 0) (< target-idx (length snapshots)))
+        (ai-code-git--show-turn-snapshot-diff
+         root (nth target-idx snapshots) t)
+      (user-error (if (> delta 0)
+                      "Already at the oldest recorded AI turn snapshot"
+                    "Already at the newest recorded AI turn snapshot")))))
+
+(defun ai-code-git-turn-diff-previous-snapshot ()
+  "Switch `*AI Code Turn Diff*' to the previous (older) turn snapshot."
+  (interactive)
+  (ai-code-git--turn-diff-step-snapshot 1))
+
+(defun ai-code-git-turn-diff-next-snapshot ()
+  "Switch `*AI Code Turn Diff*' to the next (newer) turn snapshot."
+  (interactive)
+  (ai-code-git--turn-diff-step-snapshot -1))
+
+(defun ai-code-git-turn-diff-select-snapshot ()
+  "Select a turn snapshot from history and display it in `*AI Code Turn Diff*'."
+  (interactive)
+  (let* ((root default-directory)
+         (snapshot (ai-code-git-select-turn-snapshot root)))
+    (ai-code-git--show-turn-snapshot-diff root snapshot t)))
+
+(setq ai-code-git-turn-diff-mode-map
+      (let ((map (make-sparse-keymap)))
+        (set-keymap-parent map diff-mode-map)
+        (define-key map (kbd "R") #'ai-code-git-turn-diff-revert)
+        (define-key map (kbd "p") #'ai-code-git-turn-diff-previous-snapshot)
+        (define-key map (kbd "n") #'ai-code-git-turn-diff-next-snapshot)
+        (define-key map (kbd "s") #'ai-code-git-turn-diff-select-snapshot)
+        map))
+
+;;;###autoload
+(defun ai-code-git-review-turn-diff (&optional git-root select-from-history)
+  "Display the Git diff and new untracked files since an AI turn snapshot.
+Optional GIT-ROOT overrides repository root detection.
+When SELECT-FROM-HISTORY (interactively, prefix arg) is non-nil,
+prompt to select from recorded turn snapshot history."
+  (interactive (list nil current-prefix-arg))
+  (let* ((root (or git-root (ai-code--validate-git-repository)))
+         (snapshot (ai-code-git--resolve-target-turn-snapshot
+                    root select-from-history)))
+    (ai-code-git--show-turn-snapshot-diff root snapshot)))
+
+;;;###autoload
+(defun ai-code-git-revert-turn-changes (&optional git-root select-from-history)
+  "Revert working tree changes back to an AI turn snapshot.
+Optional GIT-ROOT overrides repository root detection.
+When SELECT-FROM-HISTORY (interactively, prefix arg) is non-nil,
+prompt to select from recorded turn snapshot history."
+  (interactive (list nil current-prefix-arg))
+  (let* ((root (or git-root (ai-code--validate-git-repository)))
+         (snapshot (ai-code-git--resolve-target-turn-snapshot
+                    root select-from-history)))
+    (ai-code-git--revert-to-snapshot root snapshot)))
 
 (defconst ai-code--worktree-action-choices
   '(("New branch and worktree"         . ai-code-git-worktree-branch)

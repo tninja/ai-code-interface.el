@@ -1115,6 +1115,57 @@ Return a plist with :minibuffer-edits, :compose-calls, :git-calls and
                            (list (list "checkout" older-sha "--" "."))))))
       (delete-directory repo t))))
 
+(ert-deftest ai-code-test-git-turn-diff-buffer-provides-revert-and-navigation-actions ()
+  "Turn diff buffer should expose keybindings and buttons to navigate snapshots and revert."
+  (let ((repo (make-temp-file "ai-code-turn-diff-actions-" t))
+        (ai-code-git--turn-snapshots (make-hash-table :test 'equal))
+        (older-sha "1111111111111111111111111111111111111111")
+        (newer-sha "2222222222222222222222222222222222222222")
+        git-calls)
+    (unwind-protect
+        (progn
+          (puthash (file-name-as-directory (file-truename repo))
+                   (list (list :commit newer-sha
+                               :head newer-sha
+                               :untracked nil
+                               :prompt "Newer prompt")
+                         (list :commit older-sha
+                               :head older-sha
+                               :untracked nil
+                               :prompt "Older prompt"))
+                   ai-code-git--turn-snapshots)
+          (cl-letf (((symbol-function 'magit-git-output)
+                     (lambda (&rest args)
+                       (format "diff for %s\n" (cadr args))))
+                    ((symbol-function 'magit-git-lines)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'pop-to-buffer) #'ignore)
+                    ((symbol-function 'y-or-n-p) (lambda (_p) t))
+                    ((symbol-function 'magit-call-git)
+                     (lambda (&rest args)
+                       (push args git-calls)
+                       0))
+                    ((symbol-function 'message) #'ignore))
+            (let ((buf (ai-code-git-review-turn-diff repo)))
+              (unwind-protect
+                  (with-current-buffer buf
+                    (should (eq (lookup-key (current-local-map) (kbd "R"))
+                                #'ai-code-git-turn-diff-revert))
+                    (should (eq (lookup-key (current-local-map) (kbd "p"))
+                                #'ai-code-git-turn-diff-previous-snapshot))
+                    (should (eq (lookup-key (current-local-map) (kbd "n"))
+                                #'ai-code-git-turn-diff-next-snapshot))
+                    (should (string-match-p "\\[Revert (R)\\]" (buffer-string)))
+                    (should (string-match-p "2222222" (buffer-string)))
+                    (ai-code-git-turn-diff-previous-snapshot)
+                    (should (string-match-p "1111111" (buffer-string)))
+                    (ai-code-git-turn-diff-revert)
+                    (should (equal git-calls
+                                   (list (list "checkout" older-sha "--" ".")))))
+                (when (buffer-live-p buf)
+                  (kill-buffer buf))))))
+      (delete-directory repo t))))
+
 (provide 'test_ai-code-git)
 
 ;;; test_ai-code-git.el ends here
