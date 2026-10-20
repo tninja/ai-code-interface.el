@@ -14,6 +14,7 @@
 (require 'tabulated-list)
 
 (declare-function ai-code-agent-handoff "ai-code-task" (&optional arg))
+(declare-function ai-code-git-review-turn-diff "ai-code-git" (&optional git-root select-from-history))
 (declare-function ai-code-session-checkpoint "ai-code" ())
 (declare-function magit-get-current-branch "magit-git" ())
 (declare-function magit-git-lines "magit-git" (&rest args))
@@ -221,7 +222,7 @@ describe the session.  ID is optional and mainly useful when restoring state."
   "Buffer name used by the AI session dashboard.")
 
 (defconst ai-code-session-dashboard-shortcuts-hint
-  "Keys: RET visit session   t open task   H checkpoint/handoff   r/g refresh   k kill session   D magit status"
+  "Keys: RET visit session   t open task   H checkpoint/handoff   d turn diff   r/g refresh   k kill session   D magit status"
   "Shortcut hint shown in the dashboard mode line.")
 
 (defun ai-code-session-dashboard--insert-footer ()
@@ -345,13 +346,25 @@ Otherwise run `ai-code-session-checkpoint' in the session buffer."
       (kill-buffer buffer))
     (ai-code-session-dashboard-refresh)))
 
+(defun ai-code-session-dashboard--repo-root-at-point ()
+  "Return the repository root for the session on the current line."
+  (if-let* ((session (ai-code-session-dashboard--session-at-point))
+            (repo-root (ai-code-session-repo-root session)))
+      repo-root
+    (user-error "No repository is associated with this session")))
+
 (defun ai-code-session-dashboard-open-diff ()
   "Open Magit status for the repository on the current line."
   (interactive)
-  (if-let* ((session (ai-code-session-dashboard--session-at-point))
-            (repo-root (ai-code-session-repo-root session)))
-      (magit-status-setup-buffer repo-root)
-    (user-error "No repository is associated with this session")))
+  (magit-status-setup-buffer (ai-code-session-dashboard--repo-root-at-point)))
+
+(defun ai-code-session-dashboard-review-turn-diff (&optional arg)
+  "Review AI turn diff for the repository of the session on the current line.
+With prefix ARG, prompt to select from recorded turn snapshot history."
+  (interactive "P")
+  (ai-code-git-review-turn-diff
+   (ai-code-session-dashboard--repo-root-at-point)
+   arg))
 
 (defvar ai-code-session-dashboard-mode-map
   (let ((map (make-sparse-keymap)))
@@ -359,6 +372,7 @@ Otherwise run `ai-code-session-checkpoint' in the session buffer."
     (define-key map (kbd "RET") #'ai-code-session-dashboard-visit)
     (define-key map (kbd "t") #'ai-code-session-dashboard-open-task)
     (define-key map (kbd "H") #'ai-code-session-dashboard-handoff-or-checkpoint)
+    (define-key map (kbd "d") #'ai-code-session-dashboard-review-turn-diff)
     (define-key map (kbd "r") #'ai-code-session-dashboard-refresh)
     (define-key map (kbd "g") #'ai-code-session-dashboard-refresh)
     (define-key map (kbd "k") #'ai-code-session-dashboard-kill-session)

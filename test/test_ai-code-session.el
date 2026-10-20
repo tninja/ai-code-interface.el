@@ -550,6 +550,49 @@
        (when (buffer-live-p dashboard-buffer)
          (kill-buffer dashboard-buffer))))))
 
+(ert-deftest ai-code-test-session-dashboard-review-turn-diff-targets-session-repo ()
+  "Pressing `d' in dashboard should call `ai-code-git-review-turn-diff' for the session repo."
+  (ai-code-test-session--with-clean-registry
+   (let* ((session-buffer (get-buffer-create "*codex[turn-diff]*"))
+          (repo-root (file-truename (make-temp-file "ai-code-dashboard-turn-diff-" t)))
+          dashboard-buffer
+          reviewed-args)
+     (unwind-protect
+         (progn
+           (ai-code-session-register
+            :buffer session-buffer
+            :backend "codex"
+            :repo-root repo-root
+            :metadata '(:status "idle" :dirty-count 1))
+           (cl-letf (((symbol-function 'get-buffer-process)
+                      (lambda (_buffer) 'mock-process))
+                     ((symbol-function 'process-live-p)
+                      (lambda (_process) t))
+                     ((symbol-function 'pop-to-buffer)
+                      (lambda (buffer &rest _args)
+                        (setq dashboard-buffer buffer)
+                        (get-buffer-window buffer)))
+                     ((symbol-function 'ai-code-git-review-turn-diff)
+                      (lambda (&optional git-root select-from-history)
+                        (setq reviewed-args (list git-root select-from-history)))))
+             (ai-code-session-dashboard)
+             (with-current-buffer dashboard-buffer
+               (should (eq (lookup-key ai-code-session-dashboard-mode-map (kbd "d"))
+                           #'ai-code-session-dashboard-review-turn-diff))
+               (ai-code-test-session-dashboard-goto-first-entry)
+               (ai-code-session-dashboard-review-turn-diff nil)
+               (should (equal reviewed-args
+                              (list (file-name-as-directory repo-root) nil)))
+               (ai-code-session-dashboard-review-turn-diff '(4))
+               (should (equal reviewed-args
+                              (list (file-name-as-directory repo-root) '(4)))))))
+       (when (buffer-live-p session-buffer)
+         (kill-buffer session-buffer))
+       (when (file-directory-p repo-root)
+         (delete-directory repo-root t))
+       (when (buffer-live-p dashboard-buffer)
+         (kill-buffer dashboard-buffer))))))
+
 (provide 'test_ai-code-session)
 
 ;;; test_ai-code-session.el ends here
