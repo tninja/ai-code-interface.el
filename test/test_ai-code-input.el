@@ -1532,5 +1532,71 @@
               (should (plist-get captured-extra :annotation-function)))))
       (when (file-exists-p test-file) (delete-file test-file)))))
 
+(ert-deftest ai-code-test-session-navigate-link-at-point-sends-follow-up-choice ()
+  "Navigating on a follow-up candidate sends its choice number while file links still open files."
+  (let* ((root (make-temp-file "ai-code-input-followup-" t))
+         (file (expand-file-name "src/Foo.java" root))
+         sent-command
+         opened-file)
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory file) t)
+          (with-temp-file file
+            (insert "class Foo {}\n"))
+          (with-temp-buffer
+            (setq-local default-directory root)
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "1. (Recommended) Update src/Foo.java to fix the bug.\n"
+                    "2. Add regression tests.\n"
+                    "3. Update documentation.\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (cl-letf (((symbol-function 'ai-code--send-follow-up-choice)
+                       (lambda (choice)
+                         (setq sent-command choice)
+                         t))
+                      ((symbol-function 'find-file-other-window)
+                       (lambda (path)
+                         (setq opened-file path))))
+              (goto-char (point-min))
+              (search-forward "1. (Recommended)")
+              (goto-char (match-beginning 0))
+              (should (ai-code-session-navigate-link-at-point))
+              (should (equal sent-command "1"))
+              (search-forward "src/Foo.java")
+              (goto-char (match-beginning 0))
+              (setq sent-command nil)
+              (should (ai-code-session-navigate-link-at-point))
+              (should-not sent-command)
+              (should (equal (file-truename opened-file)
+                             (file-truename file))))))
+      (delete-directory root t))))
+
+(ert-deftest ai-code-test-send-follow-up-choice-dispatches-to-session-or-cli ()
+  "Sending a follow-up choice uses the current session buffer when inside one, or CLI send otherwise."
+  (let (session-sent cli-sent)
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-p)
+                 (lambda (_buf) t))
+                ((symbol-function 'ai-code--send-prompt-to-session-buffer)
+                 (lambda (prompt buffer)
+                   (setq session-sent (cons prompt buffer))))
+                ((symbol-function 'ai-code-cli-send-command)
+                 (lambda (cmd)
+                   (setq cli-sent cmd)))
+                ((symbol-function 'message) #'ignore))
+        (should (ai-code--send-follow-up-choice "2"))
+        (should (equal session-sent (cons "2" (current-buffer))))
+        (should-not cli-sent))
+      (setq session-sent nil)
+      (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-p)
+                 (lambda (_buf) nil))
+                ((symbol-function 'ai-code-cli-send-command)
+                 (lambda (cmd)
+                   (setq cli-sent cmd)))
+                ((symbol-function 'message) #'ignore))
+        (should (ai-code--send-follow-up-choice "3"))
+        (should-not session-sent)
+        (should (equal cli-sent "3"))))))
+
 (provide 'test_ai-code-input)
 ;;; test_ai-code-input.el ends here

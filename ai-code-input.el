@@ -27,6 +27,8 @@
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt))
+(declare-function ai-code--send-prompt-to-session-buffer "ai-code-prompt-mode" (prompt buffer))
+(declare-function ai-code-cli-send-command "ai-code-backends" (command))
 (declare-function whisper-run "whisper" ())
 
 (eval-when-compile
@@ -609,9 +611,7 @@ annotation via `completion-extra-properties'."
 
 (defun ai-code--session-link-property-at-point ()
   "Return the clickable session link text at point, or nil."
-  (or (get-text-property (point) 'ai-code-session-link)
-      (when (not (bobp))
-        (get-text-property (1- (point)) 'ai-code-session-link))))
+  (ai-code-session-link--property-at-point 'ai-code-session-link))
 
 (defun ai-code--session-link-bounds-at-point ()
   "Return bounds of the clickable session link at point, or nil."
@@ -760,16 +760,36 @@ Optional RESOLVED-FILE is an existing absolute file path to open directly."
     (message "Navigated to %s" text)
     t))
 
+(defun ai-code--session-follow-up-choice-at-point ()
+  "Return the discussion follow-up choice string at point, or nil."
+  (ai-code-session-link--property-at-point 'ai-code-session-follow-up-choice))
+
+(defun ai-code--send-follow-up-choice (choice)
+  "Send discussion follow-up CHOICE string to the active AI session."
+  (if (and (fboundp 'ai-code-backends-infra--session-buffer-p)
+           (ai-code-backends-infra--session-buffer-p (current-buffer)))
+      (progn
+        (require 'ai-code-prompt-mode)
+        (ai-code--send-prompt-to-session-buffer choice (current-buffer)))
+    (ai-code-cli-send-command choice))
+  (message "Sent follow-up choice: %s" choice)
+  t)
+
 ;;;###autoload
 (defun ai-code-session-navigate-link-at-point ()
-  "Navigate to the file or URL session link at point."
+  "Navigate to the file, URL, or follow-up choice session link at point."
   (interactive)
   (let* ((text (ai-code--session-link-text-at-point))
          (link (and text (ai-code--parse-session-link text)))
          (image-file
           (and link
-               (ai-code--session-image-link-file-at-point text))))
+               (ai-code--session-image-link-file-at-point text)))
+         (follow-up-choice
+          (and (not link)
+               (ai-code--session-follow-up-choice-at-point))))
     (cond
+     (follow-up-choice
+      (ai-code--send-follow-up-choice follow-up-choice))
      ((not link)
       (message "No code link found at point"))
      ((when-let* ((url (plist-get link :url)))

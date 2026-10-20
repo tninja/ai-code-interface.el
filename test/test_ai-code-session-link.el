@@ -2924,6 +2924,69 @@ A status line prints the bare name, never foo.el:12."
                                       'ai-code-session-link)
                    "foo.el:12"))))
 
+(ert-deftest ai-code-session-link-test-linkify-follow-up-candidates ()
+  "Linkify numbered discussion follow-up candidates while preserving file links."
+  (let* ((root (make-temp-file "ai-code-session-links-followup-" t))
+         (file (expand-file-name "src/Foo.java" root)))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory file) t)
+          (with-temp-file file
+            (insert "class Foo {}\n"))
+          (with-temp-buffer
+            (setq-local ai-code-backends-infra--session-directory root)
+            (insert "Summary of analysis:\n\n"
+                    "1. (Recommended) Update src/Foo.java:10 to handle null inputs.\n"
+                    "2. Add unit tests for edge cases.\n"
+                    "3. Run batch verification across the module.\n")
+            (ai-code-session-link--linkify-session-region (point-min) (point-max))
+            (goto-char (point-min))
+            (search-forward "1. (Recommended)")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-follow-up-choice)
+                           "1"))
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-link)
+                           "1"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (search-forward "src/Foo.java:10")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-link)
+                           "src/Foo.java:10"))
+            (search-forward "2.")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-follow-up-choice)
+                           "2"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))
+            (search-forward "3.")
+            (should (equal (get-text-property (match-beginning 0)
+                                              'ai-code-session-follow-up-choice)
+                           "3"))
+            (should (eq (get-text-property (match-beginning 0) 'face) 'link))))
+      (delete-directory root t))))
+
+(ert-deftest ai-code-session-link-test-does-not-linkify-ordinary-numbered-list ()
+  "Do not linkify ordinary numbered lists that lack a recommended marker."
+  (with-temp-buffer
+    (insert "Steps to reproduce:\n"
+            "1. Open the file.\n"
+            "2. Run the command.\n"
+            "3. Observe the output.\n")
+    (ai-code-session-link--linkify-session-region (point-min) (point-max))
+    (goto-char (point-min))
+    (search-forward "1.")
+    (should-not (get-text-property (match-beginning 0)
+                                   'ai-code-session-follow-up-choice))
+    (should-not (get-text-property (match-beginning 0)
+                                   'ai-code-session-link))))
+
+(ert-deftest ai-code-session-link-test-recent-output-may-contain-links-detects-follow-up ()
+  "Recent output check should trigger when follow-up recommendation marker arrives."
+  (should (ai-code-session-link--recent-output-may-contain-links-p
+           "1. (Recommended) Implement the helper\n2. Add tests\n"))
+  (should (ai-code-session-link--recent-output-may-contain-links-p
+           "1. （推荐）实现辅助函数\n2. 补充测试\n")))
+
 (provide 'test_ai-code-session-link)
 
 ;;; test_ai-code-session-link.el ends here

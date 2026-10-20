@@ -108,6 +108,7 @@ fixed pixel margin instead; zero disables the margin."
   '(ai-code-session-link nil
     ai-code-session-symbol-link nil
     ai-code-session-symbol-file nil
+    ai-code-session-follow-up-choice nil
     ai-code-session-hover-link nil
     mouse-face nil
     help-echo nil
@@ -272,6 +273,20 @@ ending at a directory separator, such as \"src/\".")
    "\\)")
   "Regexp matching conservative symbol candidates near a file link.")
 
+(defconst ai-code-session-link--follow-up-recommended-regexp
+  "\\(?:([Rr]ecommended)\\|\\[[Rr]ecommended\\]\\|[（(]推荐[）)]\\)"
+  "Regexp matching a recommended option marker in discussion follow-ups.")
+
+(defconst ai-code-session-link--follow-up-item-regexp
+  (concat
+   "\\`[ \t●•│>*]*"
+   "\\(\\([1-9][0-9]*\\)[.)]\\*\\{0,2\\}"
+   "\\(?:[ \t]+\\*\\{0,2\\}"
+   ai-code-session-link--follow-up-recommended-regexp
+   "\\*\\{0,2\\}\\)?\\)"
+   "[ \t]+")
+  "Regexp matching the leading prefix of a numbered follow-up candidate line.")
+
 (defconst ai-code-session-link--recent-output-candidate-regexp
   (concat
    "\\(?:https?://"
@@ -289,7 +304,9 @@ ending at a directory separator, such as \"src/\".")
    "\\|"
    "[[:alpha:]_][[:alnum:]_*!?]*--[[:alpha:]_*!?-]+"
    "\\|"
-   "[[:alpha:]_][[:alnum:]_*!?]*-\\(?:mode\\|hook\\|command\\|function\\|local\\|p\\)\\)")
+   "[[:alpha:]_][[:alnum:]_*!?]*-\\(?:mode\\|hook\\|command\\|function\\|local\\|p\\)"
+   "\\|"
+   ai-code-session-link--follow-up-recommended-regexp "\\)")
   "Regexp matching recent output that may contain complete session links.")
 
 (defun ai-code-session-link--path-pattern (suffix)
@@ -2249,6 +2266,108 @@ visible-window recovery in large terminal scrollback."
         (goto-char position)
         (ai-code-session-link-navigate-symbol-at-point)))))
 
+(defun ai-code-session-link--parse-follow-up-line (line-start line-end)
+  "Parse a numbered follow-up candidate line between LINE-START and LINE-END.
+Return a plist with `:number', `:choice', `:start', `:end', `:line-end',
+and `:recommended-p', or nil when the line is not a numbered candidate."
+  (let ((line (buffer-substring-no-properties line-start line-end)))
+    (when (string-match ai-code-session-link--follow-up-item-regexp line)
+      (let ((choice (match-string 2 line)))
+        (list :number (string-to-number choice)
+              :choice choice
+              :start (+ line-start (match-beginning 1))
+              :end (+ line-start (match-end 1))
+              :line-end line-end
+              :recommended-p
+              (and (string-match-p
+                    ai-code-session-link--follow-up-recommended-regexp
+                    line)
+                   t))))))
+
+(defun ai-code-session-link--collect-follow-up-links (start end)
+  "Return discussion follow-up candidate links between START and END."
+  (let (links
+        current-block
+        (expected-number 1)
+        (continuation-lines 0))
+    (cl-labels
+        ((flush-block ()
+           (when (and (>= (length current-block) 2)
+                      (cl-some (lambda (item)
+                                 (plist-get item :recommended-p))
+                               current-block))
+             (setq links (nconc links (nreverse current-block))))
+           (setq current-block nil
+                 expected-number 1
+                 continuation-lines 0)))
+      (save-excursion
+        (goto-char start)
+        (beginning-of-line)
+        (while (< (point) end)
+          (let* ((line-start (max start (line-beginning-position)))
+                 (line-end (min end (line-end-position)))
+                 (line-text (buffer-substring-no-properties line-start line-end))
+                 (parsed (ai-code-session-link--parse-follow-up-line
+                          line-start line-end)))
+            (cond
+             (parsed
+              (let ((num (plist-get parsed :number)))
+                (cond
+                 ((= num expected-number)
+                  (push parsed current-block)
+                  (setq expected-number (1+ expected-number)
+                        continuation-lines 0))
+                 ((= num 1)
+                  (flush-block)
+                  (push parsed current-block)
+                  (setq expected-number 2
+                        continuation-lines 0))
+                 (t
+                  (flush-block)))))
+             (current-block
+              (if (< continuation-lines 3)
+                  (progn
+                    (setq continuation-lines (1+ continuation-lines))
+                    (when (string-match-p
+                           ai-code-session-link--follow-up-recommended-regexp
+                           line-text)
+                      (plist-put (car current-block) :recommended-p t)))
+                (flush-block)))))
+          (forward-line 1))
+        (flush-block)))
+    links))
+
+(defun ai-code-session-link--apply-follow-up-properties
+    (start end choice &optional line-end)
+  "Apply clickable follow-up CHOICE properties from START to END.
+Optional LINE-END records CHOICE across the candidate line."
+  (unless (get-text-property start 'ai-code-session-link)
+    (add-text-properties
+     start end
+     (list 'ai-code-session-link choice
+           'ai-code-session-follow-up-choice choice
+           'ai-code-session-hover-link t
+           'mouse-face 'highlight
+           'help-echo (format "mouse-1, RET: Send choice %s to AI session" choice)
+           'keymap ai-code-session-link--keymap
+           'follow-link t
+           'font-lock-face 'link
+           'face 'link))
+    (when (and line-end (< end line-end))
+      (add-text-properties
+       end line-end
+       (list 'ai-code-session-follow-up-choice choice
+             'ai-code-session-hover-link t)))))
+
+(defun ai-code-session-link--linkify-follow-up-region (start end)
+  "Apply discussion follow-up candidate links between START and END."
+  (dolist (item (ai-code-session-link--collect-follow-up-links start end))
+    (ai-code-session-link--apply-follow-up-properties
+     (plist-get item :start)
+     (plist-get item :end)
+     (plist-get item :choice)
+     (plist-get item :line-end))))
+
 (defun ai-code-session-link--linkify-session-region (start end)
   "Make supported URLs and in-project file references clickable from START to END."
   (when (and ai-code-session-link-enabled
@@ -2274,6 +2393,7 @@ visible-window recovery in large terminal scrollback."
               (ai-code-session-link--linkify-file-region
                start end
                (ai-code-session-link--trusted-local-session-p))
+              (ai-code-session-link--linkify-follow-up-region start end)
               (setq ai-code-session-link--last-region-bounds bounds
                     ai-code-session-link--last-region-text region-text
                     ai-code-session-link--last-region-rules-version
