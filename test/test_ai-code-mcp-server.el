@@ -1552,6 +1552,10 @@ the full diagnostics list is intentionally omitted from the response."
                       ((symbol-function 'eglot-server-capable)
                        (lambda (&rest _) t))
                       ((symbol-function 'eglot--current-server-or-lose) #'ignore)
+                      ;; Newer Eglot flushes document changes before sending
+                      ;; a request; this test has no live server to sync.
+                      ((symbol-function 'eglot--signal-textDocument/didChange)
+                       #'ignore)
                       ((symbol-function 'jsonrpc-request)
                        (lambda (_server method params &rest _)
                          (setq request (list method params))
