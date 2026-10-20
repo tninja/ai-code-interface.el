@@ -4254,6 +4254,39 @@ The prefix argument should also force instance-name prompting."
       (ai-code-backends-infra--terminal-dispatch "install-navigation-cursor-sync")
       (should called))))
 
+(ert-deftest test-ai-code-backends-infra-source-task-file-resolves-worktree-symlink ()
+  "Source task file detection should recognize symlinked worktree `.org' files."
+  (let* ((main-root (make-temp-file "ai-code-main-repo-" t))
+         (files-dir (expand-file-name ".ai.code.files" main-root))
+         (real-task (expand-file-name "task_20261019_wt.org" files-dir))
+         (worktree-dir (make-temp-file "ai-code-wt-repo-" t))
+         (symlink-task (expand-file-name "task_20261019_wt.org" worktree-dir))
+         task-buffer
+         dired-like-buffer)
+    (unwind-protect
+        (progn
+          (make-directory files-dir t)
+          (with-temp-file real-task
+            (insert "* Worktree Task\n"))
+          (make-symbolic-link real-task symlink-task)
+          (setq task-buffer (find-file-noselect symlink-task))
+          (should (equal (file-truename
+                          (ai-code-backends-infra--source-task-file task-buffer))
+                         (file-truename real-task)))
+          (setq dired-like-buffer (generate-new-buffer " *wt-source*"))
+          (with-current-buffer dired-like-buffer
+            (setq default-directory (file-name-as-directory worktree-dir)))
+          (should (equal (file-truename
+                          (ai-code-backends-infra--worktree-task-file worktree-dir))
+                         (file-truename real-task))))
+      (when (buffer-live-p task-buffer)
+        (kill-buffer task-buffer))
+      (when (buffer-live-p dired-like-buffer)
+        (kill-buffer dired-like-buffer))
+      (ignore-errors (delete-directory worktree-dir t))
+      (ignore-errors (delete-directory main-root t)))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
+

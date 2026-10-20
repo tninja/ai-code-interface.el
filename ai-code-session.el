@@ -13,9 +13,16 @@
 (require 'subr-x)
 (require 'tabulated-list)
 
+(declare-function ai-code-agent-handoff "ai-code-task" (&optional arg))
+(declare-function ai-code-session-checkpoint "ai-code" ())
 (declare-function magit-get-current-branch "magit-git" ())
 (declare-function magit-git-lines "magit-git" (&rest args))
 (declare-function magit-status-setup-buffer "magit-status" (directory))
+
+(defvar ai-code-backends-infra--last-accessed-buffer)
+(defvar ai-code-backends-infra--last-meaningful-output-time)
+(defvar ai-code-backends-infra--response-seen)
+(defvar ai-code-backends-infra-idle-delay)
 
 (cl-defstruct ai-code-session
   id
@@ -143,13 +150,35 @@ describe the session.  ID is optional and mainly useful when restoring state."
           (ai-code-session-updated-at session) (current-time))
     session))
 
+(defun ai-code-session--buffer-activity-status (buffer)
+  "Return fine-grained activity status for live process BUFFER."
+  (with-current-buffer buffer
+    (let ((last-output (bound-and-true-p
+                        ai-code-backends-infra--last-meaningful-output-time))
+          (idle-delay (or (and (boundp 'ai-code-backends-infra-idle-delay)
+                               (numberp ai-code-backends-infra-idle-delay)
+                               ai-code-backends-infra-idle-delay)
+                          5.0)))
+      (cond
+       ((not (numberp last-output)) "running")
+       ((< (- (float-time) last-output) idle-delay) "working")
+       ((not (bound-and-true-p ai-code-backends-infra--response-seen)) "ready")
+       (t "idle")))))
+
+(defun ai-code-session--mark-buffer-seen (buffer)
+  "Mark the latest output in BUFFER as seen by the user."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (bound-and-true-p ai-code-backends-infra--last-meaningful-output-time)
+        (setq-local ai-code-backends-infra--response-seen t)))))
+
 (defun ai-code-session--status (session)
   "Return a simple status string for SESSION."
   (let ((buffer (ai-code-session-buffer session)))
     (if (and (buffer-live-p buffer)
              (when-let ((process (get-buffer-process buffer)))
                (process-live-p process)))
-        "running"
+        (ai-code-session--buffer-activity-status buffer)
       "stopped")))
 
 (defun ai-code-session--branch (repo-root)
@@ -192,7 +221,7 @@ describe the session.  ID is optional and mainly useful when restoring state."
   "Buffer name used by the AI session dashboard.")
 
 (defconst ai-code-session-dashboard-shortcuts-hint
-  "Keys: RET visit session   r/g refresh   k kill session   D magit status"
+  "Keys: RET visit session   t open task   H checkpoint/handoff   r/g refresh   k kill session   D magit status"
   "Shortcut hint shown in the dashboard mode line.")
 
 (defun ai-code-session-dashboard--insert-footer ()
@@ -263,7 +292,38 @@ describe the session.  ID is optional and mainly useful when restoring state."
   (if-let* ((session (ai-code-session-dashboard--session-at-point))
             (buffer (ai-code-session-buffer session))
             ((buffer-live-p buffer)))
-      (pop-to-buffer buffer)
+      (progn
+        (ai-code-session--mark-buffer-seen buffer)
+        (setq ai-code-backends-infra--last-accessed-buffer buffer)
+        (pop-to-buffer buffer))
+    (user-error "No live AI session on this line")))
+
+(defun ai-code-session-dashboard-open-task ()
+  "Open the task file associated with the session on the current line."
+  (interactive)
+  (if-let* ((session (ai-code-session-dashboard--session-at-point))
+            (task-file (ai-code-session-task-file session)))
+      (find-file task-file)
+    (user-error "No task file is associated with this session")))
+
+(defun ai-code-session-dashboard-handoff-or-checkpoint (&optional arg)
+  "Run checkpoint or agent handoff for the session on the current line.
+With prefix ARG, run `ai-code-agent-handoff' using the session's task file.
+Otherwise run `ai-code-session-checkpoint' in the session buffer."
+  (interactive "P")
+  (if-let* ((session (ai-code-session-dashboard--session-at-point))
+            (buffer (ai-code-session-buffer session))
+            ((buffer-live-p buffer)))
+      (progn
+        (setq ai-code-backends-infra--last-accessed-buffer buffer)
+        (if arg
+            (if-let ((task-file (ai-code-session-task-file session)))
+                (with-current-buffer (find-file-noselect task-file)
+                  (ai-code-agent-handoff nil))
+              (with-current-buffer buffer
+                (ai-code-agent-handoff nil)))
+          (with-current-buffer buffer
+            (ai-code-session-checkpoint))))
     (user-error "No live AI session on this line")))
 
 (defun ai-code-session-dashboard-kill-session ()
@@ -297,6 +357,8 @@ describe the session.  ID is optional and mainly useful when restoring state."
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tabulated-list-mode-map)
     (define-key map (kbd "RET") #'ai-code-session-dashboard-visit)
+    (define-key map (kbd "t") #'ai-code-session-dashboard-open-task)
+    (define-key map (kbd "H") #'ai-code-session-dashboard-handoff-or-checkpoint)
     (define-key map (kbd "r") #'ai-code-session-dashboard-refresh)
     (define-key map (kbd "g") #'ai-code-session-dashboard-refresh)
     (define-key map (kbd "k") #'ai-code-session-dashboard-kill-session)

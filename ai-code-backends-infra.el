@@ -945,6 +945,15 @@ SOURCE-BUFFER unless FORCE-PROMPT is non-nil."
           default-directory))
         (t nil)))))
 
+(defun ai-code-backends-infra--task-file-path-p (file)
+  "Return non-nil when FILE is an Org task file managed by AI Code."
+  (and (stringp file)
+       (string-suffix-p ".org" file)
+       (or (string-match-p "/\\.ai\\.code\\.files/" file)
+           (let ((truename (ignore-errors (file-truename file))))
+             (and (stringp truename)
+                  (string-match-p "/\\.ai\\.code\\.files/" truename))))))
+
 (defun ai-code-backends-infra--source-task-file (source-buffer)
   "Return the AI task file associated with SOURCE-BUFFER, or nil."
   (when (buffer-live-p source-buffer)
@@ -952,8 +961,18 @@ SOURCE-BUFFER unless FORCE-PROMPT is non-nil."
       (when (and (stringp buffer-file-name)
                  (string-suffix-p ".org" buffer-file-name)
                  (or (derived-mode-p 'ai-code-prompt-mode)
-                     (string-match-p "/\\.ai\\.code\\.files/" buffer-file-name)))
+                     (ai-code-backends-infra--task-file-path-p buffer-file-name)))
         (expand-file-name buffer-file-name)))))
+
+(defun ai-code-backends-infra--worktree-task-file (working-dir)
+  "Return a linked AI task file found in WORKING-DIR, or nil."
+  (when (and (stringp working-dir)
+             (file-directory-p working-dir))
+    (let ((candidates
+           (cl-remove-if-not
+            #'ai-code-backends-infra--task-file-path-p
+            (directory-files working-dir t "\\.org\\'"))))
+      (car candidates))))
 
 (defun ai-code-backends-infra--sync-session-registry (buffer working-dir prefix
                                                              &optional task-file)
@@ -964,7 +983,8 @@ TASK-FILE records the originating AI task file when available."
     (let ((resolved-task-file
            (or task-file
                (with-current-buffer buffer
-                 ai-code-backends-infra--session-task-file))))
+                 ai-code-backends-infra--session-task-file)
+               (ai-code-backends-infra--worktree-task-file working-dir))))
       (with-current-buffer buffer
         (setq-local ai-code-backends-infra--session-prefix prefix)
         (setq-local ai-code-backends-infra--session-task-file resolved-task-file))
@@ -1469,7 +1489,8 @@ Return a plist containing source buffer, task file, and resolved session
 context values."
   (ai-code-backends-infra--cleanup-dead-processes process-table)
   (let* ((source-buffer (current-buffer))
-         (task-file (ai-code-backends-infra--source-task-file source-buffer))
+         (task-file (or (ai-code-backends-infra--source-task-file source-buffer)
+                        (ai-code-backends-infra--worktree-task-file working-dir)))
          (session-context (ai-code-backends-infra--resolve-session-context
                            working-dir
                            buffer-name
@@ -1632,6 +1653,7 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   working-dir
                   force-prompt
                   source-buffer)))
+    (ai-code-session--mark-buffer-seen buffer)
     (if-let* ((window (get-buffer-window buffer)))
         (select-window window)
       (ai-code-backends-infra--display-buffer-in-side-window buffer))))
