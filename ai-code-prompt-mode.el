@@ -41,6 +41,7 @@ the terminal backend infrastructure.")
 (defvar gptel-tools)
 (declare-function ai-code--git-repo-recent-modified-files "ai-code-git" (base-dir limit))
 (declare-function ai-code--git-ignored-repo-file-p "ai-code-git" (file root))
+(declare-function ai-code-git-record-turn-snapshot "ai-code-git" (&optional prompt-text git-root))
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
 (declare-function ai-code--choose-symbol-from-file "ai-code-input" (file))
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
@@ -459,6 +460,9 @@ Return a session buffer, or nil for default backend dispatch."
 When a visible AI session buffer is detected in the current frame,
 send the prompt directly to it instead of going through the default
 backend dispatch."
+  (when (fboundp 'ai-code-git-record-turn-snapshot)
+    (ignore-errors
+      (ai-code-git-record-turn-snapshot full-prompt)))
   (if-let ((target (ai-code--prompt-choose-target-session)))
       (ai-code--send-prompt-to-session-buffer full-prompt target)
     (when (ai-code-cli-send-command full-prompt)

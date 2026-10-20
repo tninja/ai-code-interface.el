@@ -980,12 +980,149 @@ The directory is `ai-code-git-worktree-root/REPO-NAME'."
         (dired repo-worktree-dir)
       (user-error "Worktree directory does not exist: %s" repo-worktree-dir))))
 
+(defcustom ai-code-git-turn-snapshot-enabled t
+  "When non-nil, record a lightweight Git snapshot before sending each AI prompt."
+  :type 'boolean
+  :group 'ai-code)
+
+(defvar ai-code-git--turn-snapshots (make-hash-table :test 'equal)
+  "Hash table mapping normalized repository roots to their latest AI turn snapshot.")
+
+(defconst ai-code-git-turn-diff-buffer-name "*AI Code Turn Diff*"
+  "Buffer name used to display diffs since the last AI turn snapshot.")
+
+(defun ai-code-git--normalize-repo-key (git-root)
+  "Return normalized hash-table key for GIT-ROOT."
+  (and git-root
+       (file-name-as-directory (file-truename git-root))))
+
+(defun ai-code-git-record-turn-snapshot (&optional prompt-text git-root)
+  "Record a non-destructive Git snapshot before sending PROMPT-TEXT.
+Optional GIT-ROOT overrides repository root detection."
+  (when ai-code-git-turn-snapshot-enabled
+    (when-let* ((root (or git-root (ai-code--git-root)))
+                (key (ai-code-git--normalize-repo-key root)))
+      (let* ((default-directory root)
+             (stash-commit (ignore-errors (magit-git-string "stash" "create")))
+             (head-commit (ignore-errors
+                            (magit-git-string "rev-parse" "--verify" "HEAD")))
+             (snapshot-commit
+              (if (and stash-commit (not (string-empty-p stash-commit)))
+                  stash-commit
+                head-commit)))
+        (when (and snapshot-commit (not (string-empty-p snapshot-commit)))
+          (let ((snapshot
+                 (list :commit snapshot-commit
+                       :head head-commit
+                       :untracked (ignore-errors
+                                    (magit-git-lines "ls-files" "--others"
+                                                     "--exclude-standard"))
+                       :timestamp (current-time)
+                       :prompt prompt-text)))
+            (puthash key snapshot ai-code-git--turn-snapshots)
+            snapshot))))))
+
+(defun ai-code-git-last-turn-snapshot (&optional git-root)
+  "Return the latest recorded AI turn snapshot for GIT-ROOT, or nil."
+  (when-let* ((root (or git-root (ai-code--git-root)))
+              (key (ai-code-git--normalize-repo-key root)))
+    (gethash key ai-code-git--turn-snapshots)))
+
+(defun ai-code-git--turn-snapshot-new-untracked-files (git-root snapshot)
+  "Return untracked files in GIT-ROOT created after SNAPSHOT."
+  (let* ((default-directory git-root)
+         (current-untracked
+          (ignore-errors
+            (magit-git-lines "ls-files" "--others" "--exclude-standard")))
+         (prior-untracked (plist-get snapshot :untracked)))
+    (seq-difference current-untracked prior-untracked #'string=)))
+
+(defun ai-code-git--require-turn-snapshot (git-root)
+  "Return the recorded turn snapshot for GIT-ROOT or signal a user error."
+  (or (ai-code-git-last-turn-snapshot git-root)
+      (user-error "No AI turn snapshot recorded for %s" git-root)))
+
+(defun ai-code-git--turn-snapshot-short-sha (snapshot)
+  "Return the abbreviated commit hash for SNAPSHOT."
+  (let ((commit (or (plist-get snapshot :commit) "")))
+    (substring commit 0 (min 7 (length commit)))))
+
+(defun ai-code-git--render-turn-diff-buffer (root snapshot diff new-untracked)
+  "Render turn diff buffer for ROOT using SNAPSHOT, DIFF, and NEW-UNTRACKED."
+  (let ((short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
+        (buffer (get-buffer-create ai-code-git-turn-diff-buffer-name)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (diff-mode)
+        (setq-local default-directory root)
+        (insert (format "# AI Turn Snapshot: %s\n" short-sha))
+        (when-let ((prompt (plist-get snapshot :prompt)))
+          (let ((first-line (car (split-string (string-trim prompt) "\n"))))
+            (unless (string-empty-p first-line)
+              (insert (format "# Prompt: %s\n" first-line)))))
+        (when new-untracked
+          (insert "# New untracked files:\n")
+          (dolist (file new-untracked)
+            (insert (format "#   %s\n" file))))
+        (insert "\n" diff)
+        (goto-char (point-min))
+        (setq buffer-read-only t)))
+    (pop-to-buffer buffer)
+    buffer))
+
+;;;###autoload
+(defun ai-code-git-review-turn-diff (&optional git-root)
+  "Display the Git diff and new untracked files since the last AI turn snapshot.
+Optional GIT-ROOT overrides repository root detection."
+  (interactive)
+  (let* ((root (or git-root (ai-code--validate-git-repository)))
+         (snapshot (ai-code-git--require-turn-snapshot root))
+         (default-directory root)
+         (commit (plist-get snapshot :commit))
+         (short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
+         (diff (or (magit-git-output "diff" commit) ""))
+         (new-untracked
+          (ai-code-git--turn-snapshot-new-untracked-files root snapshot)))
+    (if (and (string-empty-p (string-trim diff))
+             (null new-untracked))
+        (progn
+          (message "No changes since the last AI turn snapshot (%s)" short-sha)
+          nil)
+      (ai-code-git--render-turn-diff-buffer root snapshot diff new-untracked))))
+
+;;;###autoload
+(defun ai-code-git-revert-turn-changes (&optional git-root)
+  "Revert working tree changes back to the last AI turn snapshot.
+Optional GIT-ROOT overrides repository root detection."
+  (interactive)
+  (let* ((root (or git-root (ai-code--validate-git-repository)))
+         (snapshot (ai-code-git--require-turn-snapshot root))
+         (default-directory root)
+         (commit (plist-get snapshot :commit))
+         (short-sha (ai-code-git--turn-snapshot-short-sha snapshot))
+         (new-untracked
+          (ai-code-git--turn-snapshot-new-untracked-files root snapshot)))
+    (when (y-or-n-p
+           (format "Revert working tree changes to AI turn snapshot %s? "
+                   short-sha))
+      (unless (zerop (magit-call-git "checkout" commit "--" "."))
+        (user-error "Git failed to revert tracked files to %s" short-sha))
+      (dolist (rel-file new-untracked)
+        (let ((abs-file (expand-file-name rel-file root)))
+          (when (file-exists-p abs-file)
+            (delete-file abs-file))))
+      (message "Reverted working tree to AI turn snapshot %s" short-sha)
+      t)))
+
 (defconst ai-code--worktree-action-choices
   '(("New branch and worktree"         . ai-code-git-worktree-branch)
     ("Open worktree directory (Dired)" . ai-code-git-worktree-open-dir)
     ("Visit existing worktree"         . magit-worktree-status)
-    ("Delete worktree"                 . magit-worktree-delete))
-  "Worktree actions offered by `ai-code-git-worktree-action'.
+    ("Delete worktree"                 . magit-worktree-delete)
+    ("Review last AI turn diff"        . ai-code-git-review-turn-diff)
+    ("Revert last AI turn changes"     . ai-code-git-revert-turn-changes))
+  "Worktree and turn checkpoint actions offered by `ai-code-git-worktree-action'.
 The first entry is used as the completion default so that accepting the
 default keeps the historical behavior of creating a new worktree.")
 

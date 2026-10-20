@@ -906,6 +906,141 @@ Return a plist with :minibuffer-edits, :compose-calls, :git-calls and
       (should (equal git-calls
                      '(("push" "-u" "origin" "feature/test")))))))
 
+(ert-deftest ai-code-test-git-record-turn-snapshot-uses-stash-create-or-head ()
+  "Record turn snapshot using `git stash create' when dirty, or HEAD when clean."
+  (let ((repo (make-temp-file "ai-code-turn-snap-" t))
+        (ai-code-git--turn-snapshots (make-hash-table :test 'equal))
+        (stash-sha "1111111111111111111111111111111111111111")
+        (head-sha "2222222222222222222222222222222222222222"))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'magit-git-string)
+                     (lambda (&rest args)
+                       (cond
+                        ((equal args '("stash" "create")) stash-sha)
+                        ((equal args '("rev-parse" "--verify" "HEAD")) head-sha)
+                        (t nil))))
+                    ((symbol-function 'magit-git-lines)
+                     (lambda (&rest args)
+                       (when (equal args '("ls-files" "--others" "--exclude-standard"))
+                         '("existing-untracked.txt")))))
+            (let ((snap (ai-code-git-record-turn-snapshot "Fix bug" repo)))
+              (should (equal (plist-get snap :commit) stash-sha))
+              (should (equal (plist-get snap :head) head-sha))
+              (should (equal (plist-get snap :untracked) '("existing-untracked.txt")))
+              (should (equal (plist-get snap :prompt) "Fix bug"))
+              (should (equal (ai-code-git-last-turn-snapshot repo) snap))))
+          (cl-letf (((symbol-function 'magit-git-string)
+                     (lambda (&rest args)
+                       (cond
+                        ((equal args '("stash" "create")) "")
+                        ((equal args '("rev-parse" "--verify" "HEAD")) head-sha)
+                        (t nil))))
+                    ((symbol-function 'magit-git-lines)
+                     (lambda (&rest _args) nil)))
+            (let ((snap (ai-code-git-record-turn-snapshot "Clean prompt" repo)))
+              (should (equal (plist-get snap :commit) head-sha)))))
+      (delete-directory repo t))))
+
+(ert-deftest ai-code-test-git-review-turn-diff-renders-diff-and-untracked ()
+  "Review turn diff should display unified diff and newly created untracked files."
+  (let ((repo (make-temp-file "ai-code-turn-diff-" t))
+        (ai-code-git--turn-snapshots (make-hash-table :test 'equal))
+        (snap-sha "abcdef1234567890abcdef1234567890abcdef12")
+        displayed-buffer)
+    (unwind-protect
+        (progn
+          (puthash (file-name-as-directory (file-truename repo))
+                   (list :commit snap-sha
+                         :head snap-sha
+                         :untracked '("old.txt")
+                         :prompt "Refactor foo")
+                   ai-code-git--turn-snapshots)
+          (cl-letf (((symbol-function 'magit-git-output)
+                     (lambda (&rest args)
+                       (should (equal args (list "diff" snap-sha)))
+                       "diff --git a/foo.el b/foo.el\n+added line\n"))
+                    ((symbol-function 'magit-git-lines)
+                     (lambda (&rest args)
+                       (when (equal args '("ls-files" "--others" "--exclude-standard"))
+                         '("old.txt" "new-ai-file.el"))))
+                    ((symbol-function 'pop-to-buffer)
+                     (lambda (buf &rest _args)
+                       (setq displayed-buffer buf))))
+            (let ((buf (ai-code-git-review-turn-diff repo)))
+              (unwind-protect
+                  (progn
+                    (should (eq buf displayed-buffer))
+                    (with-current-buffer buf
+                      (should (derived-mode-p 'diff-mode))
+                      (should (string-match-p "abcdef1" (buffer-string)))
+                      (should (string-match-p "new-ai-file\\.el" (buffer-string)))
+                      (should (string-match-p "\\+added line" (buffer-string)))))
+                (when (buffer-live-p buf)
+                  (kill-buffer buf))))))
+      (delete-directory repo t))))
+
+(ert-deftest ai-code-test-git-revert-turn-changes-restores-tree-and-removes-new-untracked ()
+  "Revert turn changes should checkout snapshot commit and delete only newly added untracked files."
+  (let* ((repo (make-temp-file "ai-code-turn-revert-" t))
+         (old-untracked (expand-file-name "old.txt" repo))
+         (new-untracked (expand-file-name "new-ai.txt" repo))
+         (ai-code-git--turn-snapshots (make-hash-table :test 'equal))
+         (snap-sha "abcdef1234567890abcdef1234567890abcdef12")
+         git-calls)
+    (unwind-protect
+        (progn
+          (with-temp-file old-untracked (insert "keep me\n"))
+          (with-temp-file new-untracked (insert "remove me\n"))
+          (puthash (file-name-as-directory (file-truename repo))
+                   (list :commit snap-sha
+                         :head snap-sha
+                         :untracked '("old.txt")
+                         :prompt "Try experiment")
+                   ai-code-git--turn-snapshots)
+          (cl-letf (((symbol-function 'y-or-n-p)
+                     (lambda (_prompt) t))
+                    ((symbol-function 'magit-call-git)
+                     (lambda (&rest args)
+                       (push args git-calls)
+                       0))
+                    ((symbol-function 'magit-git-lines)
+                     (lambda (&rest args)
+                       (when (equal args '("ls-files" "--others" "--exclude-standard"))
+                         '("old.txt" "new-ai.txt"))))
+                    ((symbol-function 'message) #'ignore))
+            (should (ai-code-git-revert-turn-changes repo))
+            (should (equal git-calls
+                           (list (list "checkout" snap-sha "--" "."))))
+            (should (file-exists-p old-untracked))
+            (should-not (file-exists-p new-untracked))))
+      (delete-directory repo t))))
+
+(ert-deftest ai-code-test-send-prompt-records-turn-snapshot ()
+  "Sending a prompt should record a Git turn snapshot first."
+  (let (recorded-prompt sent-command)
+    (cl-letf (((symbol-function 'ai-code-git-record-turn-snapshot)
+               (lambda (&optional prompt _root)
+                 (setq recorded-prompt prompt)))
+              ((symbol-function 'ai-code--prompt-choose-target-session)
+               (lambda () nil))
+              ((symbol-function 'ai-code-cli-send-command)
+               (lambda (cmd)
+                 (setq sent-command cmd)
+                 t))
+              ((symbol-function 'ai-code-cli-switch-to-buffer)
+               #'ignore))
+      (ai-code--send-prompt "Implement feature X\n")
+      (should (equal recorded-prompt "Implement feature X\n"))
+      (should (equal sent-command "Implement feature X\n")))))
+
+(ert-deftest ai-code-test-git-worktree-action-dispatches-turn-checkpoint-commands ()
+  "Selecting turn diff or revert in `ai-code-git-worktree-action' dispatches to the turn checkpoint commands."
+  (should (eq (car (ai-code-test--run-worktree-action "Review last AI turn diff"))
+              #'ai-code-git-review-turn-diff))
+  (should (eq (car (ai-code-test--run-worktree-action "Revert last AI turn changes"))
+              #'ai-code-git-revert-turn-changes)))
+
 (provide 'test_ai-code-git)
 
 ;;; test_ai-code-git.el ends here
