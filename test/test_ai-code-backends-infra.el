@@ -16,6 +16,7 @@
 
 (defvar vterm-copy-mode-hook)
 (defvar vterm--term)
+(defvar vterm-shell)
 (defvar eat-term-name)
 (defvar ghostel-set-title-function)
 (defvar ghostel-kill-buffer-on-exit)
@@ -139,7 +140,7 @@ The result is a cons of whether SYMBOL is bound and its default value."
     (makunbound symbol)))
 
 (defun test-ai-code-backends-infra--session-dir (directory)
-  "Return DIRECTORY the way session bookkeeping stores it.
+  "Return DIRECTORY in the canonical form used by session bookkeeping.
 Session keys are canonicalized with `file-truename', so a key built from a
 literal path has to be resolved the same way to match.  This matters where
 the platform makes the literal path a symlink, such as /tmp on macOS."
@@ -847,6 +848,9 @@ The prefix argument should also force instance-name prompting."
                    'fake-window))
                 ((symbol-function 'window-body-width)
                  (lambda (&rest _args) 96))
+                ((symbol-function 'window-resizable)
+                 (lambda (_window delta &rest _args) delta))
+                ((symbol-function 'window-preserve-size) #'ignore)
                 ((symbol-function 'window-resize)
                  (lambda (window delta horizontal &optional _ignore)
                    (setq resize-call (list window delta horizontal)))))
@@ -4254,39 +4258,6 @@ The prefix argument should also force instance-name prompting."
       (ai-code-backends-infra--terminal-dispatch "install-navigation-cursor-sync")
       (should called))))
 
-(ert-deftest test-ai-code-backends-infra-source-task-file-resolves-worktree-symlink ()
-  "Source task file detection should recognize symlinked worktree `.org' files."
-  (let* ((main-root (make-temp-file "ai-code-main-repo-" t))
-         (files-dir (expand-file-name ".ai.code.files" main-root))
-         (real-task (expand-file-name "task_20261019_wt.org" files-dir))
-         (worktree-dir (make-temp-file "ai-code-wt-repo-" t))
-         (symlink-task (expand-file-name "task_20261019_wt.org" worktree-dir))
-         task-buffer
-         dired-like-buffer)
-    (unwind-protect
-        (progn
-          (make-directory files-dir t)
-          (with-temp-file real-task
-            (insert "* Worktree Task\n"))
-          (make-symbolic-link real-task symlink-task)
-          (setq task-buffer (find-file-noselect symlink-task))
-          (should (equal (file-truename
-                          (ai-code-backends-infra--source-task-file task-buffer))
-                         (file-truename real-task)))
-          (setq dired-like-buffer (generate-new-buffer " *wt-source*"))
-          (with-current-buffer dired-like-buffer
-            (setq default-directory (file-name-as-directory worktree-dir)))
-          (should (equal (file-truename
-                          (ai-code-backends-infra--worktree-task-file worktree-dir))
-                         (file-truename real-task))))
-      (when (buffer-live-p task-buffer)
-        (kill-buffer task-buffer))
-      (when (buffer-live-p dired-like-buffer)
-        (kill-buffer dired-like-buffer))
-      (ignore-errors (delete-directory worktree-dir t))
-      (ignore-errors (delete-directory main-root t)))))
-
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
-

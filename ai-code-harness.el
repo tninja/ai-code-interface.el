@@ -56,6 +56,38 @@
 (defvar ai-code-selected-backend)
 (defvar ai-code-use-prompt-suffix)
 
+;;;; Agent Commit Guidance
+
+(defcustom ai-code-auto-commit-enabled nil
+  "Whether to ask the agent to commit successful task-owned changes.
+This independent toggle appends conditional instructions to normal prompts.
+It does not run Git, enforce agent behavior, or affect direct slash commands.
+Review the resulting commits with Magit."
+  :type 'boolean
+  :group 'ai-code)
+
+(defconst ai-code--auto-commit-instruction
+  (concat
+   "If this task changes files in a Git repository, create a commit only after "
+   "the requested work is complete and relevant checks pass. Skip commits for "
+   "read-only tasks, no changes, or failed/unavailable checks; report why. "
+   "Inspect the initial working tree and index before editing. Commit only "
+   "changes you made for this task; preserve all pre-existing edits and staged "
+   "changes. Do not use blanket staging (git add -A, git add ., or git commit -a). "
+   "If ownership or staging is ambiguous, do not commit; ask the user instead. "
+   "Prefix the commit message with [ai] to identify agent-generated commits. "
+   "Do not push, amend, rebase, reset, or bypass hooks. Report the commit hash "
+   "and checks run.")
+  "Conditional instructions for an agent-created task commit.")
+
+(defun ai-code--auto-commit-suffix-provider (_context)
+  "Return conditional commit instructions when the toggle is enabled."
+  (when ai-code-auto-commit-enabled
+    ai-code--auto-commit-instruction))
+
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--auto-commit-suffix-provider 50)
+
 ;;;; Auto-Test Harness: Content and Cache
 
 (defconst ai-code--diagnostics-first-harness-instruction

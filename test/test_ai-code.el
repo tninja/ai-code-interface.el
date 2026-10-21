@@ -681,6 +681,19 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Send quick prompt"))))
 
+(ert-deftest ai-code-test-auto-commit-toggle ()
+  "The menu toggle must switch agent commits on and off."
+  (let* ((suffix (transient-get-suffix 'ai-code--menu-agile-development "C"))
+         (command (plist-get (cdr suffix) :command))
+         (object (get command 'transient--suffix))
+         (ai-code-auto-commit-enabled nil))
+    (should (eq command 'ai-code--infix-toggle-auto-commit))
+    (should (eq (oref object variable) 'ai-code-auto-commit-enabled))
+    (setq ai-code-auto-commit-enabled (funcall (oref object reader) nil nil nil))
+    (should ai-code-auto-commit-enabled)
+    (setq ai-code-auto-commit-enabled (funcall (oref object reader) nil nil nil))
+    (should-not ai-code-auto-commit-enabled)))
+
 (ert-deftest ai-code-test-menu-other-tools-binds-plus-to-create-file ()
   "Test that Other Tools exposes file creation on +."
   (let ((suffix (transient-get-suffix

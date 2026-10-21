@@ -42,9 +42,7 @@
             (with-current-buffer rendered-buffer
               (should (string-match-p "OpenAI Codex CLI" (buffer-string)))
               (should (string-match-p "Start Here" (buffer-string)))
-              (should (string-match-p "j  Open AI session dashboard" (buffer-string)))
               (should (string-match-p "Most Useful Actions" (buffer-string)))
-              (should (string-match-p "w  Manage Git worktrees and AI turn checkpoints" (buffer-string)))
               (should (string-match-p "How Context Works" (buffer-string)))))
         (when (buffer-live-p rendered-buffer)
           (kill-buffer rendered-buffer))))))

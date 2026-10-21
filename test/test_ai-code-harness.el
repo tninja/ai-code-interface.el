@@ -931,6 +931,66 @@ This guards against drift when a new review mode is added."
                  (ai-code--resolve-auto-follow-up-suffix-for-send
                   "Summarize this design")))))))
 
+(ert-deftest ai-code-test-auto-commit-default-off ()
+  "Agent commits must be opt-in."
+  (should-not (default-value 'ai-code-auto-commit-enabled)))
+
+(ert-deftest ai-code-test-auto-commit-disabled ()
+  "Disabling agent commits must leave prompts unchanged."
+  (let ((ai-code-auto-commit-enabled nil))
+    (should-not (ai-code--auto-commit-suffix-provider nil))))
+
+(ert-deftest ai-code-test-auto-commit-instructions ()
+  "Commit instructions must limit scope and preserve user work."
+  (let* ((ai-code-auto-commit-enabled t)
+         (suffix (ai-code--auto-commit-suffix-provider nil)))
+    (dolist (text '("[ai]" "read-only" "checks pass" "pre-existing"
+                    "staged" "git add -A" "ambiguous" "push" "hooks"))
+      (should (string-match-p (regexp-quote text) suffix)))))
+
+(ert-deftest ai-code-test-auto-commit-provider-integration ()
+  "The independent toggle must compose with custom suffixes once."
+  (let ((ai-code-auto-commit-enabled t)
+        (ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix "CUSTOM")
+        (ai-code-grill-me-enabled nil)
+        (ai-code-auto-test-type nil)
+        (ai-code-discussion-auto-follow-up-enabled nil))
+    (let ((enabled (ai-code--apply-prompt-suffixes "Prompt")))
+      (should (string-prefix-p "Prompt\nCUSTOM\n" enabled))
+      (should (= 1 (cl-count #'ai-code--auto-commit-suffix-provider
+                            ai-code-prompt-suffix-functions)))
+      (let ((ai-code-use-prompt-suffix nil))
+        (should (string-match-p "\\[ai\\]"
+                                (ai-code--apply-prompt-suffixes "Prompt"))))
+      (let ((ai-code-auto-commit-enabled nil))
+        (should (equal "Prompt\nCUSTOM"
+                       (ai-code--apply-prompt-suffixes "Prompt")))))))
+
+(ert-deftest ai-code-test-auto-commit-send-and-direct-command ()
+  "Normal sends must include guidance; direct commands must bypass it."
+  (let ((ai-code-auto-commit-enabled t)
+        (ai-code-use-prompt-suffix nil)
+        (ai-code-grill-me-enabled nil)
+        (ai-code-prompt-preprocess-filepaths nil)
+        sent-prompt direct-command)
+    (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+               (lambda () nil))
+              ((symbol-function 'ai-code--send-prompt)
+               (lambda (prompt) (setq sent-prompt prompt)))
+              ((symbol-function 'ai-code--execute-command)
+               (lambda (command) (setq direct-command command)))
+              ((symbol-function 'magit-call-git)
+               (lambda (&rest _) (ert-fail "Emacs must not run Git"))))
+      (with-temp-buffer
+        (ai-code--insert-prompt "Fix the bug")
+        (should (equal sent-prompt
+                       (concat "Fix the bug\n" ai-code--auto-commit-instruction "\n")))
+        (setq sent-prompt nil)
+        (ai-code--insert-prompt "/help")
+        (should (equal direct-command "/help"))
+        (should-not sent-prompt)))))
+
 (ert-deftest ai-code-test-built-in-prompt-suffix-provider-order ()
   "Enabled built-in providers should preserve their configured order."
   (let ((ai-code-use-prompt-suffix t)

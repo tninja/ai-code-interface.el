@@ -480,6 +480,19 @@ Otherwise switch to AI CLI buffer."
   :reader (lambda (_prompt _initial-input _history)
             (not ai-code-use-prompt-suffix)))
 
+(defclass ai-code--auto-commit-enabled-type (transient-lisp-variable)
+  ((variable :initform 'ai-code-auto-commit-enabled)
+   (format :initform "%k %d %v"))
+  "Toggle helper for `ai-code-auto-commit-enabled`.")
+
+(transient-define-infix ai-code--infix-toggle-auto-commit ()
+  "Toggle `ai-code-auto-commit-enabled`."
+  :class 'ai-code--auto-commit-enabled-type
+  :key "C"
+  :description "Agent commit:"
+  :reader (lambda (_prompt _initial-input _history)
+            (not ai-code-auto-commit-enabled)))
+
 (defclass ai-code--code-change-auto-test-type (transient-lisp-variable)
   ((variable :initform 'ai-code-auto-test-type)
    (format :initform "%k %d %v")
@@ -619,6 +632,7 @@ Shows the current backend label to the right."
 
 (transient-define-group ai-code--menu-agile-development
   (ai-code--infix-select-code-change-auto-test)
+  (ai-code--infix-toggle-auto-commit)
   ("r" "Refactor Code" ai-code-refactor-book-method)
   ("t" "Test Driven Development" ai-code-tdd-cycle)
   ("y" "Grow Next Step" ai-code-grow-next-step)
