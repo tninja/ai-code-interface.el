@@ -18,6 +18,38 @@
 ;; Optional: provides the non-Tree-sitter fallback for scope detection.
 (require 'which-func nil t)
 
+(defcustom ai-code-auto-commit-enabled nil
+  "Whether session sends should ask the agent to commit its code changes.
+This independent toggle adds conditional guidance at send boundaries.
+It does not run Git or enforce agent behavior."
+  :type 'boolean
+  :group 'ai-code)
+
+(defconst ai-code--auto-commit-instruction
+  (concat
+   "Only if you actually changed code for this task in a Git repository, "
+   "create a commit after the requested work is complete and relevant checks pass. "
+   "Do not commit when no code changed, including read-only, discussion-only, "
+   "or documentation-only tasks, or when checks fail or are unavailable; report why. "
+   "Respect explicit user instructions not to commit. "
+   "Inspect the initial working tree and index before editing. Commit only "
+   "changes you made for this task; preserve all pre-existing edits and staged "
+   "changes. Do not use blanket staging (git add -A, git add ., or git commit -a). "
+   "If ownership or staging is ambiguous, do not commit; ask the user instead. "
+   "Prefix the commit message with [ai] to identify agent-generated commits. "
+   "Do not push, amend, rebase, reset, or bypass hooks. Report the commit hash "
+   "and checks run.")
+  "Conditional instructions for an agent-created code-change commit.")
+
+(defun ai-code--append-auto-commit-instruction (prompt)
+  "Append enabled commit guidance to nonempty PROMPT at most once."
+  (if (and ai-code-auto-commit-enabled
+           (not (string-empty-p prompt))
+           (not (string-match-p (regexp-quote ai-code--auto-commit-instruction)
+                                prompt)))
+      (concat prompt "\n" ai-code--auto-commit-instruction)
+    prompt))
+
 (declare-function projectile-project-root "projectile")
 (declare-function project-current "project" (&optional maybe-prompt dir))
 (declare-function project-root "project" (project))

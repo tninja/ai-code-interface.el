@@ -439,6 +439,7 @@ Return a session buffer, or nil for default backend dispatch."
 
 (defun ai-code--send-prompt-to-session-buffer (prompt buffer)
   "Send PROMPT directly to session BUFFER and display it."
+  (setq prompt (ai-code--append-auto-commit-instruction prompt))
   (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
     (ai-code-mcp-agent-refresh-source-context buffer (current-buffer)))
   (with-current-buffer buffer
@@ -459,6 +460,7 @@ Return a session buffer, or nil for default backend dispatch."
 When a visible AI session buffer is detected in the current frame,
 send the prompt directly to it instead of going through the default
 backend dispatch."
+  (setq full-prompt (ai-code--append-auto-commit-instruction full-prompt))
   (if-let ((target (ai-code--prompt-choose-target-session)))
       (ai-code--send-prompt-to-session-buffer full-prompt target)
     (when (ai-code-cli-send-command full-prompt)

@@ -200,13 +200,12 @@ Argument ARG is passed to the backend's switch function."
   "Send COMMAND to the current backend when supported.
 When called interactively, prompt for COMMAND.
 Noninteractive callers must supply COMMAND."
-  (interactive)
+  (interactive (list (ai-code-read-string "Send to AI: ")))
   (ai-code--activate-effective-backend)
-  (if (called-interactively-p 'interactive)
-      (call-interactively ai-code--cli-send-fn)
-    (if (null command)
-        (user-error "COMMAND is required for noninteractive calls")
-      (ai-code--send-command-with-session-recovery command))))
+  (if (null command)
+      (user-error "COMMAND is required for noninteractive calls")
+    (ai-code--send-command-with-session-recovery
+     (ai-code--append-auto-commit-instruction command))))
 
 ;;;###autoload
 (defun ai-code-claude-code-el-send-command (cmd)
@@ -216,7 +215,7 @@ This wrapper function works around the signature change in
 When called interactively, prompts for the command.
 When called from Lisp code, sends CMD directly without prompting."
   (interactive "sClaude command: ")
-  (claude-code--do-send-command cmd))
+  (claude-code--do-send-command (ai-code--append-auto-commit-instruction cmd)))
 
 (defun ai-code-claude-code-install-skills ()
   "Install skills for Claude Code by prompting for a skills repo URL.
