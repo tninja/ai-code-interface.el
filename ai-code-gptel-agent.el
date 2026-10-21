@@ -55,7 +55,7 @@ With prefix ARG, prompt for project directory."
   (if-let ((buffer (ai-code-gptel-agent--get-buffer)))
       (with-current-buffer buffer
         (goto-char (point-max))
-        (insert (ai-code--append-auto-commit-instruction prompt))
+        (insert prompt)
         (gptel-send))
     (user-error "No gptel-agent session for this project; use 'a' to start one")))
 

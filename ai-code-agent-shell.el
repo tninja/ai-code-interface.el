@@ -62,7 +62,7 @@ When FORCE-PROMPT is non-nil, prompt to choose a shell."
   (let ((buffer (agent-shell--shell-buffer :no-create t :no-error t)))
     (if buffer
         (with-current-buffer buffer
-          (agent-shell-prompt-queue (ai-code--append-auto-commit-instruction line)))
+          (agent-shell-prompt-queue line))
       (user-error "No agent-shell session for this project"))))
 
 ;;;###autoload

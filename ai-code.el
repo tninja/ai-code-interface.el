@@ -592,6 +592,7 @@ Shows the current backend label to the right."
 
 (transient-define-group ai-code--menu-actions-with-context
   (ai-code--infix-toggle-suffix)
+  (ai-code--infix-toggle-auto-commit)
   ("c" "Code change (C-u: clipboard)" ai-code-code-change)
   ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
   ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
@@ -632,7 +633,6 @@ Shows the current backend label to the right."
 
 (transient-define-group ai-code--menu-agile-development
   (ai-code--infix-select-code-change-auto-test)
-  (ai-code--infix-toggle-auto-commit)
   ("r" "Refactor Code" ai-code-refactor-book-method)
   ("t" "Test Driven Development" ai-code-tdd-cycle)
   ("y" "Grow Next Step" ai-code-grow-next-step)

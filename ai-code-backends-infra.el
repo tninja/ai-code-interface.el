@@ -18,7 +18,6 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
-(require 'ai-code-utils)
 (require 'ai-code-editor-viewport)
 (require 'ai-code-session)
 (require 'ai-code-session-link)
@@ -1521,7 +1520,6 @@ the backend session group.  FORCE-PROMPT prompts for a session when non-nil."
   "Send LINE to a CLI backend session.
 LABEL is used in the missing-session message.  SESSION-PREFIX identifies
 the backend session group."
-  (setq line (ai-code--append-auto-commit-instruction line))
   (let ((working-dir (ai-code-backends-infra--session-working-directory)))
     (ai-code-backends-infra--send-line-to-session
      nil

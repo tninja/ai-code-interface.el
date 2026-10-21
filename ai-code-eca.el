@@ -775,7 +775,7 @@ If the project is already present in the workspace, do nothing."
     (if session
         (progn
           (eca-chat-open session)
-          (eca-chat-send-prompt (ai-code--append-auto-commit-instruction line)))
+          (eca-chat-send-prompt line))
       (user-error "No ECA session; run M-x ai-code-eca-start first"))))
 
 (defun ai-code-eca-resume (&optional _arg)

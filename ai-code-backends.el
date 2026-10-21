@@ -204,8 +204,7 @@ Noninteractive callers must supply COMMAND."
   (ai-code--activate-effective-backend)
   (if (null command)
       (user-error "COMMAND is required for noninteractive calls")
-    (ai-code--send-command-with-session-recovery
-     (ai-code--append-auto-commit-instruction command))))
+    (ai-code--send-command-with-session-recovery command)))
 
 ;;;###autoload
 (defun ai-code-claude-code-el-send-command (cmd)
@@ -215,7 +214,7 @@ This wrapper function works around the signature change in
 When called interactively, prompts for the command.
 When called from Lisp code, sends CMD directly without prompting."
   (interactive "sClaude command: ")
-  (claude-code--do-send-command (ai-code--append-auto-commit-instruction cmd)))
+  (claude-code--do-send-command cmd))
 
 (defun ai-code-claude-code-install-skills ()
   "Install skills for Claude Code by prompting for a skills repo URL.

@@ -128,13 +128,52 @@ non-empty string or nil.  Provider errors abort the send."
         (concat prompt-text "\n" (mapconcat #'identity suffixes "\n"))
       prompt-text)))
 
-(defun ai-code--custom-prompt-suffix-provider (_context)
-  "Return the configured custom prompt suffix when it is enabled."
+(defvar ai-code--prompt-suffixes-applied nil
+  "Non-nil while an already prepared prompt traverses nested send paths.")
+
+(defcustom ai-code-auto-commit-enabled nil
+  "Whether session sends should ask the agent to commit its code changes.
+This independent toggle adds guidance through the shared prompt suffix hook.
+It does not run Git or enforce agent behavior."
+  :type 'boolean
+  :group 'ai-code)
+
+(defconst ai-code--auto-commit-instruction
+  (concat
+   "Only if you actually changed code for this task in a Git repository, "
+   "create a commit after the requested work is complete and relevant checks pass. "
+   "Do not commit when no code changed, including read-only, discussion-only, "
+   "or documentation-only tasks, or when checks fail or are unavailable; report why. "
+   "Respect explicit user instructions not to commit. "
+   "Inspect the initial working tree and index before editing. Commit only "
+   "changes you made for this task; preserve all pre-existing edits and staged "
+   "changes. Do not use blanket staging (git add -A, git add ., or git commit -a). "
+   "If ownership or staging is ambiguous, do not commit; ask the user instead. "
+   "Prefix the commit message with [ai] to identify agent-generated commits. "
+   "Do not push, amend, rebase, reset, or bypass hooks. Report the commit hash "
+   "and checks run.")
+  "Conditional instructions for an agent-created code-change commit.")
+
+(defun ai-code--auto-commit-suffix-provider (context)
+  "Return enabled commit guidance for prompt CONTEXT, unless already present."
+  (when (and ai-code-auto-commit-enabled
+             (not (string-match-p
+                   (regexp-quote ai-code--auto-commit-instruction)
+                   (ai-code-prompt-context-prompt-text context))))
+    ai-code--auto-commit-instruction))
+
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--auto-commit-suffix-provider 50)
+
+(defun ai-code--custom-prompt-suffix-provider (context)
+  "Return the enabled custom suffix for CONTEXT, unless already present."
   (when (and (bound-and-true-p ai-code-use-prompt-suffix)
              (boundp 'ai-code-prompt-suffix)
              (stringp ai-code-prompt-suffix)
              (not (string-empty-p ai-code-prompt-suffix)))
-    ai-code-prompt-suffix))
+    (unless (string-match-p (regexp-quote ai-code-prompt-suffix)
+                            (ai-code-prompt-context-prompt-text context))
+      ai-code-prompt-suffix)))
 
 (add-hook 'ai-code-prompt-suffix-functions
           #'ai-code--custom-prompt-suffix-provider 10)
@@ -439,7 +478,6 @@ Return a session buffer, or nil for default backend dispatch."
 
 (defun ai-code--send-prompt-to-session-buffer (prompt buffer)
   "Send PROMPT directly to session BUFFER and display it."
-  (setq prompt (ai-code--append-auto-commit-instruction prompt))
   (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
     (ai-code-mcp-agent-refresh-source-context buffer (current-buffer)))
   (with-current-buffer buffer
@@ -460,7 +498,6 @@ Return a session buffer, or nil for default backend dispatch."
 When a visible AI session buffer is detected in the current frame,
 send the prompt directly to it instead of going through the default
 backend dispatch."
-  (setq full-prompt (ai-code--append-auto-commit-instruction full-prompt))
   (if-let ((target (ai-code--prompt-choose-target-session)))
       (ai-code--send-prompt-to-session-buffer full-prompt target)
     (when (ai-code-cli-send-command full-prompt)
@@ -488,15 +525,29 @@ sending the prompt."
     (let ((default-directory original-default-directory))
       (ai-code--send-prompt full-prompt))))
 
-(defun ai-code--filter-prompt-suffix-args (args)
-  "Return ARGS with prompt suffix providers applied to its prompt text."
-  (list (ai-code--apply-prompt-suffixes (car args))))
+(defun ai-code--with-prompt-suffixes (send prompt &rest args)
+  "Call SEND with suffixes applied once to PROMPT and remaining ARGS.
+Nested send paths share the prepared prompt.  Empty input and native slash
+control commands remain literal, rather than becoming natural-language tasks."
+  (if (or ai-code--prompt-suffixes-applied
+          (not (stringp prompt))
+          (string-empty-p prompt)
+          (ai-code--direct-command-p prompt))
+      (apply send prompt args)
+    (let* ((prepared (ai-code--apply-prompt-suffixes prompt))
+           (ai-code--prompt-suffixes-applied t))
+      (apply send prepared args))))
 
-(unless (advice-member-p #'ai-code--filter-prompt-suffix-args
-                         'ai-code--write-prompt-to-file-and-send)
-  (advice-add 'ai-code--write-prompt-to-file-and-send
-              :filter-args
-              #'ai-code--filter-prompt-suffix-args))
+;; Migrate the old history-only hook when reloading an installed package.
+(advice-remove 'ai-code--write-prompt-to-file-and-send
+               'ai-code--filter-prompt-suffix-args)
+
+;; All high-level prompt entry points share this pipeline; backend transports
+;; intentionally receive the already prepared text without knowing its policy.
+(dolist (send '(ai-code--write-prompt-to-file-and-send
+                ai-code--send-prompt ai-code-cli-send-command))
+  (unless (advice-member-p #'ai-code--with-prompt-suffixes send)
+    (advice-add send :around #'ai-code--with-prompt-suffixes)))
 
 (defun ai-code--process-word-for-filepath (word git-root-truename)
   "Process a single WORD, converting it to relative path with @ prefix.
