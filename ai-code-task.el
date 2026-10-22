@@ -121,6 +121,8 @@ TASK-NAME and TASK-URL are used to initialize new files."
   (find-file-other-window task-file)
   (unless (file-exists-p task-file)
     (ai-code--initialize-task-file-content task-name task-url)
+    (when (derived-mode-p 'org-mode)
+      (org-set-regexps-and-options))
     (save-buffer))
   (message "Opened task file: %s" task-file))
 
