@@ -139,6 +139,31 @@ non-empty string or nil.  Provider errors abort the send."
 (add-hook 'ai-code-prompt-suffix-functions
           #'ai-code--custom-prompt-suffix-provider 10)
 
+(defcustom ai-code-auto-commit-enabled nil
+  "When non-nil, ask the agent to commit its own code changes.
+Like other built-in suffixes, it also requires `ai-code-use-prompt-suffix'.
+This is prompt guidance only; Emacs never runs Git."
+  :type 'boolean
+  :group 'ai-code)
+
+(defconst ai-code--auto-commit-instruction
+  (concat
+   "If you changed code for this task and relevant checks pass, commit only the "
+   "files you changed (stage them explicitly; never git add -A, git add . or "
+   "git commit -a) with a message prefixed by [ai], then report the hash. "
+   "Otherwise do not commit. Keep pre-existing edits and staged changes untouched, "
+   "ask if ownership is unclear, and never push, amend, rebase, reset, or bypass hooks.")
+  "Agent commit guidance appended when `ai-code-auto-commit-enabled' is non-nil.")
+
+(defun ai-code--auto-commit-suffix-provider (_context)
+  "Return commit guidance when prompt suffixes and agent commits are enabled."
+  (when (and (bound-and-true-p ai-code-use-prompt-suffix)
+             ai-code-auto-commit-enabled)
+    ai-code--auto-commit-instruction))
+
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--auto-commit-suffix-provider 50)
+
 (defcustom ai-code-prompt-preprocess-filepaths t
   "When non-nil, preprocess the prompt to replace file paths.
 If a word in the prompt is a file path within the current git repository,
