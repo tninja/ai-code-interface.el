@@ -24,6 +24,9 @@
      (insert ,content)
      (org-mode)
      (goto-char (point-min))
+     ;; Task files have a #+TODO header; run commands from the headline.
+     (when (re-search-forward "^\\*+ " nil t)
+       (beginning-of-line))
      (set-buffer-modified-p nil)
      (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
                ((symbol-function 'ai-code--get-git-relative-paths)
@@ -126,7 +129,7 @@
   (ai-code-task-verify-test--with-org
       (concat ai-code-task-verify-test--header
               "* TODO Parent\n** VERIFY Child\nEvidence: check fixtures.\n")
-    (forward-line 3)
+    (forward-line 1)
     (let (sent)
       (cl-letf (((symbol-function 'completing-read)
                  (lambda (_prompt collection &rest _) (car collection)))
