@@ -932,19 +932,23 @@ This guards against drift when a new review mode is added."
                   "Summarize this design")))))))
 
 (ert-deftest ai-code-test-auto-commit-provider-toggle ()
-  "Commit guidance is opt-in and follows `ai-code-auto-commit-enabled'."
-  (let ((context (ai-code--prompt-context-for-text "Prompt")))
+  "Commit guidance is opt-in and respects the prompt suffix master switch."
+  (let ((context (ai-code--prompt-context-for-text "Prompt"))
+        (ai-code-use-prompt-suffix t))
     (should-not (default-value 'ai-code-auto-commit-enabled))
     (let ((ai-code-auto-commit-enabled nil))
       (should-not (ai-code--auto-commit-suffix-provider context)))
     (let ((ai-code-auto-commit-enabled t))
       (should (equal (ai-code--auto-commit-suffix-provider context)
-                     ai-code--auto-commit-instruction)))))
+                     ai-code--auto-commit-instruction))
+      (let ((ai-code-use-prompt-suffix nil))
+        (should-not (ai-code--auto-commit-suffix-provider context))))))
 
 (ert-deftest ai-code-test-auto-commit-history-send-appends-once ()
   "History sends carry commit guidance exactly once."
   (let ((ai-code-prompt-suffix-functions
          '(ai-code--auto-commit-suffix-provider))
+        (ai-code-use-prompt-suffix t)
         (ai-code-auto-commit-enabled t)
         sent)
     (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path) (lambda () nil))

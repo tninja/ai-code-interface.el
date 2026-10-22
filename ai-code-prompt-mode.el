@@ -141,6 +141,7 @@ non-empty string or nil.  Provider errors abort the send."
 
 (defcustom ai-code-auto-commit-enabled nil
   "When non-nil, ask the agent to commit its own code changes.
+Like other built-in suffixes, it also requires `ai-code-use-prompt-suffix'.
 This is prompt guidance only; Emacs never runs Git."
   :type 'boolean
   :group 'ai-code)
@@ -155,8 +156,9 @@ This is prompt guidance only; Emacs never runs Git."
   "Agent commit guidance appended when `ai-code-auto-commit-enabled' is non-nil.")
 
 (defun ai-code--auto-commit-suffix-provider (_context)
-  "Return commit guidance when `ai-code-auto-commit-enabled' is non-nil."
-  (when ai-code-auto-commit-enabled
+  "Return commit guidance when prompt suffixes and agent commits are enabled."
+  (when (and (bound-and-true-p ai-code-use-prompt-suffix)
+             ai-code-auto-commit-enabled)
     ai-code--auto-commit-instruction))
 
 (add-hook 'ai-code-prompt-suffix-functions
