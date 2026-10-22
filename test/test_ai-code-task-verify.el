@@ -15,6 +15,7 @@
 
 (defvar ai-code-auto-test-type)
 (defvar ai-code-discussion-auto-follow-up-enabled)
+(defvar ai-code--suppress-org-summary-prompt)
 
 (defmacro ai-code-task-verify-test--with-org (content &rest body)
   "Use CONTENT as a saved task Org buffer, then evaluate BODY."
@@ -160,15 +161,18 @@
       (concat ai-code-task-verify-test--header "* VERIFY Validate\n")
     (let ((ai-code-auto-test-type 'tdd)
           (ai-code-discussion-auto-follow-up-enabled 'always)
-          effective-test-mode effective-follow-up)
+          effective-test-mode effective-follow-up effective-summary-suppression)
       (cl-letf (((symbol-function 'ai-code--insert-prompt)
                  (lambda (_prompt)
                    (setq effective-test-mode ai-code-auto-test-type
                          effective-follow-up
-                         ai-code-discussion-auto-follow-up-enabled))))
+                         ai-code-discussion-auto-follow-up-enabled
+                         effective-summary-suppression
+                         ai-code--suppress-org-summary-prompt))))
         (ai-code-implement-todo nil)
         (should-not effective-test-mode)
         (should-not effective-follow-up)
+        (should effective-summary-suppression)
         (should (eq ai-code-auto-test-type 'tdd))
         (should (eq ai-code-discussion-auto-follow-up-enabled 'always))))))
 
