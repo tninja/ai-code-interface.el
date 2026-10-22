@@ -13,6 +13,9 @@
 (require 'ai-code-change)
 (require 'ai-code-task)
 
+(defvar ai-code-auto-test-type)
+(defvar ai-code-discussion-auto-follow-up-enabled)
+
 (defmacro ai-code-task-verify-test--with-org (content &rest body)
   "Use CONTENT as a saved task Org buffer, then evaluate BODY."
   (declare (indent 1) (debug t))
@@ -101,6 +104,7 @@
         (should (string-match-p "Keep VERIFY" sent))
         (should (string-match-p "Do not modify program code" sent))
         (should (string-match-p "regression tests" sent))
+        (should (string-match-p "Task file to update: /tmp/task-verify.org" sent))
         (should-not (string-match-p "Please implement code" sent))
         (should (equal "VERIFY" (org-get-todo-state)))))))
 
@@ -146,6 +150,24 @@
         (ai-code-implement-todo nil "Code change")
         (should (string-match-p "Please implement code" sent))
         (should-not (string-match-p "TODO to VERIFY" sent))))))
+
+(ert-deftest ai-code-task-verify-test-verify-suppresses-code-test-suffix ()
+  "Verification should not be treated as another TDD implementation turn."
+  (ai-code-task-verify-test--with-org
+      (concat ai-code-task-verify-test--header "* VERIFY Validate\n")
+    (let ((ai-code-auto-test-type 'tdd)
+          (ai-code-discussion-auto-follow-up-enabled 'always)
+          effective-test-mode effective-follow-up)
+      (cl-letf (((symbol-function 'ai-code--insert-prompt)
+                 (lambda (_prompt)
+                   (setq effective-test-mode ai-code-auto-test-type
+                         effective-follow-up
+                         ai-code-discussion-auto-follow-up-enabled))))
+        (ai-code-implement-todo nil)
+        (should-not effective-test-mode)
+        (should-not effective-follow-up)
+        (should (eq ai-code-auto-test-type 'tdd))
+        (should (eq ai-code-discussion-auto-follow-up-enabled 'always))))))
 
 (provide 'test_ai-code-task-verify)
 
