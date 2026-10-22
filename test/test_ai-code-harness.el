@@ -100,7 +100,7 @@ in batch mode, so a case-insensitive search also matches lower-case
           "(not (featurep 'ai-code-grill)) "
           "(memq #'ai-code--grill-me-suffix-provider "
           "ai-code-prompt-suffix-functions) "
-          "(advice-member-p #'ai-code--with-prompt-suffixes "
+          "(advice-member-p #'ai-code--filter-prompt-suffix-args "
           "'ai-code--write-prompt-to-file-and-send) "
           "(advice-member-p #'ai-code--with-grill-me-origin "
           "'ai-code-code-change)) "
@@ -931,157 +931,26 @@ This guards against drift when a new review mode is added."
                  (ai-code--resolve-auto-follow-up-suffix-for-send
                   "Summarize this design")))))))
 
-(ert-deftest ai-code-test-auto-commit-default-off ()
-  "Agent commits must be opt-in."
-  (should-not (default-value 'ai-code-auto-commit-enabled)))
+(ert-deftest ai-code-test-auto-commit-provider-toggle ()
+  "Commit guidance is opt-in and follows `ai-code-auto-commit-enabled'."
+  (let ((context (ai-code--prompt-context-for-text "Prompt")))
+    (should-not (default-value 'ai-code-auto-commit-enabled))
+    (let ((ai-code-auto-commit-enabled nil))
+      (should-not (ai-code--auto-commit-suffix-provider context)))
+    (let ((ai-code-auto-commit-enabled t))
+      (should (equal (ai-code--auto-commit-suffix-provider context)
+                     ai-code--auto-commit-instruction)))))
 
-(ert-deftest ai-code-test-auto-commit-shared-provider ()
-  "Commit guidance must be registered in the custom-suffix pipeline."
-  (should (memq #'ai-code--auto-commit-suffix-provider ai-code-prompt-suffix-functions)))
-
-(ert-deftest ai-code-test-auto-commit-disabled ()
-  "Disabling agent commits must leave prompts unchanged."
-  (let ((ai-code-auto-commit-enabled nil))
-    (should-not (ai-code--auto-commit-suffix-provider
-                 (ai-code--prompt-context-for-text "Prompt")))))
-
-(ert-deftest ai-code-test-auto-commit-instructions ()
-  "Commit instructions must limit scope and preserve user work."
-  (let* ((ai-code-auto-commit-enabled t)
-         (suffix (ai-code--auto-commit-suffix-provider
-                  (ai-code--prompt-context-for-text "Prompt"))))
-    (dolist (text '("[ai]" "actually changed code" "read-only" "checks pass" "pre-existing"
-                    "staged" "git add -A" "ambiguous" "push" "hooks"))
-      (should (string-match-p (regexp-quote text) suffix)))))
-
-(ert-deftest ai-code-test-auto-commit-send-boundary ()
-  "Every dispatcher send must receive guidance exactly once."
-  (let ((ai-code-auto-commit-enabled t)
-        (ai-code-use-prompt-suffix t)
-        (ai-code-prompt-suffix "CUSTOM")
-        (ai-code-grill-me-enabled nil)
-        (ai-code-auto-test-type nil)
-        (ai-code-discussion-auto-follow-up-enabled nil))
-    (let ((ai-code--cli-send-fn #'ignore)
-          sent)
-      (cl-letf (((symbol-function 'ai-code--activate-effective-backend) #'ignore)
-                ((symbol-function 'ai-code--send-command-with-session-recovery)
-                 (lambda (text) (setq sent text))))
-        (dolist (prompt '("Fix this" "Explain this"))
-          (ai-code-cli-send-command prompt)
-          (should (equal sent (concat prompt "\nCUSTOM\n" ai-code--auto-commit-instruction))))
-        (let* ((prompt (ai-code--apply-prompt-suffixes "Prompt"))
-               (prepared prompt))
-          (ai-code-cli-send-command prepared)
-          (should (equal sent prepared))
-          (should (string-prefix-p "Prompt\nCUSTOM\n" sent)))
-        (let ((ai-code-use-prompt-suffix nil))
-          (ai-code-cli-send-command "Prompt")
-          (should (string-match-p "\\[ai\\]" sent)))
-        (let ((ai-code-auto-commit-enabled nil))
-          (ai-code-cli-send-command "Prompt")
-          (should (equal sent "Prompt\nCUSTOM")))))))
-
-(ert-deftest ai-code-test-auto-commit-send-and-direct-command ()
-  "History and replay must include guidance; slash controls stay literal."
-  (let ((ai-code-auto-commit-enabled t)
-        (ai-code-use-prompt-suffix nil)
-        (ai-code-grill-me-enabled nil)
-        (ai-code-discussion-auto-follow-up-enabled nil)
-        (ai-code-prompt-preprocess-filepaths nil)
-        (ai-code--cli-send-fn #'ignore)
-        sent-prompt)
-    (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path)
-               (lambda () nil))
-              ((symbol-function 'ai-code--activate-effective-backend) #'ignore)
-              ((symbol-function 'ai-code--prompt-choose-target-session) (lambda () nil))
-              ((symbol-function 'ai-code-cli-switch-to-buffer) #'ignore)
-              ((symbol-function 'ai-code--send-command-with-session-recovery)
-               (lambda (prompt) (setq sent-prompt prompt)))
-              ((symbol-function 'magit-call-git)
-               (lambda (&rest _) (ert-fail "Emacs must not run Git"))))
-      (with-temp-buffer
-        (ai-code--insert-prompt "Fix the bug")
-        (should (string-match-p "\\[ai\\]" sent-prompt))
-        (setq sent-prompt nil)
-        (ai-code--insert-prompt "/help")
-        (should (equal sent-prompt "/help"))
-        (ai-code--send-prompt "Selected prompt text")
-        (should (equal sent-prompt
-                       (concat "Selected prompt text\n" ai-code--auto-commit-instruction)))))))
-
-(ert-deftest ai-code-test-auto-commit-visible-session ()
-  "Visible-session routing must include guidance without backend dispatch."
-  (let ((ai-code-auto-commit-enabled t)
-        (ai-code-discussion-auto-follow-up-enabled nil)
-        (target (current-buffer))
+(ert-deftest ai-code-test-auto-commit-history-send-appends-once ()
+  "History sends carry commit guidance exactly once."
+  (let ((ai-code-prompt-suffix-functions
+         '(ai-code--auto-commit-suffix-provider))
+        (ai-code-auto-commit-enabled t)
         sent)
-    (cl-letf (((symbol-function 'ai-code--prompt-choose-target-session) (lambda () target))
-              ((symbol-function 'ai-code--send-prompt-to-session-buffer)
-               (lambda (prompt _buffer) (setq sent prompt))))
-      (ai-code--send-prompt "Fix this")
-      (should (equal sent (concat "Fix this\n" ai-code--auto-commit-instruction))))))
-
-(ert-deftest ai-code-test-auto-commit-empty-send ()
-  "Empty sends must remain empty rather than becoming new tasks."
-  (let ((ai-code-auto-commit-enabled t))
-    (should (equal "" (ai-code--with-prompt-suffixes #'identity "")))))
-
-(ert-deftest ai-code-test-auto-commit-interactive-dispatch ()
-  "Interactive dispatcher sends must use the same commit guidance."
-  (let ((ai-code-auto-commit-enabled t)
-        (ai-code-discussion-auto-follow-up-enabled nil)
-        sent)
-    (cl-letf (((symbol-function 'ai-code-read-string) (lambda (&rest _) "Fix this"))
-              ((symbol-function 'ai-code--activate-effective-backend) #'ignore)
-              ((symbol-function 'ai-code--send-command-with-session-recovery)
-               (lambda (text) (setq sent text))))
-      (call-interactively #'ai-code-cli-send-command)
-      (should (equal sent (concat "Fix this\n" ai-code--auto-commit-instruction))))))
-
-(ert-deftest ai-code-test-auto-commit-native-backend-send ()
-  "Native backend transports must not implement suffix policy."
-  (require 'ai-code-backends-infra)
-  (let ((ai-code-auto-commit-enabled t)
-        sent)
-    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
-               (lambda () default-directory))
-              ((symbol-function 'ai-code-backends-infra--send-line-to-session)
-               (lambda (_buffer _error line &rest _) (setq sent line))))
-      (let ((prompt "Fix this"))
-        (ai-code-backends-infra--cli-send-command "Test" "test" prompt)
-        (should (equal sent prompt))))))
-
-(ert-deftest ai-code-test-auto-commit-nonterminal-backend-sends ()
-  "Nonterminal backend transports must not implement suffix policy."
-  (require 'ai-code-agent-shell)
-  (require 'ai-code-gptel-agent)
-  (require 'ai-code-eca)
-  (let* ((ai-code-auto-commit-enabled t)
-         (buffer (current-buffer))
-         (expected "Fix this")
-         sent)
-    (cl-letf (((symbol-function 'ai-code-agent-shell--ensure-available) #'ignore)
-              ((symbol-function 'agent-shell--shell-buffer) (lambda (&rest _) buffer))
-              ((symbol-function 'agent-shell-prompt-queue) (lambda (text) (setq sent text)))
-              ((symbol-function 'ai-code-gptel-agent--ensure-available) #'ignore)
-              ((symbol-function 'ai-code-gptel-agent--get-buffer) (lambda () buffer))
-              ((symbol-function 'gptel-send) #'ignore)
-              ((symbol-function 'ai-code-eca--ensure-available) #'ignore)
-              ((symbol-function 'eca-session) (lambda () 'test))
-              ((symbol-function 'eca-chat-open) #'ignore)
-              ((symbol-function 'eca-chat-send-prompt) (lambda (text) (setq sent text)))
-              ((symbol-function 'claude-code--do-send-command) (lambda (text) (setq sent text))))
-      (ai-code-agent-shell-send-command "Fix this")
-      (should (equal sent expected))
-      (with-temp-buffer
-        (setq buffer (current-buffer))
-        (ai-code-gptel-agent-send-command "Fix this")
-        (should (equal (buffer-string) expected)))
-      (ai-code-eca-send "Fix this")
-      (should (equal sent expected))
-      (ai-code-claude-code-el-send-command "Fix this")
-      (should (equal sent expected)))))
+    (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path) (lambda () nil))
+              ((symbol-function 'ai-code--send-prompt) (lambda (text) (setq sent text))))
+      (ai-code--write-prompt-to-file-and-send "Fix the bug")
+      (should (equal sent (concat "Fix the bug\n" ai-code--auto-commit-instruction "\n"))))))
 
 (ert-deftest ai-code-test-built-in-prompt-suffix-provider-order ()
   "Enabled built-in providers should preserve their configured order."

@@ -52,8 +52,7 @@
 
 (ert-deftest ai-code-test-cli-send-command-retries-after-start-confirmation ()
   "Start a missing session and retry the original command after confirmation."
-  (let* ((ai-code-prompt-suffix-functions nil)
-         (backend-key 'test-missing-session)
+  (let* ((backend-key 'test-missing-session)
          (ai-code-backends
           `((,backend-key
              :label "Test Backend"

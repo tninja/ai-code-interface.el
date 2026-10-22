@@ -200,11 +200,13 @@ Argument ARG is passed to the backend's switch function."
   "Send COMMAND to the current backend when supported.
 When called interactively, prompt for COMMAND.
 Noninteractive callers must supply COMMAND."
-  (interactive (list (ai-code-read-string "Send to AI: ")))
+  (interactive)
   (ai-code--activate-effective-backend)
-  (if (null command)
-      (user-error "COMMAND is required for noninteractive calls")
-    (ai-code--send-command-with-session-recovery command)))
+  (if (called-interactively-p 'interactive)
+      (call-interactively ai-code--cli-send-fn)
+    (if (null command)
+        (user-error "COMMAND is required for noninteractive calls")
+      (ai-code--send-command-with-session-recovery command))))
 
 ;;;###autoload
 (defun ai-code-claude-code-el-send-command (cmd)

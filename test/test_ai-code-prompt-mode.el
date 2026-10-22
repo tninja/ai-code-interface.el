@@ -100,45 +100,6 @@
     (should (equal (ai-code--apply-prompt-suffixes "Prompt")
                    "Prompt\nFIRST\nSECOND"))))
 
-(ert-deftest ai-code-test-shared-suffix-direct-replay-and-visible-sends ()
-  "Custom suffixes must cover direct, replay and visible-session sends once."
-  (let ((ai-code-prompt-suffix-functions
-         '(ai-code--custom-prompt-suffix-provider))
-        (ai-code-use-prompt-suffix t)
-        (ai-code-prompt-suffix "CUSTOM")
-        sent)
-    (cl-letf (((symbol-function 'ai-code--activate-effective-backend) #'ignore)
-              ((symbol-function 'ai-code--send-command-with-session-recovery)
-               (lambda (text) (setq sent text)))
-              ((symbol-function 'ai-code--prompt-choose-target-session) (lambda () nil))
-              ((symbol-function 'ai-code-cli-switch-to-buffer) #'ignore))
-      (ai-code-cli-send-command "Direct")
-      (should (equal sent "Direct\nCUSTOM"))
-      (ai-code--send-prompt "Replay\nCUSTOM")
-      (should (equal sent "Replay\nCUSTOM"))
-      (cl-letf (((symbol-function 'ai-code--prompt-choose-target-session)
-                 (lambda () (current-buffer)))
-                ((symbol-function 'ai-code--send-prompt-to-session-buffer)
-                 (lambda (text _buffer) (setq sent text))))
-        (ai-code--send-prompt "Visible")
-        (should (equal sent "Visible\nCUSTOM"))))))
-
-(ert-deftest ai-code-test-shared-suffix-nested-send-runs-providers-once ()
-  "History and nested dispatch must share one provider invocation."
-  (let* ((calls 0)
-         (ai-code-prompt-suffix-functions
-          (list (lambda (_context) (cl-incf calls) "CUSTOM")))
-         sent)
-    (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path) (lambda () nil))
-              ((symbol-function 'ai-code--activate-effective-backend) #'ignore)
-              ((symbol-function 'ai-code--prompt-choose-target-session) (lambda () nil))
-              ((symbol-function 'ai-code-cli-switch-to-buffer) #'ignore)
-              ((symbol-function 'ai-code--send-command-with-session-recovery)
-               (lambda (text) (setq sent text))))
-      (ai-code--write-prompt-to-file-and-send "Prompt")
-      (should (= calls 1))
-      (should (equal sent "Prompt\nCUSTOM\n")))))
-
 (ert-deftest ai-code-test-prompt-context-memoize-caches-nil-values ()
   "Prompt context memoization should evaluate each key once."
   (let ((context (ai-code--make-prompt-context :prompt-text "Prompt"))
@@ -1510,8 +1471,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
 
 (ert-deftest ai-code-test-send-prompt-uses-visible-session-directly ()
   "Send prompt directly to visible session when target is resolved."
-  (let ((ai-code-prompt-suffix-functions nil)
-        (session-buf (get-buffer-create "*claude[test]*"))
+  (let ((session-buf (get-buffer-create "*claude[test]*"))
         (sent-string nil)
         (return-sent nil)
         (displayed-buffer nil)
@@ -1542,8 +1502,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
 
 (ert-deftest ai-code-test-send-prompt-falls-through-when-no-visible-session ()
   "Use default path when no visible session is chosen."
-  (let ((ai-code-prompt-suffix-functions nil)
-        (cli-send-called nil)
+  (let ((cli-send-called nil)
         (switch-called nil))
     (cl-letf (((symbol-function 'ai-code--prompt-choose-target-session)
                (lambda () nil))
@@ -1557,8 +1516,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
 
 (ert-deftest ai-code-test-send-prompt-skips-switch-when-send-cancelled ()
   "Do not switch to a session after prompt sending is cancelled."
-  (let ((ai-code-prompt-suffix-functions nil)
-        (switch-called nil))
+  (let ((switch-called nil))
     (cl-letf (((symbol-function 'ai-code--prompt-choose-target-session)
                (lambda () nil))
               ((symbol-function 'ai-code-cli-send-command)
