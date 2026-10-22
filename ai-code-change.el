@@ -589,6 +589,7 @@ Org scope so the region stays authoritative.  Sections longer than
                             (<= (1+ (- end-line begin-line))
                                 ai-code-org-section-inline-max-lines))))
           (list :heading-line (plist-get section :heading-line)
+                :file (expand-file-name buffer-file-name)
                 :todo-state (plist-get section :todo-state)
                 :verification-enabled (ai-code--org-task-verification-enabled-p)
                 :content (if inlined
@@ -792,6 +793,9 @@ ARG controls whether clipboard context is included."
                 org-line-number
                 (if org-reference (format " (%s)" org-reference) "")
                 org-section-block)
+        (when (plist-get org-todo-section-info :verification-enabled)
+          (format "\nTask file to update: %s"
+                  (plist-get org-todo-section-info :file)))
         (unless org-inlined
           (format "\nRead %s in the file for the full section content."
                   org-reference))))
