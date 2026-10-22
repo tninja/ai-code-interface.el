@@ -42,6 +42,7 @@
 (defvar ai-code--harness-loading)
 (defvar ai-code-auto-test-type)
 (defvar ai-code-discussion-auto-follow-up-enabled)
+(defvar ai-code--suppress-org-summary-prompt)
 
 (defconst ai-code-change--selected-region-note
   "Note: Please apply the code change to the selected region specified above."
@@ -909,7 +910,8 @@ Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
         ;; A verification-only turn must not receive code-change TDD or
         ;; discussion-follow-up suffixes, regardless of the user's defaults.
         (let ((ai-code-auto-test-type nil)
-              (ai-code-discussion-auto-follow-up-enabled nil))
+              (ai-code-discussion-auto-follow-up-enabled nil)
+              (ai-code--suppress-org-summary-prompt t))
           (ai-code--insert-prompt
            (ai-code--implement-todo--verify-prompt context)))
       (let* ((action-intent
