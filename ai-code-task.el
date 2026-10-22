@@ -81,6 +81,7 @@ Returns a filename with .org suffix."
   "Insert initial task content using TASK-NAME and TASK-URL."
   (insert (format "#+TITLE: %s\n" task-name))
   (insert (format "#+DATE: %s\n" (format-time-string "%F")))
+  (insert "#+TODO: TODO(t) VERIFY(v) | DONE(d)\n")
   (unless (string-empty-p task-url)
     (insert (format "#+URL: %s\n" task-url)))
   (let ((branch (magit-get-current-branch)))
