@@ -40,6 +40,8 @@
 
 (defvar flycheck-current-errors)
 (defvar ai-code--harness-loading)
+(defvar ai-code-auto-test-type)
+(defvar ai-code-discussion-auto-follow-up-enabled)
 
 (defconst ai-code-change--selected-region-note
   "Note: Please apply the code change to the selected region specified above."
@@ -892,14 +894,22 @@ ARG is the prefix argument for clipboard context.
 Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
   (let ((context (ai-code--implement-todo--collect-prompt-context arg)))
     (ai-code--implement-todo--validate-prompt-context context)
+    ;; An agent editing this Org file must see its latest on-disk contents.
+    (when (and (plist-get (plist-get context :org-todo-section-info)
+                          :verification-enabled)
+               (buffer-modified-p))
+      (save-buffer))
     (if (and (plist-get (plist-get context :org-todo-section-info)
                         :verification-enabled)
              (equal "VERIFY"
                     (plist-get (plist-get context :org-todo-section-info)
                                :todo-state)))
-        ;; Verification does not request a new implementation instruction.
-        (ai-code--insert-prompt
-         (ai-code--implement-todo--verify-prompt context))
+        ;; A verification-only turn must not receive code-change TDD or
+        ;; discussion-follow-up suffixes, regardless of the user's defaults.
+        (let ((ai-code-auto-test-type nil)
+              (ai-code-discussion-auto-follow-up-enabled nil))
+          (ai-code--insert-prompt
+           (ai-code--implement-todo--verify-prompt context)))
       (let* ((action-intent
             (ai-code--implement-todo--read-action-intent default-action))
            (ask-question-p (string= action-intent "Ask question"))
