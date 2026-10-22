@@ -1514,13 +1514,50 @@ the full diagnostics list is intentionally omitted from the response."
 (ert-deftest ai-code-test-mcp-references-reject-missing-or-wrong-symbol ()
   "Invalid locations must fail before asking a position-sensitive backend."
   (ai-code-test-mcp--with-reference-buffer "foo\n;; bar\n\"bar\"\n"
-    (should-error (ai-code-mcp-xref-find-references "bar" file-path)
-                  :type 'user-error)
-    (dolist (location '((1 0) (2 3) (3 1) (0 0) (99 0) (1 -1) (1 99)))
+    (dolist (location '((1 0) (2 3) (3 1) (0 0) (99 0) (1 -1) (1 99) (1)))
       (should-error (apply #'ai-code-mcp-xref-find-references
                            "bar" file-path location)
                     :type 'user-error))
     (should-not queried)))
+
+(ert-deftest ai-code-test-mcp-references-query-absent-identifier-by-name ()
+  "An identifier absent from the context file is queried by name as before."
+  (ai-code-test-mcp--with-reference-buffer "foo\n;; bar\n"
+    (ai-code-mcp-xref-find-references "bar" file-path)
+    (should (equal queried (list "bar" (point-min) nil)))))
+
+(ert-deftest ai-code-test-mcp-references-eglot-rejects-absent-identifier ()
+  "Eglot ignores the identifier string, so an absent one must not query point."
+  (ai-code-test-mcp--with-reference-buffer "foo\n"
+    (cl-letf (((symbol-function 'xref-find-backend) (lambda () 'eglot)))
+      (should-error (ai-code-mcp-xref-find-references "bar" file-path)
+                    :type 'user-error))
+    (should-not queried)))
+
+(ert-deftest ai-code-test-mcp-references-column-uses-display-column ()
+  "Columns follow `editor_state', which reports tabs expanded."
+  (ai-code-test-mcp--with-reference-buffer "foo\n\tbar\nbar\n"
+    (setq-local tab-width 8)
+    (ai-code-mcp-xref-find-references "bar" file-path 2 8)
+    (should (equal queried (list "bar" 6 6)))))
+
+(ert-deftest ai-code-test-mcp-references-line-without-column ()
+  "A line alone selects the identifier's unique code occurrence on that line."
+  (ai-code-test-mcp--with-reference-buffer "foo\n  bar \"bar\"\nbar bar\n"
+    (ai-code-mcp-xref-find-references "bar" file-path 2)
+    (should (equal queried (list "bar" 7 7)))
+    (setq queried nil)
+    (should-error (ai-code-mcp-xref-find-references "bar" file-path 3)
+                  :type 'user-error)
+    (should-not queried)))
+
+(ert-deftest ai-code-test-mcp-references-select-backend-at-target ()
+  "The xref backend must be chosen at the requested symbol, not at point."
+  (ai-code-test-mcp--with-reference-buffer "foo\nbar\n"
+    (cl-letf (((symbol-function 'xref-find-backend)
+               (lambda () (and (looking-at "bar") 'position-aware))))
+      (ai-code-mcp-xref-find-references "bar" file-path))
+    (should (equal queried (list "bar" 5 5)))))
 
 (ert-deftest ai-code-test-mcp-references-preserve-restriction-and-point ()
   "Querying another part of a narrowed file must restore the editor state."
