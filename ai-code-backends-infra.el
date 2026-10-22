@@ -20,6 +20,7 @@
 (require 'subr-x)
 (require 'ai-code-editor-viewport)
 (require 'ai-code-session)
+(require 'ai-code-session-attention)
 (require 'ai-code-session-link)
 ;; Terminal-specific implementations live in dedicated modules so this
 ;; file can stay focused on shared session orchestration.
@@ -389,6 +390,7 @@ the current buffer is an AI session buffer, apply these transformations:
                 (setq ai-code-backends-infra--response-seen t)
               (when (not ai-code-backends-infra--response-seen)
                 (setq ai-code-backends-infra--response-seen t)
+                (ai-code-session-attention-mark buffer 'done)
                 (when (require 'ai-code-notifications nil t)
                   (when (fboundp 'ai-code-notifications-response-ready)
                     (let ((buffer-name (buffer-name buffer)))
@@ -426,6 +428,7 @@ The timer is reset only after meaningful output is observed."
   "Record meaningful output and schedule idle tracking."
   (setq ai-code-backends-infra--response-seen nil
         ai-code-backends-infra--last-meaningful-output-time (float-time))
+  (ai-code-session-attention-clear (current-buffer) 'done)
   (ai-code-backends-infra--schedule-idle-check))
 
 (defun ai-code-backends-infra--configure-session-input-shortcuts ()

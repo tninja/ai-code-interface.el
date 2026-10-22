@@ -118,6 +118,21 @@
   (re-search-forward "^S[0-9]+" nil t)
   (beginning-of-line))
 
+(ert-deftest ai-code-test-session-dashboard-entry-shows-attention ()
+  "The Status column shows attention states before the process status."
+  (ai-code-test-session--with-clean-registry
+   (let ((buffer (generate-new-buffer " *codex[attention]*")))
+     (unwind-protect
+         (cl-flet ((status (metadata)
+                     (let ((session (ai-code-session-register
+                                     :buffer buffer :backend "codex"
+                                     :metadata metadata)))
+                       (aref (cadr (ai-code-session-dashboard--entry session)) 5))))
+           (should (equal (status '(:status "running")) "running"))
+           (should (equal (status '(:attention done)) "done unseen"))
+           (should (equal (status '(:attention waiting)) "needs input")))
+       (kill-buffer buffer)))))
+
 (ert-deftest ai-code-test-session-dashboard-renders-mvp-columns ()
   "Dashboard should render the MVP session information."
   (ai-code-test-session--with-clean-registry

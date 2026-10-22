@@ -531,6 +531,20 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 - On Linux with D-Bus, native desktop notifications are used.
 - On other platforms, notifications appear in the Emacs minibuffer.
 
+*** Sessions Needing Attention
+
+When several AI sessions run in parallel, `ai-code-session-attention-mode` shows which ones need you, for every AI coding CLI backend:
+
+#+begin_src emacs-lisp
+(ai-code-session-attention-mode 1)
+#+end_src
+
+- The mode line shows a summary such as =AI ?1 ✓2=: =?= sessions wait for input, =✓= sessions finished while hidden. Hover to list them.
+- Click the summary (or press `C-c a J`, `ai-code-session-attention-next`) to jump to the most urgent session. It switches to the frame and tab-bar tab that already show the session, or displays it in the current window. Run it again to visit the next one; `C-u C-c a J` returns to where you were. `mouse-3` on the summary picks a session from a menu.
+- With tab-bar tabs, the tab showing such a session gets the same marker. Set `ai-code-session-attention-tab-bar-badge` to nil to turn that off.
+- A session counts as seen once it is shown in a window. The session dashboard (`C-c a j`) shows the same state in its Status column.
+- "Finished" uses the terminal idle check (`ai-code-backends-infra-idle-delay`). "Waiting for input" needs a terminal that reports program status, currently the Ghostel backend.
+
 *** Portable Agent Handoff via Task Files
 
 To transfer development work between different AI coding backends (e.g., from Codex to Antigravity CLI) without relying on backend-specific session histories, *ai-code-interface.el* supports portable agent handoffs using Org-mode task files.

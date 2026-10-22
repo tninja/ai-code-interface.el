@@ -223,11 +223,19 @@ describe the session.  ID is optional and mainly useful when restoring state."
                (t ""))))
     (capitalize (replace-regexp-in-string "[-_]+" " " text))))
 
+(defconst ai-code-session-dashboard--attention-labels
+  '((waiting . "needs input")
+    (done . "done unseen"))
+  "Status labels for sessions that need the user's attention.")
+
 (defun ai-code-session-dashboard--entry (session)
   "Return the `tabulated-list-mode' entry for SESSION."
   (let* ((metadata (ai-code-session-metadata session))
          (branch (or (plist-get metadata :branch) ""))
-         (status (or (plist-get metadata :status) ""))
+         (status (or (alist-get (plist-get metadata :attention)
+                                ai-code-session-dashboard--attention-labels)
+                     (plist-get metadata :status)
+                     ""))
          (dirty-count (number-to-string (or (plist-get metadata :dirty-count) 0))))
     (list (ai-code-session-id session)
           (vector

@@ -1237,6 +1237,22 @@ run before the asynchronous link restoration re-applies cached properties."
         (should (eq (plist-get (car updates) :ghostel-progress-state) 'remove))
         (should (eq (plist-get (car updates) :ghostel-status) 'idle))))))
 
+(ert-deftest test-ai-code-backends-infra-ghostel-program-status-updates-attention ()
+  "Blocked or failed programs wait for the user; working clears waiting."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let (calls)
+      (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-session-attention-mark)
+                 (lambda (_buffer state) (push (list 'mark state) calls)))
+                ((symbol-function 'ai-code-session-attention-clear)
+                 (lambda (_buffer state) (push (list 'clear state) calls))))
+        (dolist (state '(blocked error working done))
+          (setq-local ghostel-program-status (list (list "" :state state)))
+          (ai-code-backends-infra-ghostel--program-status "" nil nil)))
+      (should (equal (nreverse calls)
+                     '((mark waiting) (mark waiting) (clear waiting)))))))
+
 (ert-deftest test-ai-code-backends-infra-ghostel-program-status-hook-preserves-handlers ()
   "New Ghostel status hooks should coexist with its UI and notification hooks."
   (with-temp-buffer

@@ -31,6 +31,10 @@ enabled by default because it widens the terminal's local resource access."
 
 (declare-function ai-code-backends-infra--configure-session-input-shortcuts
                   "ai-code-backends-infra" ())
+(declare-function ai-code-session-attention-mark
+                  "ai-code-session-attention" (buffer state))
+(declare-function ai-code-session-attention-clear
+                  "ai-code-session-attention" (buffer &optional state))
 (declare-function ai-code-backends-infra--install-navigation-cursor-sync
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output
@@ -349,7 +353,13 @@ Leave presentation and notifications to Ghostel's existing handlers."
                                ('working 'running)
                                ('blocked 'paused)
                                ('error 'error)
-                               (_ 'idle)))))))
+                               (_ 'idle))))
+      (when (fboundp 'ai-code-session-attention-mark)
+        (pcase state
+          ((or 'blocked 'error)
+           (ai-code-session-attention-mark (current-buffer) 'waiting))
+          ('working
+           (ai-code-session-attention-clear (current-buffer) 'waiting)))))))
 
 (defun ai-code-backends-infra-ghostel--install-lifecycle-hooks ()
   "Install Ghostel lifecycle hooks for the current AI Code session."
