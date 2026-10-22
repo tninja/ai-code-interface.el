@@ -240,15 +240,17 @@ returns that function's name.  Otherwise returns the result of
 A file opts in with a local #+TODO: sequence containing all three
 keywords.  Plain Org notes and older task files keep their old behavior."
   (and (derived-mode-p 'org-mode)
-       (cl-some
-        (lambda (sequence)
-          (let ((states
-                 (mapcar (lambda (token) (car (split-string token "(")))
-                         (split-string sequence "[ \t]+" t))))
-            (and (member "TODO" states)
-                 (member "VERIFY" states)
-                 (member "DONE" states))))
-        (cdr (assoc "TODO" (org-collect-keywords '("TODO")))))))
+       (save-restriction
+         (widen)
+         (cl-some
+          (lambda (sequence)
+            (let ((states
+                   (mapcar (lambda (token) (car (split-string token "(")))
+                           (split-string sequence "[ \t]+" t))))
+              (and (member "TODO" states)
+                   (member "VERIFY" states)
+                   (member "DONE" states))))
+          (cdr (assoc "TODO" (org-collect-keywords '("TODO"))))))))
 
 (defun ai-code--org-section-candidates ()
   "Return the Org sections enclosing point, innermost first.
