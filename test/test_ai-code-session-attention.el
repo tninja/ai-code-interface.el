@@ -71,6 +71,26 @@ The selected window shows a scratch buffer, so the sessions start hidden."
     (should-not (ai-code-test-attention--state a))
     (should (eq (ai-code-test-attention--state b) 'waiting))))
 
+(ert-deftest ai-code-test-attention-resolve-waiting-becomes-done-when-hidden ()
+  "A resolved question on a hidden session leaves an unseen result."
+  (ai-code-test-attention--with-sessions (a b c)
+    (ai-code-session-attention-mark a 'waiting)
+    (ai-code-session-attention-mark b 'done)
+    (ai-code-session-attention-resolve-waiting a)
+    (ai-code-session-attention-resolve-waiting b)
+    (ai-code-session-attention-resolve-waiting c)
+    (should (eq (ai-code-test-attention--state a) 'done))
+    (should (eq (ai-code-test-attention--state b) 'done))
+    (should-not (ai-code-test-attention--state c))))
+
+(ert-deftest ai-code-test-attention-resolve-waiting-clears-visible-session ()
+  "A resolved question on a session the user sees leaves no marker."
+  (ai-code-test-attention--with-sessions (a)
+    (ai-code-session-attention-mark a 'waiting)
+    (set-window-buffer (selected-window) a)
+    (ai-code-session-attention-resolve-waiting a)
+    (should-not (ai-code-test-attention--state a))))
+
 (ert-deftest ai-code-test-attention-clear-visible-marks-seen ()
   "Showing a session buffer clears its attention state."
   (ai-code-test-attention--with-sessions (a b)

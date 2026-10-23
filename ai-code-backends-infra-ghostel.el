@@ -37,6 +37,8 @@ enabled by default because it widens the terminal's local resource access."
                   "ai-code-session-attention" (buffer &optional state))
 (declare-function ai-code-session-attention-set-working
                   "ai-code-session-attention" (buffer working))
+(declare-function ai-code-session-attention-resolve-waiting
+                  "ai-code-session-attention" (buffer))
 (declare-function ai-code-backends-infra--install-navigation-cursor-sync
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output
@@ -363,7 +365,10 @@ Leave presentation and notifications to Ghostel's existing handlers."
           ((or 'blocked 'error)
            (ai-code-session-attention-mark (current-buffer) 'waiting))
           ('working
-           (ai-code-session-attention-clear (current-buffer) 'waiting)))))))
+           (ai-code-session-attention-clear (current-buffer) 'waiting))
+          ;; done, idle, or a cleared record: the question is over, even
+          ;; though the agent never went back to working.
+          (_ (ai-code-session-attention-resolve-waiting (current-buffer))))))))
 
 (defun ai-code-backends-infra-ghostel--install-lifecycle-hooks ()
   "Install Ghostel lifecycle hooks for the current AI Code session."

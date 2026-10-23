@@ -89,6 +89,15 @@ When STATE is non-nil, clear only that state."
               ((or (null state) (eq state current))))
     (ai-code-session-attention--set session nil)))
 
+(defun ai-code-session-attention-resolve-waiting (buffer)
+  "Turn a waiting session in BUFFER into a finished, unseen one.
+Use this when the question was answered elsewhere or the agent moved
+on without working.  A visible session is left with no state."
+  (when-let* ((session (ai-code-session-get buffer))
+              ((eq (ai-code-session-attention--state session) 'waiting)))
+    (ai-code-session-attention-clear buffer 'waiting)
+    (ai-code-session-attention-mark buffer 'done)))
+
 (defun ai-code-session-attention-set-working (buffer working)
   "Record whether the session in BUFFER is WORKING.
 The tab bar is redrawn only when the state changes."

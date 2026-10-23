@@ -1244,6 +1244,7 @@ run before the asynchronous link restoration re-applies cached properties."
     (let (calls)
       (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
                 ((symbol-function 'ai-code-session-attention-set-working) #'ignore)
+                ((symbol-function 'ai-code-session-attention-resolve-waiting) #'ignore)
                 ((symbol-function 'ai-code-session-attention-mark)
                  (lambda (_buffer state) (push (list 'mark state) calls)))
                 ((symbol-function 'ai-code-session-attention-clear)
@@ -1254,6 +1255,28 @@ run before the asynchronous link restoration re-applies cached properties."
       (should (equal (nreverse calls)
                      '((mark waiting) (mark waiting) (clear waiting)))))))
 
+(ert-deftest test-ai-code-backends-infra-ghostel-program-status-resolves-waiting ()
+  "Leaving blocked or error without working still resolves the question."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let (resolved)
+      (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-session-attention-set-working) #'ignore)
+                ((symbol-function 'ai-code-session-attention-mark) #'ignore)
+                ((symbol-function 'ai-code-session-attention-clear) #'ignore)
+                ((symbol-function 'ai-code-session-attention-resolve-waiting)
+                 (lambda (_buffer) (push 'resolved resolved))))
+        (dolist (records '((("" :state blocked)) (("" :state done))
+                           (("" :state error)) (("" :state idle))
+                           (("" :state blocked)) nil
+                           (("" :state working))))
+          (setq-local ghostel-program-status records)
+          (push (or (plist-get (cdar records) :state) 'cleared) resolved)
+          (ai-code-backends-infra-ghostel--program-status "" nil nil)))
+      (should (equal (nreverse resolved)
+                     '(blocked done resolved error idle resolved
+                               blocked cleared resolved working))))))
+
 (ert-deftest test-ai-code-backends-infra-ghostel-program-status-updates-working ()
   "Only the working program state counts as a working session."
   (with-temp-buffer
@@ -1262,6 +1285,7 @@ run before the asynchronous link restoration re-applies cached properties."
       (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
                 ((symbol-function 'ai-code-session-attention-mark) #'ignore)
                 ((symbol-function 'ai-code-session-attention-clear) #'ignore)
+                ((symbol-function 'ai-code-session-attention-resolve-waiting) #'ignore)
                 ((symbol-function 'ai-code-session-attention-set-working)
                  (lambda (_buffer value) (push value calls))))
         (dolist (state '(blocked error working done idle))
