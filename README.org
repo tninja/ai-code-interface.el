@@ -539,11 +539,9 @@ When several AI sessions run in parallel, `ai-code-session-attention-mode` shows
 (ai-code-session-attention-mode 1)
 #+end_src
 
-- The mode line shows a summary such as =AI ?1 ✓2=: =?= sessions wait for input, =✓= sessions finished while hidden. Hover to list them.
-- Click the summary (or press `C-c a J`, `ai-code-session-attention-next`) to jump to the most urgent session. It switches to the frame and tab-bar tab that already show the session, or displays it in the current window. Run it again to visit the next one; `C-u C-c a J` returns to where you were. `mouse-3` on the summary picks a session from a menu.
-- With tab-bar tabs, the tab showing such a session gets the same marker. Set `ai-code-session-attention-tab-bar-badge` to nil to turn that off.
-- The summary is put first in every buffer's mode line, including buffers with their own mode line, so it stays visible in narrow windows and with any mode-line package. Set `ai-code-session-attention-mode-line-position` to `global` before enabling the mode to add it to `global-mode-string` instead and let your mode-line package place it.
-- A session counts as seen once it is shown in a window. The session dashboard (`C-c a j`) shows the same state in its Status column.
+- With tab-bar tabs, a tab that shows a session needing attention gets a marker before its name: =?= when the session waits for input, =✓= when it finished while hidden.
+- The session dashboard (`C-c a j`) shows the same state in its Status column: =needs input= or =done unseen=.
+- A session counts as seen once it is shown in a window, which clears its marker.
 - "Finished" uses the terminal idle check (`ai-code-backends-infra-idle-delay`). "Waiting for input" needs a terminal that reports program status, currently the Ghostel backend.
 
 *** Portable Agent Handoff via Task Files

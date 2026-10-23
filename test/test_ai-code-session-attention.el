@@ -42,21 +42,17 @@ The selected window shows a scratch buffer, so the sessions start hidden."
              :attention))
 
 (ert-deftest ai-code-test-attention-mark-hidden-session-done ()
-  "A hidden session that finishes becomes done and shows in the mode line."
+  "A hidden session that finishes becomes done."
   (ai-code-test-attention--with-sessions (a)
     (ai-code-session-attention-mark a 'done)
-    (should (eq (ai-code-test-attention--state a) 'done))
-    (should (equal (substring-no-properties
-                    (ai-code-session-attention-mode-line-string))
-                   " AI ✓1"))))
+    (should (eq (ai-code-test-attention--state a) 'done))))
 
 (ert-deftest ai-code-test-attention-mark-ignores-visible-session ()
   "A session the user is already looking at needs no attention."
   (ai-code-test-attention--with-sessions (a)
     (set-window-buffer (selected-window) a)
     (ai-code-session-attention-mark a 'done)
-    (should-not (ai-code-test-attention--state a))
-    (should (equal (ai-code-session-attention-mode-line-string) ""))))
+    (should-not (ai-code-test-attention--state a))))
 
 (ert-deftest ai-code-test-attention-done-does-not-downgrade-waiting ()
   "An idle signal must not hide that the agent is waiting for input."
@@ -95,70 +91,12 @@ The selected window shows a scratch buffer, so the sessions start hidden."
     (ai-code-session-update-metadata b '(:attention-since 10.0))
     (should (equal (mapcar #'ai-code-session-buffer
                            (ai-code-session-attention--pending))
-                   (list c b a)))
-    (should (equal (substring-no-properties
-                    (ai-code-session-attention-mode-line-string))
-                   " AI ?1 ✓2"))))
-
-(ert-deftest ai-code-test-attention-next-switches-to-owning-tab ()
-  "Jumping selects the tab and window that already show the session."
-  (ai-code-test-attention--with-sessions (a)
-    (let ((tab-bar-tabs-function #'tab-bar-tabs))
-      (unwind-protect
-          (progn
-            (set-window-buffer (selected-window) a)
-            (tab-bar-new-tab)
-            (switch-to-buffer (get-buffer-create " *ai-code-attention-other*"))
-            (ai-code-session-attention-mark a 'done)
-            (ai-code-session-attention-next)
-            (should (eq (window-buffer (selected-window)) a))
-            (should (= 0 (tab-bar--current-tab-index)))
-            (should-not (ai-code-test-attention--state a)))
-        (tab-bar-close-other-tabs)))))
-
-(ert-deftest ai-code-test-attention-next-displays-hidden-session ()
-  "A session shown nowhere is displayed in the current tab."
-  (ai-code-test-attention--with-sessions (a)
-    (ai-code-session-attention-mark a 'done)
-    (ai-code-session-attention-next)
-    (should (eq (window-buffer (selected-window)) a))
-    (should-not (ai-code-test-attention--state a))))
-
-(ert-deftest ai-code-test-attention-next-with-prefix-returns ()
-  "A prefix argument returns to the tab and window used before the jump."
-  (ai-code-test-attention--with-sessions (a)
-    (let ((tab-bar-tabs-function #'tab-bar-tabs)
-          (other (get-buffer " *ai-code-attention-other*")))
-      (unwind-protect
-          (progn
-            (set-window-buffer (selected-window) a)
-            (tab-bar-new-tab)
-            (switch-to-buffer other)
-            (ai-code-session-attention-mark a 'done)
-            (ai-code-session-attention-next)
-            (ai-code-session-attention-next '(4))
-            (should (= 1 (tab-bar--current-tab-index)))
-            (should (eq (window-buffer (selected-window)) other)))
-        (tab-bar-close-other-tabs)))))
-
-(ert-deftest ai-code-test-attention-return-after-chain-goes-to-first-origin ()
-  "After several jumps in a row, return to where the first jump started."
-  (ai-code-test-attention--with-sessions (a b)
-    (let ((other (get-buffer " *ai-code-attention-other*")))
-      (ai-code-session-attention-mark a 'done)
-      (ai-code-session-attention-mark b 'done)
-      (let ((last-command nil))
-        (ai-code-session-attention-next))
-      (let ((last-command #'ai-code-session-attention-next))
-        (ai-code-session-attention-next))
-      (ai-code-session-attention-next '(4))
-      (should (eq (window-buffer (selected-window)) other)))))
+                   (list c b a)))))
 
 (ert-deftest ai-code-test-attention-tab-name-badges-owning-tab ()
   "Tabs showing a session that needs attention get a badge."
   (ai-code-test-attention--with-sessions (a)
-    (let ((tab-bar-tabs-function #'tab-bar-tabs)
-          (ai-code-session-attention-tab-bar-badge t))
+    (let ((tab-bar-tabs-function #'tab-bar-tabs))
       (unwind-protect
           (progn
             (set-window-buffer (selected-window) a)
@@ -176,16 +114,12 @@ The selected window shows a scratch buffer, so the sessions start hidden."
         (tab-bar-close-other-tabs)))))
 
 (ert-deftest ai-code-test-attention-mode-installs-and-removes-display ()
-  "The global mode adds and removes its mode-line and window hooks."
-  (let ((global-mode-string (list ""))
-        (window-buffer-change-functions nil)
-        (ai-code-session-attention-mode-line-position 'global)
+  "The global mode adds and removes its tab-bar and window hooks."
+  (let ((window-buffer-change-functions nil)
         (tab-bar-tab-name-format-functions (list #'tab-bar-tab-name-format-face)))
     (ai-code-session-attention-mode 1)
     (unwind-protect
         (progn
-          (should (member ai-code-session-attention--mode-line-construct
-                          global-mode-string))
           (should (memq #'ai-code-session-attention--clear-visible
                         window-buffer-change-functions))
           (should (memq #'ai-code-session-attention--tab-name-format
@@ -193,110 +127,9 @@ The selected window shows a scratch buffer, so the sessions start hidden."
           (should (memq #'tab-bar-tab-name-format-face
                         tab-bar-tab-name-format-functions)))
       (ai-code-session-attention-mode -1))
-    (should-not (member ai-code-session-attention--mode-line-construct
-                        global-mode-string))
     (should-not window-buffer-change-functions)
     (should (equal tab-bar-tab-name-format-functions
                    (list #'tab-bar-tab-name-format-face)))))
-
-(defmacro ai-code-test-attention--with-default-mode-line (format &rest body)
-  "Run BODY with the default `mode-line-format' set to FORMAT, then restore it."
-  (declare (indent 1))
-  `(let ((saved (default-value 'mode-line-format)))
-     (unwind-protect
-         (progn (setq-default mode-line-format ,format) ,@body)
-       (setq-default mode-line-format saved))))
-
-(ert-deftest ai-code-test-attention-mode-front-position-prepends-summary ()
-  "The front position puts the summary first, outside other mode-line packages."
-  (let ((global-mode-string (list ""))
-        (window-buffer-change-functions nil)
-        (ai-code-session-attention-mode-line-position 'front))
-    (ai-code-test-attention--with-default-mode-line
-        '("%e" (:eval (spaceline-ml-main)))
-      (ai-code-session-attention-mode 1)
-      (unwind-protect
-          (progn
-            (should (equal (default-value 'mode-line-format)
-                           (list ai-code-session-attention--mode-line-construct
-                                 "%e" '(:eval (spaceline-ml-main)))))
-            (should-not (member ai-code-session-attention--mode-line-construct
-                                global-mode-string)))
-        (ai-code-session-attention-mode -1))
-      (should (equal (default-value 'mode-line-format)
-                     '("%e" (:eval (spaceline-ml-main))))))))
-
-(ert-deftest ai-code-test-attention-mode-front-position-wraps-string-format ()
-  "A string mode-line format still gets the summary in front."
-  (let ((global-mode-string (list ""))
-        (window-buffer-change-functions nil)
-        (ai-code-session-attention-mode-line-position 'front))
-    (ai-code-test-attention--with-default-mode-line "%b"
-      (ai-code-session-attention-mode 1)
-      (unwind-protect
-          (should (equal (default-value 'mode-line-format)
-                         (list ai-code-session-attention--mode-line-construct "%b")))
-        (ai-code-session-attention-mode -1)))))
-
-(ert-deftest ai-code-test-attention-mode-disable-cleans-both-positions ()
-  "Disabling removes the summary even if the position changed meanwhile."
-  (let ((global-mode-string (list ""))
-        (window-buffer-change-functions nil)
-        (ai-code-session-attention-mode-line-position 'global))
-    (ai-code-test-attention--with-default-mode-line '("%e")
-      (ai-code-session-attention-mode 1)
-      (setq ai-code-session-attention-mode-line-position 'front)
-      (ai-code-session-attention-mode -1)
-      (should-not (member ai-code-session-attention--mode-line-construct
-                          global-mode-string))
-      (should (equal (default-value 'mode-line-format) '("%e"))))))
-
-(ert-deftest ai-code-test-attention-mode-line-position-defaults-to-front ()
-  "By default the summary goes where no mode-line package can hide it."
-  (should (eq (eval (car (get 'ai-code-session-attention-mode-line-position
-                              'standard-value)))
-              'front)))
-
-(ert-deftest ai-code-test-attention-front-covers-buffer-local-mode-lines ()
-  "Buffers with their own mode line show the summary too, and get it back on disable."
-  (let ((global-mode-string (list ""))
-        (window-buffer-change-functions nil)
-        (after-change-major-mode-hook nil)
-        (ai-code-session-attention-mode-line-position 'front)
-        (own (generate-new-buffer " *ai-code-attention-own-mode-line*"))
-        (hidden (generate-new-buffer " *ai-code-attention-no-mode-line*")))
-    (unwind-protect
-        (ai-code-test-attention--with-default-mode-line '("%e")
-          (with-current-buffer own (setq-local mode-line-format '("%b")))
-          (with-current-buffer hidden (setq-local mode-line-format nil))
-          (ai-code-session-attention-mode 1)
-          (unwind-protect
-              (progn
-                (should (equal (buffer-local-value 'mode-line-format own)
-                               (list ai-code-session-attention--mode-line-construct "%b")))
-                (should-not (buffer-local-value 'mode-line-format hidden)))
-            (ai-code-session-attention-mode -1))
-          (should (equal (buffer-local-value 'mode-line-format own) '("%b")))
-          (should-not after-change-major-mode-hook))
-      (kill-buffer own)
-      (kill-buffer hidden))))
-
-(ert-deftest ai-code-test-attention-front-covers-later-buffer-local-mode-lines ()
-  "A buffer that sets its own mode line after enabling also shows the summary."
-  (let ((global-mode-string (list ""))
-        (window-buffer-change-functions nil)
-        (after-change-major-mode-hook nil)
-        (ai-code-session-attention-mode-line-position 'front))
-    (ai-code-test-attention--with-default-mode-line '("%e")
-      (ai-code-session-attention-mode 1)
-      (unwind-protect
-          (with-temp-buffer
-            (setq-local mode-line-format '("%b"))
-            (run-hooks 'after-change-major-mode-hook)
-            (should (equal mode-line-format
-                           (list ai-code-session-attention--mode-line-construct "%b"))))
-        (ai-code-session-attention-mode -1)))))
-
 (provide 'test_ai-code-session-attention)
 
 ;;; test_ai-code-session-attention.el ends here

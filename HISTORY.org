@@ -2,7 +2,7 @@
 * Release history
 
 ** Main branch change
-- Feat: Show AI sessions that finished or wait for input in the mode line and tab-bar, and jump to them across tabs and frames (`C-c a J`)
+- Feat: Badge tab-bar tabs and show dashboard status for AI sessions that finished or wait for input while hidden
 
 ** 1.981
 - Feat: Browse, edit and select source/Magit annotations for AI suggestions; clarify menu scopes and retain legacy notes and reply chains
