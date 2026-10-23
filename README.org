@@ -186,6 +186,9 @@ appends the destination PNG path when invoking it:
   - If the default wide layout does not fit your frame well, set `ai-code-menu-layout` to `two-columns` for a narrower menu with the same commands.
 - *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), install backend skills (`S`), edit backend configs (`g`), open backend agent file (`G`), and run prompts against the current file (`|`). It supports multiple sessions per project. The `S` entry is especially useful for installing shared skill packs such as [[https://github.com/obra/superpowers][obra/superpowers]].
   - `Z` toggles the AI session dashboard in a window across the bottom of the frame, where you can inspect active sessions, refresh the list, visit a session buffer, kill a session, or open the repository's Magit status. Press `Z` again, or `q` in the dashboard, to close it. Besides repository, task file, backend and branch, each row shows the session's Status, how long it has been in that state (Since), its uncommitted changes (for example =2 files +3 −2=), and a one-line summary of the last prompt sent to it from Emacs; hover over the summary to see the prompt.
+
+    [[file:./session_dashboard.png]]
+
   - `H` sends a session checkpoint prompt when run from an AI session buffer, asking the AI to summarize the goal, files changed, current hypothesis, tests/build result, blockers, and next action.
   - When resuming, selecting a UUID in the region appends that UUID automatically so you can continue a specific session.
   - In AI session side windows, `C-.` grows and `C-,` shrinks the panel immediately. On left/right side windows it adjusts width; on top/bottom side windows it adjusts height.
@@ -545,6 +548,8 @@ When several AI sessions run in parallel, `ai-code-session-attention-mode` badge
 | =◐= | working | The session is producing output |
 | =✓= | done unseen | The session finished while you were not looking at it |
 | =?= | needs input | The session waits for you, for example a permission prompt |
+
+[[file:./tab_bar_session_badges.png]]
 
 - Circles are ambient status; =✓= and =?= mean it is your turn. A tab with several sessions shows the most important badge: =?=, then =✓=, then =◐=, then =○=.
 - Showing a session in a window clears =✓= and =?=. Other tabs get no badge.
