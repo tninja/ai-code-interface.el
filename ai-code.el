@@ -51,6 +51,8 @@
 ;;        (ai-code-set-backend 'codex)
 ;;        ;; Optional: use a narrower transient menu on smaller frames.
 ;;        ;; (setq ai-code-menu-layout 'two-columns)
+;;        ;; Optional: badge tab-bar tabs that show AI sessions with their state.
+;;        ;; (ai-code-session-attention-mode 1)
 ;;        (global-set-key (kbd "C-c a") #'ai-code-menu))
 ;;
 ;;   2) First 60 seconds:

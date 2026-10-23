@@ -54,6 +54,8 @@ Minimal setup:
   (ai-code-set-backend 'codex)
   ;; Optional: use a narrower transient menu on smaller frames
   ;; (setq ai-code-menu-layout 'two-columns)
+  ;; Optional: badge tab-bar tabs that show AI sessions with their state
+  ;; (ai-code-session-attention-mode 1)
   (global-set-key (kbd "C-c a") #'ai-code-menu))
 #+end_src
 
@@ -95,6 +97,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; (setq ai-code-backends-infra-terminal-backend 'eat) ;; config for native CLI backends. for external backends such as agent-shell, claude-code-ide.el and claude-code.el, please check their own config
     ;; Optional: Try ghostel as an backend infra
     ;; (setq ai-code-backends-infra-terminal-backend 'ghostel)
+    ;; Optional: Badge tab-bar tabs that show AI sessions with their state (○ idle, ◐ working, ✓ done unseen, ? needs input)
+    ;; (ai-code-session-attention-mode 1)
     ;; Optional: Disable @ file completion in comments and AI sessions
     ;; (ai-code-prompt-filepath-completion-mode -1)
     ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
