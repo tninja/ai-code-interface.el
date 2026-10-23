@@ -195,16 +195,6 @@ describe the session.  ID is optional and mainly useful when restoring state."
   "Keys: RET visit session   r/g refresh   k kill session   D magit status"
   "Shortcut hint shown in the dashboard mode line.")
 
-(defun ai-code-session-dashboard--insert-footer ()
-  "Insert dashboard help below the session list."
-  (let ((inhibit-read-only t))
-    (goto-char (point-max))
-    (unless (bolp)
-      (insert "\n"))
-    (insert (propertize ai-code-session-dashboard-shortcuts-hint
-                        'face 'mode-line-inactive))
-    (insert "\n")))
-
 (defun ai-code-session-dashboard--repo-name (session)
   "Return a short repository name for SESSION."
   (when-let ((repo-root (ai-code-session-repo-root session)))
@@ -270,9 +260,7 @@ It uses the same states as the tab-bar badge."
   "Refresh the AI session dashboard."
   (interactive)
   (setq tabulated-list-entries (ai-code-session-dashboard--entries))
-  (tabulated-list-print t)
-  (save-excursion
-    (ai-code-session-dashboard--insert-footer)))
+  (tabulated-list-print t))
 
 (defun ai-code-session-dashboard-visit ()
   "Visit the session buffer on the current line."
@@ -339,15 +327,25 @@ It uses the same states as the tab-bar badge."
   (add-hook 'tabulated-list-revert-hook #'ai-code-session-dashboard-refresh nil t)
   (tabulated-list-init-header))
 
+(defconst ai-code-session-dashboard--display-action
+  '((display-buffer-reuse-window display-buffer-in-side-window)
+    (side . bottom)
+    (slot . 0)
+    (window-height . fit-window-to-buffer)
+    (preserve-size . (nil . t)))
+  "Show the dashboard in a window across the bottom of the frame.")
+
 ;;;###autoload
 (defun ai-code-session-dashboard ()
-  "Show the AI session dashboard."
+  "Toggle the AI session dashboard at the bottom of the frame."
   (interactive)
   (let ((buffer (get-buffer-create ai-code-session-dashboard-buffer-name)))
-    (with-current-buffer buffer
-      (ai-code-session-dashboard-mode)
-      (ai-code-session-dashboard-refresh))
-    (pop-to-buffer buffer)))
+    (if-let* ((window (get-buffer-window buffer)))
+        (quit-window nil window)
+      (with-current-buffer buffer
+        (ai-code-session-dashboard-mode)
+        (ai-code-session-dashboard-refresh))
+      (pop-to-buffer buffer ai-code-session-dashboard--display-action))))
 
 (provide 'ai-code-session)
 

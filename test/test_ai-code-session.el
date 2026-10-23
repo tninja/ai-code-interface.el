@@ -136,6 +136,28 @@
                           "stopped")))
        (kill-buffer buffer)))))
 
+(ert-deftest ai-code-test-session-dashboard-toggles-bottom-window ()
+  "The dashboard opens in a bottom side window and the same command closes it."
+  (ai-code-test-session--with-clean-registry
+   (save-window-excursion
+     (delete-other-windows)
+     (unwind-protect
+         (progn
+           (ai-code-session-dashboard)
+           (let ((window (get-buffer-window ai-code-session-dashboard-buffer-name)))
+             (should window)
+             (should (eq (window-parameter window 'window-side) 'bottom))
+             (should (eq (selected-window) window))
+             ;; The key hint lives in the mode line only.
+             (should-not (string-match-p
+                          (regexp-quote ai-code-session-dashboard-shortcuts-hint)
+                          (with-current-buffer (window-buffer window)
+                            (buffer-string)))))
+           (ai-code-session-dashboard)
+           (should-not (get-buffer-window ai-code-session-dashboard-buffer-name)))
+       (when (get-buffer ai-code-session-dashboard-buffer-name)
+         (kill-buffer ai-code-session-dashboard-buffer-name))))))
+
 (ert-deftest ai-code-test-session-dashboard-renders-mvp-columns ()
   "Dashboard should render the MVP session information."
   (ai-code-test-session--with-clean-registry
