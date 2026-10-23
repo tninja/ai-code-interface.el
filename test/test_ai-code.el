@@ -413,7 +413,7 @@
 
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-session-dashboard-entry ()
   "Test that the AI CLI session menu exposes the session dashboard."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "j")))
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "Z")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-session-dashboard))
