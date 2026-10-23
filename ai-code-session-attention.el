@@ -33,15 +33,16 @@ This has no effect unless tab-bar tabs are used."
   :type 'boolean
   :group 'ai-code-session-attention)
 
-(defcustom ai-code-session-attention-mode-line-position 'global
+(defcustom ai-code-session-attention-mode-line-position 'front
   "Where `ai-code-session-attention-mode' puts the mode-line summary.
-`global' adds it to `global-mode-string', which mode-line packages
-place themselves; some, like spaceline, hide it in narrow windows.
-`front' puts it first in the default `mode-line-format', so no
-mode-line package can hide it and every window shows it.
+`front' puts it first in every buffer's mode line, including buffers
+with their own `mode-line-format', so no mode-line package can hide it.
+`global' adds it to `global-mode-string' instead, which mode-line
+packages place themselves; some, like spaceline, show it only in the
+selected window and hide it when that window is narrow.
 Toggle the mode after changing this."
-  :type '(choice (const :tag "In global-mode-string" global)
-                 (const :tag "First in every mode line" front))
+  :type '(choice (const :tag "First in every mode line" front)
+                 (const :tag "In global-mode-string" global))
   :group 'ai-code-session-attention)
 
 (defface ai-code-session-attention-waiting
@@ -283,22 +284,56 @@ With prefix argument RETURN, go back to where a run of jumps started."
 
 ;;; Mode
 
+(defun ai-code-session-attention--with-summary (format)
+  "Return mode-line FORMAT with the summary first."
+  (let ((construct ai-code-session-attention--mode-line-construct))
+    (if (and (consp format) (member construct format))
+        format
+      (cons construct (if (listp format) format (list format))))))
+
+(defun ai-code-session-attention--without-summary (format)
+  "Return mode-line FORMAT without the summary."
+  (if (consp format)
+      (delete ai-code-session-attention--mode-line-construct (copy-sequence format))
+    format))
+
+(defun ai-code-session-attention--add-to-local-mode-line ()
+  "Put the summary first in the current buffer's own mode line, if any.
+Buffers that hide their mode line (a nil format) are left alone."
+  (when (and (local-variable-p 'mode-line-format) mode-line-format)
+    (setq mode-line-format
+          (ai-code-session-attention--with-summary mode-line-format))))
+
 (defun ai-code-session-attention--remove-mode-line ()
   "Remove the mode-line summary from every position it may occupy."
-  (let ((construct ai-code-session-attention--mode-line-construct))
-    (setq global-mode-string (delete construct global-mode-string))
-    (let ((format (default-value 'mode-line-format)))
-      (when (and (consp format) (member construct format))
-        (setq-default mode-line-format (delete construct (copy-sequence format)))))))
+  (setq global-mode-string
+        (delete ai-code-session-attention--mode-line-construct global-mode-string))
+  (setq-default mode-line-format
+                (ai-code-session-attention--without-summary
+                 (default-value 'mode-line-format)))
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when (local-variable-p 'mode-line-format)
+        (setq mode-line-format
+              (ai-code-session-attention--without-summary mode-line-format)))))
+  (remove-hook 'after-change-major-mode-hook
+               #'ai-code-session-attention--add-to-local-mode-line))
 
 (defun ai-code-session-attention--add-mode-line ()
   "Add the mode-line summary at `ai-code-session-attention-mode-line-position'."
-  (let ((construct ai-code-session-attention--mode-line-construct))
-    (if (eq ai-code-session-attention-mode-line-position 'front)
-        (let ((format (default-value 'mode-line-format)))
-          (setq-default mode-line-format
-                        (cons construct (if (listp format) format (list format)))))
-      (add-to-list 'global-mode-string construct t))))
+  (if (eq ai-code-session-attention-mode-line-position 'front)
+      (progn
+        (setq-default mode-line-format
+                      (ai-code-session-attention--with-summary
+                       (default-value 'mode-line-format)))
+        (dolist (buffer (buffer-list))
+          (with-current-buffer buffer
+            (ai-code-session-attention--add-to-local-mode-line)))
+        ;; Modes such as Info set their own mode line when they start.
+        (add-hook 'after-change-major-mode-hook
+                  #'ai-code-session-attention--add-to-local-mode-line))
+    (add-to-list 'global-mode-string
+                 ai-code-session-attention--mode-line-construct t)))
 
 ;;;###autoload
 (define-minor-mode ai-code-session-attention-mode

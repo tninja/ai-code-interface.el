@@ -179,6 +179,7 @@ The selected window shows a scratch buffer, so the sessions start hidden."
   "The global mode adds and removes its mode-line and window hooks."
   (let ((global-mode-string (list ""))
         (window-buffer-change-functions nil)
+        (ai-code-session-attention-mode-line-position 'global)
         (tab-bar-tab-name-format-functions (list #'tab-bar-tab-name-format-face)))
     (ai-code-session-attention-mode 1)
     (unwind-protect
@@ -249,6 +250,52 @@ The selected window shows a scratch buffer, so the sessions start hidden."
       (should-not (member ai-code-session-attention--mode-line-construct
                           global-mode-string))
       (should (equal (default-value 'mode-line-format) '("%e"))))))
+
+(ert-deftest ai-code-test-attention-mode-line-position-defaults-to-front ()
+  "By default the summary goes where no mode-line package can hide it."
+  (should (eq (eval (car (get 'ai-code-session-attention-mode-line-position
+                              'standard-value)))
+              'front)))
+
+(ert-deftest ai-code-test-attention-front-covers-buffer-local-mode-lines ()
+  "Buffers with their own mode line show the summary too, and get it back on disable."
+  (let ((global-mode-string (list ""))
+        (window-buffer-change-functions nil)
+        (after-change-major-mode-hook nil)
+        (ai-code-session-attention-mode-line-position 'front)
+        (own (generate-new-buffer " *ai-code-attention-own-mode-line*"))
+        (hidden (generate-new-buffer " *ai-code-attention-no-mode-line*")))
+    (unwind-protect
+        (ai-code-test-attention--with-default-mode-line '("%e")
+          (with-current-buffer own (setq-local mode-line-format '("%b")))
+          (with-current-buffer hidden (setq-local mode-line-format nil))
+          (ai-code-session-attention-mode 1)
+          (unwind-protect
+              (progn
+                (should (equal (buffer-local-value 'mode-line-format own)
+                               (list ai-code-session-attention--mode-line-construct "%b")))
+                (should-not (buffer-local-value 'mode-line-format hidden)))
+            (ai-code-session-attention-mode -1))
+          (should (equal (buffer-local-value 'mode-line-format own) '("%b")))
+          (should-not after-change-major-mode-hook))
+      (kill-buffer own)
+      (kill-buffer hidden))))
+
+(ert-deftest ai-code-test-attention-front-covers-later-buffer-local-mode-lines ()
+  "A buffer that sets its own mode line after enabling also shows the summary."
+  (let ((global-mode-string (list ""))
+        (window-buffer-change-functions nil)
+        (after-change-major-mode-hook nil)
+        (ai-code-session-attention-mode-line-position 'front))
+    (ai-code-test-attention--with-default-mode-line '("%e")
+      (ai-code-session-attention-mode 1)
+      (unwind-protect
+          (with-temp-buffer
+            (setq-local mode-line-format '("%b"))
+            (run-hooks 'after-change-major-mode-hook)
+            (should (equal mode-line-format
+                           (list ai-code-session-attention--mode-line-construct "%b"))))
+        (ai-code-session-attention-mode -1)))))
 
 (provide 'test_ai-code-session-attention)
 
