@@ -81,17 +81,74 @@ The selected window shows a scratch buffer, so the sessions start hidden."
     (should (eq (ai-code-test-attention--state a) 'done))
     (should-not (ai-code-test-attention--state b))))
 
-(ert-deftest ai-code-test-attention-pending-orders-waiting-first ()
-  "Waiting sessions come first, then the longest-pending ones."
-  (ai-code-test-attention--with-sessions (a b c)
-    (ai-code-session-attention-mark a 'done)
-    (ai-code-session-attention-mark b 'done)
-    (ai-code-session-attention-mark c 'waiting)
-    (ai-code-session-update-metadata a '(:attention-since 20.0))
-    (ai-code-session-update-metadata b '(:attention-since 10.0))
-    (should (equal (mapcar #'ai-code-session-buffer
-                           (ai-code-session-attention--pending))
-                   (list c b a)))))
+(ert-deftest ai-code-test-attention-display-state-priority ()
+  "Waiting beats done, done beats working, and a quiet session is idle."
+  (ai-code-test-attention--with-sessions (a)
+    (let ((session (ai-code-session-get a)))
+      (should (eq (ai-code-session-attention--display-state session) 'idle))
+      (ai-code-session-attention-set-working a t)
+      (should (eq (ai-code-session-attention--display-state session) 'working))
+      (ai-code-session-attention-mark a 'done)
+      (should (eq (ai-code-session-attention--display-state session) 'done))
+      (ai-code-session-attention-mark a 'waiting)
+      (should (eq (ai-code-session-attention--display-state session) 'waiting)))))
+
+(ert-deftest ai-code-test-attention-set-working-redraws-only-on-change ()
+  "Repeated output must not redraw the tab bar each time."
+  (ai-code-test-attention--with-sessions (a)
+    (let ((redraws 0))
+      (cl-letf (((symbol-function 'force-mode-line-update)
+                 (lambda (&rest _) (setq redraws (1+ redraws)))))
+        (ai-code-session-attention-set-working a t)
+        (ai-code-session-attention-set-working a t)
+        (ai-code-session-attention-set-working a nil)
+        (ai-code-session-attention-set-working a nil))
+      (should (= redraws 2)))))
+
+(ert-deftest ai-code-test-attention-tab-badges-every-ai-tab ()
+  "Every tab showing an AI session has a badge; other tabs have none."
+  (ai-code-test-attention--with-sessions (a b)
+    (let ((tab-bar-tabs-function #'tab-bar-tabs))
+      (unwind-protect
+          (progn
+            (set-window-buffer (selected-window) a)
+            (tab-bar-new-tab)
+            (switch-to-buffer b)
+            (tab-bar-new-tab)
+            (switch-to-buffer (get-buffer-create " *ai-code-attention-other*"))
+            (ai-code-session-attention-set-working b t)
+            (let ((tabs (funcall tab-bar-tabs-function)))
+              (should (equal (substring-no-properties
+                              (ai-code-session-attention--tab-name-format
+                               "idle-tab" (nth 0 tabs) 1))
+                             "○ idle-tab"))
+              (should (equal (substring-no-properties
+                              (ai-code-session-attention--tab-name-format
+                               "busy-tab" (nth 1 tabs) 2))
+                             "◐ busy-tab"))
+              (should (equal (ai-code-session-attention--tab-name-format
+                              "notes" (nth 2 tabs) 3)
+                             "notes"))))
+        (tab-bar-close-other-tabs)))))
+
+(ert-deftest ai-code-test-attention-tab-badge-shows-most-important-session ()
+  "A tab with several sessions shows the most important state."
+  (ai-code-test-attention--with-sessions (a b)
+    (let ((tab-bar-tabs-function #'tab-bar-tabs))
+      (unwind-protect
+          (progn
+            (set-window-buffer (selected-window) a)
+            (set-window-buffer (split-window) b)
+            (tab-bar-new-tab)
+            (delete-other-windows)
+            (switch-to-buffer (get-buffer-create " *ai-code-attention-other*"))
+            (ai-code-session-attention-set-working a t)
+            (ai-code-session-attention-mark b 'done)
+            (should (equal (substring-no-properties
+                            (ai-code-session-attention--tab-name-format
+                             "work" (nth 0 (funcall tab-bar-tabs-function)) 1))
+                           "✓ work")))
+        (tab-bar-close-other-tabs)))))
 
 (ert-deftest ai-code-test-attention-tab-name-badges-owning-tab ()
   "Tabs showing a session that needs attention get a badge."

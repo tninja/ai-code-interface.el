@@ -119,7 +119,7 @@
   (beginning-of-line))
 
 (ert-deftest ai-code-test-session-dashboard-entry-shows-attention ()
-  "The Status column shows attention states before the process status."
+  "The Status column shows the same states as the tab badge."
   (ai-code-test-session--with-clean-registry
    (let ((buffer (generate-new-buffer " *codex[attention]*")))
      (unwind-protect
@@ -128,9 +128,12 @@
                                      :buffer buffer :backend "codex"
                                      :metadata metadata)))
                        (aref (cadr (ai-code-session-dashboard--entry session)) 5))))
-           (should (equal (status '(:status "running")) "running"))
+           (should (equal (status '(:status "running")) "idle"))
+           (should (equal (status '(:working t)) "working"))
            (should (equal (status '(:attention done)) "done unseen"))
-           (should (equal (status '(:attention waiting)) "needs input")))
+           (should (equal (status '(:attention waiting)) "needs input"))
+           (should (equal (status '(:status "stopped" :attention nil :working nil))
+                          "stopped")))
        (kill-buffer buffer)))))
 
 (ert-deftest ai-code-test-session-dashboard-renders-mvp-columns ()
@@ -176,7 +179,7 @@
                (should (equal (aref entry 2) "task_x.org"))
                (should (equal (aref entry 3) "Codex"))
                (should (equal (aref entry 4) "feature/x"))
-               (should (equal (aref entry 5) "running"))
+               (should (equal (aref entry 5) "idle"))
                (should (equal (aref entry 6) "3")))))
        (when (buffer-live-p session-buffer)
          (kill-buffer session-buffer))

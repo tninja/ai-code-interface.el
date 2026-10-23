@@ -736,6 +736,30 @@ The prefix argument should also force instance-name prompting."
         (ai-code-backends-infra--note-meaningful-output)
         (should (equal cleared (list (current-buffer) 'done)))))))
 
+(ert-deftest test-ai-code-backends-infra-meaningful-output-marks-working ()
+  "New output means the agent is working."
+  (let (working)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--schedule-idle-check)
+               #'ignore)
+              ((symbol-function 'ai-code-session-attention-set-working)
+               (lambda (buffer value) (setq working (list buffer value)))))
+      (with-temp-buffer
+        (ai-code-backends-infra--note-meaningful-output)
+        (should (equal working (list (current-buffer) t)))))))
+
+(ert-deftest test-ai-code-backends-infra-idle-clears-working-even-when-visible ()
+  "An idle terminal is no longer working, whether or not it is shown."
+  (let (working)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+               (lambda (_buffer) t))
+              ((symbol-function 'ai-code-session-attention-set-working)
+               (lambda (buffer value) (setq working (list buffer value)))))
+      (with-temp-buffer
+        (rename-buffer "*testbackend[test-dir]*" t)
+        (setq ai-code-backends-infra--response-seen nil)
+        (ai-code-backends-infra--check-response-complete (current-buffer))
+        (should (equal working (list (current-buffer) nil)))))))
+
 (ert-deftest test-ai-code-backends-infra-response-not-idle-reschedules ()
   "Reschedule idle checks when meaningful output is too recent."
   (let ((scheduled nil)

@@ -4,10 +4,10 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Track AI sessions that finished or wait for input while hidden and
-;; badge the tab-bar tabs that show them.  Signals come from the terminal
-;; layer, so this works for every AI coding CLI backend.  The session
-;; dashboard shows the same state.
+;; Badge every tab-bar tab that shows an AI session with the session's
+;; state: idle, working, finished while hidden, or waiting for input.
+;; Signals come from the terminal layer, so this works for every AI coding
+;; CLI backend.  The session dashboard shows the same state.
 ;;
 ;; Enable with (ai-code-session-attention-mode 1).
 
@@ -24,19 +24,32 @@
   :group 'ai-code)
 
 (defface ai-code-session-attention-waiting
-  '((t :inherit warning))
+  '((t :inherit warning :weight bold))
   "Face for sessions waiting for user input."
   :group 'ai-code-session-attention)
 
 (defface ai-code-session-attention-done
-  '((t :inherit success))
+  '((t :inherit success :weight bold))
   "Face for sessions that finished while hidden."
+  :group 'ai-code-session-attention)
+
+(defface ai-code-session-attention-working
+  '((t :inherit font-lock-keyword-face))
+  "Face for sessions that are working."
+  :group 'ai-code-session-attention)
+
+(defface ai-code-session-attention-idle
+  '((t :inherit shadow))
+  "Face for sessions with nothing going on."
   :group 'ai-code-session-attention)
 
 (defconst ai-code-session-attention--markers
   '((waiting "?" ai-code-session-attention-waiting)
-    (done "✓" ai-code-session-attention-done))
-  "Marker text and face for each attention state, most urgent first.")
+    (done "✓" ai-code-session-attention-done)
+    (working "◐" ai-code-session-attention-working)
+    (idle "○" ai-code-session-attention-idle))
+  "Badge text and face for each session state, most important first.
+Symbols mark states that need the user; circles are ambient status.")
 
 ;;; State
 
@@ -75,6 +88,15 @@ When STATE is non-nil, clear only that state."
               ((or (null state) (eq state current))))
     (ai-code-session-attention--set session nil)))
 
+(defun ai-code-session-attention-set-working (buffer working)
+  "Record whether the session in BUFFER is WORKING.
+The tab bar is redrawn only when the state changes."
+  (when-let* ((session (ai-code-session-get buffer))
+              ((not (eq (and working t)
+                        (plist-get (ai-code-session-metadata session) :working)))))
+    (ai-code-session-update-metadata buffer (list :working (and working t)))
+    (force-mode-line-update t)))
+
 (defun ai-code-session-attention--clear-visible (&optional _frame)
   "Clear attention for sessions now shown in a live window."
   (dolist (session (ai-code-session-list))
@@ -84,25 +106,15 @@ When STATE is non-nil, clear only that state."
                  (ai-code-session-attention--visible-p buffer))
         (ai-code-session-attention--set session nil)))))
 
-(defun ai-code-session-attention--rank (session)
-  "Return the urgency rank of SESSION; lower is more urgent."
-  (cl-position (ai-code-session-attention--state session)
-               ai-code-session-attention--markers :key #'car))
+(defun ai-code-session-attention--display-state (session)
+  "Return the badge state of SESSION: `waiting', `done', `working' or `idle'."
+  (or (ai-code-session-attention--state session)
+      (and (plist-get (ai-code-session-metadata session) :working) 'working)
+      'idle))
 
-(defun ai-code-session-attention--pending ()
-  "Return live sessions needing attention, most urgent and oldest first."
-  (sort (cl-remove-if-not
-         (lambda (session)
-           (and (ai-code-session-attention--rank session)
-                (buffer-live-p (ai-code-session-buffer session))))
-         (ai-code-session-list))
-        (lambda (left right)
-          (let ((left-rank (ai-code-session-attention--rank left))
-                (right-rank (ai-code-session-attention--rank right)))
-            (if (/= left-rank right-rank)
-                (< left-rank right-rank)
-              (< (plist-get (ai-code-session-metadata left) :attention-since)
-                 (plist-get (ai-code-session-metadata right) :attention-since)))))))
+(defun ai-code-session-attention--rank (state)
+  "Return the importance rank of badge STATE; lower is more important."
+  (cl-position state ai-code-session-attention--markers :key #'car))
 
 ;;; Display
 
@@ -120,25 +132,33 @@ When STATE is non-nil, clear only that state."
         (or (memq buffer buffers)
             (member (buffer-name buffer) buffers))))))
 
+(defun ai-code-session-attention--tab-state (tab)
+  "Return the most important badge state of the sessions TAB shows, or nil."
+  (let (best)
+    (dolist (session (ai-code-session-list))
+      (let ((buffer (ai-code-session-buffer session)))
+        (when (and (buffer-live-p buffer)
+                   (ai-code-session-attention--tab-has-buffer-p tab buffer))
+          (let ((state (ai-code-session-attention--display-state session)))
+            (when (or (null best)
+                      (< (ai-code-session-attention--rank state)
+                         (ai-code-session-attention--rank best)))
+              (setq best state))))))
+    best))
+
 (defun ai-code-session-attention--tab-name-format (name tab _index)
-  "Prefix NAME with a marker when TAB shows a session needing attention."
-  (if-let* ((session (cl-find-if
-                      (lambda (session)
-                        (ai-code-session-attention--tab-has-buffer-p
-                         tab (ai-code-session-buffer session)))
-                      (ai-code-session-attention--pending))))
-      (concat (ai-code-session-attention--marker
-               (ai-code-session-attention--state session))
-              " " name)
+  "Prefix NAME with a badge when TAB shows an AI session."
+  (if-let* ((state (ai-code-session-attention--tab-state tab)))
+      (concat (ai-code-session-attention--marker state) " " name)
     name))
 
 ;;; Mode
 
 ;;;###autoload
 (define-minor-mode ai-code-session-attention-mode
-  "Badge tab-bar tabs that show AI sessions needing attention.
-A session needs attention when it finished or waits for input while
-hidden; showing it clears that."
+  "Badge tab-bar tabs that show AI sessions with the session state.
+○ idle, ◐ working, ✓ finished while hidden, ? waiting for input.
+Showing a session clears ✓ and ?."
   :global t
   :group 'ai-code-session-attention
   (if ai-code-session-attention-mode

@@ -2,7 +2,7 @@
 * Release history
 
 ** Main branch change
-- Feat: Badge tab-bar tabs and show dashboard status for AI sessions that finished or wait for input while hidden
+- Feat: Badge every AI session tab-bar tab with its state (○ idle, ◐ working, ✓ done unseen, ? needs input), and show the same state in the session dashboard
 
 ** 1.981
 - Feat: Browse, edit and select source/Magit annotations for AI suggestions; clarify menu scopes and retain legacy notes and reply chains

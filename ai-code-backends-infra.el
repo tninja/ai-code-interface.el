@@ -386,6 +386,7 @@ the current buffer is an AI session buffer, apply these transformations:
     (with-current-buffer buffer
       (if (ai-code-backends-infra--idle-delay-elapsed-p)
           (let ((visible (ai-code-backends-infra--buffer-user-visible-p buffer)))
+            (ai-code-session-attention-set-working buffer nil)
             (if visible
                 (setq ai-code-backends-infra--response-seen t)
               (when (not ai-code-backends-infra--response-seen)
@@ -429,6 +430,7 @@ The timer is reset only after meaningful output is observed."
   (setq ai-code-backends-infra--response-seen nil
         ai-code-backends-infra--last-meaningful-output-time (float-time))
   (ai-code-session-attention-clear (current-buffer) 'done)
+  (ai-code-session-attention-set-working (current-buffer) t)
   (ai-code-backends-infra--schedule-idle-check))
 
 (defun ai-code-backends-infra--configure-session-input-shortcuts ()

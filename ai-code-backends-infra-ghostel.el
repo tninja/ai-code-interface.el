@@ -35,6 +35,8 @@ enabled by default because it widens the terminal's local resource access."
                   "ai-code-session-attention" (buffer state))
 (declare-function ai-code-session-attention-clear
                   "ai-code-session-attention" (buffer &optional state))
+(declare-function ai-code-session-attention-set-working
+                  "ai-code-session-attention" (buffer working))
 (declare-function ai-code-backends-infra--install-navigation-cursor-sync
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output
@@ -355,6 +357,8 @@ Leave presentation and notifications to Ghostel's existing handlers."
                                ('error 'error)
                                (_ 'idle))))
       (when (fboundp 'ai-code-session-attention-mark)
+        (ai-code-session-attention-set-working (current-buffer)
+                                               (eq state 'working))
         (pcase state
           ((or 'blocked 'error)
            (ai-code-session-attention-mark (current-buffer) 'waiting))

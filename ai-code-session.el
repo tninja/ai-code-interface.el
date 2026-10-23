@@ -228,14 +228,23 @@ describe the session.  ID is optional and mainly useful when restoring state."
     (done . "done unseen"))
   "Status labels for sessions that need the user's attention.")
 
+(defun ai-code-session-dashboard--status-label (metadata)
+  "Return the Status column text for session METADATA.
+It uses the same states as the tab-bar badge."
+  (let ((status (plist-get metadata :status)))
+    (cond
+     ((equal status "stopped") "stopped")
+     ((alist-get (plist-get metadata :attention)
+                 ai-code-session-dashboard--attention-labels))
+     ((plist-get metadata :working) "working")
+     (status "idle")
+     (t ""))))
+
 (defun ai-code-session-dashboard--entry (session)
   "Return the `tabulated-list-mode' entry for SESSION."
   (let* ((metadata (ai-code-session-metadata session))
          (branch (or (plist-get metadata :branch) ""))
-         (status (or (alist-get (plist-get metadata :attention)
-                                ai-code-session-dashboard--attention-labels)
-                     (plist-get metadata :status)
-                     ""))
+         (status (ai-code-session-dashboard--status-label metadata))
          (dirty-count (number-to-string (or (plist-get metadata :dirty-count) 0))))
     (list (ai-code-session-id session)
           (vector

@@ -1243,6 +1243,7 @@ run before the asynchronous link restoration re-applies cached properties."
     (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
     (let (calls)
       (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-session-attention-set-working) #'ignore)
                 ((symbol-function 'ai-code-session-attention-mark)
                  (lambda (_buffer state) (push (list 'mark state) calls)))
                 ((symbol-function 'ai-code-session-attention-clear)
@@ -1252,6 +1253,21 @@ run before the asynchronous link restoration re-applies cached properties."
           (ai-code-backends-infra-ghostel--program-status "" nil nil)))
       (should (equal (nreverse calls)
                      '((mark waiting) (mark waiting) (clear waiting)))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-program-status-updates-working ()
+  "Only the working program state counts as a working session."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let (calls)
+      (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-session-attention-mark) #'ignore)
+                ((symbol-function 'ai-code-session-attention-clear) #'ignore)
+                ((symbol-function 'ai-code-session-attention-set-working)
+                 (lambda (_buffer value) (push value calls))))
+        (dolist (state '(blocked error working done idle))
+          (setq-local ghostel-program-status (list (list "" :state state)))
+          (ai-code-backends-infra-ghostel--program-status "" nil nil)))
+      (should (equal (nreverse calls) '(nil nil t nil nil))))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel-program-status-hook-preserves-handlers ()
   "New Ghostel status hooks should coexist with its UI and notification hooks."
