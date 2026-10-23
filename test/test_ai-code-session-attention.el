@@ -198,6 +198,58 @@ The selected window shows a scratch buffer, so the sessions start hidden."
     (should (equal tab-bar-tab-name-format-functions
                    (list #'tab-bar-tab-name-format-face)))))
 
+(defmacro ai-code-test-attention--with-default-mode-line (format &rest body)
+  "Run BODY with the default `mode-line-format' set to FORMAT, then restore it."
+  (declare (indent 1))
+  `(let ((saved (default-value 'mode-line-format)))
+     (unwind-protect
+         (progn (setq-default mode-line-format ,format) ,@body)
+       (setq-default mode-line-format saved))))
+
+(ert-deftest ai-code-test-attention-mode-front-position-prepends-summary ()
+  "The front position puts the summary first, outside other mode-line packages."
+  (let ((global-mode-string (list ""))
+        (window-buffer-change-functions nil)
+        (ai-code-session-attention-mode-line-position 'front))
+    (ai-code-test-attention--with-default-mode-line
+        '("%e" (:eval (spaceline-ml-main)))
+      (ai-code-session-attention-mode 1)
+      (unwind-protect
+          (progn
+            (should (equal (default-value 'mode-line-format)
+                           (list ai-code-session-attention--mode-line-construct
+                                 "%e" '(:eval (spaceline-ml-main)))))
+            (should-not (member ai-code-session-attention--mode-line-construct
+                                global-mode-string)))
+        (ai-code-session-attention-mode -1))
+      (should (equal (default-value 'mode-line-format)
+                     '("%e" (:eval (spaceline-ml-main))))))))
+
+(ert-deftest ai-code-test-attention-mode-front-position-wraps-string-format ()
+  "A string mode-line format still gets the summary in front."
+  (let ((global-mode-string (list ""))
+        (window-buffer-change-functions nil)
+        (ai-code-session-attention-mode-line-position 'front))
+    (ai-code-test-attention--with-default-mode-line "%b"
+      (ai-code-session-attention-mode 1)
+      (unwind-protect
+          (should (equal (default-value 'mode-line-format)
+                         (list ai-code-session-attention--mode-line-construct "%b")))
+        (ai-code-session-attention-mode -1)))))
+
+(ert-deftest ai-code-test-attention-mode-disable-cleans-both-positions ()
+  "Disabling removes the summary even if the position changed meanwhile."
+  (let ((global-mode-string (list ""))
+        (window-buffer-change-functions nil)
+        (ai-code-session-attention-mode-line-position 'global))
+    (ai-code-test-attention--with-default-mode-line '("%e")
+      (ai-code-session-attention-mode 1)
+      (setq ai-code-session-attention-mode-line-position 'front)
+      (ai-code-session-attention-mode -1)
+      (should-not (member ai-code-session-attention--mode-line-construct
+                          global-mode-string))
+      (should (equal (default-value 'mode-line-format) '("%e"))))))
+
 (provide 'test_ai-code-session-attention)
 
 ;;; test_ai-code-session-attention.el ends here

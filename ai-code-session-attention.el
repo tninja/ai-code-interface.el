@@ -33,6 +33,17 @@ This has no effect unless tab-bar tabs are used."
   :type 'boolean
   :group 'ai-code-session-attention)
 
+(defcustom ai-code-session-attention-mode-line-position 'global
+  "Where `ai-code-session-attention-mode' puts the mode-line summary.
+`global' adds it to `global-mode-string', which mode-line packages
+place themselves; some, like spaceline, hide it in narrow windows.
+`front' puts it first in the default `mode-line-format', so no
+mode-line package can hide it and every window shows it.
+Toggle the mode after changing this."
+  :type '(choice (const :tag "In global-mode-string" global)
+                 (const :tag "First in every mode line" front))
+  :group 'ai-code-session-attention)
+
 (defface ai-code-session-attention-waiting
   '((t :inherit warning))
   "Face for sessions waiting for user input."
@@ -272,6 +283,23 @@ With prefix argument RETURN, go back to where a run of jumps started."
 
 ;;; Mode
 
+(defun ai-code-session-attention--remove-mode-line ()
+  "Remove the mode-line summary from every position it may occupy."
+  (let ((construct ai-code-session-attention--mode-line-construct))
+    (setq global-mode-string (delete construct global-mode-string))
+    (let ((format (default-value 'mode-line-format)))
+      (when (and (consp format) (member construct format))
+        (setq-default mode-line-format (delete construct (copy-sequence format)))))))
+
+(defun ai-code-session-attention--add-mode-line ()
+  "Add the mode-line summary at `ai-code-session-attention-mode-line-position'."
+  (let ((construct ai-code-session-attention--mode-line-construct))
+    (if (eq ai-code-session-attention-mode-line-position 'front)
+        (let ((format (default-value 'mode-line-format)))
+          (setq-default mode-line-format
+                        (cons construct (if (listp format) format (list format)))))
+      (add-to-list 'global-mode-string construct t))))
+
 ;;;###autoload
 (define-minor-mode ai-code-session-attention-mode
   "Show AI sessions that finished or wait for input in the mode line.
@@ -279,10 +307,10 @@ Click the summary, or run `ai-code-session-attention-next', to jump to
 the session in whichever frame or tab shows it."
   :global t
   :group 'ai-code-session-attention
+  (ai-code-session-attention--remove-mode-line)
   (if ai-code-session-attention-mode
       (progn
-        (add-to-list 'global-mode-string
-                     ai-code-session-attention--mode-line-construct t)
+        (ai-code-session-attention--add-mode-line)
         (add-hook 'window-buffer-change-functions
                   #'ai-code-session-attention--clear-visible)
         ;; Load tab-bar first: adding to its unbound defcustom would
@@ -291,9 +319,6 @@ the session in whichever frame or tab shows it."
                    (boundp 'tab-bar-tab-name-format-functions))
           (add-hook 'tab-bar-tab-name-format-functions
                     #'ai-code-session-attention--tab-name-format)))
-    (setq global-mode-string
-          (delete ai-code-session-attention--mode-line-construct
-                  global-mode-string))
     (remove-hook 'window-buffer-change-functions
                  #'ai-code-session-attention--clear-visible)
     (when (boundp 'tab-bar-tab-name-format-functions)
