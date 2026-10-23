@@ -1466,6 +1466,21 @@ The prefix argument should also force instance-name prompting."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-send-line-records-prompt ()
+  "Every prompt sent to a session is remembered for the session dashboard."
+  (let ((buffer (generate-new-buffer " *ai-code-prompt-record-test*"))
+        recorded)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-send-string) #'ignore)
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-return) #'ignore)
+                  ((symbol-function 'sit-for) #'ignore)
+                  ((symbol-function 'ai-code-session-note-prompt)
+                   (lambda (target prompt) (setq recorded (list target prompt)))))
+          (ai-code-backends-infra--send-line-to-session
+           " *ai-code-prompt-record-test*" "no-session" "Goal:\nfix it")
+          (should (equal recorded (list buffer "Goal:\nfix it"))))
+      (kill-buffer buffer))))
+
 (ert-deftest test-ai-code-backends-infra-send-line-refreshes-mcp-source-context ()
   "Every resolved CLI send should snapshot its source before terminal I/O."
   (let ((source-buffer (generate-new-buffer " *ai-code-mcp-source*"))

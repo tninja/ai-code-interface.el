@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Feat: Session dashboard shows time in state, uncommitted change size, and a summary of the last prompt; toggles at the bottom with C-c a Z
 - Feat: Badge every AI session tab-bar tab with its state (○ idle, ◐ working, ✓ done unseen, ? needs input), and show the same state in the session dashboard
 
 ** 1.981

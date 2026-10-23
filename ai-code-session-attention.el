@@ -65,7 +65,8 @@ Symbols mark states that need the user; circles are ambient status.")
   "Record attention STATE for SESSION and redraw the tab bar."
   (ai-code-session-update-metadata
    (ai-code-session-buffer session)
-   (list :attention state :attention-since (and state (float-time))))
+   (append (list :attention state :attention-since (and state (float-time)))
+           (unless state (list :quiet-since (float-time)))))
   ;; This also redraws the tab bar.
   (force-mode-line-update t))
 
@@ -94,7 +95,9 @@ The tab bar is redrawn only when the state changes."
   (when-let* ((session (ai-code-session-get buffer))
               ((not (eq (and working t)
                         (plist-get (ai-code-session-metadata session) :working)))))
-    (ai-code-session-update-metadata buffer (list :working (and working t)))
+    (ai-code-session-update-metadata
+     buffer (list :working (and working t)
+                  (if working :working-since :quiet-since) (float-time)))
     (force-mode-line-update t)))
 
 (defun ai-code-session-attention--clear-visible (&optional _frame)

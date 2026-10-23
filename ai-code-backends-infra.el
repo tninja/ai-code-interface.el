@@ -1742,6 +1742,7 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   source-buffer)))
     (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
       (ai-code-mcp-agent-refresh-source-context buffer source-buffer))
+    (ai-code-session-note-prompt buffer line)
     (with-current-buffer buffer
       (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
       (if (and (string-match-p "\n" line)

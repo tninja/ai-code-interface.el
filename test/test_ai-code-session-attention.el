@@ -105,6 +105,19 @@ The selected window shows a scratch buffer, so the sessions start hidden."
         (ai-code-session-attention-set-working a nil))
       (should (= redraws 2)))))
 
+(ert-deftest ai-code-test-attention-records-state-timestamps ()
+  "State changes record when working started and when the session went quiet."
+  (ai-code-test-attention--with-sessions (a)
+    (cl-flet ((meta (key) (plist-get (ai-code-session-metadata (ai-code-session-get a)) key)))
+      (ai-code-session-attention-set-working a t)
+      (should (numberp (meta :working-since)))
+      (ai-code-session-attention-set-working a nil)
+      (should (numberp (meta :quiet-since)))
+      (ai-code-session-update-metadata a '(:quiet-since nil))
+      (ai-code-session-attention-mark a 'done)
+      (ai-code-session-attention-clear a)
+      (should (numberp (meta :quiet-since))))))
+
 (ert-deftest ai-code-test-attention-tab-badges-every-ai-tab ()
   "Every tab showing an AI session has a badge; other tabs have none."
   (ai-code-test-attention--with-sessions (a b)
