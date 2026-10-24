@@ -116,7 +116,7 @@ With FORCE-PROMPT (prefix arg), force new session."
 
 (declare-function eca-workspaces "eca" ())
 
-;;;###autoload
+;;;###autoload (autoload 'ai-code-eca-menu "ai-code-eca" nil t)
 (transient-define-prefix ai-code-eca-menu ()
   "ECA session management menu."
   ["ECA"

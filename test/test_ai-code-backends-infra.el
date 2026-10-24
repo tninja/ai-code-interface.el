@@ -16,6 +16,7 @@
 
 (defvar vterm-copy-mode-hook)
 (defvar vterm--term)
+(defvar vterm-shell)
 (defvar eat-term-name)
 (defvar ghostel-set-title-function)
 (defvar ghostel-kill-buffer-on-exit)
@@ -27,6 +28,103 @@
 (defconst test-ai-code-backends-infra-valid-uuid
   "123e4567-e89b-12d3-a456-426614174000"
   "UUID fixture used by resume command resolution tests.")
+
+(ert-deftest test-ai-code-backends-infra-ghostel-session-preserves-argv-boundaries ()
+  "Ghostel sessions should pass launch arguments to `ghostel-exec' verbatim."
+  (let* ((buffer-name " *ai-code-ghostel-argv*")
+         (argv
+          '("claude"
+            "--model"
+            "model with spaces"
+            "--mcp-config"
+            "c:/Users/Test User/AppData/Local/Temp/mcp.json"))
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ghostel-exec)
+                   (lambda (seen-buffer program args)
+                     (setq captured (list program args)
+                           buffer seen-buffer)
+                     nil)))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-ghostel-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            (list "claude"
+                  '("--model"
+                    "model with spaces"
+                    "--mcp-config"
+                    "c:/Users/Test User/AppData/Local/Temp/mcp.json")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-eat-session-preserves-argv-boundaries ()
+  "Eat sessions should pass launch arguments to `eat-exec' verbatim."
+  (let* ((buffer-name " *ai-code-eat-argv*")
+         (argv
+          '("copilot"
+            "--banner"
+            "value with spaces"
+            "--additional-mcp-config"
+            "{\"url\":\"http://127.0.0.1:8765/mcp/session\"}"))
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'eat-mode)
+                   (lambda () (setq major-mode 'eat-mode)))
+                  ((symbol-function 'eat-exec)
+                   (lambda (seen-buffer seen-name program start-file args)
+                     (setq captured
+                           (list seen-buffer seen-name program start-file args))
+                     nil)))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-eat-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            (list buffer
+                  buffer-name
+                  "copilot"
+                  nil
+                  '("--banner"
+                    "value with spaces"
+                    "--additional-mcp-config"
+                    "{\"url\":\"http://127.0.0.1:8765/mcp/session\"}")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-session-quotes-argv-for-shell ()
+  "Vterm sessions should quote each launch argument for their POSIX shell."
+  (let* ((buffer-name " *ai-code-vterm-argv*")
+         (argv
+          '("claude"
+            "--model"
+            "model with spaces"
+            "--mcp-config"
+            "c:/Users/Test User/AppData/Local/Temp/mcp.json"))
+         (ai-code-backends-infra--vterm-advices-installed t)
+         captured
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'vterm)
+                   (lambda (seen-buffer-name)
+                     (setq captured vterm-shell)
+                     (get-buffer-create seen-buffer-name))))
+          (setq buffer
+                (car
+                 (ai-code-backends-infra-vterm-create-session
+                  buffer-name default-directory argv nil)))
+          (should
+           (equal
+            captured
+            "claude --model model\\ with\\ spaces --mcp-config c\\:/Users/Test\\ User/AppData/Local/Temp/mcp.json")))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (defun test-ai-code-backends-infra--capture-default-binding (symbol)
   "Return SYMBOL's default binding state.
@@ -40,6 +138,13 @@ The result is a cons of whether SYMBOL is bound and its default value."
   (if (car state)
       (set-default symbol (cdr state))
     (makunbound symbol)))
+
+(defun test-ai-code-backends-infra--session-dir (directory)
+  "Return DIRECTORY in the canonical form used by session bookkeeping.
+Session keys are canonicalized with `file-truename', so a key built from a
+literal path has to be resolved the same way to match.  This matters where
+the platform makes the literal path a symlink, such as /tmp on macOS."
+  (file-name-as-directory (file-truename directory)))
 
 (ert-deftest test-ai-code-backends-infra-output-meaningful-p-noise ()
   "Ensure terminal noise is not considered meaningful output."
@@ -111,6 +216,19 @@ The result is a cons of whether SYMBOL is bound and its default value."
                               forms)))
           (should form)
           (should (= (length form) 2))))))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-start-command-preserves-argv-boundaries ()
+  "Start command resolution should retain each configured switch verbatim."
+  (let ((result
+         (ai-code-backends-infra--resolve-start-command
+          "claude"
+          '("--model" "model with spaces")
+          nil
+          "Claude")))
+    (should
+     (equal
+      (plist-get result :argv)
+      '("claude" "--model" "model with spaces")))))
 
 (ert-deftest test-ai-code-backends-infra--resume-double-dash-prefills-uuid ()
   "A selected UUID should make `--resume' prompt with that id appended."
@@ -214,7 +332,8 @@ The result is a cons of whether SYMBOL is bound and its default value."
                  (should (equal switches '("--quiet")))
                  (should (eq arg 'prefix-arg))
                  (should (equal prompt-label "Codex"))
-                 '(:command "codex --quiet")))
+                 '(:command "codex --quiet"
+                   :argv ("codex" "--quiet"))))
               ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
                (lambda (&rest args)
                  (setq captured args))))
@@ -228,10 +347,11 @@ The result is a cons of whether SYMBOL is bound and its default value."
              :multiline-input-sequence "\r\n"
              :escape-function escape-fn
              :prepare-launch
-             (lambda (working-dir command)
+             (lambda (working-dir argv)
                (should (equal working-dir "/project/"))
-               (should (equal command "codex --quiet"))
-               (list :command "env MCP=1 codex --quiet"
+               (should (equal argv '("codex" "--quiet")))
+               (list :argv '("codex" "--quiet" "--mcp")
+                     :env-vars '("AI_CODE_MCP_BEARER_TOKEN=secret")
                      :cleanup-fn cleanup-fn
                      :post-start-fn post-start-fn)))
        'prefix-arg))
@@ -239,13 +359,14 @@ The result is a cons of whether SYMBOL is bound and its default value."
                    (list "/project/"
                          nil
                          process-table
-                         "env MCP=1 codex --quiet"
+                         '("codex" "--quiet" "--mcp")
                          escape-fn
                          cleanup-fn
                          nil
                          "codex"
                          'prefix-arg
-                         '("TERM_PROGRAM=vscode")
+                         '("AI_CODE_MCP_BEARER_TOKEN=secret"
+                           "TERM_PROGRAM=vscode")
                          "\r\n"
                          post-start-fn)))))
 
@@ -281,7 +402,7 @@ The prefix argument should also force instance-name prompting."
        'prefix-arg))
     (should (equal call-order '(args dir)))
     (cl-destructuring-bind
-        (working-dir buffer-name seen-process-table command
+        (working-dir buffer-name seen-process-table argv
                      &optional escape-fn cleanup-fn instance-name prefix
                      force-prompt env-vars multiline-input-sequence
                      post-start-fn)
@@ -289,7 +410,7 @@ The prefix argument should also force instance-name prompting."
       (should (equal working-dir "/custom/"))
       (should-not buffer-name)
       (should (eq seen-process-table process-table))
-      (should (equal command "codex --quiet"))
+      (should (equal argv '("codex" "--quiet")))
       (should-not escape-fn)
       (should-not cleanup-fn)
       (should-not instance-name)
@@ -590,6 +711,55 @@ The prefix argument should also force instance-name prompting."
         (ai-code-backends-infra--check-response-complete (current-buffer))
         (should (= notification-count 1))))))
 
+(ert-deftest test-ai-code-backends-infra-response-hidden-marks-attention-done ()
+  "A response that completes while hidden marks the session as done."
+  (let (marked)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+               (lambda (_buffer) nil))
+              ((symbol-function 'ai-code-notifications-response-ready) #'ignore)
+              ((symbol-function 'ai-code-session-attention-mark)
+               (lambda (buffer state) (setq marked (list buffer state)))))
+      (with-temp-buffer
+        (rename-buffer "*testbackend[test-dir]*" t)
+        (setq ai-code-backends-infra--response-seen nil)
+        (ai-code-backends-infra--check-response-complete (current-buffer))
+        (should (equal marked (list (current-buffer) 'done)))))))
+
+(ert-deftest test-ai-code-backends-infra-meaningful-output-clears-attention-done ()
+  "New output means the agent is working again, so done is cleared."
+  (let (cleared)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--schedule-idle-check)
+               #'ignore)
+              ((symbol-function 'ai-code-session-attention-clear)
+               (lambda (buffer state) (setq cleared (list buffer state)))))
+      (with-temp-buffer
+        (ai-code-backends-infra--note-meaningful-output)
+        (should (equal cleared (list (current-buffer) 'done)))))))
+
+(ert-deftest test-ai-code-backends-infra-meaningful-output-marks-working ()
+  "New output means the agent is working."
+  (let (working)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--schedule-idle-check)
+               #'ignore)
+              ((symbol-function 'ai-code-session-attention-set-working)
+               (lambda (buffer value) (setq working (list buffer value)))))
+      (with-temp-buffer
+        (ai-code-backends-infra--note-meaningful-output)
+        (should (equal working (list (current-buffer) t)))))))
+
+(ert-deftest test-ai-code-backends-infra-idle-clears-working-even-when-visible ()
+  "An idle terminal is no longer working, whether or not it is shown."
+  (let (working)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+               (lambda (_buffer) t))
+              ((symbol-function 'ai-code-session-attention-set-working)
+               (lambda (buffer value) (setq working (list buffer value)))))
+      (with-temp-buffer
+        (rename-buffer "*testbackend[test-dir]*" t)
+        (setq ai-code-backends-infra--response-seen nil)
+        (ai-code-backends-infra--check-response-complete (current-buffer))
+        (should (equal working (list (current-buffer) nil)))))))
+
 (ert-deftest test-ai-code-backends-infra-response-not-idle-reschedules ()
   "Reschedule idle checks when meaningful output is too recent."
   (let ((scheduled nil)
@@ -727,6 +897,9 @@ The prefix argument should also force instance-name prompting."
                    'fake-window))
                 ((symbol-function 'window-body-width)
                  (lambda (&rest _args) 96))
+                ((symbol-function 'window-resizable)
+                 (lambda (_window delta &rest _args) delta))
+                ((symbol-function 'window-preserve-size) #'ignore)
                 ((symbol-function 'window-resize)
                  (lambda (window delta horizontal &optional _ignore)
                    (setq resize-call (list window delta horizontal)))))
@@ -965,7 +1138,7 @@ The prefix argument should also force instance-name prompting."
       (should (equal delegated-call
                      (list buffer-name
                            default-directory
-                           "echo hi"
+                           '("echo" "hi")
                            '("FOO=1")))))))
 
 (ert-deftest test-ai-code-backends-infra-create-terminal-session-adds-eat-cursor-sync-hook ()
@@ -1292,6 +1465,56 @@ The prefix argument should also force instance-name prompting."
           (should (equal (car calls) '("line1\nline2" nil))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-send-line-records-prompt ()
+  "Every prompt sent to a session is remembered for the session dashboard."
+  (let ((buffer (generate-new-buffer " *ai-code-prompt-record-test*"))
+        recorded)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-send-string) #'ignore)
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-return) #'ignore)
+                  ((symbol-function 'sit-for) #'ignore)
+                  ((symbol-function 'ai-code-session-note-prompt)
+                   (lambda (target prompt) (setq recorded (list target prompt)))))
+          (ai-code-backends-infra--send-line-to-session
+           " *ai-code-prompt-record-test*" "no-session" "Goal:\nfix it")
+          (should (equal recorded (list buffer "Goal:\nfix it"))))
+      (kill-buffer buffer))))
+
+(ert-deftest test-ai-code-backends-infra-send-line-refreshes-mcp-source-context ()
+  "Every resolved CLI send should snapshot its source before terminal I/O."
+  (let ((source-buffer (generate-new-buffer " *ai-code-mcp-source*"))
+        (agent-buffer (generate-new-buffer " *ai-code-mcp-agent*"))
+        refreshed
+        sent)
+    (unwind-protect
+        (cl-letf (((symbol-function
+                    'ai-code-backends-infra--resolve-session-buffer)
+                   (lambda (&rest _args) agent-buffer))
+                  ((symbol-function
+                    'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-mcp-agent-refresh-source-context)
+                   (lambda (agent source)
+                     (setq refreshed (list agent source))))
+                  ((symbol-function
+                    'ai-code-backends-infra--terminal-send-string)
+                   (lambda (line &optional _paste)
+                     (setq sent line)))
+                  ((symbol-function
+                    'ai-code-backends-infra--terminal-send-return)
+                   (lambda () nil))
+                  ((symbol-function 'sit-for)
+                   (lambda (&rest _args) nil)))
+          (with-current-buffer source-buffer
+            (ai-code-backends-infra--send-line-to-session
+             nil "missing" "inspect" "codex" "/tmp/"))
+          (should (equal (list agent-buffer source-buffer) refreshed))
+          (should (equal "inspect" sent)))
+      (when (buffer-live-p source-buffer)
+        (kill-buffer source-buffer))
+      (when (buffer-live-p agent-buffer)
+        (kill-buffer agent-buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-terminal-send-string-ghostel-uses-public-api ()
   "Ghostel sessions should send input through `ghostel-send-string'."
@@ -1859,6 +2082,32 @@ The prefix argument should also force instance-name prompting."
       (ignore-errors
         (delete-directory root t)))))
 
+(ert-deftest test-ai-code-backends-infra-session-key-canonicalizes-directory-aliases ()
+  "Use one process-table key for real and symlinked workspace paths."
+  (let* ((root (make-temp-file "ai-code-session-key-root-" t))
+         (alias-parent (make-temp-file "ai-code-session-key-alias-" t))
+         (alias-root (expand-file-name "repo" alias-parent)))
+    (unwind-protect
+        (progn
+          (make-symbolic-link root alias-root)
+          (dolist (instance '(nil "" "default" "feature/test"))
+            (let ((expected
+                   (ai-code-backends-infra--session-key root instance)))
+              (dolist (candidate
+                       (list root
+                             (file-name-as-directory root)
+                             (expand-file-name "./" root)
+                             alias-root
+                             (file-name-as-directory alias-root)
+                             (expand-file-name "./" alias-root)))
+                (should
+                 (equal expected
+                        (ai-code-backends-infra--session-key
+                         candidate
+                         instance)))))))
+      (ignore-errors (delete-directory alias-parent t))
+      (ignore-errors (delete-directory root t)))))
+
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-default-process-table ()
   "Fallback to global process table when PROCESS-TABLE is nil."
   (let* ((ai-code-backends-infra--processes (make-hash-table :test 'equal))
@@ -1885,11 +2134,41 @@ The prefix argument should also force instance-name prompting."
            nil
            "echo hi")
           (should (eq captured-table ai-code-backends-infra--processes))
-          (should (eq (gethash (cons working-dir "default")
+          (should (eq (gethash (cons (test-ai-code-backends-infra--session-dir
+                                     working-dir)
+                                    "default")
                                ai-code-backends-infra--processes)
                       'mock-process)))
        (when (buffer-live-p buffer)
          (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra--toggle-or-create-session-reuse-cleans-unused-launch ()
+  "Reusing a session should clean resources prepared for the unused launch."
+  (let* ((working-dir "/tmp/ai-code-reuse-cleanup/")
+         (buffer-name "*ai-code-reuse-cleanup*")
+         (buffer (get-buffer-create buffer-name))
+         (process-table (make-hash-table :test 'equal))
+         (process 'existing-process)
+         (cleanup-count 0))
+    (unwind-protect
+        (progn
+          (puthash (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "default")
+                   process process-table)
+          (cl-letf (((symbol-function 'process-live-p)
+                     (lambda (candidate) (eq candidate process)))
+                    ((symbol-function 'ai-code-backends-infra--reuse-existing-session)
+                     (lambda (&rest _args) nil)))
+            (ai-code-backends-infra--toggle-or-create-session
+             working-dir
+             buffer-name
+             process-table
+             "unused command"
+             nil
+             (lambda () (cl-incf cleanup-count))))
+          (should (= cleanup-count 1)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-toggle-or-create-session-rebinds-source-file ()
   "Starting a new session from a file buffer should reattach that file."
@@ -2155,7 +2434,8 @@ The prefix argument should also force instance-name prompting."
       (should (equal (plist-get context :buffer-name)
                      "*codex[ai-code-session-target:review]*"))
       (should (equal (plist-get context :session-key)
-                     (cons working-dir "review")))
+                     (cons (test-ai-code-backends-infra--session-dir working-dir)
+                           "review")))
       (should-not prompt-called))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-does-not-prefill-prompt-buffer-filename ()
@@ -2198,7 +2478,8 @@ The prefix argument should also force instance-name prompting."
     (should (equal (plist-get context :buffer-name)
                    "*codex[ai-code-session-target:manual-session]*"))
     (should (equal (plist-get context :session-key)
-                   (cons working-dir "manual-session")))))
+                   (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "manual-session")))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-prefills-source-buffer-branch ()
   "Source buffers should seed new instance names from the current branch."
@@ -2263,7 +2544,8 @@ The prefix argument should also force instance-name prompting."
     (should (equal (plist-get context :buffer-name)
                    "*codex[ai-code-session-target:feat/first-session]*"))
     (should (equal (plist-get context :session-key)
-                   (cons working-dir "feat/first-session")))))
+                   (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "feat/first-session")))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-sanitizes-branch-name ()
   "Branch-derived instance names should keep session buffer names parseable."
@@ -2318,7 +2600,8 @@ The prefix argument should also force instance-name prompting."
     (should (equal (plist-get context :buffer-name)
                    "*codex[ai-code-session-target]*"))
     (should (equal (plist-get context :session-key)
-                   (cons working-dir "default")))))
+                   (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "default")))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-context-includes-runtime-state ()
   "Resolved session context should include target data plus buffer and process."
@@ -2330,7 +2613,9 @@ The prefix argument should also force instance-name prompting."
          (context nil))
     (unwind-protect
         (progn
-          (puthash (cons working-dir "default") process process-table)
+          (puthash (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "default")
+                   process process-table)
           (setq context
                 (ai-code-backends-infra--resolve-session-context
                  working-dir
@@ -2342,7 +2627,9 @@ The prefix argument should also force instance-name prompting."
           (should (equal (plist-get context :instance-name) "default"))
           (should (equal (plist-get context :buffer-name) buffer-name))
           (should (equal (plist-get context :session-key)
-                         (cons working-dir "default")))
+                         (cons (test-ai-code-backends-infra--session-dir
+                                working-dir)
+                               "default")))
           (should (eq (plist-get context :buffer) buffer))
           (should (eq (plist-get context :existing-process) process)))
       (when (buffer-live-p buffer)
@@ -2962,13 +3249,14 @@ The prefix argument should also force instance-name prompting."
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
 
-(ert-deftest test-ai-code-backends-infra-switch-reuses-live-attached-session-despite-working-dir-mismatch ()
-  "Reuse a live attached session even when WORKING-DIR no longer matches it."
+(ert-deftest test-ai-code-backends-infra-switch-rejects-attached-session-on-working-dir-mismatch ()
+  "Reject a live attached session when WORKING-DIR does not match it."
   (let* ((prefix "codex")
          (session-dir "/tmp/ai-code-file-attached-root/")
          (working-dir "/tmp/ai-code-file-attached-root/subdir/")
          (source (generate-new-buffer " *ai-code-source-attached-live*"))
          (attached (get-buffer-create "*codex[file-attached-root:attached]*"))
+         (select-called nil)
          (displayed nil))
     (unwind-protect
         (progn
@@ -2986,8 +3274,9 @@ The prefix argument should also force instance-name prompting."
           (cl-letf (((symbol-function 'ai-code-backends-infra--find-session-buffers)
                      (lambda (_prefix _dir) nil))
                     ((symbol-function 'ai-code-backends-infra--select-session-buffer)
-                     (lambda (&rest _args)
-                       (ert-fail "Should reuse the live attached session without prompting.")))
+                     (lambda (_prefix _directory &optional force-prompt)
+                       (setq select-called force-prompt)
+                       nil))
                     ((symbol-function 'get-buffer-window)
                      (lambda (&rest _args) nil))
                     ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
@@ -2995,18 +3284,21 @@ The prefix argument should also force instance-name prompting."
                        (setq displayed buffer)
                        nil)))
             (with-current-buffer source
-              (ai-code-backends-infra--switch-to-session-buffer
-               nil
-               "missing"
-               prefix
-               working-dir
-               nil)))
+              (should-error
+               (ai-code-backends-infra--switch-to-session-buffer
+                nil
+                "missing"
+                prefix
+                working-dir
+                nil)
+               :type 'user-error)))
 
-          (should (eq displayed attached))
-          (should (eq (gethash
-                       (ai-code-backends-infra--file-session-map-key prefix source)
-                       ai-code-backends-infra--file-session-map)
-                      attached)))
+          (should select-called)
+          (should-not displayed)
+          (should-not
+           (gethash
+            (ai-code-backends-infra--file-session-map-key prefix source)
+            ai-code-backends-infra--file-session-map)))
       (dolist (buf (list source attached))
         (when (buffer-live-p buf)
           (kill-buffer buf))))))
@@ -3322,6 +3614,185 @@ The prefix argument should also force instance-name prompting."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-backends-infra-vterm-window-scrolled-away-p-rejects-dead-window ()
+  "Anything that is not a live window is never treated as scrolled away."
+  (should-not (ai-code-backends-infra--vterm-window-scrolled-away-p nil))
+  (should-not (ai-code-backends-infra--vterm-window-scrolled-away-p 'fake-window)))
+
+(ert-deftest test-ai-code-backends-infra-vterm-frozen-windows-freezes-all-in-copy-mode ()
+  "`vterm-copy-mode' freezes every window, even one showing the buffer end."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-frozen-copy-mode*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode t)
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) nil)))
+              (should (equal (ai-code-backends-infra--vterm-frozen-windows)
+                             (list (selected-window)))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-frozen-windows-skips-following-window ()
+  "A window still showing the buffer end keeps following new output."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-frozen-following*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) nil)))
+              (should (null (ai-code-backends-infra--vterm-frozen-windows))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-frozen-windows-freezes-scrolled-away-window ()
+  "A window scrolled away from the buffer end is frozen without copy mode."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-frozen-scrolled*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) t)))
+              (should (equal (ai-code-backends-infra--vterm-frozen-windows)
+                             (list (selected-window)))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-render-preserving-view-freezes-scrolled-away-window ()
+  "Rendering keeps a scrolled-away viewport stable outside `vterm-copy-mode'."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-scrolled-away-render*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (dotimes (line 80)
+              (insert (format "line %02d\n" line)))
+            (goto-char (point-min))
+            (forward-line 25)
+            (set-window-start (selected-window) (point))
+            (forward-line 4)
+            (set-window-point (selected-window) (point))
+            (let ((original-start (window-start))
+                  (original-window-point (window-point))
+                  (original-point (point)))
+              (cl-letf (((symbol-function
+                          'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                         (lambda (_window) t)))
+                (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+                 (lambda ()
+                   ;; Mimic vterm recentering the window on the terminal cursor.
+                   (goto-char (point-max))
+                   (insert "tail\n")
+                   (set-window-start (selected-window) (point-max))
+                   (set-window-point (selected-window) (point-max)))))
+              (should (= (window-start) original-start))
+              (should (= (window-point) original-window-point))
+              (should (= (point) original-point)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-render-preserving-view-follows-output-at-bottom ()
+  "Rendering leaves a window that still shows the buffer end alone."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-following-render*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (dotimes (line 80)
+              (insert (format "line %02d\n" line)))
+            (goto-char (point-min))
+            (set-window-start (selected-window) (point-min))
+            (set-window-point (selected-window) (point-min))
+            (cl-letf (((symbol-function
+                        'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                       (lambda (_window) nil)))
+              (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+               (lambda ()
+                 (goto-char (point-max))
+                 (insert "tail\n")
+                 (set-window-start (selected-window) (point-max))
+                 (set-window-point (selected-window) (point-max)))))
+            ;; Nothing was frozen, so the viewport and point follow the output.
+            (should (= (window-start) (point-max)))
+            (should (= (window-point) (point-max)))
+            (should (= (point) (point-max)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-preserve-viewport-on-redraw-freezes-session-buffer ()
+  "The redraw advice keeps a scrolled-away session viewport stable."
+  (let ((buffer (generate-new-buffer "*testclaude[redraw-freeze]*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (with-current-buffer buffer
+            (setq-local vterm-copy-mode nil)
+            (dotimes (line 80)
+              (insert (format "line %02d\n" line)))
+            (goto-char (point-min))
+            (forward-line 25)
+            (set-window-start (selected-window) (point))
+            (set-window-point (selected-window) (point))
+            (let ((original-start (window-start))
+                  (redrawn nil))
+              (cl-letf (((symbol-function
+                          'ai-code-backends-infra--vterm-window-scrolled-away-p)
+                         (lambda (_window) t)))
+                (ai-code-backends-infra--vterm-preserve-viewport-on-redraw
+                 (lambda (redraw-buffer)
+                   (setq redrawn redraw-buffer)
+                   (goto-char (point-max))
+                   (set-window-start (selected-window) (point-max))
+                   (set-window-point (selected-window) (point-max)))
+                 buffer))
+              (should (eq redrawn buffer))
+              (should (= (window-start) original-start)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-vterm-preserve-viewport-on-redraw-passes-through-other-buffers ()
+  "Non-session buffers redraw without viewport preservation."
+  (let ((buffer (generate-new-buffer " *ai-code-vterm-plain-redraw*")))
+    (unwind-protect
+        (let ((redrawn nil)
+              (preserved nil))
+          (cl-letf (((symbol-function
+                      'ai-code-backends-infra--vterm-render-preserving-copy-mode-view)
+                     (lambda (render-fn)
+                       (setq preserved t)
+                       (funcall render-fn))))
+            (ai-code-backends-infra--vterm-preserve-viewport-on-redraw
+             (lambda (redraw-buffer) (setq redrawn redraw-buffer))
+             buffer))
+          (should (eq redrawn buffer))
+          (should-not preserved))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-configure-vterm-buffer-installs-redraw-viewport-advice ()
+  "Configuring a vterm buffer should wrap vterm's delayed redraw."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'vterm)
+    (let ((ai-code-backends-infra--vterm-advices-installed nil)
+          (installed nil))
+      (cl-letf (((symbol-function 'advice-add)
+                 (lambda (symbol _how function &rest _args)
+                   (push (cons symbol function) installed))))
+        (ai-code-backends-infra--configure-vterm-buffer))
+      (should (member (cons 'vterm--delayed-redraw
+                            #'ai-code-backends-infra--vterm-preserve-viewport-on-redraw)
+                      installed)))))
+
 (ert-deftest test-ai-code-backends-infra-vterm-render-queued-output-skips-dead-process ()
   "Queued output should be dropped when the buffer has no live process."
   (with-temp-buffer
@@ -3390,6 +3861,8 @@ The prefix argument should also force instance-name prompting."
            (mock-process 'mock-proc))
       (cl-letf (((symbol-function 'get-buffer-process)
                  (lambda (_buf) mock-process))
+                ((symbol-function 'process-live-p)
+                 (lambda (process) (eq process mock-process)))
                 ((symbol-function 'vterm--filter)
                  (lambda (_proc data) (setq flushed-data data))))
         (ai-code-backends-infra--vterm-flush-on-copy-mode-exit)
@@ -3609,11 +4082,52 @@ The prefix argument should also force instance-name prompting."
              session-key
              process-table)
             (should-not (gethash session-key process-table))
-            (should (equal (nreverse calls)
-                           (list (list :pop buffer)
-                                 "CLI failed to start - see buffer for error details")))))
+            (setq calls (nreverse calls))
+            (should (equal (car calls) (list :pop buffer)))
+            (should (string-prefix-p "CLI failed to start [backend=unknown"
+                                     (cadr calls)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-create-new-session-cleans-failed-launch ()
+  "An immediately failed CLI launch should release its prepared resources."
+  (let* ((working-dir "/tmp/ai-code-failed-launch-cleanup/")
+         (buffer-name "*ai-code-failed-launch-cleanup*")
+         (buffer (get-buffer-create buffer-name))
+         (process-table (make-hash-table :test 'equal))
+         (cleanup-count 0)
+         (failure-count 0))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--create-terminal-session)
+                   (lambda (&rest _args)
+                     (cons buffer 'failed-process)))
+                  ((symbol-function 'sleep-for) #'ignore)
+                  ((symbol-function 'process-live-p) (lambda (_process) nil))
+                  ((symbol-function 'ai-code-backends-infra--handle-session-start-failure)
+                   (lambda (&rest _args)
+                     (cl-incf failure-count))))
+          (ai-code-backends-infra--create-new-session
+           buffer-name working-dir '("agy") nil
+           'session-key process-table "default" "antigravity"
+           nil (lambda () (cl-incf cleanup-count)) nil nil nil buffer)
+          (should (= 1 failure-count))
+          (should (= 1 cleanup-count)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-create-new-session-cleans-create-error ()
+  "A terminal creation error should release its prepared launch resources."
+  (let ((cleanup-count 0))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--create-terminal-session)
+               (lambda (&rest _args)
+                 (error "Terminal creation failed"))))
+      (should-error
+       (ai-code-backends-infra--create-new-session
+        "*ai-code-create-error*" "/tmp/ai-code-create-error/" '("agy") nil
+        'session-key (make-hash-table :test 'equal) "default" "antigravity"
+        nil (lambda () (cl-incf cleanup-count)) nil nil nil (current-buffer))
+       :type 'error)
+      (should (= 1 cleanup-count)))))
 
 (ert-deftest test-ai-code-backends-infra-configure-session-buffer-does-not-bind-manual-navigation ()
   "Configuring a session buffer should not add a manual `C-c g' navigation feature."
@@ -3649,7 +4163,8 @@ The prefix argument should also force instance-name prompting."
         ;; It should NOT be rendered immediately.
         (should (null rendered))
         ;; It should be in the queue.
-        (should (equal ai-code-backends-infra--vterm-render-queue "Loading... 10%\rLoading... 20%\r"))))))
+        (should (equal ai-code-backends-infra--vterm-render-queue
+                       '("Loading... 10%\rLoading... 20%\r")))))))
 
 (ert-deftest test-ai-code-backends-infra-vterm-smart-renderer-allows-crlf-pass-through ()
   "Simple CRLF output should render immediately instead of being queued."
@@ -3734,8 +4249,8 @@ The prefix argument should also force instance-name prompting."
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/git/repo/")))))
 
-(ert-deftest test-ai-code-backends-infra-session-working-directory-returns-project-root ()
-  "Session working directory should return project.el root when available."
+(ert-deftest test-ai-code-backends-infra-session-working-directory-prefers-git-root ()
+  "Session working directory should prefer the Git worktree root."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir)
@@ -3744,6 +4259,20 @@ The prefix argument should also force instance-name prompting."
                (lambda (_project) "/projects/myapp/"))
               ((symbol-function 'magit-toplevel)
                (lambda (&optional _dir) "/git/other/")))
+      (should (equal (ai-code-backends-infra--session-working-directory)
+                     (file-name-as-directory
+                      (file-truename "/git/other/")))))))
+
+(ert-deftest test-ai-code-backends-infra-session-working-directory-uses-project-outside-git ()
+  "Session working directory should use project.el outside Git."
+  (let ((default-directory "/tmp/fallback/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir)
+                 '(transient . "/projects/myapp/")))
+              ((symbol-function 'project-root)
+               (lambda (_project) "/projects/myapp/"))
+              ((symbol-function 'magit-toplevel)
+               (lambda (&optional _dir) nil)))
       (should (equal (ai-code-backends-infra--session-working-directory)
                      "/projects/myapp/")))))
 

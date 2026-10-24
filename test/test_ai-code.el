@@ -71,19 +71,17 @@
                  (lambda (format-string &rest args)
                    (setq message-text (apply #'format format-string args))))
                 ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
+                 (lambda (prompt &optional _initial-input _candidate-list)
+                   (should (string-match-p "Describe the Emacs runtime issue" prompt))
                    (setq description-prompt prompt)
-                   "C-c x runs the wrong interactive command")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
+                   "C-c x runs the wrong interactive command"))
+                ((symbol-function 'read-string)
+                 (lambda (prompt &optional initial-input &rest _args)
                    (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
-              ((symbol-function 'ai-code--insert-prompt)
-               (lambda (prompt)
-                 (setq sent-prompt prompt))))
+                   initial-input))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt)
+                   (setq sent-prompt prompt))))
         (ai-code-debug-emacs-runtime)))
     (should (string-match-p "interactive function or a key binding"
                             description-prompt))
@@ -115,16 +113,14 @@
                (lambda (format-string &rest args)
                  (setq message-text (apply #'format format-string args))))
               ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
-                   (setq description-prompt prompt)
-                   "M-x foo fails")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                   (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
+               (lambda (prompt &optional _initial-input _candidate-list)
+                 (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                 (setq description-prompt prompt)
+                 "M-x foo fails"))
+              ((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (setq confirm-read-args (list prompt initial-input))
+                 initial-input))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq sent-prompt prompt))))
@@ -148,12 +144,13 @@
                  (lambda (&rest _args)
                    (ert-fail "Should not ask whether eval_elisp is allowed.")))
                 ((symbol-function 'ai-code-read-string)
-                 (lambda (prompt &optional initial-input _candidate-list)
-                   (if (string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                       (progn
-                         (setq confirm-read-args (list prompt initial-input))
-                         initial-input)
-                     "C-c x runs the wrong interactive command")))
+                 (lambda (prompt &optional _initial-input _candidate-list)
+                   (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                   "C-c x runs the wrong interactive command"))
+                ((symbol-function 'read-string)
+                 (lambda (prompt &optional initial-input &rest _args)
+                   (setq confirm-read-args (list prompt initial-input))
+                   initial-input))
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (&rest _args) nil)))
         (ai-code-debug-emacs-runtime)))
@@ -188,16 +185,19 @@
                  (should (= beg 10))
                  (should (= end 42))
                  "ai-code.el#L10-L11"))
+              ((symbol-function 'ai-code--scope-context-for-region)
+               (lambda (beg end)
+                 (should (= beg 10))
+                 (should (= end 42))
+                 nil))
               ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
-                   "C-c x runs the wrong interactive command")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                   (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
+               (lambda (prompt &optional _initial-input _candidate-list)
+                 (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                 "C-c x runs the wrong interactive command"))
+              ((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (setq confirm-read-args (list prompt initial-input))
+                 initial-input))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq sent-prompt prompt))))
@@ -230,8 +230,15 @@
               ((symbol-function 'ai-code--get-region-location-info)
                (lambda (_beg _end)
                  "ai-code.el#L10-L11"))
-              ((symbol-function 'which-function)
-               (lambda () "ai-code-test-command"))
+              ((symbol-function 'ai-code--scope-context-for-region)
+               (lambda (beg end)
+                 (should (= beg 10))
+                 (should (= end 42))
+                 (list :function-name "ai-code-test-command"
+                       :class-name "RuntimeDebugger"
+                       :class-header "class RuntimeDebugger:"
+                       :function-header "(defun ai-code-test-command ()"
+                       :range (cons (point-min) (point-max)))))
               ((symbol-function 'ai-code--get-context-files-string)
                (lambda () "\nFiles:\n/tmp/project/ai-code.el\n/tmp/project/ai-code-discussion.el"))
               ((symbol-function 'ai-code--format-repo-context-info)
@@ -239,15 +246,13 @@
               ((symbol-function 'ai-code--get-clipboard-text)
                (lambda () "Debugger entered--Lisp error: (void-function broken-command)"))
               ((symbol-function 'ai-code-read-string)
-               (lambda (prompt &optional initial-input _candidate-list)
-                 (cond
-                  ((string-match-p "Describe the Emacs runtime issue" prompt)
-                   "C-c x fails at runtime")
-                  ((string-match-p "Confirm and edit Emacs runtime debug prompt" prompt)
-                   (setq confirm-read-args (list prompt initial-input))
-                   initial-input)
-                  (t
-                   (ert-fail (format "Unexpected prompt: %s" prompt))))))
+               (lambda (prompt &optional _initial-input _candidate-list)
+                 (should (string-match-p "Describe the Emacs runtime issue" prompt))
+                 "C-c x fails at runtime"))
+              ((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (setq confirm-read-args (list prompt initial-input))
+                 initial-input))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (prompt)
                  (setq sent-prompt prompt))))
@@ -257,6 +262,10 @@
     (should (string-match-p "Current file: /tmp/project/ai-code\\.el"
                             (cadr confirm-read-args)))
     (should (string-match-p "Function: ai-code-test-command"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Class definition: class RuntimeDebugger:"
+                            (cadr confirm-read-args)))
+    (should (string-match-p "Function definition: (defun ai-code-test-command ()"
                             (cadr confirm-read-args)))
     (should (string-match-p "Selected region:" (cadr confirm-read-args)))
     (should (string-match-p "ai-code.el#L10-L11" (cadr confirm-read-args)))
@@ -404,12 +413,21 @@
 
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-session-dashboard-entry ()
   "Test that the AI CLI session menu exposes the session dashboard."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "j")))
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "Z")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-session-dashboard))
     (should (equal (plist-get (cdr suffix) :description)
                    "Session dashboard"))))
+
+(ert-deftest ai-code-test-menu-ai-cli-session-resume-uses-checkpoint-wrapper ()
+  "Test that Resume AI CLI routes through the checkpoint-aware wrapper."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "R")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-cli-resume-with-session-checkpoint))
+    (should (equal (plist-get (cdr suffix) :description)
+                   "Resume AI CLI (C-u: args)"))))
 
 (ert-deftest ai-code-test-menu-agile-development-includes-debug-emacs-runtime-entry ()
   "Test that the Agile Development menu exposes Emacs runtime debugging."
@@ -429,14 +447,10 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Investigate exception (C-u: clipboard)"))))
 
-(ert-deftest ai-code-test-menu-agile-development-includes-flycheck-fix-entry ()
-  "Test that the Agile Development menu exposes Flycheck fixes."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "f")))
-    (should suffix)
-    (should (eq (plist-get (cdr suffix) :command)
-                'ai-code-flycheck-fix-errors-in-scope))
-    (should (equal (plist-get (cdr suffix) :description)
-                   "Fix Flycheck errors in scope"))))
+(ert-deftest ai-code-test-menu-agile-development-removes-flycheck-fix-entry ()
+  "Test that Flycheck fixes no longer have a dedicated menu entry."
+  (should-error (transient-get-suffix 'ai-code--menu-agile-development "f")
+                :type 'error))
 
 (ert-deftest ai-code-test-menu-other-tools-removes-architecture-guardrails-entry ()
   "Test that the Other Tools menu no longer exposes a dedicated guardrails item."
@@ -457,25 +471,91 @@
      (equal inserted-prompt
             "Please stop and output a CHECKPOINT:\n- Goal\n- Files changed\n- Current hypothesis\n- Tests/build result\n- Blockers\n- Recommended next action\nDo not continue editing after this checkpoint"))))
 
-(ert-deftest ai-code-test-menu-other-tools-includes-session-checkpoint-entry ()
-  "Test that the Other Tools menu exposes AI session checkpoint."
-  (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "P"))
-         (definition (cdr suffix)))
-    (should suffix)
-    (should (eq (plist-get definition :command)
-                'ai-code-session-checkpoint))
-    (should (equal (plist-get definition :description)
-                   "AI session checkpoint"))))
+(ert-deftest ai-code-test-cli-resume-with-session-checkpoint-delegates-to-resume ()
+  "Test that resume delegates to `ai-code-cli-resume`."
+  (let (resume-arg)
+    (cl-letf (((symbol-function 'ai-code-cli-resume)
+               (lambda (&optional arg)
+                 (interactive "P")
+                 (setq resume-arg arg))))
+      (let ((current-prefix-arg '(4)))
+        (call-interactively #'ai-code-cli-resume-with-session-checkpoint)))
+    (should (equal resume-arg '(4)))))
+
+(ert-deftest ai-code-test-menu-other-tools-removes-session-checkpoint-entry ()
+  "Test that session checkpoint no longer owns a dedicated Other Tools key."
+  (should-error (transient-get-suffix 'ai-code--menu-other-tools "P")
+                :type 'error))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-dispatches-to-handoff-in-org-buffer ()
+  "Test that Org buffers route the merged command to agent handoff."
+  (let (handoff-arg checkpoint-called)
+    (cl-letf (((symbol-function 'ai-code-agent-handoff)
+               (lambda (&optional arg) (setq handoff-arg (list arg))))
+              ((symbol-function 'ai-code-session-checkpoint)
+               (lambda () (setq checkpoint-called t))))
+      (with-temp-buffer
+        (org-mode)
+        (ai-code-agent-handoff-or-checkpoint '(4))))
+    (should (equal handoff-arg '((4))))
+    (should-not checkpoint-called)))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-dispatches-to-checkpoint-in-session-buffer ()
+  "Test that AI session buffers route the merged command to the checkpoint."
+  (let ((buffer (get-buffer-create "*ai-code-test-backend[project]*"))
+        handoff-called checkpoint-called)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-agent-handoff)
+                   (lambda (&optional _arg) (setq handoff-called t)))
+                  ((symbol-function 'ai-code-session-checkpoint)
+                   (lambda () (setq checkpoint-called t))))
+          (with-current-buffer buffer
+            (ai-code-agent-handoff-or-checkpoint nil)))
+      (kill-buffer buffer))
+    (should checkpoint-called)
+    (should-not handoff-called)))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-asks-in-other-buffers ()
+  "Test that other buffers ask which of the two commands to run."
+  (let (prompted-collection handoff-arg)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq prompted-collection collection)
+                 "Agent handoff"))
+              ((symbol-function 'ai-code-agent-handoff)
+               (lambda (&optional arg) (setq handoff-arg (list arg))))
+              ((symbol-function 'ai-code-session-checkpoint)
+               (lambda () (error "Checkpoint must not run for this choice"))))
+      (with-temp-buffer
+        (fundamental-mode)
+        (ai-code-agent-handoff-or-checkpoint '(4))))
+    (should (equal prompted-collection '("Agent handoff" "Session checkpoint")))
+    (should (equal handoff-arg '((4))))))
+
+(ert-deftest ai-code-test-handoff-or-checkpoint-honors-checkpoint-choice ()
+  "Test that picking the checkpoint in other buffers runs the checkpoint."
+  (let (checkpoint-called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Session checkpoint"))
+              ((symbol-function 'ai-code-agent-handoff)
+               (lambda (&optional _arg) (error "Handoff must not run")))
+              ((symbol-function 'ai-code-session-checkpoint)
+               (lambda () (setq checkpoint-called t))))
+      (with-temp-buffer
+        (fundamental-mode)
+        (ai-code-agent-handoff-or-checkpoint nil)))
+    (should checkpoint-called)))
 
 (ert-deftest ai-code-test-menu-other-tools-includes-agent-handoff-entry ()
-  "Test that the Other Tools menu exposes agent handoff."
+  "Test that the Other Tools menu exposes the merged handoff/checkpoint entry."
   (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "H"))
          (definition (cdr suffix)))
     (should suffix)
     (should (eq (plist-get definition :command)
-                'ai-code-agent-handoff))
-    (should (equal (plist-get definition :description)
-                   "Agent handoff (C-u: whole task)"))))
+                'ai-code-agent-handoff-or-checkpoint))
+    ;; Only assert the prefix so the label can carry optional hints.
+    (should (string-prefix-p "Handoff / checkpoint"
+                             (plist-get definition :description)))))
 
 (ert-deftest ai-code-test-menu-prefix-command-default-layout ()
   "Test that the default menu layout uses the original transient."

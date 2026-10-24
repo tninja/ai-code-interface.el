@@ -164,6 +164,23 @@
         (ai-code-tdd-cycle)
         (should (equal called-function-name "my-function"))))))
 
+(ert-deftest ai-code-test-tdd-cycle-last-choice-derives-learning-tests ()
+  "Verify the last TDD stage derives learning unit tests for a topic."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (captured-choices called)
+      (cl-letf (((symbol-function 'ai-code--tdd-source-function-context-p) (lambda (_) nil))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _)
+                   (setq captured-choices collection)
+                   (car (last collection))))
+                ((symbol-function 'ai-code-derive-topic-unit-tests)
+                 (lambda () (setq called t))))
+        (ai-code-tdd-cycle)
+        (should (equal (car (last captured-choices))
+                       "6. Learning tests (Derive unit tests as a tutorial for a topic)"))
+        (should called)))))
+
 (ert-deftest ai-code-test-run-test-always-delegates-to-ai-assisted-runner ()
   "Verify `ai-code-run-test' always delegates to the AI-assisted test runner."
   (dolist (mode-setup '(emacs-lisp-mode
@@ -179,6 +196,66 @@
                        (setq ai-assisted-call-count (1+ ai-assisted-call-count)))))
             (ai-code-run-test)
             (should (= ai-assisted-call-count 1))))))))
+
+(ert-deftest ai-code-test-run-test-prompt-omits-empty-scope-details ()
+  "Never render a nil semantic scope as the literal string \"nil\"."
+  (dolist (case '((nil . "current file") ("run" . "current function")))
+    (ert-info ((format "Function name: %S" (car case)))
+      (with-temp-buffer
+        (insert "x = 1\n")
+        (goto-char (point-min))
+        (let (captured-prompt)
+          (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+                     (lambda () (list :function-name (car case))))
+                    ((symbol-function 'ai-code--format-scope-context)
+                     (lambda (_context) ""))
+                    ((symbol-function 'ai-code--get-context-files-string)
+                     (lambda () ""))
+                    ((symbol-function 'ai-code-read-string)
+                     (lambda (_prompt &optional initial &rest _) initial))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (prompt) (setq captured-prompt prompt))))
+            (ai-code--run-test-ai-assisted))
+          (should (string-match-p (cdr case) captured-prompt))
+          (should-not (string-match-p "nil" captured-prompt)))))))
+
+(ert-deftest ai-code-test-run-test-prompt-includes-scope-details ()
+  "Include semantic scope details in the run-test prompt when present."
+  (with-temp-buffer
+    (insert "x = 1\n")
+    (goto-char (point-min))
+    (let (captured-prompt)
+      (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda () (list :function-name "run")))
+                ((symbol-function 'ai-code--format-scope-context)
+                 (lambda (_context) "Enclosing class: Service"))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () ""))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial &rest _) initial))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+        (ai-code--run-test-ai-assisted))
+      (should (string-match-p "Enclosing class: Service" captured-prompt))
+      (should-not (string-match-p "nil" captured-prompt)))))
+
+(ert-deftest ai-code-test-agile-current-scope-includes-semantic-context ()
+  "Include class, signature, and range context in agile prompts."
+  (with-temp-buffer
+    (setq-local buffer-file-name "/project/src/service.py")
+    (insert "first line\nsecond line\n")
+    (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+               (lambda ()
+                 (list :function-name "find_user"
+                       :class-name "UserService"
+                       :class-header "class UserService:"
+                       :function-header "def find_user(self):"
+                       :range (cons (point-min) (1- (point-max)))))))
+      (let ((scope (ai-code--agile-current-scope-string
+                    "find_user" "\nFiles:\n/project/src/service.py")))
+        (should (string-match-p "Class definition: class UserService:" scope))
+        (should (string-match-p "Function definition: def find_user(self):" scope))
+        (should (string-match-p "Function range: lines 1-2" scope))))))
 
 (ert-deftest ai-code-test-tdd-red-green-blue-stage-prompt-includes-xp-rules ()
   "Verify Red + Green + Blue prompt includes TDD flow and XP simplicity rules."
@@ -368,6 +445,108 @@
         (should (equal (plist-get captured-context :context-description)
                        "for selected files/directories"))
         (should-not captured-tdd-mode)))))
+
+(ert-deftest ai-code-test-value-simplification-second-menu-choice ()
+  "Offer value simplification after strategy and dispatch it separately."
+  (with-temp-buffer
+    (let (choices called)
+      (cl-letf (((symbol-function 'ai-code--get-refactoring-context)
+                 (lambda () '(:region-active nil)))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt candidates &rest _)
+                   (setq choices candidates)
+                   "Value-driven Simplification"))
+                ((symbol-function 'ai-code--handle-value-driven-simplification)
+                 (lambda () (setq called t))))
+        (ai-code-refactor-book-method)
+        (should called)
+        (should (equal (cl-subseq choices 0 3)
+                       '("Suggest Refactoring Strategy"
+                         "Value-driven Simplification" "Extract Method")))))))
+
+(ert-deftest ai-code-test-value-simplification-branch-prompt ()
+  "Branch scope records merge-base and worktree choice without editing."
+  (with-temp-buffer
+    (let (captured)
+      (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _dir) "/repo"))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) "Current Branch"))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "feature"))
+                ((symbol-function 'ai-code--value-simplification-default-base)
+                 (lambda () "origin/main"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (prompt &optional initial _candidates)
+                   (if (string-prefix-p "Compare" prompt) initial "merge rules")))
+                ((symbol-function 'magit-rev-verify)
+                 (lambda (&rest _) t))
+                ((symbol-function 'magit-git-string)
+                 (lambda (&rest _) "abc123"))
+                ((symbol-function 'y-or-n-p) (lambda (&rest _) nil))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () ""))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured prompt) t)))
+        (ai-code--handle-value-driven-simplification)
+        (should (string-match-p "Merge-base commit: abc123" captured))
+        (should (string-match-p "Uncommitted changes: excluded" captured))
+        (should (string-match-p "Do not include index, working tree" captured))
+        (should (string-match-p "Topic: merge rules" captured))
+        (should (string-match-p "user makes the keep/simplify/delete decision" captured))
+        (should (string-match-p "do not edit code" captured))))))
+
+(ert-deftest ai-code-test-value-simplification-topic-requires-topic ()
+  "Repository topic mode asks for a topic and avoids branch operations."
+  (with-temp-buffer
+    (let (captured)
+      (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _dir) "/repo"))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) "Repository Topic"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (&rest _) "config merge"))
+                ((symbol-function 'magit-git-string)
+                 (lambda (&rest _) (ert-fail "Topic mode should not read branch history")))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () ""))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured prompt) t)))
+        (ai-code--handle-value-driven-simplification)
+        (should (string-match-p "Scope: Repository Topic" captured))
+        (should (string-match-p "Topic: config merge" captured))
+        (should-not (string-match-p "Merge-base commit" captured))))))
+
+(ert-deftest ai-code-test-value-simplification-rejects-empty-topic ()
+  "Do not send a repository-wide request with no specified topic."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _dir) "/repo"))
+              ((symbol-function 'completing-read) (lambda (&rest _) "Repository Topic"))
+              ((symbol-function 'ai-code-read-string) (lambda (&rest _) "  "))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (&rest _) (ert-fail "An empty topic must not be sent"))))
+      (should-error (ai-code--handle-value-driven-simplification)
+                    :type 'user-error))))
+
+(ert-deftest ai-code-test-value-simplification-includes-worktree-when-chosen ()
+  "Make staged, unstaged, and untracked changes explicit when included."
+  (with-temp-buffer
+    (let (captured)
+      (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _dir) "/repo"))
+                ((symbol-function 'completing-read) (lambda (&rest _) "Current Branch"))
+                ((symbol-function 'magit-get-current-branch) (lambda () "feature"))
+                ((symbol-function 'ai-code--value-simplification-default-base)
+                 (lambda () "main"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_prompt &optional initial _candidates) (or initial "")))
+                ((symbol-function 'magit-rev-verify) (lambda (&rest _) t))
+                ((symbol-function 'magit-git-string) (lambda (&rest _) "abc123"))
+                ((symbol-function 'y-or-n-p) (lambda (&rest _) t))
+                ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq captured prompt) t)))
+        (ai-code--handle-value-driven-simplification)
+        (should (string-match-p "Uncommitted changes: included" captured))
+        (should (string-match-p "staged and unstaged changes" captured))
+        (should (string-match-p "relevant untracked files" captured))))))
 
 (ert-deftest ai-code-test-handle-ask-llm-suggestion-dired-includes-selected-files ()
   "Verify Dired refactoring suggestions include selected files."

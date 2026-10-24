@@ -40,6 +40,22 @@
   (let ((header (ai-code-test--file-prefix "ai-code-autoloads.el" 400)))
     (should (string-match-p "^;;; Code:" header))))
 
+(ert-deftest ai-code-test-transient-prefixes-use-explicit-autoload-cookies ()
+  "Transient prefixes should be autoloaded with an explicit `autoload' form.
+A bare cookie makes `loaddefs-generate' copy the macro call verbatim when
+transient is not loaded at generation time, and loading that autoloads
+file then signals `void-function' for `transient-define-prefix'."
+  (dolist (file (directory-files default-directory t "\\`ai-code.*\\.el\\'"))
+    (unless (string-suffix-p "-autoloads.el" file)
+      (with-temp-buffer
+        (insert-file-contents file)
+        (goto-char (point-min))
+        (should-not
+         (and (re-search-forward
+               "^;;;###autoload[ \t]*\n(transient-define-" nil t)
+              (list (file-name-nondirectory file)
+                    (line-number-at-pos))))))))
+
 (ert-deftest ai-code-test-autoloads-file-omits-harness-test-after-change-custom ()
   "Autoloads file should omit the harness-only test-after-change custom."
   (with-temp-buffer

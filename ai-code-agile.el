@@ -12,6 +12,7 @@
 (defvar ai-code--harness-loading)
 
 (require 'ai-code-input)
+(require 'ai-code-magit)
 (require 'ai-code-prompt-mode)
 (let ((ai-code--harness-loading t))
   (require 'ai-code-change))
@@ -23,7 +24,14 @@
 (declare-function ai-code--compose-code-change-brief
                   "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")
+(declare-function ai-code--current-line-scope-context "ai-code-utils" ())
+(declare-function ai-code--scope-context-for-region "ai-code-utils" (beg end))
+(declare-function ai-code--format-scope-context "ai-code-utils" (context))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function magit-get-current-branch "magit-git" ())
+(declare-function magit-git-string "magit-git" (&rest args))
+(declare-function magit-rev-verify "magit-git" (&rest args))
+(declare-function ai-code-derive-topic-unit-tests "ai-code-doc" ())
 (declare-function dired-current-directory "dired" ())
 (declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 (declare-function dired-get-marked-files "dired"
@@ -35,6 +43,9 @@
   '((:name "Suggest Refactoring Strategy"
            :scopes (region global)
            :description "Let the LLM analyze the context and suggest the best refactoring technique.")
+    (:name "Value-driven Simplification"
+           :scopes (region global)
+           :description "Discuss which complexity is worth keeping, guided by business value.")
     (:name "Extract Method"
            :scopes (region global)
            :description "Extract the selected code into a new method named [METHOD_NAME]. Identify parameters and return values needed, and place the new method in an appropriate location."
@@ -467,7 +478,14 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
   (let* ((dired-targets (when (derived-mode-p 'dired-mode)
                           (ai-code--refactoring-dired-targets)))
          (region-active (and (not dired-targets) (region-active-p)))
-         (current-function (unless dired-targets (which-function)))
+         (scope-context (unless dired-targets
+                          (if region-active
+                              (ai-code--scope-context-for-region
+                               (region-beginning) (region-end))
+                            (ai-code--current-line-scope-context))))
+         (current-function (plist-get scope-context :function-name))
+         (semantic-scope (unless dired-targets
+                           (ai-code--format-scope-context scope-context)))
          (file-name (unless dired-targets
                       (when buffer-file-name
                         (file-name-nondirectory buffer-file-name)))))
@@ -475,6 +493,7 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
           :region-text (when region-active
                          (buffer-substring-no-properties (region-beginning) (region-end)))
           :current-function current-function
+          :semantic-scope semantic-scope
           :file-name file-name
           :dired-targets dired-targets
           :context-description (cond
@@ -513,19 +532,27 @@ otherwise falls back to absolute paths."
   "Return scope text for current agile prompt.
 FUNCTION-NAME is the current function when available.
 FILE-INFO is additional visible-file context."
-  (concat
-   (if buffer-file-name
-       (format "Current file: %s" buffer-file-name)
-     (format "Current buffer: %s" (buffer-name)))
-   (when function-name
-     (format "\nFunction: %s" function-name))
-   file-info))
+  (let* ((scope-context
+          (if (region-active-p)
+              (ai-code--scope-context-for-region
+               (region-beginning) (region-end))
+            (ai-code--current-line-scope-context)))
+         (semantic-scope (ai-code--format-scope-context scope-context)))
+    (concat
+     (if buffer-file-name
+         (format "Current file: %s" buffer-file-name)
+       (format "Current buffer: %s" (buffer-name)))
+     (cond
+      ((not (string-empty-p semantic-scope)) (concat "\n" semantic-scope))
+      (function-name (format "\nFunction: %s" function-name)))
+     file-info)))
 
 (defun ai-code--refactoring-scope-string (context file-info)
   "Return structured scope text for refactoring CONTEXT and FILE-INFO."
   (let ((region-active (plist-get context :region-active))
         (region-text (plist-get context :region-text))
         (current-function (plist-get context :current-function))
+        (semantic-scope (plist-get context :semantic-scope))
         (dired-targets (plist-get context :dired-targets))
         (context-description (plist-get context :context-description))
         (file-name (plist-get context :file-name)))
@@ -542,8 +569,10 @@ FILE-INFO is additional visible-file context."
        (format "Current buffer: %s" (buffer-name))))
      (when context-description
        (format "\nRefactoring context: %s" context-description))
-     (when current-function
-       (format "\nFunction: %s" current-function))
+     (cond
+      ((and semantic-scope (not (string-empty-p semantic-scope)))
+       (concat "\n" semantic-scope))
+      (current-function (format "\nFunction: %s" current-function)))
      (when region-active
        (format "\nSelected code:\n%s" region-text))
      file-info)))
@@ -676,6 +705,90 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
       (message "Requesting refactoring suggestion from AI Code Interface%s. If you are happy with the suggestion, use 'go ahead' to accept the change"
                message-suffix))))
 
+(defconst ai-code--value-simplification-discussion
+  (concat
+   "Value-driven Simplification: investigate before recommending changes. "
+   "Start with a bounded search of the relevant diff or topic, then inspect "
+   "callers, tests, and documented constraints as needed. Do not read the "
+   "entire repository or paste a large diff into the response. "
+   "Briefly identify one consequential source of complexity with file/line "
+   "evidence, distinguish code facts from guesses about business intent, "
+   "and identify affected core paths and behavior that may need protection. "
+   "Ask ONE high-value question at a time about business value, historical "
+   "constraints, what the user would keep, and how the user would simplify. "
+   "Do not assume that fewer lines are better or prescribe a full plan. "
+   "Wait for the user's answer. Challenge their proposal with concrete "
+   "dependencies, invariants, and risks; invite revisions. The user makes "
+   "the keep/simplify/delete decision. Only after the user's direction, "
+   "propose one small, independently verifiable next step with relevant "
+   "tests and rollback considerations. Discuss only: do not edit code, "
+   "remove behavior, or run mutating commands without explicit user approval.")
+  "Shared human-led discussion instructions for value simplification.")
+
+(defun ai-code--value-simplification-default-base ()
+  "Return a likely base ref for the current Git branch, or nil."
+  (or (let ((remote-head (magit-git-string
+                          "symbolic-ref" "--quiet" "--short"
+                          "refs/remotes/origin/HEAD")))
+        (and remote-head (not (string-empty-p remote-head)) remote-head))
+      (and (magit-rev-verify "main") "main")
+      (and (magit-rev-verify "master") "master")))
+
+(defun ai-code--handle-value-driven-simplification ()
+  "Discuss business value and code complexity in a branch or repository topic."
+  (let* ((root (or (ai-code--git-root)
+                   (user-error "Value-driven Simplification requires a Git repository")))
+         (default-directory (file-name-as-directory root))
+         (scope (completing-read "Analyze: "
+                                 '("Current Branch" "Repository Topic")
+                                 nil t))
+         (branch-p (string= scope "Current Branch"))
+         (branch (when branch-p (or (magit-get-current-branch) "HEAD")))
+         (base (when branch-p
+                 (string-trim (ai-code-read-string
+                               "Compare with base branch/ref: "
+                               (ai-code--value-simplification-default-base)))))
+         (merge-base (when branch-p
+                       (unless (and (not (string-empty-p base))
+                                    (magit-rev-verify base))
+                         (user-error "Select an existing base branch or ref"))
+                       (or (magit-git-string "merge-base" base "HEAD")
+                           (user-error "No common ancestor with %s" base))))
+         (include-worktree (and branch-p
+                                (y-or-n-p "Include uncommitted changes (including relevant untracked files)? ")))
+         (topic (string-trim
+                 (ai-code-read-string
+                  (if branch-p "Narrow to topic (optional): " "Repository topic: ")))))
+    (unless (or branch-p (not (string-empty-p topic)))
+      (user-error "Enter a repository topic"))
+    (let ((prompt
+           (concat
+            ai-code--value-simplification-discussion
+            "\n\nRepository: " root
+            "\nScope: " scope
+            (if branch-p
+                (format
+                 (concat "\nCurrent branch: %s\nSelected base: %s"
+                         "\nMerge-base commit: %s"
+                         "\nUncommitted changes: %s"
+                         "\nInspect committed changes from the merge-base to HEAD, "
+                         "including relevant tests. %s")
+                 branch base merge-base
+                 (if include-worktree "included" "excluded")
+                 (if include-worktree
+                     (concat "Also inspect staged and unstaged changes and "
+                             "relevant untracked files; label their provenance separately.")
+                   (concat "Do not include index, working tree, or untracked "
+                           "changes. When reading affected files, use the "
+                           "committed HEAD version rather than the working "
+                           "copy so the analysis respects this choice.")))
+              (concat "\nLocate relevant implementation, callers, tests, and "
+                      "documented constraints incrementally."))
+            (unless (string-empty-p topic) (concat "\nTopic: " topic))
+            (or (ai-code--get-context-files-string) ""))))
+      (when (ai-code--insert-prompt prompt)
+        (message "Value-driven Simplification discussion sent to AI Code Interface")))))
+
 ;;;###autoload
 (defun ai-code-refactor-book-method (&optional tdd-mode)
   "Apply refactoring techniques or request suggestions.
@@ -698,9 +811,13 @@ TDD refactor stage."
              (prompt (concat prompt-prefix prompt-suffix))
              (selected-technique (completing-read prompt technique-names nil t)))
         ;; Dispatch to appropriate handler based on user selection
-        (if (string= selected-technique "Suggest Refactoring Strategy")
-            (ai-code--handle-ask-llm-suggestion context tdd-mode)
-          (ai-code--handle-specific-refactoring selected-technique all-techniques context tdd-mode))))))
+        (cond
+         ((string= selected-technique "Suggest Refactoring Strategy")
+          (ai-code--handle-ask-llm-suggestion context tdd-mode))
+         ((string= selected-technique "Value-driven Simplification")
+          (ai-code--handle-value-driven-simplification))
+         (t (ai-code--handle-specific-refactoring
+             selected-technique all-techniques context tdd-mode)))))))
 
 (defun ai-code--ensure-test-buffer-visible ()
   "Ensure that at least one buffer in the current windows is a test file.
@@ -922,7 +1039,18 @@ to fix code."
 (defun ai-code--run-test-ai-assisted ()
   "Send a prompt to AI to run a test command with current context."
   (let* ((is-dired (derived-mode-p 'dired-mode))
-         (function-name (unless is-dired (which-function)))
+         (scope-context
+          (unless is-dired
+            (if (region-active-p)
+                (ai-code--scope-context-for-region
+                 (region-beginning) (region-end))
+              (ai-code--current-line-scope-context))))
+         (function-name (plist-get scope-context :function-name))
+         (semantic-scope (unless is-dired
+                           (ai-code--format-scope-context scope-context)))
+         (scope-details (if (string-empty-p (or semantic-scope ""))
+                            ""
+                          (concat "\n" semantic-scope)))
          (file-info (unless is-dired (ai-code--get-context-files-string)))
          (error-handling-instruction
           (concat "\n\nIf any test fails:"
@@ -937,12 +1065,14 @@ to fix code."
                     (dired-current-directory)
                     error-handling-instruction))
            (function-name
-            (format "Run the tests for the current function '%s' using appropriate test runner.%s%s"
+            (format "Run the tests for the current function '%s' using appropriate test runner.%s%s%s"
                     function-name
+                    scope-details
                     file-info
                     error-handling-instruction))
            (t
-            (format "Run the tests for the current file using appropriate test runner.%s%s"
+            (format "Run the tests for the current file using appropriate test runner.%s%s%s"
+                    scope-details
                     file-info
                     error-handling-instruction))))
          (prompt (ai-code-read-string "Send to AI: " initial-input)))
@@ -959,55 +1089,68 @@ to fix code."
 ;;;###autoload
 (defun ai-code-tdd-cycle ()
   "Guide through Test Driven Development cycle (Red-Green-Refactor).
+In Magit, add tests for existing hunk changes; the agent runs verification.
 Helps users follow Kent Beck's TDD methodology with AI assistance.
 Works with both source code and test files that have been added to ai-code."
   (interactive)
-  ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
-  (let* ((function-name (which-function))
-         ;; Capture region text early, before completing-read may deactivate the mark.
-         ;; Only capture when in a non-test source buffer so it mirrors the same guard
-         ;; used by ai-code--tdd-source-function-context-p.
-         (region-text (when (and (region-active-p)
-                                 buffer-file-name
-                                 (derived-mode-p 'prog-mode)
-                                 (let ((case-fold-search t))
-                                   (not (string-match-p "test" (file-name-nondirectory buffer-file-name)))))
-                        (buffer-substring-no-properties (region-beginning) (region-end))))
-         (use-write-test-stage (or (ai-code--tdd-source-function-context-p function-name)
-                                   (and region-text (not (string-empty-p region-text)))))
-         (red-stage-label (cond
-                           ((and use-write-test-stage region-text)
-                            "1. Red (Write test for selected region)")
-                           (use-write-test-stage
-                            (format "1. Red (Write test for %s)" function-name))
-                           (t
-                            "1. Red (Write failing test)")))
-         (cycle-stage (completing-read
-                       "Select TDD stage: "
-                       (list "0. Run unit-tests"
-                             red-stage-label
-                             "2. Green (Make test pass)"
-                             "3. Blue (Refactor, improve code quality)"
-                             "4. Red + Green (One prompt)"
-                             "5. Red + Green + Blue (One prompt)")
-                       nil t))
-         (stage-num (string-to-number (substring cycle-stage 0 1))))
-    (cond
-     ;; Run tests
-     ((= stage-num 0) (ai-code-run-test))
-     ;; Red stage - write failing test
-     ((= stage-num 1)
-      (if use-write-test-stage
-          (ai-code--write-test function-name region-text)
-        (ai-code--tdd-red-stage function-name)))
-     ;; Green stage - make test pass
-     ((= stage-num 2) (ai-code--tdd-green-stage function-name))
-     ;; Refactor stage - call the main refactoring function in TDD mode
-     ((= stage-num 3) (ai-code-refactor-book-method t))
-     ;; Red + Green combined in one prompt
-     ((= stage-num 4) (ai-code--tdd-red-green-stage function-name))
-     ;; Red + Green + Blue combined in one prompt
-     ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name)))))
+  (if (derived-mode-p 'magit-mode)
+      (ai-code-magit-prompt 'tests)
+    ;; DONE: use-write-test-stage should also support selected region. If there is selected region, we can use it as the context for writing a test. If there is no selected region, we can use the current function name as the context for writing a test.
+    ;; DONE: ai-code-derive-topic-unit-tests should be added as the last option of C-c a t, purpose is to derive the test code as tutorial and learning material for the user for given topic.
+    (let* ((region-active (region-active-p))
+           (scope-context
+            (if region-active
+                (ai-code--scope-context-for-region
+                 (region-beginning) (region-end))
+              (ai-code--current-line-scope-context)))
+           (function-name (plist-get scope-context :function-name))
+           ;; Capture region text early, before completing-read may deactivate the mark.
+           ;; Only capture when in a non-test source buffer so it mirrors the same guard
+           ;; used by ai-code--tdd-source-function-context-p.
+           (region-text (when (and region-active
+                                   buffer-file-name
+                                   (derived-mode-p 'prog-mode)
+                                   (let ((case-fold-search t))
+                                     (not (string-match-p "test" (file-name-nondirectory buffer-file-name)))))
+                          (buffer-substring-no-properties (region-beginning) (region-end))))
+           (use-write-test-stage (or (ai-code--tdd-source-function-context-p function-name)
+                                     (and region-text (not (string-empty-p region-text)))))
+           (red-stage-label (cond
+                             ((and use-write-test-stage region-text)
+                              "1. Red (Write test for selected region)")
+                             (use-write-test-stage
+                              (format "1. Red (Write test for %s)" function-name))
+                             (t
+                              "1. Red (Write failing test)")))
+           (cycle-stage (completing-read
+                         "Select TDD stage: "
+                         (list "0. Run unit-tests"
+                               red-stage-label
+                               "2. Green (Make test pass)"
+                               "3. Blue (Refactor, improve code quality)"
+                               "4. Red + Green (One prompt)"
+                               "5. Red + Green + Blue (One prompt)"
+                               "6. Learning tests (Derive unit tests as a tutorial for a topic)")
+                         nil t))
+           (stage-num (string-to-number (substring cycle-stage 0 1))))
+      (cond
+       ;; Run tests
+       ((= stage-num 0) (ai-code-run-test))
+       ;; Red stage - write failing test
+       ((= stage-num 1)
+        (if use-write-test-stage
+            (ai-code--write-test function-name region-text)
+          (ai-code--tdd-red-stage function-name)))
+       ;; Green stage - make test pass
+       ((= stage-num 2) (ai-code--tdd-green-stage function-name))
+       ;; Refactor stage - call the main refactoring function in TDD mode
+       ((= stage-num 3) (ai-code-refactor-book-method t))
+       ;; Red + Green combined in one prompt
+       ((= stage-num 4) (ai-code--tdd-red-green-stage function-name))
+       ;; Red + Green + Blue combined in one prompt
+       ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name))
+       ;; Learning tests - derive unit tests as a tutorial for a topic
+       ((= stage-num 6) (ai-code-derive-topic-unit-tests))))))
 
 (provide 'ai-code-agile)
 

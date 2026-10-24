@@ -14,7 +14,7 @@
 
 (declare-function agent-shell "agent-shell" (&optional arg))
 (declare-function agent-shell--shell-buffer "agent-shell" (&key viewport-buffer no-error no-create))
-(declare-function agent-shell-queue-request "agent-shell" (prompt))
+(declare-function agent-shell-prompt-queue "agent-shell" (prompt))
 
 (defvar agent-shell-session-strategy)
 
@@ -27,7 +27,7 @@
   "Ensure `agent-shell' can be used."
   (unless (require 'agent-shell nil t)
     (user-error "Agent-shell backend is not available; please install agent-shell"))
-  (dolist (fn '(agent-shell agent-shell--shell-buffer agent-shell-queue-request))
+  (dolist (fn '(agent-shell agent-shell--shell-buffer agent-shell-prompt-queue))
     (unless (fboundp fn)
       (user-error "Agent-shell backend missing required function: %s" fn))))
 
@@ -62,7 +62,7 @@ When FORCE-PROMPT is non-nil, prompt to choose a shell."
   (let ((buffer (agent-shell--shell-buffer :no-create t :no-error t)))
     (if buffer
         (with-current-buffer buffer
-          (agent-shell-queue-request line))
+          (agent-shell-prompt-queue line))
       (user-error "No agent-shell session for this project"))))
 
 ;;;###autoload

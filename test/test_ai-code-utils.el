@@ -55,13 +55,65 @@
                    (file-truename "/git/root/")))))
 
 (ert-deftest test-ai-code-utils-session-project-root-cascade ()
-  "session-project-root should cascade: project.el -> git -> default-directory."
+  "session-project-root should cascade: override, Git, project, then default."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir) nil))
               ((symbol-function 'magit-toplevel)
                (lambda (&optional _dir) nil)))
       (should (equal (ai-code--session-project-root) "/tmp/fallback/")))))
+
+(ert-deftest test-ai-code-utils-worktree-main-repo-root-nil-outside-worktree ()
+  "worktree-main-repo-root should return nil when not in a worktree."
+  (cl-letf (((symbol-function 'magit-git-string)
+             (lambda (&rest args)
+               (cond
+                ((equal args '("rev-parse" "--git-common-dir")) ".git")
+                ((equal args '("rev-parse" "--git-dir")) ".git")
+                (t nil)))))
+    (should-not (ai-code--worktree-main-repo-root))))
+
+(ert-deftest test-ai-code-utils-worktree-main-repo-root-in-worktree ()
+  "worktree-main-repo-root should derive main repo root from --git-common-dir."
+  (let ((common-dir (file-truename "/tmp/fake/main-repo/.git"))
+        (git-dir (file-truename "/tmp/fake/main-repo/.git/worktrees/wt1")))
+    (cl-letf (((symbol-function 'magit-git-string)
+               (lambda (&rest args)
+                 (cond
+                  ((equal args '("rev-parse" "--git-common-dir")) common-dir)
+                  ((equal args '("rev-parse" "--git-dir")) git-dir)
+                  (t nil)))))
+      (should (equal (ai-code--worktree-main-repo-root)
+                     (file-truename "/tmp/fake/main-repo"))))))
+
+(ert-deftest test-ai-code-utils-worktree-main-repo-root-with-dir-arg ()
+  "worktree-main-repo-root should accept an optional DIR argument."
+  (let ((called-with-dir nil)
+        (common-dir (file-truename "/tmp/fake/main-repo/.git"))
+        (git-dir (file-truename "/tmp/fake/main-repo/.git/worktrees/wt1")))
+    (cl-letf (((symbol-function 'magit-git-string)
+               (lambda (&rest args)
+                 (setq called-with-dir default-directory)
+                 (cond
+                  ((equal args '("rev-parse" "--git-common-dir")) common-dir)
+                  ((equal args '("rev-parse" "--git-dir")) git-dir)
+                  (t nil)))))
+      (let ((result (ai-code--worktree-main-repo-root "/custom/wt/path/")))
+        (should (equal result (file-truename "/tmp/fake/main-repo")))
+        (should (equal called-with-dir "/custom/wt/path/"))))))
+
+(ert-deftest test-ai-code-utils-worktree-main-repo-root-bare-repo ()
+  "worktree-main-repo-root should return bare repo dir when common-dir does not end in .git."
+  (let ((common-dir (file-truename "/tmp/fake/main-repo.git"))
+        (git-dir (file-truename "/tmp/fake/main-repo.git/worktrees/wt1")))
+    (cl-letf (((symbol-function 'magit-git-string)
+               (lambda (&rest args)
+                 (cond
+                  ((equal args '("rev-parse" "--git-common-dir")) common-dir)
+                  ((equal args '("rev-parse" "--git-dir")) git-dir)
+                  (t nil)))))
+      (should (equal (ai-code--worktree-main-repo-root)
+                     common-dir)))))
 
 (ert-deftest test-ai-code-utils-files-dir-name-is-string ()
   "ai-code-files-dir-name should be a non-empty string constant."

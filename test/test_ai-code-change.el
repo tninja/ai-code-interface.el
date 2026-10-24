@@ -556,8 +556,11 @@ is between the function definition and its body."
         (should (string-match-p "Use Codex for implementation\\." captured-prompt))
         (should (string-match-p "Keep the UI untouched\\." captured-prompt))))))
 
-(ert-deftest ai-code-test-ai-code-implement-todo-org-body-line-is-not-headline ()
-  "Test Org body lines do not count as the TODO entry for implementation."
+;; Superseded by `ai-code-test-org-section-body-point-resolves-to-section':
+;; issue #509 makes a point inside an Org body resolve to its enclosing section
+;; instead of signalling a `user-error'.
+(ert-deftest ai-code-test-ai-code-implement-todo-org-body-line-resolves-to-section ()
+  "Test Org body lines resolve to the enclosing section for implementation."
   (with-temp-buffer
     (require 'org)
     (setq buffer-file-name "todo.org")
@@ -568,7 +571,12 @@ is between the function definition and its body."
     (forward-line 1)
 
     (cl-letf (((symbol-function 'region-active-p) (lambda () nil)))
-      (should-error (ai-code-implement-todo nil) :type 'user-error))))
+      (let ((info (ai-code--implement-todo--get-org-todo-section-info)))
+        (should info)
+        (should (equal "** TODO my task description"
+                       (plist-get info :heading-line)))
+        (should (= 1 (plist-get info :line-number)))
+        (should (= 2 (plist-get info :end-line-number)))))))
 
 (ert-deftest ai-code-test-ai-code-implement-todo-org-headline-with-colon-prefix ()
   "Test Org headline with `TODO:' prefix is accepted."
@@ -778,7 +786,13 @@ is between the function definition and its body."
     (goto-char (point-min))
     (let (captured-prompt)
       (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
-                ((symbol-function 'which-function) (lambda () "old-helper"))
+                ((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda ()
+                   (list :function-name "old-helper"
+                         :class-name "HelperService"
+                         :class-header "class HelperService:"
+                         :function-header "(defun old-helper ()"
+                         :range (cons (point-min) (1- (point-max))))))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (_label _input) "Rename old-helper to new-helper"))
                 ((symbol-function 'ai-code--get-context-files-string)
@@ -791,10 +805,108 @@ is between the function definition and its body."
         (should (stringp captured-prompt))
         (should (string-match-p "Goal:\nRename old-helper to new-helper" captured-prompt))
         (should (string-match-p "Scope:" captured-prompt))
+        (should (string-match-p "Enclosing class: HelperService" captured-prompt))
+        (should (string-match-p "Class definition: class HelperService:" captured-prompt))
         (should (string-match-p "Function: old-helper" captured-prompt))
+        (should (string-match-p "Function definition: (defun old-helper ()" captured-prompt))
+        (should (string-match-p "Function range: lines 1-2" captured-prompt))
         (should (string-match-p "Boundaries:" captured-prompt))
         (should (string-match-p "Agent responsibilities:" captured-prompt))
         (should (string-match-p "Verification evidence:" captured-prompt))))))
+
+(ert-deftest ai-code-test-code-change-whole-function-region-is-direction-independent ()
+  "Use the selected function scope for forward and reverse Tree-sitter regions."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        value = 1\n"
+            "        return value\n\n"
+            "    def second(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "return value")
+    (backward-char 1)
+    (let* ((function-node (ai-code--treesit-defun-at-point))
+           (start (treesit-node-start function-node))
+           (end (treesit-node-end function-node)))
+      (cl-labels
+          ((capture-prompt
+            (point-position mark-position)
+            (goto-char mark-position)
+            (set-mark (point))
+            (goto-char point-position)
+            (let (captured-prompt)
+              (cl-letf (((symbol-function 'region-active-p) (lambda () t))
+                        ((symbol-function 'ai-code-read-string)
+                         (lambda (&rest _) "Change selected code"))
+                        ((symbol-function 'ai-code--get-context-files-string)
+                         (lambda () ""))
+                        ((symbol-function 'ai-code--format-repo-context-info)
+                         (lambda () ""))
+                        ((symbol-function 'ai-code--get-region-location-info)
+                         (lambda (&rest _) "service.py#L2-L4"))
+                        ((symbol-function 'ai-code--insert-prompt)
+                         (lambda (prompt) (setq captured-prompt prompt))))
+                (ai-code--handle-regular-code-change nil t))
+              captured-prompt)))
+        (let ((forward-prompt (capture-prompt end start))
+              (reverse-prompt (capture-prompt start end)))
+          (dolist (prompt (list forward-prompt reverse-prompt))
+            (should (string-match-p "Selected region:" prompt))
+            (should (string-match-p "Function: first" prompt))
+            (should (string-match-p "Function definition: def first(self):"
+                                    prompt))
+            (should-not (string-match-p "Function: Service" prompt)))
+          (should (equal forward-prompt reverse-prompt)))))))
+
+(ert-deftest ai-code-test-implement-todo-context-normalizes-ts-indentation ()
+  "Collect method context from indentation on a Tree-sitter definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+              ((symbol-function 'ai-code--get-context-files-string)
+               (lambda () "")))
+      (let ((context (ai-code--implement-todo--collect-prompt-context nil)))
+        (should (equal (plist-get context :function-name) "first"))
+        (should (string-match-p "Function definition: def first(self):"
+                                (plist-get context :function-context)))))))
+
+(ert-deftest ai-code-test-flycheck-function-scope-uses-ts-function-range ()
+  "Use the Tree-sitter method range from an indented definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (cl-letf (((symbol-function 'region-active-p) (lambda () nil))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt choices &rest _)
+                 (should (member "current-function" choices))
+                 "current-function")))
+      (pcase-let ((`(,start ,end ,description)
+                   (ai-code--choose-flycheck-scope)))
+        (should (= (line-number-at-pos start) 2))
+        (should (= (line-number-at-pos end) 3))
+        (should (string-match-p "function 'first'" description))))))
 
 (ert-deftest ai-code-test-flycheck-fix-errors-uses-structured-brief ()
   "Test `ai-code-flycheck-fix-errors-in-scope' uses structured code-change brief."
@@ -1110,6 +1222,362 @@ is between the function definition and its body."
 
         (should command-executed)
         (should-not y-or-n-called)))))
+
+(ert-deftest ai-code-test-implement-todo-comment-keeps-enclosing-scope ()
+  "Keep Tree-sitter scope for a TODO comment inside a method."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def run(self):\n"
+            "        # TODO: implement caching\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 2)
+    (let* ((context (ai-code--implement-todo--collect-prompt-context nil))
+           (function-context (plist-get context :function-context)))
+      (should (plist-get context :is-comment))
+      (should (equal (plist-get context :function-name) "run"))
+      (should (string-match-p "Enclosing class: Service" function-context))
+      (should (string-match-p "Function: run" function-context))
+      (should (string-match-p "Function definition: def run(self):"
+                              function-context)))))
+
+(ert-deftest ai-code-test-implement-todo-comment-for-next-function-keeps-class-only ()
+  "Drop function metadata when a TODO comment documents the following method."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def run(self):\n"
+            "        return 1\n\n"
+            "    # TODO: add retry\n"
+            "    def retry(self):\n"
+            "        return 2\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (search-forward "# TODO")
+    (back-to-indentation)
+    (let* ((context (ai-code--implement-todo--collect-prompt-context nil))
+           (function-context (plist-get context :function-context)))
+      (should (equal (plist-get context :function-name) "retry"))
+      (should (string-match-p "Enclosing class: Service" function-context))
+      (should (string-match-p "Function: retry" function-context))
+      ;; The scope at point still describes `run', so its signature and range
+      ;; must not be attributed to `retry'.
+      (should-not (string-match-p "Function definition" function-context))
+      (should-not (string-match-p "Function range" function-context))
+      (should-not (string-match-p "run" function-context)))))
+
+(ert-deftest ai-code-test-implement-todo-format-function-context-empty ()
+  "Return an empty scope block when no scope information exists."
+  (should (equal (ai-code--implement-todo--format-function-context nil nil) ""))
+  (should (equal (ai-code--implement-todo--format-function-context "" nil) ""))
+  (should (equal (ai-code--implement-todo--format-function-context "" "run")
+                 "\nFunction: run")))
+
+;;; Org section scope selection (issue #509)
+
+(defvar ai-code-change-test--captured-prompt nil
+  "Prompt captured by the stubbed `ai-code--insert-prompt'.")
+
+(defvar ai-code-change-test--offered-sections nil
+  "Org section candidate labels offered to the stubbed `completing-read'.")
+
+(defvar ai-code-change-test--section-choice 0
+  "Index of the Org section candidate the stubbed `completing-read' picks.")
+
+(defmacro ai-code-change-test--with-org-stubs (&rest body)
+  "Run BODY with the Org TODO prompt stubs used by the issue #509 tests."
+  (declare (indent 0) (debug t))
+  `(let ((ai-code-change-test--captured-prompt nil)
+         (ai-code-change-test--offered-sections nil))
+     (cl-letf (((symbol-function 'completing-read)
+                (lambda (prompt collection &rest _)
+                  (if (string-match-p "Org section" prompt)
+                      (progn
+                        (setq ai-code-change-test--offered-sections collection)
+                        (nth ai-code-change-test--section-choice collection))
+                    "Code change")))
+               ((symbol-function 'ai-code-read-string)
+                (lambda (_label input) input))
+               ((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+               ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+               ((symbol-function 'ai-code--format-repo-context-info) (lambda () ""))
+               ((symbol-function 'ai-code--get-git-relative-paths)
+                (lambda (_files) (list "notes/plan.org")))
+               ((symbol-function 'which-function) (lambda () nil))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt)
+                  (setq ai-code-change-test--captured-prompt prompt))))
+       ,@body)))
+
+(defun ai-code-change-test--org-buffer-setup (text)
+  "Turn the current temp buffer into a saved Org buffer containing TEXT."
+  (require 'org)
+  (setq buffer-file-name "plan.org")
+  (insert text)
+  (org-mode)
+  (set-buffer-modified-p nil)
+  (goto-char (point-min)))
+
+(ert-deftest ai-code-test-org-section-candidates-leaf-first ()
+  "Test Org section candidates run from the innermost section outward."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Root\n"                    ; 1
+             "root body\n"                      ; 2
+             "** TODO Middle\n"                 ; 3
+             "middle body\n"                    ; 4
+             "*** TODO Leaf\n"                  ; 5
+             "leaf body\n"))                    ; 6
+    (forward-line 5)                            ; point inside the leaf body
+    (let ((candidates (ai-code--org-section-candidates)))
+      (should (equal '("*** TODO Leaf" "** TODO Middle" "* TODO Root")
+                     (mapcar (lambda (c) (plist-get c :heading-line)) candidates)))
+      (should (equal '((5 . 6) (3 . 6) (1 . 6))
+                     (mapcar (lambda (c)
+                               (cons (plist-get c :begin-line)
+                                     (plist-get c :end-line)))
+                             candidates)))
+      (should (equal "*** TODO Leaf (L5-L6)"
+                     (plist-get (car candidates) :label))))))
+
+(ert-deftest ai-code-test-org-section-selection-uses-ancestor ()
+  "Test picking an ancestor Org section scopes the prompt to that section."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Parent task\n"             ; 1
+             "parent detail\n"                  ; 2
+             "** TODO Child task\n"             ; 3
+             "child detail\n"))                 ; 4
+    (forward-line 2)                            ; on the child headline
+    (let ((ai-code-change-test--section-choice 1))
+      (ai-code-change-test--with-org-stubs
+        (ai-code-implement-todo nil)
+        (should (equal '("** TODO Child task (L3-L4)" "* TODO Parent task (L1-L4)")
+                       ai-code-change-test--offered-sections))
+        (should (string-match-p "Org headline on line 1"
+                                ai-code-change-test--captured-prompt))
+        (should (string-match-p "notes/plan\\.org#L1-L4"
+                                ai-code-change-test--captured-prompt))
+        (should (string-match-p "parent detail"
+                                ai-code-change-test--captured-prompt))))))
+
+(ert-deftest ai-code-test-org-section-single-candidate-no-prompt ()
+  "Test a lone Org section is used without asking the user to choose."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Only task\n"
+             "some detail\n"))
+    (ai-code-change-test--with-org-stubs
+      (ai-code-implement-todo nil)
+      (should-not ai-code-change-test--offered-sections)
+      (should (string-match-p "TODO Only task"
+                              ai-code-change-test--captured-prompt)))))
+
+(ert-deftest ai-code-test-org-section-done-leaf-skipped ()
+  "Test a DONE leaf is dropped so its TODO parent is the only candidate."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Parent task\n"             ; 1
+             "** DONE Child task\n"             ; 2
+             "child detail\n"))                 ; 3
+    (forward-line 1)                            ; on the DONE child headline
+    (should (equal '("* TODO Parent task")
+                   (mapcar (lambda (c) (plist-get c :heading-line))
+                           (ai-code--org-section-candidates))))
+    (ai-code-change-test--with-org-stubs
+      (ai-code-implement-todo nil)
+      (should-not ai-code-change-test--offered-sections)
+      (should (string-match-p "TODO Parent task"
+                              ai-code-change-test--captured-prompt)))))
+
+(ert-deftest ai-code-test-code-change-all-done-chain-falls-back ()
+  "Test an all-DONE Org chain routes `ai-code-code-change' to the regular path."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* DONE Parent task\n"
+             "** DONE Child task\n"
+             "child detail\n"))
+    (forward-line 1)
+    (should-not (ai-code--org-section-candidates))
+    (let (regular-called)
+      (cl-letf (((symbol-function 'ai-code--handle-regular-code-change)
+                 (lambda (&rest _) (setq regular-called t)))
+                ((symbol-function 'ai-code-implement-todo)
+                 (lambda (&rest _) (ert-fail "Should not take the TODO path"))))
+        (ai-code-code-change nil)
+        (should regular-called)))))
+
+(ert-deftest ai-code-test-org-section-body-point-resolves-to-section ()
+  "Test a point inside an Org body resolves to the enclosing section."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "** TODO my task description\n"
+             "Supporting details live here.\n"))
+    (forward-line 1)
+    (ai-code-change-test--with-org-stubs
+      (ai-code-implement-todo nil)
+      (should (string-match-p "Org headline on line 1"
+                              ai-code-change-test--captured-prompt))
+      (should (string-match-p "TODO my task description"
+                              ai-code-change-test--captured-prompt))
+      (should (string-match-p "Supporting details live here\\."
+                              ai-code-change-test--captured-prompt)))))
+
+(ert-deftest ai-code-test-org-section-blank-body-line-acts-on-section ()
+  "Test a blank line inside an Org section acts on it, not on a new TODO."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Section task\n"            ; 1
+             "first paragraph\n"                ; 2
+             "\n"                               ; 3
+             "second paragraph\n"))             ; 4
+    (forward-line 2)                            ; on the blank body line
+    (ai-code-change-test--with-org-stubs
+      (ai-code-implement-todo nil)
+      (should-not (string-match-p "TODO:" (buffer-string)))
+      (should (string-match-p "TODO Section task"
+                              ai-code-change-test--captured-prompt))
+      (should (string-match-p "second paragraph"
+                              ai-code-change-test--captured-prompt)))))
+
+(ert-deftest ai-code-test-org-section-preamble-has-no-candidates ()
+  "Test text before the first Org headline yields no section candidates."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "Introductory text.\n"
+             "* TODO Later task\n"))
+    (should-not (ai-code--org-section-candidates))
+    (should-not (ai-code--implement-todo--get-org-todo-section-info))))
+
+(ert-deftest ai-code-test-org-section-short-inlines-with-reference ()
+  "Test a short Org section is inlined and still carries a line reference."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Short task\n"
+             "line one\n"
+             "line two\n"))
+    (ai-code-change-test--with-org-stubs
+      (ai-code-implement-todo nil)
+      (should (string-match-p "Org headline on line 1 (notes/plan\\.org#L1-L3)"
+                              ai-code-change-test--captured-prompt))
+      (should (string-match-p "line one" ai-code-change-test--captured-prompt))
+      (should (string-match-p "line two" ai-code-change-test--captured-prompt))
+      (should-not (string-match-p "Read notes/plan\\.org"
+                                  ai-code-change-test--captured-prompt)))))
+
+(ert-deftest ai-code-test-org-section-long-uses-reference ()
+  "Test an oversized unmodified Org section is referenced instead of inlined."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Long task\n"
+             (mapconcat (lambda (n) (format "body line %d" n))
+                        (number-sequence 1 12) "\n")
+             "\n"))
+    (ai-code-change-test--with-org-stubs
+      (ai-code-implement-todo nil)
+      (should (string-match-p "Org headline on line 1 (notes/plan\\.org#L1-L13)"
+                              ai-code-change-test--captured-prompt))
+      (should (string-match-p "TODO Long task"
+                              ai-code-change-test--captured-prompt))
+      (should (string-match-p
+               "Read notes/plan\\.org#L1-L13 in the file for the full section content\\."
+               ai-code-change-test--captured-prompt))
+      (should-not (string-match-p "body line 1"
+                                  ai-code-change-test--captured-prompt)))))
+
+(ert-deftest ai-code-test-org-section-long-modified-buffer-inlines ()
+  "Test an oversized Org section is inlined when the buffer is unsaved."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Long task\n"
+             (mapconcat (lambda (n) (format "body line %d" n))
+                        (number-sequence 1 12) "\n")
+             "\n"))
+    (set-buffer-modified-p t)
+    (ai-code-change-test--with-org-stubs
+      (ai-code-implement-todo nil)
+      (should (string-match-p "body line 12"
+                              ai-code-change-test--captured-prompt))
+      (should-not (string-match-p "Read notes/plan\\.org"
+                                  ai-code-change-test--captured-prompt)))))
+
+(ert-deftest ai-code-test-org-section-threshold-is-customizable ()
+  "Test `ai-code-org-section-inline-max-lines' controls inlining."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Short task\n"
+             "line one\n"
+             "line two\n"))
+    (let ((ai-code-org-section-inline-max-lines 1))
+      (ai-code-change-test--with-org-stubs
+        (ai-code-implement-todo nil)
+        (should (string-match-p "Read notes/plan\\.org#L1-L3"
+                                ai-code-change-test--captured-prompt))
+        (should-not (string-match-p "line one"
+                                    ai-code-change-test--captured-prompt))))))
+
+(ert-deftest ai-code-test-org-section-region-wins ()
+  "Test an active region takes precedence over the enclosing Org section."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Parent task\n"
+             "parent detail\n"))
+    (cl-letf (((symbol-function 'region-active-p) (lambda () t))
+              ((symbol-function 'use-region-p) (lambda () t))
+              ((symbol-function 'region-beginning)
+               (lambda () (save-excursion (goto-char (point-min))
+                                          (forward-line 1)
+                                          (point))))
+              ((symbol-function 'region-end) (lambda () (point-max))))
+      (should-not (ai-code--implement-todo--get-org-todo-section-info))
+      (ai-code-change-test--with-org-stubs
+        (ai-code-implement-todo nil)
+        (should (string-match-p "parent detail"
+                                ai-code-change-test--captured-prompt))
+        (should-not (string-match-p "Org headline on line"
+                                    ai-code-change-test--captured-prompt))))))
+
+(ert-deftest ai-code-test-insert-prompt-org-summary-anchor-uses-section-end ()
+  "Test the result summary anchors at the selected Org section's end line."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* TODO Parent task\n"             ; 1
+             "parent detail\n"                  ; 2
+             "** TODO Child task\n"             ; 3
+             "child detail\n"))                 ; 4
+    (forward-line 2)
+    (let ((ai-code-change-test--section-choice 1)
+          (ai-code-prompt-preprocess-filepaths nil)
+          captured-prompt)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (prompt collection &rest _)
+                   (if (string-match-p "Org section" prompt)
+                       (nth 1 collection)
+                     "Code change")))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (_label input) input))
+                ((symbol-function 'ai-code--get-clipboard-text) (lambda () nil))
+                ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+                ((symbol-function 'ai-code--format-repo-context-info) (lambda () ""))
+                ((symbol-function 'ai-code--get-git-relative-paths)
+                 (lambda (_files) (list "notes/plan.org")))
+                ((symbol-function 'which-function) (lambda () nil))
+                ((symbol-function 'y-or-n-p) (lambda (_prompt) t))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (prompt) (setq captured-prompt prompt))))
+        (ai-code-implement-todo nil)
+        (should (stringp captured-prompt))
+        (should (string-match-p "summary" captured-prompt))
+        (should (string-match-p "TODO Parent task" captured-prompt))
+        (should (string-match-p "after line 4" captured-prompt))))))
 
 (provide 'test_ai-code-change)
 

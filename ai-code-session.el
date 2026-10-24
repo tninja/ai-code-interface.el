@@ -10,6 +10,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'subr-x)
 (require 'tabulated-list)
 
@@ -45,10 +46,11 @@
    (t nil)))
 
 (defun ai-code-session--normalize-directory (directory)
-  "Return DIRECTORY normalized as an absolute directory path."
+  "Return DIRECTORY as a canonical absolute directory path."
   (when (and (stringp directory)
              (not (string-empty-p directory)))
-    (file-name-as-directory (expand-file-name directory))))
+    (file-name-as-directory
+     (file-truename (expand-file-name directory)))))
 
 (defun ai-code-session--normalize-file (file)
   "Return FILE normalized as an absolute file path."
@@ -166,15 +168,36 @@ describe the session.  ID is optional and mainly useful when restoring state."
         (length
          (magit-git-lines "status" "--porcelain" "--untracked-files=normal"))))))
 
+(defun ai-code-session--parse-shortstat (line)
+  "Return (INSERTIONS . DELETIONS) from a `git diff --shortstat' LINE, or nil."
+  (when (and (stringp line) (string-match-p "changed" line))
+    (cl-flet ((count (regexp)
+                (if (string-match regexp line)
+                    (string-to-number (match-string 1 line))
+                  0)))
+      (cons (count "\\([0-9]+\\) insertion")
+            (count "\\([0-9]+\\) deletion")))))
+
+(defun ai-code-session--diff-stat (repo-root)
+  "Return (INSERTIONS . DELETIONS) of uncommitted changes in REPO-ROOT, or nil."
+  (when (and repo-root (file-directory-p repo-root))
+    (let ((default-directory repo-root))
+      (ignore-errors
+        (ai-code-session--parse-shortstat
+         (car (magit-git-lines "diff" "--shortstat" "HEAD")))))))
+
 (defun ai-code-session--default-metadata (session)
   "Return refreshed metadata plist for SESSION."
   (let* ((repo-root (ai-code-session-repo-root session))
          (metadata (ai-code-session-metadata session))
          (branch (ai-code-session--branch repo-root))
-         (dirty-count (ai-code-session--dirty-count repo-root)))
+         (dirty-count (ai-code-session--dirty-count repo-root))
+         (diff-stat (ai-code-session--diff-stat repo-root)))
     (list :branch (or branch (plist-get metadata :branch))
           :status (ai-code-session--status session)
-          :dirty-count (or dirty-count (plist-get metadata :dirty-count) 0))))
+          :dirty-count (or dirty-count (plist-get metadata :dirty-count) 0)
+          :insertions (car diff-stat)
+          :deletions (cdr diff-stat))))
 
 (defun ai-code-session-refresh ()
   "Refresh session state and return the live session list."
@@ -187,22 +210,69 @@ describe the session.  ID is optional and mainly useful when restoring state."
          (ai-code-session--default-metadata session)))))
   (ai-code-session-list))
 
+;;; Prompts
+
+(defconst ai-code-session--prompt-max-chars 2000
+  "Most characters of a sent prompt kept in session metadata.")
+
+(defun ai-code-session-note-prompt (buffer prompt)
+  "Remember PROMPT as the latest prompt sent to the session in BUFFER."
+  (when (stringp prompt)
+    (ai-code-session-update-metadata
+     buffer
+     (list :last-prompt (substring prompt 0 (min (length prompt)
+                                                  ai-code-session--prompt-max-chars))
+           :last-prompt-at (float-time)))))
+
+(defun ai-code-session--label-line-p (line)
+  "Return non-nil when LINE is only a section label such as \"Scope:\"."
+  (string-match-p "\\`[A-Z][A-Za-z ]*:\\'" line))
+
+(defun ai-code-session--line-after (lines index)
+  "Return the first non-empty line in LINES after INDEX, or nil."
+  (seq-find (lambda (line) (not (string-empty-p line))) (nthcdr (1+ index) lines)))
+
+(defun ai-code-session--prompt-goal (lines)
+  "Return the first line of the Goal section in LINES, or nil."
+  (when-let* ((index (seq-position lines "Goal:" (lambda (line _) (string-prefix-p "Goal:" line))))
+              (rest (string-trim (substring (nth index lines) (length "Goal:")))))
+    (if (string-empty-p rest)
+        (ai-code-session--line-after lines index)
+      rest)))
+
+(defun ai-code-session--prompt-subject (lines)
+  "Return the headline or comment a Scope section in LINES points at, or nil.
+A subject follows a location line ending in a colon, such as
+\"Org headline on line 2 (notes.org):\"."
+  (when-let* ((index (seq-position lines "Scope:"))
+              (location (ai-code-session--line-after lines index))
+              ((string-suffix-p ":" location))
+              ((not (ai-code-session--label-line-p location)))
+              (subject (ai-code-session--line-after
+                        lines (seq-position lines location))))
+    (replace-regexp-in-string "\\`\\(?:\\*+\\|-\\)[ \t]+" "" subject)))
+
+(defun ai-code-session--prompt-summary (prompt)
+  "Return a one-line summary of PROMPT.
+Structured prompts use their Goal line, preceded by the headline or
+comment their Scope points at; other prompts use their first line."
+  (let* ((lines (mapcar #'string-trim (split-string prompt "\n")))
+         (main (or (ai-code-session--prompt-goal lines)
+                   (seq-find (lambda (line)
+                               (not (or (string-empty-p line)
+                                        (ai-code-session--label-line-p line))))
+                             lines)
+                   ""))
+         (subject (ai-code-session--prompt-subject lines)))
+    (replace-regexp-in-string
+     "[ \t]+" " " (string-join (delq nil (list subject main)) " — "))))
+
 (defconst ai-code-session-dashboard-buffer-name "*AI Code Sessions*"
   "Buffer name used by the AI session dashboard.")
 
 (defconst ai-code-session-dashboard-shortcuts-hint
   "Keys: RET visit session   r/g refresh   k kill session   D magit status"
   "Shortcut hint shown in the dashboard mode line.")
-
-(defun ai-code-session-dashboard--insert-footer ()
-  "Insert dashboard help below the session list."
-  (let ((inhibit-read-only t))
-    (goto-char (point-max))
-    (unless (bolp)
-      (insert "\n"))
-    (insert (propertize ai-code-session-dashboard-shortcuts-hint
-                        'face 'mode-line-inactive))
-    (insert "\n")))
 
 (defun ai-code-session-dashboard--repo-name (session)
   "Return a short repository name for SESSION."
@@ -222,12 +292,83 @@ describe the session.  ID is optional and mainly useful when restoring state."
                (t ""))))
     (capitalize (replace-regexp-in-string "[-_]+" " " text))))
 
+(defconst ai-code-session-dashboard--attention-labels
+  '((waiting . "needs input")
+    (done . "done unseen"))
+  "Status labels for sessions that need the user's attention.")
+
+(defun ai-code-session-dashboard--status-label (metadata)
+  "Return the Status column text for session METADATA.
+It uses the same states as the tab-bar badge."
+  (let ((status (plist-get metadata :status)))
+    (cond
+     ((equal status "stopped") "stopped")
+     ((alist-get (plist-get metadata :attention)
+                 ai-code-session-dashboard--attention-labels))
+     ((plist-get metadata :working) "working")
+     (status "idle")
+     (t ""))))
+
+(defun ai-code-session--format-age (seconds)
+  "Return SECONDS as a short age such as \"45s\", \"3m\", \"2h\" or \"1d\"."
+  (let ((seconds (max 0 (floor seconds))))
+    (cond ((< seconds 60) (format "%ds" seconds))
+          ((< seconds 3600) (format "%dm" (/ seconds 60)))
+          ((< seconds 86400) (format "%dh" (/ seconds 3600)))
+          (t (format "%dd" (/ seconds 86400))))))
+
+(defun ai-code-session-dashboard--since (metadata &optional now)
+  "Return how long the session in METADATA has been in its state, at NOW."
+  (let ((time (cond ((equal (plist-get metadata :status) "stopped") nil)
+                    ((plist-get metadata :attention)
+                     (plist-get metadata :attention-since))
+                    ((plist-get metadata :working)
+                     (plist-get metadata :working-since))
+                    (t (plist-get metadata :quiet-since)))))
+    (if time
+        (ai-code-session--format-age (- (or now (float-time)) time))
+      "")))
+
+(defun ai-code-session-dashboard--changes (metadata)
+  "Return the uncommitted change size recorded in METADATA."
+  (let ((files (or (plist-get metadata :dirty-count) 0))
+        (insertions (or (plist-get metadata :insertions) 0))
+        (deletions (or (plist-get metadata :deletions) 0)))
+    (cond
+     ((zerop files) "clean")
+     ((and (zerop insertions) (zerop deletions))
+      (format "%d file%s" files (if (= files 1) "" "s")))
+     (t (format "%d file%s +%d −%d" files (if (= files 1) "" "s")
+                insertions deletions)))))
+
+(defconst ai-code-session-dashboard--prompt-width 60
+  "Width of the last prompt summary in the dashboard.")
+
+(defconst ai-code-session-dashboard--prompt-preview-lines 20
+  "Most prompt lines shown in the dashboard tooltip.")
+
+(defun ai-code-session-dashboard--prompt-preview (prompt)
+  "Return the start of PROMPT for a tooltip, one short line per line."
+  (let* ((lines (split-string (string-trim prompt) "\n"))
+         (shown (seq-take lines ai-code-session-dashboard--prompt-preview-lines)))
+    (concat (mapconcat (lambda (line) (truncate-string-to-width line 120 nil nil "…"))
+                       shown "\n")
+            (if (> (length lines) (length shown)) "\n…" ""))))
+
+(defun ai-code-session-dashboard--prompt-cell (prompt)
+  "Return the dashboard cell for the last PROMPT, with the prompt as tooltip."
+  (if (or (not (stringp prompt)) (string-blank-p prompt))
+      ""
+    (propertize (truncate-string-to-width
+                 (ai-code-session--prompt-summary prompt)
+                 ai-code-session-dashboard--prompt-width nil nil "…")
+                'help-echo (ai-code-session-dashboard--prompt-preview prompt))))
+
 (defun ai-code-session-dashboard--entry (session)
   "Return the `tabulated-list-mode' entry for SESSION."
   (let* ((metadata (ai-code-session-metadata session))
          (branch (or (plist-get metadata :branch) ""))
-         (status (or (plist-get metadata :status) ""))
-         (dirty-count (number-to-string (or (plist-get metadata :dirty-count) 0))))
+         (status (ai-code-session-dashboard--status-label metadata)))
     (list (ai-code-session-id session)
           (vector
            (ai-code-session-id session)
@@ -237,7 +378,10 @@ describe the session.  ID is optional and mainly useful when restoring state."
             (ai-code-session-backend session))
            branch
            status
-           dirty-count))))
+           (ai-code-session-dashboard--since metadata)
+           (ai-code-session-dashboard--changes metadata)
+           (ai-code-session-dashboard--prompt-cell
+            (plist-get metadata :last-prompt))))))
 
 (defun ai-code-session-dashboard--entries ()
   "Return dashboard entries for all active sessions."
@@ -252,9 +396,7 @@ describe the session.  ID is optional and mainly useful when restoring state."
   "Refresh the AI session dashboard."
   (interactive)
   (setq tabulated-list-entries (ai-code-session-dashboard--entries))
-  (tabulated-list-print t)
-  (save-excursion
-    (ai-code-session-dashboard--insert-footer)))
+  (tabulated-list-print t))
 
 (defun ai-code-session-dashboard-visit ()
   "Visit the session buffer on the current line."
@@ -312,7 +454,9 @@ describe the session.  ID is optional and mainly useful when restoring state."
          ("Backend" 14 t)
          ("Branch" 20 t)
          ("Status" 12 t)
-         ("Dirty files" 11 t)])
+         ("Since" 6 t)
+         ("Changes" 18 t)
+         ("Last prompt" 60 nil)])
   (setq tabulated-list-padding 2)
   ;; Keep shortcut hints visible at the bottom of the dashboard window.
   (setq-local mode-line-format
@@ -321,15 +465,25 @@ describe the session.  ID is optional and mainly useful when restoring state."
   (add-hook 'tabulated-list-revert-hook #'ai-code-session-dashboard-refresh nil t)
   (tabulated-list-init-header))
 
+(defconst ai-code-session-dashboard--display-action
+  '((display-buffer-reuse-window display-buffer-in-side-window)
+    (side . bottom)
+    (slot . 0)
+    (window-height . fit-window-to-buffer)
+    (preserve-size . (nil . t)))
+  "Show the dashboard in a window across the bottom of the frame.")
+
 ;;;###autoload
 (defun ai-code-session-dashboard ()
-  "Show the AI session dashboard."
+  "Toggle the AI session dashboard at the bottom of the frame."
   (interactive)
   (let ((buffer (get-buffer-create ai-code-session-dashboard-buffer-name)))
-    (with-current-buffer buffer
-      (ai-code-session-dashboard-mode)
-      (ai-code-session-dashboard-refresh))
-    (pop-to-buffer buffer)))
+    (if-let* ((window (get-buffer-window buffer)))
+        (quit-window nil window)
+      (with-current-buffer buffer
+        (ai-code-session-dashboard-mode)
+        (ai-code-session-dashboard-refresh))
+      (pop-to-buffer buffer ai-code-session-dashboard--display-action))))
 
 (provide 'ai-code-session)
 

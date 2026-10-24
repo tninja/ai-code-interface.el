@@ -132,6 +132,12 @@ VIEWPORT defaults to the current buffer."
     (define-key map (kbd "C-c C-c") #'ai-code-editor-viewport-finish)
     (define-key map (kbd "C-c C-k") #'ai-code-editor-viewport-cancel)
     (define-key map (kbd "C-g") #'ai-code-editor-viewport-cancel)
+    (define-key map [remap abort-recursive-edit]
+                #'ai-code-editor-viewport-cancel)
+    (define-key map [remap exit-recursive-edit]
+                #'ai-code-editor-viewport-cancel)
+    (define-key map [remap keyboard-escape-quit]
+                #'ai-code-editor-viewport-cancel)
     (define-key map [remap yank] #'ai-code-editor-viewport-yank)
     (define-key map [remap clipboard-yank] #'ai-code-editor-viewport-yank)
     map)
@@ -146,11 +152,18 @@ VIEWPORT defaults to the current buffer."
 (defun ai-code-editor-viewport--header-command-keys
     (command all-bindings)
   "Return keys for COMMAND in the viewport map.
-Join every binding when ALL-BINDINGS is non-nil; otherwise return the first."
+Join every direct binding when ALL-BINDINGS is non-nil; otherwise return the
+first binding, including bindings supplied through command remapping."
   (if all-bindings
       (when-let* ((bindings
-                   (where-is-internal
-                    command ai-code-editor-viewport-mode-map)))
+                   (seq-remove
+                    (lambda (binding)
+                      (and (vectorp binding)
+                           (> (length binding) 0)
+                           (eq (aref binding 0) 'remap)))
+                    (where-is-internal
+                     command ai-code-editor-viewport-mode-map
+                     nil nil t))))
         (mapconcat #'key-description bindings "/"))
     (when-let* ((binding
                  (where-is-internal
@@ -357,13 +370,25 @@ Return the temporary overlay, or nil when SOURCE-BUFFER is no longer live."
   (setq ai-code-editor-viewport--outcome 'finished)
   (exit-recursive-edit))
 
+(defun ai-code-editor-viewport--discard-confirmed-p ()
+  "Return non-nil when the current viewport may be discarded."
+  (condition-case nil
+      (or (save-restriction
+            (widen)
+            (string-blank-p
+             (buffer-substring-no-properties (point-min) (point-max))))
+          (y-or-n-p "Discard viewport contents and cancel? "))
+    (quit nil)))
+
 (defun ai-code-editor-viewport-cancel ()
-  "Cancel the current AI CLI editor viewport without saving changes."
+  "Cancel the current AI CLI editor viewport without saving changes.
+Prompt before discarding content unless the viewport contains only whitespace."
   (interactive)
   (unless ai-code-editor-viewport-mode
     (user-error "Not in an AI CLI editor viewport"))
-  (setq ai-code-editor-viewport--outcome 'canceled)
-  (exit-recursive-edit))
+  (when (ai-code-editor-viewport--discard-confirmed-p)
+    (setq ai-code-editor-viewport--outcome 'canceled)
+    (exit-recursive-edit)))
 
 (defun ai-code-editor-viewport--replace-window (buffer window)
   "Display BUFFER by replacing WINDOW and return its display state."
@@ -740,7 +765,8 @@ When STAGING-FILE-P is non-nil, keep the saved file out of `recentf'."
   "Edit FILE in a viewport associated with SOURCE-BUFFER.
 LINE is one-based and COLUMN is zero-based, matching editor arguments.
 ORIGIN-FRAME preserves the request's frame across deferred handling.  When
-STAGING-FILE-P is non-nil, keep FILE out of `recentf'."
+STAGING-FILE-P is non-nil, keep FILE out of `recentf'.  After cancellation,
+refocus the original source window when it still displays SOURCE-BUFFER."
   (let* ((state (ai-code-editor-viewport--make-buffer
                  file source-buffer staging-file-p))
          (base-buffer (plist-get state :base-buffer))
@@ -750,6 +776,13 @@ STAGING-FILE-P is non-nil, keep FILE out of `recentf'."
          (source-cursor-offset
           (ai-code-editor-viewport--source-draft-cursor-offset
            source-buffer snapshot))
+         (source-window
+          (and (buffer-live-p source-buffer)
+               (get-buffer-window
+                source-buffer
+                (if (frame-live-p origin-frame)
+                    origin-frame
+                  (selected-frame)))))
          (display-state nil)
          (source-input-overlay nil)
          (finished nil))
@@ -776,16 +809,42 @@ STAGING-FILE-P is non-nil, keep FILE out of `recentf'."
                       (ai-code-editor-viewport--disable-source-input
                        source-buffer snapshot source-cursor-offset
                        (plist-get display-state :placement)))
-                (recursive-edit)
-                (when (eq ai-code-editor-viewport--outcome 'finished)
+                (while (not
+                        (memq
+                         (buffer-local-value
+                          'ai-code-editor-viewport--outcome buffer)
+                         '(finished canceled)))
+                  (condition-case nil
+                      (with-current-buffer buffer
+                        (recursive-edit))
+                    (quit nil))
+                  (unless (memq
+                           (buffer-local-value
+                            'ai-code-editor-viewport--outcome buffer)
+                           '(finished canceled))
+                    (with-current-buffer buffer
+                      (when (ai-code-editor-viewport--discard-confirmed-p)
+                        (setq ai-code-editor-viewport--outcome
+                              'canceled)))))
+                (when (eq (buffer-local-value
+                           'ai-code-editor-viewport--outcome buffer)
+                          'finished)
                   (ai-code-editor-viewport--commit-buffer
                    base-buffer buffer snapshot staging-file-p)
                   (setq finished t)))
             (when (overlayp source-input-overlay)
               (delete-overlay source-input-overlay))
-            (ai-code-editor-viewport-mode -1)
-            (ai-code-editor-viewport--restore-window
-             display-state buffer)))
+            (let ((canceled
+                   (eq (buffer-local-value
+                        'ai-code-editor-viewport--outcome buffer)
+                       'canceled)))
+              (ai-code-editor-viewport-mode -1)
+              (ai-code-editor-viewport--restore-window
+               display-state buffer)
+              (when (and canceled
+                         (window-live-p source-window)
+                         (eq (window-buffer source-window) source-buffer))
+                (select-window source-window)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer))
       (when (and (buffer-live-p owned-base-buffer)

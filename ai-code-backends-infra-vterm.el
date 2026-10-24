@@ -52,6 +52,7 @@
 (declare-function vterm-send-return "vterm" ())
 (declare-function vterm--window-adjust-process-window-size "vterm" (&rest args))
 (declare-function vterm--filter "vterm" (&rest args))
+(declare-function vterm--delayed-redraw "vterm" (buffer))
 
 (defvar ai-code-backends-infra-strip-alternate-screen)
 (defvar ai-code-backends-infra--session-terminal-backend)
@@ -72,7 +73,9 @@
 Standalone carriage returns are intentionally excluded so simple CR-based
 updates are handled separately via carriage return counting.")
 
-(defvar-local ai-code-backends-infra--vterm-render-queue nil)
+(defvar-local ai-code-backends-infra--vterm-render-queue nil
+  "Pending output chunks in reverse arrival order.
+Also accept a string left pending by an earlier package version.")
 (defvar-local ai-code-backends-infra--vterm-render-timer nil)
 (defvar-local ai-code-backends-infra--vterm-dim-foreground-active nil
   "Non-nil when AI Code injected an ANSI gray foreground for SGR dim text.")
@@ -260,29 +263,81 @@ applications write to the normal screen buffer (preserving scrollback)."
          (process-buffer process)
          filtered-input)))))
 
+(defun ai-code-backends-infra--vterm-window-scrolled-away-p (window)
+  "Return non-nil when WINDOW no longer shows the end of the current buffer.
+Such a window was scrolled away by the user, so its viewport should stay
+put instead of following new terminal output.  The buffer end counts as
+shown even when its line is only partially visible, otherwise a fractional
+last screen line would freeze the viewport permanently.  Anything that is
+not a live window is never reported as scrolled away."
+  (and (windowp window)
+       (window-live-p window)
+       (not (pos-visible-in-window-p (point-max) window t))))
+
+(defun ai-code-backends-infra--vterm-frozen-windows ()
+  "Return windows of the current buffer whose viewport must stay stable.
+`vterm-copy-mode' freezes every window showing the buffer.  Otherwise only
+windows the user has scrolled away from the buffer end are frozen, so a
+window that still shows live output keeps following it."
+  (let ((windows (get-buffer-window-list (current-buffer) nil t)))
+    (if (bound-and-true-p vterm-copy-mode)
+        windows
+      (cl-remove-if-not
+       #'ai-code-backends-infra--vterm-window-scrolled-away-p windows))))
+
 (defun ai-code-backends-infra--vterm-render-preserving-copy-mode-view (render-fn)
-  "Call RENDER-FN while keeping the user's `vterm-copy-mode' viewport stable."
-  (if (not (bound-and-true-p vterm-copy-mode))
-      (funcall render-fn)
-    (let ((point-marker (copy-marker (point) t))
-          (window-states
-           (mapcar (lambda (window)
-                     (list window
-                           (copy-marker (window-start window) t)
-                           (copy-marker (window-point window) t)))
-                   (get-buffer-window-list (current-buffer) nil t))))
-      (unwind-protect
-          (let ((inhibit-redisplay t))
-            (funcall render-fn))
-        (dolist (state window-states)
-          (pcase-let ((`(,window ,start-marker ,window-point-marker) state))
-            (when (window-live-p window)
-              (set-window-start window start-marker t)
-              (set-window-point window window-point-marker))
-            (set-marker start-marker nil)
-            (set-marker window-point-marker nil)))
-        (goto-char point-marker)
-        (set-marker point-marker nil)))))
+  "Call RENDER-FN while keeping frozen vterm viewports stable.
+A viewport is frozen in `vterm-copy-mode' and in any window the user has
+scrolled away from the buffer end, so terminal output keeps rendering
+without yanking the view back to the terminal cursor.  Windows that still
+show live output are left untouched and keep following it.
+Frozen windows are detected before RENDER-FN runs, because rendering is
+what moves the viewport."
+  (let* ((frozen-windows (ai-code-backends-infra--vterm-frozen-windows))
+         (preserve-point (or (bound-and-true-p vterm-copy-mode)
+                             (and (memq (selected-window) frozen-windows) t))))
+    (if (and (null frozen-windows) (not preserve-point))
+        (funcall render-fn)
+      (let ((point-marker (and preserve-point (copy-marker (point) t)))
+            (window-states
+             (mapcar (lambda (window)
+                       (list window
+                             (copy-marker (window-start window) t)
+                             (copy-marker (window-point window) t)))
+                     frozen-windows)))
+        (unwind-protect
+            (let ((inhibit-redisplay t))
+              (funcall render-fn))
+          (dolist (state window-states)
+            (pcase-let ((`(,window ,start-marker ,window-point-marker) state))
+              (when (window-live-p window)
+                (set-window-start window start-marker t)
+                (set-window-point window window-point-marker))
+              (set-marker start-marker nil)
+              (set-marker window-point-marker nil)))
+          (when point-marker
+            (goto-char point-marker)
+            (set-marker point-marker nil)))))))
+
+(defun ai-code-backends-infra--vterm-preserve-viewport-on-redraw (orig-fun buffer)
+  "Keep frozen viewports stable while ORIG-FUN redraws BUFFER.
+`vterm--delayed-redraw' is where the vterm module recenters windows on the
+terminal cursor, so session buffers wrap it to hold scrolled-away windows
+in place.  Other buffers redraw untouched."
+  (if (not (and (buffer-live-p buffer)
+                (ai-code-backends-infra--session-buffer-p buffer)))
+      (funcall orig-fun buffer)
+    (with-current-buffer buffer
+      (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+       (lambda () (funcall orig-fun buffer))))))
+
+(defun ai-code-backends-infra--vterm-take-render-queue ()
+  "Clear pending output and return it as a string in arrival order."
+  (let ((chunks ai-code-backends-infra--vterm-render-queue))
+    (setq ai-code-backends-infra--vterm-render-queue nil)
+    (if (stringp chunks)
+        chunks
+      (apply #'concat (nreverse chunks)))))
 
 (defun ai-code-backends-infra--vterm-render-queued-output (orig-fun buffer)
   "Render queued vterm output for BUFFER using ORIG-FUN."
@@ -290,8 +345,7 @@ applications write to the normal screen buffer (preserving scrollback)."
     (with-current-buffer buffer
       (setq ai-code-backends-infra--vterm-render-timer nil)
       (when ai-code-backends-infra--vterm-render-queue
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
+        (let ((data (ai-code-backends-infra--vterm-take-render-queue)))
           (when-let* ((process (get-buffer-process buffer))
                       ((process-live-p process)))
             (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
@@ -307,8 +361,7 @@ When BUFFER is nil, flush the queue for the current buffer."
         (cancel-timer ai-code-backends-infra--vterm-render-timer))
       (setq ai-code-backends-infra--vterm-render-timer nil)
       (when ai-code-backends-infra--vterm-render-queue
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
+        (let ((data (ai-code-backends-infra--vterm-take-render-queue)))
           (when-let* ((process (get-buffer-process (current-buffer)))
                       ((process-live-p process)))
             (let ((ai-code-backends-infra-vterm-anti-flicker nil))
@@ -327,32 +380,36 @@ navigation."
           (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
-      (let* ((complex-redraw-detected
-              (string-match-p ai-code-backends-infra--vterm-redraw-regexp input))
-             (clear-count (1- (length (split-string input "\033\\[K"))))
-             (cr-count (cl-count ?\15 input))
-             (escape-count (cl-count ?\033 input))
-             (input-length (length input))
-             (escape-density (if (> input-length 0)
-                                 (/ (float escape-count) input-length)
-                               0)))
-        (if (or complex-redraw-detected
-                (>= cr-count 2)
-                (and (> escape-density 0.3) (>= clear-count 2))
-                ai-code-backends-infra--vterm-render-queue)
-            (let ((buffer (current-buffer)))
+      ;; Queued output must stay ordered; plain text cannot start a redraw.
+      (if (or ai-code-backends-infra--vterm-render-queue
+              (and (string-match-p "[\r\e]" input)
+                   (let* ((complex-redraw-detected
+                           (string-match-p
+                            ai-code-backends-infra--vterm-redraw-regexp input))
+                          (clear-count (1- (length (split-string input "\033\\[K"))))
+                          (cr-count (cl-count ?\15 input))
+                          (escape-count (cl-count ?\033 input))
+                          (input-length (length input))
+                          (escape-density (/ (float escape-count) input-length)))
+                     (or complex-redraw-detected
+                         (>= cr-count 2)
+                         (and (> escape-density 0.3) (>= clear-count 2))))))
+          (let ((buffer (current-buffer)))
+            (when (stringp ai-code-backends-infra--vterm-render-queue)
               (setq ai-code-backends-infra--vterm-render-queue
-                    (concat ai-code-backends-infra--vterm-render-queue input))
-              (when ai-code-backends-infra--vterm-render-timer
-                (cancel-timer ai-code-backends-infra--vterm-render-timer))
-              (setq ai-code-backends-infra--vterm-render-timer
-                    (run-at-time ai-code-backends-infra-vterm-render-delay nil
-                                 #'ai-code-backends-infra--vterm-render-queued-output
-                                 orig-fun
-                                 buffer)))
-          (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
-           (lambda ()
-             (funcall orig-fun process input))))))))
+                    (list ai-code-backends-infra--vterm-render-queue)))
+            (push input ai-code-backends-infra--vterm-render-queue)
+            ;; Preserve the existing debounce: wait after the latest chunk.
+            (when ai-code-backends-infra--vterm-render-timer
+              (cancel-timer ai-code-backends-infra--vterm-render-timer))
+            (setq ai-code-backends-infra--vterm-render-timer
+                  (run-at-time ai-code-backends-infra-vterm-render-delay nil
+                               #'ai-code-backends-infra--vterm-render-queued-output
+                               orig-fun
+                               buffer)))
+        (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+         (lambda ()
+           (funcall orig-fun process input)))))))
 
 (defun ai-code-backends-infra--vterm-flush-on-copy-mode-exit ()
   "Flush any pending render queue when exiting `vterm-copy-mode'.
@@ -360,11 +417,7 @@ Added buffer-locally to `vterm-copy-mode-hook' so that terminal output
 queued while copy mode was active is rendered immediately when the user
 returns to normal terminal interaction."
   (unless (bound-and-true-p vterm-copy-mode)
-    (when ai-code-backends-infra--vterm-render-queue
-      (when-let* ((proc (get-buffer-process (current-buffer))))
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
-          (vterm--filter proc data))))))
+    (ai-code-backends-infra-vterm-flush-render-queue)))
 
 (defun ai-code-backends-infra--configure-vterm-buffer ()
   "Configure vterm for enhanced performance."
@@ -386,14 +439,23 @@ returns to normal terminal interaction."
     (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-notification-tracker)
     (when ai-code-backends-infra-vterm-anti-flicker
       (advice-add 'vterm--filter :around #'ai-code-backends-infra--vterm-smart-renderer))
+    (advice-add 'vterm--delayed-redraw :around
+                #'ai-code-backends-infra--vterm-preserve-viewport-on-redraw)
     (setq ai-code-backends-infra--vterm-advices-installed t)))
 
 (defun ai-code-backends-infra-vterm-create-session (buffer-name working-dir command env-vars)
   "Create a vterm session named BUFFER-NAME in WORKING-DIR.
-COMMAND is the shell command to run and ENV-VARS are extra environment
-variables for the terminal process."
+COMMAND is an argv list or a legacy shell command string.
+ENV-VARS are extra environment variables for the terminal process."
   (let ((default-directory working-dir)
-        (vterm-shell command)
+        (vterm-shell
+         (if (listp command)
+             (mapconcat
+              (lambda (argument)
+                (shell-quote-argument argument t))
+              command
+              " ")
+           command))
         (vterm-kill-buffer-on-exit nil)
         (vterm-environment (append env-vars (bound-and-true-p vterm-environment))))
     (let ((buffer (save-window-excursion (vterm buffer-name))))

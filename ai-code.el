@@ -1,13 +1,15 @@
-;;; ai-code.el --- Unified interface for AI coding backends such as Codex CLI, Antigravity CLI, Claude Code, Opencode, etc -*- lexical-binding: t; -*-
+;;; ai-code.el --- Unified interface for AI coding backends such as Codex CLI, Pi, Antigravity CLI, Claude Code, etc -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; Assisted-by:
 ;; - CodexCLI:GPT-5.5
 ;; - GithubCopilotCLI:GPT-5.4
+;; - AntigravityCLI:Gemini-Flash-3.7
 ;; - ClaudeCode:Opus-4.8
+;; - MuseCode:Muse-Spark-1.2
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
-;; Version: 1.91
+;; Version: 1.990
 ;; Package-Requires: ((emacs "29.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
@@ -28,8 +30,8 @@
 ;;   - Antigravity CLI
 ;;   - Opencode
 ;;   - Claude Code
+;;   - Muse Code
 ;;   - GitHub Copilot CLI
-;;   - Gemini CLI
 ;;   - Kilo
 ;;   - Grok CLI
 ;;   - Cursor CLI
@@ -37,6 +39,7 @@
 ;;   - Open Interpreter CLI (Codex-compatible)
 ;;   - CodeBuddy Code CLI
 ;;   - Aider CLI
+;;   - Gemini CLI
 ;;   - agent-shell
 ;;   - ECA (Editor Code Assistant)
 ;;
@@ -48,6 +51,8 @@
 ;;        (ai-code-set-backend 'codex)
 ;;        ;; Optional: use a narrower transient menu on smaller frames.
 ;;        ;; (setq ai-code-menu-layout 'two-columns)
+;;        ;; Optional: badge tab-bar tabs that show AI sessions with their state.
+;;        ;; (ai-code-session-attention-mode 1)
 ;;        (global-set-key (kbd "C-c a") #'ai-code-menu))
 ;;
 ;;   2) First 60 seconds:
@@ -73,8 +78,9 @@
 ;;   (setq ai-code-auto-test-type 'ask-me)
 ;;   ;; Optional: Disable numbered next steps for discussion prompts at send time
 ;;   ;; (setq ai-code-discussion-auto-follow-up-enabled nil)
-;;   ;; Optional: In the AI session buffer (Evil normal state), SPC triggers the prompt entry UI
-;;   (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
+;;   ;; Optional: Show candidates as you type in task file, using company
+;;   ;; (add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion-setup)
+;;   ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
 ;;   (global-auto-revert-mode 1)
 ;;   (setq auto-revert-interval 1) ;; set to 1 second for faster update
 ;;   )
@@ -120,11 +126,14 @@
 (require 'ai-code-input)
 (require 'ai-code-task)
 (require 'ai-code-prompt-mode)
+(require 'ai-code-prompt-completion)
 (require 'ai-code-send)
 (require 'ai-code-agile)
+(require 'ai-code-grow)
 (require 'ai-code-git)
 (require 'ai-code-github)
 (require 'ai-code-change)
+(require 'ai-code-annotation)
 (require 'ai-code-discussion)
 (require 'ai-code-codex-cli)
 (require 'ai-code-aider-cli)
@@ -133,6 +142,7 @@
 (require 'ai-code-kilo)
 (require 'ai-code-grok-cli)
 (require 'ai-code-codebuddy-cli)
+(require 'ai-code-utils)
 (require 'ai-code-file)
 (require 'ai-code-doc)
 (require 'ai-code-harness)
@@ -266,6 +276,52 @@ ARG is the prefix argument."
                                    ai-code-session-checkpoint-prompt)))
     (ai-code--insert-prompt prompt)))
 
+(defconst ai-code--handoff-or-checkpoint-choices
+  '(("Agent handoff" . ai-code-agent-handoff)
+    ("Session checkpoint" . ai-code-session-checkpoint))
+  "Fallback choices offered by `ai-code-agent-handoff-or-checkpoint'.")
+
+(defun ai-code--read-handoff-or-checkpoint-command ()
+  "Ask which handoff or checkpoint command to run and return its symbol."
+  (let ((choice (completing-read
+                 "Neither an Org nor an AI session buffer; choose action: "
+                 (mapcar #'car ai-code--handoff-or-checkpoint-choices)
+                 nil t)))
+    (cdr (assoc choice ai-code--handoff-or-checkpoint-choices))))
+
+;;;###autoload
+(defun ai-code-agent-handoff-or-checkpoint (&optional arg)
+  "Run agent handoff or session checkpoint based on the current buffer.
+In an Org buffer, run `ai-code-agent-handoff' and forward ARG to it.  In an
+AI session buffer, run `ai-code-session-checkpoint'.  Anywhere else, ask
+which of the two commands to run."
+  (interactive "P")
+  (cond
+   ((derived-mode-p 'org-mode)
+    (ai-code-agent-handoff arg))
+   ((ai-code-backends-infra--session-buffer-p (current-buffer))
+    (ai-code-session-checkpoint))
+   ((eq (ai-code--read-handoff-or-checkpoint-command) 'ai-code-agent-handoff)
+    (ai-code-agent-handoff arg))
+   (t
+    (ai-code-session-checkpoint))))
+
+;;;###autoload
+(defun ai-code-cli-resume-with-session-checkpoint (&optional arg prompt-for-checkpoint)
+  "Resume the current backend's CLI session and optionally request a checkpoint.
+Argument ARG is passed to `ai-code-cli-resume'; with a prefix argument
+\\[universal-argument], it is non-nil and preserves the backend's
+interactive resume behavior.
+PROMPT-FOR-CHECKPOINT is non-nil for interactive calls that should ask
+whether to print a checkpoint after resuming.  Noninteractive callers
+normally omit it, which skips the prompt."
+  (interactive (list current-prefix-arg t))
+  (ai-code-cli-resume arg)
+  ;; (when (and prompt-for-checkpoint
+  ;;            (y-or-n-p "Print AI session checkpoint? "))
+  ;;   (ai-code-session-checkpoint))
+  )
+
 (defun ai-code--emacs-runtime-debug-prompt (description eval-available-p
                                                        &optional region-text
                                                        region-location-info
@@ -273,15 +329,16 @@ ARG is the prefix argument."
                                                        function-name
                                                        files-context-string
                                                        repo-context-string
-                                                       clipboard-context)
+                                                       clipboard-context
+                                                       semantic-scope)
   "Return an Emacs runtime debugging prompt from DESCRIPTION.
 EVAL-AVAILABLE-P reports whether `eval_elisp' is globally enabled.
 Optional REGION-TEXT and REGION-LOCATION-INFO add selected-region context.
 BUFFER-SCOPE, FUNCTION-NAME, FILES-CONTEXT-STRING, REPO-CONTEXT-STRING,
-and CLIPBOARD-CONTEXT add broader debugging context."
+CLIPBOARD-CONTEXT, and SEMANTIC-SCOPE add broader debugging context."
   (let ((scope-string
          (ai-code--emacs-runtime-debug-scope-string
-          buffer-scope function-name files-context-string))
+          buffer-scope function-name files-context-string semantic-scope))
         (context-string
          (ai-code--emacs-runtime-debug-context-string
           repo-context-string clipboard-context)))
@@ -313,15 +370,18 @@ Runtime issue description:\n\
        (concat "\n\nContext:\n" context-string)))))
 
 (defun ai-code--emacs-runtime-debug-scope-string (buffer-scope function-name
-                                                              files-context-string)
+                                                              files-context-string
+                                                              &optional semantic-scope)
   "Return scope text for one Emacs runtime debug prompt.
-BUFFER-SCOPE describes the current file or buffer.  FUNCTION-NAME and
-FILES-CONTEXT-STRING are optional additional scope levels."
+BUFFER-SCOPE describes the current file or buffer.  FUNCTION-NAME,
+FILES-CONTEXT-STRING, and SEMANTIC-SCOPE are optional additional levels."
   (string-trim
    (concat
     (or buffer-scope "")
-    (when function-name
-      (format "\nFunction: %s" function-name))
+    (cond
+     ((and semantic-scope (not (string-empty-p semantic-scope)))
+      (concat "\n" semantic-scope))
+     (function-name (format "\nFunction: %s" function-name)))
     (or files-context-string ""))))
 
 (defun ai-code--emacs-runtime-debug-context-string (repo-context-string
@@ -358,7 +418,13 @@ optional runtime/debugging text from the clipboard."
          (buffer-scope (if buffer-file-name
                            (format "Current file: %s" buffer-file-name)
                          (format "Current buffer: %s" (buffer-name))))
-         (function-name (which-function))
+         (scope-context
+          (if region-text
+              (ai-code--scope-context-for-region
+               (region-beginning) (region-end))
+            (ai-code--current-line-scope-context)))
+         (function-name (plist-get scope-context :function-name))
+         (semantic-scope (ai-code--format-scope-context scope-context))
          (files-context-string (ai-code--get-context-files-string))
          (repo-context-string (ai-code--format-repo-context-info))
          (clipboard-context (when current-prefix-arg
@@ -385,7 +451,8 @@ optional runtime/debugging text from the clipboard."
         function-name
         files-context-string
         repo-context-string
-        clipboard-context)))))
+        clipboard-context
+        semantic-scope)))))
 
 ;;;###autoload
 (defun ai-code-cli-switch-to-buffer-or-hide ()
@@ -501,10 +568,10 @@ Shows the current backend label to the right."
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
   ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
-  ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume)
+  ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume-with-session-checkpoint)
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
+  ("Z" "Session dashboard" ai-code-session-dashboard)
   ("s" ai-code-select-backend :description ai-code--select-backend-description)
-  ("j" "Session dashboard" ai-code-session-dashboard)
   ;; DONE: similar to ai-code-select-backend, add ai-code-select-terminal, it will use ai-code-backends-infra-terminal-backend to select between different terminal emulators for AI sessions, such as vterm, eat, and ghostel.
   ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
@@ -518,14 +585,15 @@ Shows the current backend label to the right."
   ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
   ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
   ("x" "Explain code in scope" ai-code-explain)
+  ("m" "Address code annotation" ai-code-address-code-annotation)
   ("<SPC>" "Send command (C-u: context)" ai-code-send-command)
   ("I" "Insert to session..." ai-code-insert-menu)
   ("@" "Context (copy/add/show/clear)" ai-code-context-action)
   ("Q" "Send quick prompt" ai-code-send-quick-prompt)
   (":" "Speech to text input" ai-code-speech-to-text-input)
-  ("w" "New worktree branch (C-u: status)" ai-code-git-worktree-action))
+  )
 
-;;;###autoload
+;;;###autoload (autoload 'ai-code-insert-menu "ai-code" nil t)
 (transient-define-prefix ai-code-insert-menu ()
   "Insert files and editor selections into an AI Code session or viewport."
   ["Insert"
@@ -555,20 +623,21 @@ Shows the current backend label to the right."
   (ai-code--infix-select-code-change-auto-test)
   ("r" "Refactor Code" ai-code-refactor-book-method)
   ("t" "Test Driven Development" ai-code-tdd-cycle)
+  ("y" "Grow Next Step" ai-code-grow-next-step)
   ("v" "GitHub PR AI Action" ai-code-pull-or-review-diff-file)
   ;; DONE: Move ai-code-derive-architecture-guardrails ai-code-file.el. Add a new menu item: "Derive architecture document", bind to D. It let user choose from complet-reading: Derive Architecture Guardrails, and Derive DDD Context for Repo. No need to keep other two separate menu items
   ("A" "Derive architecture document" ai-code-derive-architecture-document)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
-  ("b" "Build/Test/Lint (AI follow-up)" ai-code-build-or-test-project)
+  ("b" "Build/Test/Diagnostics (AI follow-up)" ai-code-build-or-test-project)
   ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
-  ("f" "Fix Flycheck errors in scope" ai-code-flycheck-fix-errors-in-scope)
   ("d" "Debug Emacs runtime" ai-code-debug-emacs-runtime)
+  ("w" "Git worktree actions" ai-code-git-worktree-action)
   )
 
 (transient-define-group ai-code--menu-other-tools
   (ai-code--infix-toggle-auto-follow-up)
   ("k" "Create/Open task file" ai-code-create-or-open-task-file)
-  ("H" "Agent handoff (C-u: whole task)" ai-code-agent-handoff)
+  ("H" "Handoff / checkpoint" ai-code-agent-handoff-or-checkpoint)
   ("/" "Search notes with AI" ai-code-search-notes-with-ai)
   ("n" "Take notes from AI session" ai-code-take-notes)
   ("p" "Open prompt history file" ai-code-open-prompt-file)
@@ -577,7 +646,6 @@ Shows the current backend label to the right."
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.
-  ("P" "AI session checkpoint" ai-code-session-checkpoint)
   ;; ("o" "Open recent file (C-u: insert)" ai-code-git-repo-recent-modified-files)
   ("|" "Apply prompt on file" ai-code-apply-prompt-on-current-file)
   ("h" "Help / Quick Start" ai-code-onboarding-open-quickstart))

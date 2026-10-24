@@ -16,6 +16,7 @@
 (require 'magit)
 (require 'ai-code-utils)
 (require 'ai-code-session-link)
+(require 'ai-code-compose)
 (require 'subr-x)
 
 (declare-function browse-url "browse-url" (url &optional new-window))
@@ -56,14 +57,55 @@ Uses `read-string' directly to avoid `helm-mode' intercepting `completing-read'.
 CANDIDATE-LIST provides additional completion options if provided."
   (funcall ai-code--read-string-fn prompt initial-input candidate-list))
 
+(defun ai-code--long-prompt-p (text)
+  "Return non-nil when TEXT spans more than two lines.
+Such text is edited with the multi-line editor instead of the default
+reader, and with a compose buffer when `ai-code-use-compose-buffer' is set."
+  (and text
+       (> (length (split-string text "\n")) 2)))
+
 (defun ai-code--confirm-and-send (prompt-label initial-prompt)
   "Let user edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI.
 Returns non-nil on successful send."
-  (when-let* ((prompt (if (and initial-prompt
-                               (> (length (split-string initial-prompt "\n")) 5))
-                          (read-string prompt-label initial-prompt)
-                        (ai-code-read-string prompt-label initial-prompt))))
+  (when-let* ((prompt
+               (if (ai-code--long-prompt-p initial-prompt)
+                   (if ai-code-use-compose-buffer
+                       (ai-code-compose-read prompt-label initial-prompt)
+                     (read-string prompt-label initial-prompt))
+                 (ai-code-read-string prompt-label initial-prompt))))
     (ai-code--insert-prompt prompt)))
+
+(defun ai-code--read-input-history (file)
+  "Read the saved input history list from FILE.
+Return a cons of (READABLE . ENTRIES).  READABLE is nil only when FILE
+exists but does not parse as a list, which tells the caller it must not
+replace the file with a freshly built history.  Non-string elements are
+dropped: a history truncated by a non-nil `print-length' reads back with
+an ellipsis symbol in it."
+  (if (not (file-exists-p file))
+      (cons t '())
+    (condition-case nil
+        (with-temp-buffer
+          (insert-file-contents file)
+          (let ((content (buffer-string)))
+            (if (string-empty-p content)
+                (cons t '())
+              (let ((entries (read content)))
+                (if (listp entries)
+                    (cons t (cl-remove-if-not #'stringp entries))
+                  (cons nil '()))))))
+      (error (cons nil '())))))
+
+(defun ai-code--write-input-history (file entries)
+  "Save ENTRIES to FILE, keeping at most the 1000 most recent.
+Text properties are stripped and printing is left unbounded so the file
+always reads back as the list that was written."
+  (with-temp-file file
+    (let ((print-circle nil)
+          (print-length nil)
+          (print-level nil)
+          (recent (cl-subseq entries 0 (min (length entries) 1000))))
+      (insert (prin1-to-string (mapcar #'substring-no-properties recent))))))
 
 (defun ai-code-helm-read-string-with-history (prompt history-file-name &optional initial-input candidate-list)
   "Read a string with Helm completion using specified history file.
@@ -73,17 +115,9 @@ INITIAL-INPUT is optional initial input string.
 CANDIDATE-LIST is an optional list of candidate strings to show before history."
   ;; Load history from file
   (let* ((helm-history-file (expand-file-name history-file-name user-emacs-directory))
-         (helm-history (if (file-exists-p helm-history-file)
-                           (condition-case nil
-                               (with-temp-buffer
-                                 (insert-file-contents helm-history-file)
-                                 (let ((content (buffer-string)))
-                                   (unless (string-empty-p content)
-                                     (read content))))
-                             (error nil))
-                         '()))
+         (loaded-history (ai-code--read-input-history helm-history-file))
          ;; Use only Helm history, no CLI history
-         (history helm-history)
+         (history (cdr loaded-history))
          ;; Extract the most recent item from history (if exists)
          (most-recent (when history
                         (car history)))
@@ -109,16 +143,16 @@ CANDIDATE-LIST is an optional list of candidate strings to show before history."
                  :name "Helm Read String, Use C-c C-y to edit selected command. C-b and C-f to move cursor during editing"
                  :fuzzy nil
                  :initial-input initial-input)))
-    ;; Add to history if non-empty, single-line and save
-    (unless (or (string-empty-p input) (string-match "\n" input))
-      (push input history)
-      ;; (setq history (mapcar #'substring-no-properties history))
-      (with-temp-file helm-history-file ; Save to the Helm-specific history file
-        (let ((history-entries (cl-subseq history
-                                          0 (min (length history)
-                                                 1000))))  ; Keep last 1000 entries
-          (insert (let ((print-circle nil))
-                    (prin1-to-string history-entries))))))
+    ;; Add to history if non-empty, single-line and save.  Never rewrite a
+    ;; history file we failed to parse: that would replace every saved entry
+    ;; with this single input.
+    (cond
+     ((not (car loaded-history))
+      (message "AI Code: %s could not be parsed, input history not saved"
+               helm-history-file))
+     ((or (string-empty-p input) (string-match "\n" input)) nil)
+     (t
+      (ai-code--write-input-history helm-history-file (cons input history))))
     input))
 
 (defun ai-code-helm-read-string (prompt &optional initial-input candidate-list)
@@ -225,7 +259,7 @@ original buffer, send it to an AI coding session, or copy it to the clipboard."
   (let ((patterns
          '("^[ \t]*\\(?:async[ \t]+\\)?\\(?:def\\|class\\|function\\|func\\|fn\\|sub\\|proc\\|method\\|interface\\|struct\\|enum\\|type\\|trait\\|module\\|namespace\\)[ \t]+\\([[:word:]_.$:\\-]+\\)"
            "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*("
-           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{:]")))
+           "^[ \t]*\\([[:word:]_.$:\\-]+\\)[ \t]*[{: ]")))
     (catch 'found
       (dolist (pattern patterns)
         (when (string-match pattern line)
@@ -331,10 +365,10 @@ END-POS defaults to the current '#' position."
                      (string-prefix-p git-root (file-truename file)))
             file))))))
 
-(defun ai-code--file-symbol-candidates (file)
-  "Return sorted function/class symbol candidates from FILE."
+(defun ai-code--file-symbol-candidates--imenu (buffer)
+  "Return sorted imenu candidates from BUFFER."
   (let (symbols)
-    (with-current-buffer (find-file-noselect file t)
+    (with-current-buffer buffer
       (condition-case nil
           (let ((imenu-auto-rescan t)
                 (index (imenu--make-index-alist t)))
@@ -342,13 +376,67 @@ END-POS defaults to the current '#' position."
         (error nil)))
     (sort (delete-dups (cl-remove-if-not #'stringp symbols)) #'string<)))
 
+(defun ai-code--file-symbol-candidates (file)
+  "Return function/class symbol candidates from FILE.
+When Tree-sitter is available for FILE's buffer, return qualified
+names in file-definition order.  Otherwise fall back to an
+alphabetically sorted imenu list."
+  (let ((buf (ignore-errors (find-file-noselect file t))))
+    (if (and buf
+             (fboundp 'ai-code--treesit-available-p)
+             (fboundp 'ai-code--treesit-file-symbols)
+             (ignore-errors (ai-code--treesit-available-p buf)))
+        (let ((symbols (ignore-errors (ai-code--treesit-file-symbols buf))))
+          (if (and symbols (consp symbols))
+              (let ((qualified (mapcar (lambda (s) (plist-get s :qualified)) symbols)))
+                (delete-dups (cl-remove-if-not #'stringp qualified)))
+            (ai-code--file-symbol-candidates--imenu buf)))
+      (when buf
+        (ai-code--file-symbol-candidates--imenu buf)))))
+
+(defun ai-code--choose-symbol-annotation-alist (symbols-or-buffer)
+  "Return annotation alist for Tree-sitter SYMBOLS-OR-BUFFER.
+Each element is (QUALIFIED . \" HEADER  line N\")."
+  (let ((symbols (if (bufferp symbols-or-buffer)
+                     (when (and (fboundp 'ai-code--treesit-available-p)
+                                (fboundp 'ai-code--treesit-file-symbols)
+                                (ignore-errors (ai-code--treesit-available-p symbols-or-buffer)))
+                       (ignore-errors (ai-code--treesit-file-symbols symbols-or-buffer)))
+                   symbols-or-buffer)))
+    (when (and symbols (consp symbols))
+      (mapcar (lambda (s)
+                (cons (plist-get s :qualified)
+                      (format " %s  line %s"
+                              (or (plist-get s :header) "")
+                              (or (plist-get s :line) ""))))
+              symbols))))
+
 (defun ai-code--choose-symbol-from-file (file)
-  "Prompt user to select a symbol from FILE and return it."
-  (let ((candidates (ai-code--file-symbol-candidates file)))
+  "Prompt user to select a symbol from FILE and return it.
+When Tree-sitter symbols are available, show header and line as
+annotation via `completion-extra-properties'."
+  (let* ((buf (ignore-errors (find-file-noselect file t)))
+         (ts-symbols (when (and buf
+                                (fboundp 'ai-code--treesit-available-p)
+                                (fboundp 'ai-code--treesit-file-symbols)
+                                (ignore-errors (ai-code--treesit-available-p buf)))
+                       (ignore-errors (ai-code--treesit-file-symbols buf))))
+         (candidates (if (and ts-symbols (consp ts-symbols))
+                         (delete-dups
+                          (cl-remove-if-not #'stringp
+                                            (mapcar (lambda (s) (plist-get s :qualified)) ts-symbols)))
+                       (when buf (ai-code--file-symbol-candidates--imenu buf))))
+         (annotation-alist (when ts-symbols
+                             (ai-code--choose-symbol-annotation-alist ts-symbols))))
     (when candidates
-      (condition-case nil
-          (completing-read "Symbol: " candidates nil nil)
-        (quit nil)))))
+      (let ((completion-extra-properties
+             (when annotation-alist
+               (list :annotation-function
+                     (lambda (cand)
+                       (cdr (assoc cand annotation-alist)))))))
+        (condition-case nil
+            (completing-read "Symbol: " candidates nil nil)
+          (quit nil))))))
 
 (defun ai-code--comment-filepath-capf ()
   "Provide completion candidates for @file paths inside comments."

@@ -16,6 +16,7 @@
 
 (require 'ai-code-utils)
 (require 'ai-code-input)
+(require 'ai-code-magit)
 (require 'ai-code-prompt-mode)
 
 
@@ -28,10 +29,19 @@
 (declare-function ai-code--resolve-auto-test-suffix-for-send "ai-code")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-run-test "ai-code-agile")
+(declare-function ai-code-flycheck-fix-errors-in-scope "ai-code-change")
 
 (defcustom ai-code-sed-command "sed"
   "GNU sed command used to apply prompts to files."
   :type 'string
+  :group 'ai-code)
+
+(defcustom ai-code-region-text-max-lines 5
+  "Maximum number of region lines whose text is kept in context references.
+When the selected region spans more lines than this, context actions
+such as `ai-code-copy-buffer-file-name-to-clipboard' copy only the file
+path with the line range, without the region text."
+  :type 'integer
   :group 'ai-code)
 
 ;; Variables that will be defined in ai-code.el
@@ -72,27 +82,45 @@ active region line range, then the current function, then the file path."
                   (line-number-at-pos start t)
                   (line-number-at-pos (max start (1- end)) t))))
        (t
-        (let ((function-name (when (fboundp 'which-function)
-                               (which-function))))
+        (let ((function-name (ai-code--current-qualified-scope-name)))
           (if (and (stringp function-name)
                    (not (string-empty-p function-name)))
               (format "%s#%s" file-reference function-name)
             file-reference)))))))
 
+(defun ai-code--dired-explicitly-marked-files ()
+  "Return the files explicitly marked in the current Dired buffer.
+Return nil when nothing is marked.  `dired-get-marked-files' falls back
+to the file at point when no mark exists, so a single entry equal to
+that file is not an explicit mark."
+  (let ((all-marked (ignore-errors (dired-get-marked-files)))
+        (file-at-point (ignore-errors (dired-get-filename nil t))))
+    (unless (and (= (length all-marked) 1)
+                 file-at-point
+                 (equal (car all-marked) file-at-point))
+      all-marked)))
+
 ;;;###autoload
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
   "Copy the current buffer's file path or selected text to clipboard.
-If in a magit status buffer, copy the current branch name.
-If in a Dired buffer, copy the file at point or directory path.
+In Magit, copy selected textual hunks as a patch snapshot.
+Elsewhere in a Magit status buffer, copy the current branch name.
+If in a Dired buffer, copy the marked files and directories, one path
+per line, falling back to the file at point or the directory path.
 In a regular file buffer, append the selected region's line range or
 the current function name to the file path.  Preserve selected text
-before that context reference.
+before that context reference, unless the region spans more than 5
+lines; then only the file path with line range is copied.
 With prefix argument ARG \[universal-argument], always return full path
 instead of processed path.  File paths are processed to relative paths
 with @ prefix if within git repo."
   (interactive "P")
   (let ((path-to-copy
          (cond
+          ((and (derived-mode-p 'magit-mode)
+                (or (use-region-p) (ai-code-magit-hunk-p)
+                    (not (derived-mode-p 'magit-status-mode))))
+           (plist-get (ai-code-magit-context) :text))
           ;; If current buffer is a magit status buffer
           ((derived-mode-p 'magit-status-mode)
            (magit-get-current-branch))
@@ -100,7 +128,9 @@ with @ prefix if within git repo."
           ((buffer-file-name)
            (let ((context-reference
                   (ai-code--current-file-context-reference arg)))
-             (if (use-region-p)
+             (if (and (use-region-p)
+                      (<= (count-lines (region-beginning) (region-end))
+                          ai-code-region-text-max-lines))
                  (format "%s in %s"
                          (buffer-substring-no-properties
                           (region-beginning)
@@ -109,18 +139,18 @@ with @ prefix if within git repo."
                context-reference)))
           ;; If current buffer is a dired buffer
           ((derived-mode-p 'dired-mode)
-           (let* ((file-at-point (ignore-errors (dired-get-file-for-visit)))
-                  (git-root-truename (ai-code--git-root)))
-             (if file-at-point
-                 ;; If there's a file under cursor, copy its processed path
-                 (if (and git-root-truename (not arg))
-                     (ai-code--process-word-for-filepath file-at-point git-root-truename)
-                   file-at-point)
-               ;; If no file under cursor, copy the dired directory path
-               (let ((dir-path (dired-current-directory)))
-                 (if (and git-root-truename (not arg))
-                     (ai-code--process-word-for-filepath dir-path git-root-truename)
-                   dir-path)))))
+           (let* ((git-root-truename (ai-code--git-root))
+                  ;; Marked items win; otherwise keep the previous behavior of
+                  ;; copying the file under cursor, then the dired directory.
+                  (targets (or (ai-code--dired-explicitly-marked-files)
+                               (list (or (ignore-errors (dired-get-file-for-visit))
+                                         (dired-current-directory))))))
+             (mapconcat (lambda (path)
+                          (if (and git-root-truename (not arg))
+                              (ai-code--process-word-for-filepath path git-root-truename)
+                            path))
+                        targets
+                        "\n")))
           ;; For other buffer types, return nil
           (t nil))))
     (if path-to-copy
@@ -274,10 +304,13 @@ and runs it in a compilation buffer."
 
 (defun ai-code--generate-shell-command (&optional initial-input)
   "Generate shell command from user input or AI assistance.
-Read initial command from user with INITIAL-INPUT as default.
+Read initial command with INITIAL-INPUT as the default, falling back to
+the latest entry in `ai-code-shell-command-history'.
 If command starts with ':', treat as prompt for AI to generate command.
-Return the final command string."
-  (let* ((initial-command (read-string "Shell command: " initial-input
+Record the confirmed AI command in the dedicated history and return it."
+  (let* ((default-command (or initial-input
+                              (car ai-code-shell-command-history)))
+         (initial-command (read-string "Shell command: " default-command
                                        'ai-code-shell-command-history))
          ;; if current buffer is Dired buffer, replace the * character
          ;; inside initial-command with file base name under cursor,
@@ -317,7 +350,14 @@ Return the final command string."
                                          (car (split-string ai-generated "\n" t)))))
                       (when first-line
                         ;; Ask user to confirm/edit the AI-generated command
-                        (read-string "Shell command (AI generated): " (string-trim first-line))))
+                        (let ((confirmed-command
+                               (read-string "Shell command (AI generated): "
+                                            (string-trim first-line))))
+                          (when (and confirmed-command
+                                     (not (string-empty-p confirmed-command)))
+                            (add-to-history 'ai-code-shell-command-history
+                                            confirmed-command))
+                          confirmed-command)))
                   (error
                    (message "Failed to generate command with AI: %s" err)
                    "")))
@@ -384,20 +424,31 @@ is active; otherwise run the current file."
 
 ;;;###autoload
 (defun ai-code-build-or-test-project ()
-  "Build or test the current project based on user choice.
+  "Run a build, test, lint, or Flycheck action selected by the user.
 If user chooses to build, check for build.sh in the project root
 and send to AI for execution.  Otherwise, ask AI to generate a build command.
 If user chooses to test the whole project, call `ai-code-test-project'.
 If user chooses scoped testing, call `ai-code-run-test'.
-If user chooses linting, call `ai-code-lint-current-file'."
+If user chooses linting, call `ai-code-lint-current-file'.
+If user chooses a Flycheck fix, call
+`ai-code-flycheck-fix-errors-in-scope'."
   (interactive)
-  (let ((action (completing-read "Choose action: " '("Build project" "Test project" "Test on scope" "Lint current file") nil t)))
-    (cond
-     ;; DONE add an option Lint current file. When selected, let AI to use the new added diagnosis emacs mcp tool to lint current file, and follow up with error analysis and code fix suggestions if linting errors are found.
-     ((string= action "Build project") (ai-code-build-project))
-     ((string= action "Test project") (ai-code-test-project))
-     ((string= action "Test on scope") (ai-code-run-test))
-     ((string= action "Lint current file") (ai-code-lint-current-file)))))
+  (let ((action (completing-read
+                 "Choose action: "
+                 '("Build project"
+                   "Test project"
+                   "Test on scope"
+                   "Lint current file"
+                   "Fix Flycheck errors in scope")
+                 nil t)))
+    (pcase action
+      ("Build project" (ai-code-build-project))
+      ("Test project" (ai-code-test-project))
+      ("Test on scope" (ai-code-run-test))
+      ("Lint current file" (ai-code-lint-current-file))
+      ("Fix Flycheck errors in scope"
+       (let ((this-command 'ai-code-flycheck-fix-errors-in-scope))
+         (ai-code-flycheck-fix-errors-in-scope))))))
 
 (defun ai-code--lint-current-file-follow-up ()
   "Return follow-up instructions for lint diagnostics."
@@ -480,73 +531,72 @@ Otherwise, ask AI to generate a build command."
 ;;;###autoload
 (defun ai-code-add-context ()
   "Capture current buffer context and store it per selected repository root.
+In Magit, store selected textual hunks as a snapshot for that repository.
 If current buffer is not inside a Git repository, select from known repository
 roots gathered from existing context entries and visible/session buffers.
 When no region is selected, use the full file path and current function
 \(if any).  When a region is active, use the file path with line range
 in the form filepath#Lstart-Lend."
   (interactive)
-  (let* ((current-root (ai-code--git-root))
-         (all-roots (let ((roots '()))
-                      (walk-windows
-                       (lambda (w)
-                         (with-current-buffer (window-buffer w)
-                           (let ((root (ai-code--git-root)))
-                             (when (and root (not (member root roots)))
-                               (push root roots)))))
-                       nil 'current-frame)
-                      (when (fboundp 'ai-code-backends-infra--session-buffer-p)
-                        (dolist (buf (buffer-list))
-                          (when (ai-code-backends-infra--session-buffer-p buf)
-                            (with-current-buffer buf
-                              (let ((root (ai-code--git-root)))
-                                (when (and root (not (member root roots)))
-                                  (push root roots)))))))
-                      (nreverse roots)))
-         (existing-roots (let ((roots '()))
-                           (maphash (lambda (root _contexts)
-                                      (when (and (stringp root)
-                                                 (not (member root roots)))
-                                        (push root roots)))
-                                    ai-code--repo-context-info)
-                           (sort roots #'string<)))
-         (candidate-roots (sort (delete-dups (append existing-roots all-roots))
-                                #'string<))
-         (ordered-roots (if (and current-root (member current-root candidate-roots))
-                            (cons current-root (remove current-root candidate-roots))
-                          candidate-roots))
-         (repo-root (cond
-                     ((null ordered-roots)
-                      (user-error "Not inside a Git repository"))
-                     ((= (length ordered-roots) 1)
-                      (car ordered-roots))
-                     (t
-                      (completing-read "Select Git repository for context: "
-                                       ordered-roots
-                                       nil t nil nil (car ordered-roots))))))
-    (if (derived-mode-p 'dired-mode)
-        (let* ((all-marked (dired-get-marked-files))
-               (file-at-point (dired-get-filename nil t))
-               (has-marks (and all-marked
-                               (not (and (= (length all-marked) 1)
-                                         file-at-point
-                                         (equal (car all-marked) file-at-point)))))
-               (targets (cond
-                         (has-marks all-marked)
-                         (file-at-point (list file-at-point))
-                         (t nil))))
-          (unless targets
-            (user-error "No file or directory selected in Dired"))
-          (dolist (path targets)
-            (ai-code--store-context-entry repo-root path))
-          (message "Added context for %s: %s"
-                   repo-root
-                   (mapconcat #'identity targets ", ")))
-      (unless buffer-file-name
-        (user-error "Current buffer is not visiting a file"))
-      (let ((context (ai-code--current-file-context-reference t)))
-        (ai-code--store-context-entry repo-root context)
-        (message "Added context for %s: %s" repo-root context)))))
+  (if (derived-mode-p 'magit-mode)
+      (let* ((context (ai-code-magit-context))
+             (root (plist-get context :root)))
+        (ai-code--store-context-entry root (plist-get context :text))
+        (message "Added Magit hunk snapshot for %s" root))
+    (let* ((current-root (ai-code--git-root))
+           (all-roots (let ((roots '()))
+                        (walk-windows
+                         (lambda (w)
+                           (with-current-buffer (window-buffer w)
+                             (let ((root (ai-code--git-root)))
+                               (when (and root (not (member root roots)))
+                                 (push root roots)))))
+                         nil 'current-frame)
+                        (when (fboundp 'ai-code-backends-infra--session-buffer-p)
+                          (dolist (buf (buffer-list))
+                            (when (ai-code-backends-infra--session-buffer-p buf)
+                              (with-current-buffer buf
+                                (let ((root (ai-code--git-root)))
+                                  (when (and root (not (member root roots)))
+                                    (push root roots)))))))
+                        (nreverse roots)))
+           (existing-roots (let ((roots '()))
+                             (maphash (lambda (root _contexts)
+                                        (when (and (stringp root)
+                                                   (not (member root roots)))
+                                          (push root roots)))
+                                      ai-code--repo-context-info)
+                             (sort roots #'string<)))
+           (candidate-roots (sort (delete-dups (append existing-roots all-roots))
+                                  #'string<))
+           (ordered-roots (if (and current-root (member current-root candidate-roots))
+                              (cons current-root (remove current-root candidate-roots))
+                            candidate-roots))
+           (repo-root (cond
+                       ((null ordered-roots)
+                        (user-error "Not inside a Git repository"))
+                       ((= (length ordered-roots) 1)
+                        (car ordered-roots))
+                       (t
+                        (completing-read "Select Git repository for context: "
+                                         ordered-roots
+                                         nil t nil nil (car ordered-roots))))))
+      (if (derived-mode-p 'dired-mode)
+          (let* ((file-at-point (dired-get-filename nil t))
+                 (targets (or (ai-code--dired-explicitly-marked-files)
+                              (when file-at-point (list file-at-point)))))
+            (unless targets
+              (user-error "No file or directory selected in Dired"))
+            (dolist (path targets)
+              (ai-code--store-context-entry repo-root path))
+            (message "Added context for %s: %s"
+                     repo-root
+                     (mapconcat #'identity targets ", ")))
+        (unless buffer-file-name
+          (user-error "Current buffer is not visiting a file"))
+        (let ((context (ai-code--current-file-context-reference t)))
+          (ai-code--store-context-entry repo-root context)
+          (message "Added context for %s: %s" repo-root context))))))
 
 (defun ai-code-list-context ()
   "Display stored context entries grouped by Git repository."
@@ -586,22 +636,40 @@ With prefix ARG, clear all repositories."
 (defun ai-code-context-action (_arg)
   "Copy, add, show, or clear context entries via `completing-read'.
 Presents copy actions first, followed by Add context, Show context, and
-Clear context.  The prefix argument ARG is ignored."
+Clear context.  The prefix argument ARG is ignored.
+Capture selected Magit hunks before opening the menu."
   (interactive "P")
-  (let ((action (completing-read "Context action: "
-                                 '("Copy context"
-                                   "Copy context with full path"
-                                   "Add context"
-                                   "Show context"
-                                   "Clear context")
-                                 nil t)))
+  (let* ((snapshot
+          (when (and (derived-mode-p 'magit-mode)
+                     (or (use-region-p) (ai-code-magit-hunk-p)))
+            (condition-case err
+                (ai-code-magit-context)
+              (user-error err))))
+         (action (completing-read "Context action: "
+                                  '("Copy context"
+                                    "Copy context with full path"
+                                    "Add context"
+                                    "Show context"
+                                    "Clear context")
+                                  nil t)))
+    ;; Invalid selections must not prevent listing or clearing stored context.
+    (when (and (eq (car snapshot) 'user-error)
+               (member action '("Copy context" "Copy context with full path"
+                                "Add context")))
+      (signal (car snapshot) (cdr snapshot)))
     (pcase action
-      ("Copy context"
-       (ai-code-copy-buffer-file-name-to-clipboard))
-      ("Copy context with full path"
-       (ai-code-copy-buffer-file-name-to-clipboard t))
+      ((or "Copy context" "Copy context with full path")
+       (if snapshot
+           (progn
+             (kill-new (plist-get snapshot :text))
+             (message "Copied Magit hunk snapshot"))
+         (ai-code-copy-buffer-file-name-to-clipboard
+          (equal action "Copy context with full path"))))
       ("Add context"
-       (call-interactively #'ai-code-add-context)
+       (if snapshot
+           (ai-code--store-context-entry (plist-get snapshot :root)
+                                         (plist-get snapshot :text))
+         (call-interactively #'ai-code-add-context))
        (ai-code-list-context))
       ("Show context"
        (ai-code-list-context))
