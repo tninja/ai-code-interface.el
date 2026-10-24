@@ -73,7 +73,9 @@
 Standalone carriage returns are intentionally excluded so simple CR-based
 updates are handled separately via carriage return counting.")
 
-(defvar-local ai-code-backends-infra--vterm-render-queue nil)
+(defvar-local ai-code-backends-infra--vterm-render-queue nil
+  "Pending output chunks in reverse arrival order.
+Also accept a string left pending by an earlier package version.")
 (defvar-local ai-code-backends-infra--vterm-render-timer nil)
 (defvar-local ai-code-backends-infra--vterm-dim-foreground-active nil
   "Non-nil when AI Code injected an ANSI gray foreground for SGR dim text.")
@@ -329,14 +331,21 @@ in place.  Other buffers redraw untouched."
       (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
        (lambda () (funcall orig-fun buffer))))))
 
+(defun ai-code-backends-infra--vterm-take-render-queue ()
+  "Clear pending output and return it as a string in arrival order."
+  (let ((chunks ai-code-backends-infra--vterm-render-queue))
+    (setq ai-code-backends-infra--vterm-render-queue nil)
+    (if (stringp chunks)
+        chunks
+      (apply #'concat (nreverse chunks)))))
+
 (defun ai-code-backends-infra--vterm-render-queued-output (orig-fun buffer)
   "Render queued vterm output for BUFFER using ORIG-FUN."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (setq ai-code-backends-infra--vterm-render-timer nil)
       (when ai-code-backends-infra--vterm-render-queue
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
+        (let ((data (ai-code-backends-infra--vterm-take-render-queue)))
           (when-let* ((process (get-buffer-process buffer))
                       ((process-live-p process)))
             (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
@@ -352,8 +361,7 @@ When BUFFER is nil, flush the queue for the current buffer."
         (cancel-timer ai-code-backends-infra--vterm-render-timer))
       (setq ai-code-backends-infra--vterm-render-timer nil)
       (when ai-code-backends-infra--vterm-render-queue
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
+        (let ((data (ai-code-backends-infra--vterm-take-render-queue)))
           (when-let* ((process (get-buffer-process (current-buffer)))
                       ((process-live-p process)))
             (let ((ai-code-backends-infra-vterm-anti-flicker nil))
@@ -372,32 +380,36 @@ navigation."
           (not (ai-code-backends-infra--session-buffer-p (process-buffer process))))
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
-      (let* ((complex-redraw-detected
-              (string-match-p ai-code-backends-infra--vterm-redraw-regexp input))
-             (clear-count (1- (length (split-string input "\033\\[K"))))
-             (cr-count (cl-count ?\15 input))
-             (escape-count (cl-count ?\033 input))
-             (input-length (length input))
-             (escape-density (if (> input-length 0)
-                                 (/ (float escape-count) input-length)
-                               0)))
-        (if (or complex-redraw-detected
-                (>= cr-count 2)
-                (and (> escape-density 0.3) (>= clear-count 2))
-                ai-code-backends-infra--vterm-render-queue)
-            (let ((buffer (current-buffer)))
+      ;; Queued output must stay ordered; plain text cannot start a redraw.
+      (if (or ai-code-backends-infra--vterm-render-queue
+              (and (string-match-p "[\r\e]" input)
+                   (let* ((complex-redraw-detected
+                           (string-match-p
+                            ai-code-backends-infra--vterm-redraw-regexp input))
+                          (clear-count (1- (length (split-string input "\033\\[K"))))
+                          (cr-count (cl-count ?\15 input))
+                          (escape-count (cl-count ?\033 input))
+                          (input-length (length input))
+                          (escape-density (/ (float escape-count) input-length)))
+                     (or complex-redraw-detected
+                         (>= cr-count 2)
+                         (and (> escape-density 0.3) (>= clear-count 2))))))
+          (let ((buffer (current-buffer)))
+            (when (stringp ai-code-backends-infra--vterm-render-queue)
               (setq ai-code-backends-infra--vterm-render-queue
-                    (concat ai-code-backends-infra--vterm-render-queue input))
-              (when ai-code-backends-infra--vterm-render-timer
-                (cancel-timer ai-code-backends-infra--vterm-render-timer))
-              (setq ai-code-backends-infra--vterm-render-timer
-                    (run-at-time ai-code-backends-infra-vterm-render-delay nil
-                                 #'ai-code-backends-infra--vterm-render-queued-output
-                                 orig-fun
-                                 buffer)))
-          (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
-           (lambda ()
-             (funcall orig-fun process input))))))))
+                    (list ai-code-backends-infra--vterm-render-queue)))
+            (push input ai-code-backends-infra--vterm-render-queue)
+            ;; Preserve the existing debounce: wait after the latest chunk.
+            (when ai-code-backends-infra--vterm-render-timer
+              (cancel-timer ai-code-backends-infra--vterm-render-timer))
+            (setq ai-code-backends-infra--vterm-render-timer
+                  (run-at-time ai-code-backends-infra-vterm-render-delay nil
+                               #'ai-code-backends-infra--vterm-render-queued-output
+                               orig-fun
+                               buffer)))
+        (ai-code-backends-infra--vterm-render-preserving-copy-mode-view
+         (lambda ()
+           (funcall orig-fun process input)))))))
 
 (defun ai-code-backends-infra--vterm-flush-on-copy-mode-exit ()
   "Flush any pending render queue when exiting `vterm-copy-mode'.
@@ -405,11 +417,7 @@ Added buffer-locally to `vterm-copy-mode-hook' so that terminal output
 queued while copy mode was active is rendered immediately when the user
 returns to normal terminal interaction."
   (unless (bound-and-true-p vterm-copy-mode)
-    (when ai-code-backends-infra--vterm-render-queue
-      (when-let* ((proc (get-buffer-process (current-buffer))))
-        (let ((data ai-code-backends-infra--vterm-render-queue))
-          (setq ai-code-backends-infra--vterm-render-queue nil)
-          (vterm--filter proc data))))))
+    (ai-code-backends-infra-vterm-flush-render-queue)))
 
 (defun ai-code-backends-infra--configure-vterm-buffer ()
   "Configure vterm for enhanced performance."

@@ -3861,6 +3861,8 @@ The prefix argument should also force instance-name prompting."
            (mock-process 'mock-proc))
       (cl-letf (((symbol-function 'get-buffer-process)
                  (lambda (_buf) mock-process))
+                ((symbol-function 'process-live-p)
+                 (lambda (process) (eq process mock-process)))
                 ((symbol-function 'vterm--filter)
                  (lambda (_proc data) (setq flushed-data data))))
         (ai-code-backends-infra--vterm-flush-on-copy-mode-exit)
@@ -4161,7 +4163,8 @@ The prefix argument should also force instance-name prompting."
         ;; It should NOT be rendered immediately.
         (should (null rendered))
         ;; It should be in the queue.
-        (should (equal ai-code-backends-infra--vterm-render-queue "Loading... 10%\rLoading... 20%\r"))))))
+        (should (equal ai-code-backends-infra--vterm-render-queue
+                       '("Loading... 10%\rLoading... 20%\r")))))))
 
 (ert-deftest test-ai-code-backends-infra-vterm-smart-renderer-allows-crlf-pass-through ()
   "Simple CRLF output should render immediately instead of being queued."
