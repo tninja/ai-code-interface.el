@@ -7,34 +7,32 @@
 [[https://github.com/tninja/ai-code-interface.el/graphs/contributors][https://img.shields.io/github/contributors/tninja/ai-code-interface.el.svg]]
 [[https://github.com/RoggeOhta/awesome-codex-cli][https://awesome.re/mentioned-badge.svg]]
 
-An Emacs interface for AI-assisted software development. *The purpose is to provide a uniform interface and experience for different AI backends*, with context-aware AI coding actions, and integrating seamlessly with AI-driven agile development workflows.
+AI Code Interface is a backend-agnostic Emacs workflow layer for AI-assisted software development.
 
-- Currently it supports these AI coding CLIs:
-  - [[https://github.com/openai/codex][OpenAI Codex]]
-  - [[https://pi.dev/][Pi]]
-  - [[https://antigravity.google/product/antigravity-cli][Antigravity CLI]]
-  - [[https://opencode.ai/][Opencode]]
-  - [[https://github.com/anthropics/claude-code][Claude Code]]
-  - [[https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli][GitHub Copilot CLI]]
-  - [[https://kilo.ai/][Kilo]]
-  - [[https://grokcli.io/][Grok CLI]]
-  - [[https://docs.cursor.com/en/cli][Cursor CLI]]
-  - [[https://github.com/openinterpreter/openinterpreter][Open Interpreter CLI]] (Codex-compatible)
-  - [[https://kiro.dev/cli/][Kiro CLI]]
-  - [[https://cnb.cool/codebuddy/codebuddy-code][CodeBuddy Code CLI]]
-  - [[https://github.com/google-gemini/gemini-cli][Gemini CLI]]
-  - [[https://aider.chat/][Aider CLI]]
-- It also supports external backend packages:
-  - [[https://eca.dev/][ECA (Editor Code Assistant)]] (`[[./ai-code-eca.el][ai-code-eca.el]]`)
-  - [[https://github.com/xenodium/agent-shell][agent-shell]] ([[https://github.com/xenodium/acp.el][acp.el]])
-  - [[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide.el]]
-  - [[https://github.com/stevemolitor/claude-code.el][claude-code.el]]
+Use Codex, Claude Code, Gemini CLI, Pi, agent-shell/ACP, and other coding agents while keeping the same Emacs workflow for context, prompting, code changes, review, TDD, Git, tasks, and session management.
 
-- I switch between different CLI-based AI tools in Emacs: Claude Code / OpenAI Codex / Gemini CLI / etc. If you also use different AI tools inside Emacs, but want to keep the same user interface and experience, this package is for you.
+** Why AI Code Interface?
 
-- If you are choosing between the main AI coding packages in Emacs, ask one question first: do you want the deepest integration for one specific agent runtime, or do you want one Emacs workflow that stays stable even when you change AI tools?
+AI coding agents change quickly. AI Code Interface keeps your developer workflow stable while allowing the agent underneath to change: *the backend can change; your Emacs workflow does not have to*.
 
-- *ai-code-interface.el* is built for the second case. Its real advantage is not just backend coverage. Its main advantage is *workflow portability*: the same menu, context gathering, prompt flow, refactoring commands, TDD helpers, review workflow, prompt files, and Emacs MCP tools continue to work while the backend changes underneath.
+If you want the deepest possible integration with one specific agent runtime, a dedicated client may be a better fit. If you use or evaluate multiple coding agents and want one consistent Emacs workflow, AI Code Interface is built for that.
+
+*Workflow portability is the core idea:*
+
+- Keep the same context and prompt workflow.
+- Keep the same code-change, review, refactoring, and TDD workflow.
+- Keep the same task, Git, MCP, and session workflow.
+- Switch the AI backend without rebuilding your Emacs setup.
+
+** Design Philosophy
+
+*AI Code Interface unifies developer workflows, not agent runtimes.*
+
+Native coding CLIs keep ownership of their own interaction model, tool execution, retries, queueing or steering, permissions, and other runtime behavior. AI Code Interface integrates with those capabilities rather than reimplementing them.
+
+Structured external backends such as agent-shell/ACP can provide deeper lifecycle and UI integration when available, without making those semantics a requirement for every backend. This keeps the common workflow portable while allowing each backend to use its native strengths.
+
+See [[https://github.com/tninja/ai-code-interface.el/tree/main#ai-coding-cli-backend][AI coding CLI backend]] for the full backend list and configuration details.
 
 - Screenshot
 
@@ -97,6 +95,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; (setq ai-code-backends-infra-terminal-backend 'eat) ;; config for native CLI backends. for external backends such as agent-shell, claude-code-ide.el and claude-code.el, please check their own config
     ;; Optional: Try ghostel as an backend infra
     ;; (setq ai-code-backends-infra-terminal-backend 'ghostel)
+    ;; Optional: Badge tab-bar tabs that show AI sessions with their state (○ idle, ◐ working, ✓ done unseen, ? needs input)
+    ;; (ai-code-session-attention-mode 1)
     ;; Optional: Disable @ file completion in comments and AI sessions
     ;; (ai-code-prompt-filepath-completion-mode -1)
     ;; Optional: Ask AI to run test after code changes, for a tighter build-test loop
@@ -104,8 +104,8 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     ;; Optional: Disable numbered next steps for discussion prompts at send time
     ;; (enabled by default)
     ;; (setq ai-code-discussion-auto-follow-up-enabled nil)
-    ;; Optional: In AI session buffers, SPC in Evil normal state triggers the prompt-enter UI
-    (with-eval-after-load 'evil (ai-code-backends-infra-evil-setup))
+    ;; Optional: Show candidates as you type in task file, using company
+    ;; (add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion-setup)
     ;; Optional: Turn on auto-revert buffer, so that the AI code change automatically appears in the buffer
     (global-auto-revert-mode 1)
     (setq auto-revert-interval 1) ;; set to 1 second for faster update
@@ -113,6 +113,13 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     (with-eval-after-load 'magit
       (ai-code-magit-setup-transients)))
 #+end_src
+
+** Windows
+
+Native Windows Emacs is supported. Ghostel is the recommended terminal backend
+because it uses ConPTY and provides pre-built Windows native modules. If the
+default vterm backend cannot start on native Windows, AI Code automatically
+falls back to Ghostel. See [[./docs/windows.org][Native Windows Support]] for setup and troubleshooting.
 
 ** Dependencies
 
@@ -129,6 +136,9 @@ Enable installation of packages from MELPA by adding an entry to package-archive
     - local image paths printed by an AI CLI (for example =screenshot.png=) are previewed inline in the session buffer while the source path remains visible and clickable.
     - tall local previews can use the optional =ultra-scroll= integration
       described below.
+    - while a local preview is visible, line scrolling (=scroll-up-line=,
+      =scroll-down-line=, evil's =C-e= / =C-y=) and the plain mouse wheel move
+      by pixels, one line height per step, instead of jumping a whole image.
   - [[https://github.com/dakra/ghostel][ghostel]] is under active development, please install the latest version.
   - To try it:
 
@@ -144,9 +154,10 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   - ai-code-task-use-gptel-filename: When non-nil, file name created by `ai-code-create-or-open-task-file` or `ai-code-create-file-or-dir` will have auto-generated filenames created by GPTel
   - ai-code-use-gptel-headline: When non-nil, prompts sent to the AI will have auto-generated headlines created by GPTel, providing better organization and readability in the prompt file
   - ai-code-use-gptel-classify-prompt: When non-nil, and `ai-code-auto-test-type` or `ai-code-discussion-auto-follow-up-enabled` is non-nil, classify whether the current prompt is about code changes so test prompts or discussion follow-up suggestions are only added when relevant
-- `flycheck`: To enable the `ai-code-flycheck-fix-errors-in-scope` command.
+- `flycheck`: To enable the =Fix Flycheck errors in scope= action under =C-c a b= and the `ai-code-flycheck-fix-errors-in-scope` command.
 - `yasnippet`: For snippet support in the prompt file. A library of snippets is included.
   - (emacs built-in) abbrev + skeleton is also a good way to expand prompt. [[./etc/prompt_expand_with_abbrev_skeleton.el][example abbrev to solve / iterate leetcode problem with tdd (need to set ai-code-auto-test-type with tdd)]], [[./examples/leetcode][example problem resolved]]
+- `cape` / `company`: For inline completion of prompts you have written before, described under [[*Reusing Prompts You Already Wrote][Reusing Prompts You Already Wrote]]. Prompt completion itself needs neither package. `cape`, when installed, adds English dictionary words to the same candidate list with no configuration; `company` shows the candidates as you type once you opt in. Neither is a dependency, and neither is loaded when it is not installed.
 - `projectile`: For project root initialization.
 - `helm-gtags`: For tags creation and symbol navigation fallback from clickable session symbols.
 
@@ -176,8 +187,11 @@ appends the destination PNG path when invoking it:
 - *Transient-Driven Hub (`C-c a`)*: One keystroke opens a contextual transient menu that groups every capability (CLI control, code actions, agile workflows, utilities) so you never need to memorize scattered keybindings.
   - If the default wide layout does not fit your frame well, set `ai-code-menu-layout` to `two-columns` for a narrower menu with the same commands.
 - *AI CLI Session Management*: Start (`a`), resume (`R`), or jump back into (`z`) the active AI CLI buffer, instantly swap backends (`s`), upgrade them (`u`), install backend skills (`S`), edit backend configs (`g`), open backend agent file (`G`), and run prompts against the current file (`|`). It supports multiple sessions per project. The `S` entry is especially useful for installing shared skill packs such as [[https://github.com/obra/superpowers][obra/superpowers]].
-  - `j` opens the AI session dashboard, where you can inspect active sessions, refresh the list, visit a session buffer, kill a session, or open the repository's Magit status.
-  - `P` sends a session checkpoint prompt that asks the AI to summarize the goal, files changed, current hypothesis, tests/build result, blockers, and next action.
+  - `Z` toggles the AI session dashboard in a window across the bottom of the frame, where you can inspect active sessions, refresh the list, visit a session buffer, kill a session, or open the repository's Magit status. Press `Z` again, or `q` in the dashboard, to close it. Besides repository, task file, backend and branch, each row shows the session's Status, how long it has been in that state (Since), its uncommitted changes (for example =2 files +3 −2=), and a one-line summary of the last prompt sent to it from Emacs; hover over the summary to see the prompt.
+
+    [[file:./session_dashboard.png]]
+
+  - `H` sends a session checkpoint prompt when run from an AI session buffer, asking the AI to summarize the goal, files changed, current hypothesis, tests/build result, blockers, and next action.
   - When resuming, selecting a UUID in the region appends that UUID automatically so you can continue a specific session.
   - In AI session side windows, `C-.` grows and `C-,` shrinks the panel immediately. On left/right side windows it adjusts width; on top/bottom side windows it adjusts height.
 - *AI CLI Editor Viewport*: Managed terminal TUI sessions support editing in a native Emacs viewport.
@@ -185,13 +199,23 @@ appends the destination PNG path when invoking it:
 - *Clickable Session Links*: In AI session buffers, supported in-repo file references, nearby code symbols, and `http` / `https` URLs are underlined and clickable. File links such as `src/foo.el:42`, `src/foo.el:42:7`, `src/foo.el:L42-L60`, or `src/foo.el#L42-L60` jump directly to the right location, nearby symbols such as `setq-local`, `ai-code-session-link-enabled`, or `UserService.processRequest()` trigger code navigation in the associated file, and web links open in your browser. Symbol navigation first tries `xref`, then `helm-gtags` when available, and finally falls back to searching in the opened file buffer. Set `ai-code-session-link-enabled` to `nil` if you want to disable this link rendering.
 [[./clickable_link_ai_session.png]]
 - *Context-Aware Code Actions*: The menu exposes dedicated entries for changing code (`c`), implementing TODOs (`i`), asking questions (`q`), explaining code (`x`), sending free-form commands (`<SPC>`), and managing AI context (`@`). The context menu can copy scoped references with repository-relative or full paths, including the current function or selected line range. Each command automatically captures the surrounding function, region, or clipboard contents (via `C-u`) to keep prompts precise.
+- *Address code annotation* (`m` under *AI code actions with context*): Manage source-file and Magit hunk annotations and ask AI for suggestions about them. Requires the optional, ordinary [[https://github.com/bastibe/annotate.el][annotate.el]] package, version 2.5.0 or newer (annotation IDs); no modified annotate fork is needed. If annotate.el is missing or no annotations exist, the command explains this instead of sending an empty request.
+  - The command offers six ordered choices: 1. Add / Edit annotation at point, 2. Browse worktree annotations, 3. Ask AI about annotation at point, 4. Ask AI about worktree annotations, 5. Delete annotation at point, 6. Clear worktree annotations. Outside Git, "worktree" is replaced by "current file". The prompt displays the scope, annotation count (including replies), and whether the at-point annotation mode is enabled. In Magit buffers the at-point actions use hunk notes; elsewhere they use =annotate-mode= (enabled automatically when adding). Clearing asks for confirmation and preserves annotations outside the selected scope.
+  - Browse opens the read-only =*AI Code Annotations*= list with type, file, matched line number, status and text summary. =RET= jumps to an exact current match, or previews the snapshot if the note is stale; =v= previews the complete note, replies and snapshot. =e= edits note text and =d= deletes a note and its replies after confirmation. Both work on unmatched saved notes without changing source files or guessing new locations. In the note editor, =C-c C-c= saves and =C-c C-k= cancels.
+  - In the list, =m= toggles a mark, =s= asks AI about marked notes (or the current row when none are marked), =f= asks about every source and hunk note for the row's file, =w= asks about the entire scope, and =g= refreshes the list. Source replies are included with their selected root note. Outside the list, =M-x ai-code-annotation-send-file= asks about the current source file or Magit file section. These narrower scopes avoid sending unrelated notes and oversized worktree context.
+  - Use =annotate-mode= to annotate source files. For Magit status/diff buffers, use =M-x ai-code-annotate-magit-mode= instead (do not enable =annotate-mode= there). =C-c # a= edits a hunk/selected-line note, =C-c C-c= saves it, =C-c C-k= cancels, =C-c # d= deletes, =C-c # s= previews all saved worktree notes, and =C-c # w= copies them.
+  - Magit notes retain the original diff, file/old-file names, source line ranges, branch and HEAD. They survive refresh and reopening, and reattach only to exact, unambiguous hunk/context matches; branch and HEAD are metadata, so unrelated commits or branch switches do not detach staged/unstaged notes. Unmatched snapshots remain available for review, and notes exported without a Magit view of the worktree are marked =NOT CHECKED= rather than unmatched. =ai-code-annotate-magit-file= configures the separate database (default =~/.emacs.d/annotate-magit-reviews=, compatible with the earlier optional integration).
+  - The action collects source annotations from the active =annotate-file= database and databases associated with live annotated buffers in the current worktree. Live root notes override saved records, including unsaved edits/deletions, while retaining saved reply chains to surviving roots. Legacy records are read completely and migrated without truncation when written. Closed files using an unrelated, undiscovered local database are not scanned. Outside Git, only the current source file is included. Stale/missing source text is marked unmatched, with no guessed current line numbers. At-point requests distinguish a disabled annotation mode from an absence of notes; browsing saved notes does not require enabling their display mode.
+  - Before anything is sent, the assembled prompt always opens in the =*AI Compose*= buffer for review, with its character count in the header: edit it freely, then =C-c C-c= sends it or =C-c C-k= cancels without sending.
+  - AI focuses on each annotation and its replies; the associated source excerpts or original diff snapshots provide supporting context. It interprets the concern/question, checks whether replies already resolve it, and explains a focused response with reasons, risks and directly related proposed patches/tests. It does not perform a general code review or suggest unrelated changes, and waits for your decision. It must not modify files or resolve notes. Generic prompt suffixes and Org summary-write instructions are suppressed for this action. This is a suggestions-only prompt, not a backend filesystem sandbox: select a read-only backend permission mode if you need enforced write prevention. After reviewing, separately ask AI to implement only the suggestions you approve. Existing notes are not automatically deleted or resolved.
   - When a visible AI session buffer already exists, prompts can be routed to that session directly instead of opening a new one.
 - *Insert into AI Sessions*: Open the configurable `ai-code-menu` prefix (`C-c a` in the configuration examples), then press `I` to open the Insert submenu for files, Dired selections, regions, diagnostics-aware DWIM, screenshots, and clipboard images. The `I` entry always remains available. If no session is running, pressing it reports that state; if only sessions for other projects are running, it opens the submenu with just the `to...` entries for choosing one explicitly. An editor viewport associated with the destination session receives the insertion when present; otherwise AI Code inserts into that session's TUI input without submitting it. Screenshot capture may require the [[*Optional Screenshot Capture][platform-specific utility described above]].
   - Inserted TUI content is always preceded and followed by two newline characters.[fn:insert-tui-spacing] In a viewport, AI Code omits the leading two newlines when the viewport is empty, keeps them when it already contains content, and always appends two newlines. Viewport attachments follow the same spacing rule.
 - *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
 - *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), debug Emacs runtime issues (`d`), auto-fix Flycheck issues in scope (`f`), create or open task files (`k`), open prompt history (`p`), capture session notes straight into Org (`n`), search notes with AI (`/`), and dictate prompts with speech-to-text (`:`).
 - *Architecture Document Generation*: Derive practical architecture documents for the current repository with `C-c a A` (`ai-code-derive-architecture-document`). The command can generate architecture guardrails, a C4 PlantUML overview, a lightweight DDD context, or a test context document under `.ai.code.files/architecture/` so future AI coding sessions can reuse module boundaries, dependency rules, runtime flows, and validation expectations. See [[./docs/architecture/c4-overview.org][the C4 architecture overview for this repository]] for an example C4 diagram guide.
-- *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` by default), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized.
+- *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` inside a Git repository), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized. If the preferred prompt-history location is not writable, AI Code falls back to `~/.ai.code.files/.ai.code.prompt.org`; customize `ai-code-prompt-fallback-directory` to change that location or set it to nil to disable fallback. Prompt sending still proceeds with a warning when prompt history cannot be written.
+  - Prompts you typed by hand can be completed back inline with `ai-code-prompt-completion-capf`, indexed across every repository. See [[*Reusing Prompts You Already Wrote][Reusing Prompts You Already Wrote]].
 - *Interactive Chat & Context Tools*: Dedicated buffers hold long-running chats, automatically enriched with file paths, diffs, and history from Magit or Git commands for richer AI responses.
 - *AI-Assisted Bash Commands*: From Dired, shell, eshell, or vterm, run `C-c a !` and type natural-language commands prefixed with `:` (e.g., `:count lines of python code recursively`); the tool generates the shell command for review and executes it in a compile buffer.
 
@@ -205,6 +229,7 @@ appends the destination PNG path when invoking it:
 - *Asking a Question*: Place your cursor within a function, press `C-c a`, then `q` (`ai-code-ask-question`), type your question, and press Enter. The question, along with context, will be sent to the AI.
 - *Discussion follow-up suggestions*: `ai-code-discussion-auto-follow-up-enabled` is enabled by default. Set `(setq ai-code-discussion-auto-follow-up-enabled nil)` to turn it off. Then ask a question with `C-c a q` or use `C-c a <SPC>` for a design discussion. When enabled, AI Code asks at send time whether to append 2-3 numbered next-step suggestions, and the transient toggle on `C-c a F` lets you turn the feature on or off from the menu.
 - *Refactoring a Function*: With the cursor in a function, press `C-c a`, then `r` (`ai-code-refactor-book-method`). Select a refactoring technique from the list, provide any required input (e.g., a new method name), and the prompt will be generated.
+- *Value-driven Simplification*: Press `C-c a r` and choose the second entry to discuss either the current branch (relative to a selected base, with an explicit choice about uncommitted changes) or a repository topic. The AI investigates code and asks one question at a time; you decide what to keep and how to simplify. This entry starts a discussion and does not edit code.
 - *Automatically run tests after change*: When ai-code-auto-test-type is non-nil, AI will automatically run tests after code changes and follow up on results.
 - *One-prompt TDD with refactoring*: Press `C-c a`, then `t` (`ai-code-tdd-cycle`) and choose `5. Red + Green + Blue (One prompt)` to generate tests, implement code, run tests, and then refactor the changed code in one flow.
 - *Reviewing a Pull Request*: Press `C-c a`, then `v` (`ai-code-pull-or-review-diff-file`). Choose to generate a diff between two branches. The diff will be created in a new buffer, and you'll be prompted to start a review. Set `ai-code-default-review-source` to `github-mcp` or `gh-cli` to skip the review source prompt and always use that backend; leave it `nil` (the default) to be prompted each time.
@@ -214,6 +239,28 @@ appends the destination PNG path when invoking it:
 - *Agent Handoff*: When switching AI backends or pausing work, press `C-c a H` to have the AI write a neutral handoff log into the task file. Later, in a new backend session, run `C-u C-c a H` to feed the entire handoff history back to the new agent.
 
 
+*** Reusing Prompts You Already Wrote
+
+Most of what you retype into a prompt is wording, not structure: "explain the current code", the handoff instructions you send at every backend switch. This completes those from the prompt history files AI Code already keeps, across every repository it knows about -- projectile's known projects, `ai-code-prompt-completion-roots`, the current directory and the fallback location, with remote (Tramp) roots skipped so completion never opens a connection. Point `ai-code-prompt-completion-files` (nil by default) at files of your own -- a prompt library you keep by hand, a diary, any Org file whose wording you reuse. Setting `ai-code-prompt-completion-use-org-roam` adds the notes org-roam tracks the same way -- off by default, since a whole zettelkasten contributes note sections rather than prompts. In both, every headline offers two prompts however deep it sits, its own text and the text written under it, and whatever stands before the first headline -- the whole of a file written without any -- is split on blank lines. Datetree headlines, tags, statistics cookies and link wrappers are markup rather than wording and drop out, as does a heading of a word or two, quicker typed than picked from a popup. Neither history filter below applies there: you wrote those files, so they are offered as written. A large diary is worth measuring before you point at it -- 10MB of Org indexes in about a second and contributes on the order of 10^5 candidates.
+
+It needs no configuration: opening a prompt file installs the capf, so `completion-at-point` (=M-TAB=) offers your earlier prompts right away, and if =cape= is installed its `cape-dict` words join the same candidate list. Only the popup front-end is left to you:
+
+#+begin_src emacs-lisp
+;; Show candidates as you type, using company
+(add-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion-setup)
+#+end_src
+
+Both =cape= and =company= are optional: neither is a dependency, and neither is loaded when it is not installed. Set `ai-code-prompt-completion-enable-company` to nil when a front-end such as corfu shows the candidates instead, or `(remove-hook 'ai-code-prompt-mode-hook #'ai-code-prompt-completion--enable)` to opt out completely. If your own config already merges capfs with cape, add `ai-code-prompt-completion-capf` to that list rather than relying on the default: the first capf at a given hook depth answers, and yours is added first.
+
+Candidates are the prompts you wrote by hand, ranked by how often you wrote them, shown as a truncated first line and inserted whole. A prompt is recalled from any word of three characters or more in its first line, not only the opening one, and choosing it rewrites the line from the start when what you already typed there opens that same prompt -- so a half-finished `- Go ahead with the suggested refac` completes in place, while a `TODO: ` of your own stays put. Matching still begins at a word: Emacs only offers a non-exclusive capf once plain prefix completion could succeed, so `factor` reaches `refactoring` only if your own `completion-styles` include `flex`. Prompts AI Code generated itself are left out by prefix (`ai-code-prompt-completion-template-prefixes`), and anything longer than `ai-code-prompt-completion-max-lines` is dropped as a one-off paste. The index is cached for the session; `ai-code-prompt-completion-refresh` rebuilds it.
+
+One caveat on the dictionary half: `cape-dict` reads `/usr/share/dict/words`, which on macOS is Webster's 1934 edition. For a modern list, generate one and point `cape-dict-file` at it:
+
+#+begin_src sh
+aspell -d en dump master | aspell -l en expand | tr ' ' '\n' | sort -u \
+  > ~/.emacs.d/dict-en.txt
+#+end_src
+
 *** Context Engineering
 
 Context engineering is the deliberate practice of selecting, structuring, and delivering the right information to an AI model so the output is specific, accurate, and actionable. For AI-assisted programming, the model cannot read your whole codebase by default, so the quality of the result depends heavily on the clarity and relevance of the provided context (file paths, functions, regions, related files, and repo-level notes). Good context engineering reduces ambiguity, prevents irrelevant suggestions, and keeps changes aligned with the current code.
@@ -221,11 +268,20 @@ Context engineering is the deliberate practice of selecting, structuring, and de
 This package makes context engineering easy by automatically assembling precise context blocks and letting you curate additional context on demand:
 - Automatic file and window context: prompts can include the current file and other visible files (`ai-code--get-context-files-string`), so the AI sees related code without manual copying.
 - Function or region scoping: most actions capture the current function or active region, keeping requests focused (e.g., `ai-code-code-change`, `ai-code-implement-todo`, `ai-code-ask-question`).
-- Manual context curation: `C-c a @` (`ai-code-context-action`) stores file paths, function anchors, or region ranges in a repo-scoped list, which is appended to prompts via `ai-code--format-repo-context-info`. In a Dired buffer, `C-c a @` (`ai-code-context-action`) can store the marked files or directories as repo context; if nothing is explicitly marked, it falls back to the file or directory at point.
-- Optional clipboard context: prefix with `C-u` to append clipboard content to prompts for external snippets or logs.
-- @-triggered filepath completion in comments and AI sessions. Type `@` to open a completion list of recent and visible repo files, then select a path to insert.
-- Dired-aware prompt context: Dired-based actions such as code change, question asking, and explain can use marked entries or the current entry as prompt context, so the AI receives the exact file or directory targets you selected in the directory view.
-- Prompt suffix guardrails: set `ai-code-prompt-suffix` to append persistent constraints to every prompt (when `ai-code-use-prompt-suffix` is non-nil). Example: `(setq ai-code-prompt-suffix "Only use English in code file, but Reply in Simplified Chinese language")`.
+- Tree-sitter semantic scope: when the current buffer has an active Tree-sitter parser, prompts carry structural context derived from the real syntax tree instead of just a function name. A prompt for a method now includes its enclosing type, both declaration headers, and the function's line range:
+
+  #+begin_example
+  Enclosing class: UserService
+  Class definition: class UserService(BaseService):
+  Function: find_user
+  Function definition: def find_user(self, user_id: int) -> str:
+  Function range: lines 2-4
+  #+end_example
+- Tree-sitter `@#` symbol completion: after picking a file with `@` (e.g., `@src/service.py`), type `#` to pick a symbol from that file. When Tree-sitter is active (`python-ts-mode`, `rust-ts-mode`, etc.), candidates are qualified names in file-definition order (`Bar`, `Bar.baz`), each annotated with its header and line (`def baz(self):  line 4`); otherwise it falls back to an alphabetically sorted `imenu` list. Works in comments, `*.prompt.org` buffers, and AI session buffers.
+
+Screenshot: 
+
+[[file:./symbol-completion-example-screenshot.png]]
 
 Example (focused refactor with curated context):
 1) In a buffer, run `C-c a @` to add the current function or selected region to stored repo context.
@@ -238,6 +294,41 @@ The generated prompt will include the function/region scope, visible file list, 
   - [[https://github.com/sooperset/mcp-atlassian][Atlassian MCP]]
   - [[https://github.com/crystaldba/postgres-mcp][Postgresql MCP]] / Sqlite MCP
   - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
+
+**** Agent actions on Magit hunks
+
+Place point on a textual hunk in Magit status, diff, or revision buffers,
+then use the existing AI commands:
+
+| Key | Action on selected hunks |
+|-----+--------------------------|
+| =C-c a x= | Explain behavior changes, assumptions, and risks (read-only) |
+| =C-c a q= | Ask a question about the patch (read-only) |
+| =C-c a c= | Apply requested feedback to current working-tree source |
+| =C-c a t= | Add useful missing regression tests for the existing change |
+| =C-c a @= | Add or copy a patch snapshot through the context menu |
+
+Use Magit's section selection to select multiple sibling hunk headings.
+A text selection inside one hunk includes the complete hunk and marks the
+selected excerpt as the focus. Invalid selections, binary diffs, combined
+merge hunks, and file headings are rejected by the hunk actions. The copy
+command still copies the branch name elsewhere in a Magit status buffer.
+
+Context includes the repository, file paths, displayed diff provenance,
+HEAD at capture, and capture time. Stored hunks are snapshots: refresh Magit
+and capture again to update them. Staged hunks describe the index; edit and
+test requests tell the agent to re-read current source, preserve unrelated
+changes, and avoid staging or committing. Historical diffs support explain,
+question, and context capture; switch to a current status hunk before asking
+for edits or tests.
+
+In Magit, =C-c a t= checks existing coverage and adds tests only where useful.
+The agent runs verification and reports commands and results. It does not
+claim a test-first Red/Green cycle for code already written, and it reports
+production failures without changing production code. This action and the
+read-only actions suppress automatic implementation TDD suffixes for that
+send. File-buffer TDD behavior is unchanged. =C-u= adds clipboard context to
+hunk questions and change requests, as it does in file buffers.
 
 **** Built-in Emacs MCP Tools
 
@@ -291,22 +382,25 @@ screenshot inside Codex cli:
 
 ***** Use It with an AI CLI
 
-Set the backend to =claude-code=, =codex=, or =github-copilot-cli= and start a session with =C-c a a=. AI Code will:
+Set the backend to =claude-code=, =codex=, =github-copilot-cli=, or =antigravity= and start a session with =C-c a a=. AI Code will:
 - start a local Emacs MCP HTTP server
 - register the current project/buffer as the MCP session context
 - inject a session-scoped MCP config into that agent session automatically
 
-Auto-wiring is currently enabled for =claude-code=, =codex=, and =github-copilot-cli=.
+Auto-wiring is currently enabled for =claude-code=, =codex=, =github-copilot-cli=, =open-interpreter=, and =antigravity=.
+
+Antigravity does not expand environment variables in MCP headers, so AI Code temporarily writes the session token to =.agents/mcp_config.json= with private permissions. Existing JSON configuration is merged and restored byte for byte when the last Antigravity session exits. If the file changes outside AI Code while a session is active, cleanup leaves the edited file untouched rather than overwriting it.
 
 If you disabled it before, enable it again with:
 
 #+begin_src emacs-lisp
-(setq ai-code-mcp-agent-enabled-backends '(claude-code codex github-copilot-cli))
+(setq ai-code-mcp-agent-enabled-backends
+      '(claude-code codex github-copilot-cli open-interpreter antigravity))
 #+end_src
 
 ***** Make Sure It Works
 
-1. Start =claude-code=, =codex=, or =github-copilot-cli= with =C-c a a= from the file or project you want to work on.
+1. Start =claude-code=, =codex=, =github-copilot-cli=, =open-interpreter=, or =antigravity= with =C-c a a= from the file or project you want to work on.
 2. Switch to the agent buffer and run =M-x ai-code-mcp-agent-show-buffer-status=.
 
 If it shows =:backend=, =:session-id=, and a local =:server-url=, then Emacs has attached MCP to this session.
@@ -374,16 +468,20 @@ Harness engineering is about building a reliable loop around the model, so the A
 
 Instead of manually telling the AI what to do after every code change or discussion turn, you can make follow-up part of the workflow:
 
-- `ai-code-auto-test-type`: choose how code-change prompts should continue after the edit. You can ask the AI to run tests after the change, use TDD Red+Green, use Red+Green+Blue with refactoring, turn it off, or decide case by case with `ask-me`.
+- `ai-code-auto-test-type`: choose how code-change prompts should continue after the edit. You can ask the AI to run tests after the change, use TDD Red+Green, use Red+Green+Blue with refactoring, turn it off, or decide case by case with `ask-me`. The =ask-me= choices also include Uncle Bob's coding agent harness and harness+; the original keeps the evidence-first gauntlet, while harness+ adds maintainability sensors and semantic modularity checks.
 - `ai-code-discussion-auto-follow-up-enabled`: when non-nil, discussion-style prompts can offer a send-time choice to append 2-3 numbered candidate next steps. You can customize this variable directly or toggle it from the transient menu with `C-c a F`.
 - `ai-code-next-step-suggestion-suffix`: customize the exact instruction appended for those numbered next-step suggestions.
 - `ai-code-use-gptel-classify-prompt`: when paired with the settings above, GPTel can classify prompts so code-change prompts skip discussion follow-up suggestions and discussion prompts skip test follow-up.
 - `ai-code-tdd-cycle`: run a guided TDD flow from the menu, including separate Red, Green, Blue stages or the combined one-prompt flows.
-- `ai-code-build-or-test-project`: run build/test explicitly from `C-c a b` when you want a direct verification step in the middle of the loop.
+- `ai-code-build-or-test-project`: run build, test, lint, or scoped Flycheck fixes from `C-c a b` when you want a direct verification or diagnostics step in the middle of the loop.
 - `ai-code-prompt-suffix`: add persistent project rules when needed, so repeated instructions such as response language, coding constraints, or test expectations do not have to be retyped in every prompt.
 - `ai-code-grill-me-enabled`: when non-nil, offer a one-shot clarification step (/"Grill me before acting?"/) immediately before the completed prompt is sent for `ai-code-code-change`, `ai-code-ask-question`, `ai-code-implement-todo`, and `ai-code-send-command`.  When accepted, the AI reads the bundled =prompt/grilling.v1.md= harness and asks targeted clarifying questions before acting, reducing ambiguity in the request.  The harness is adapted from [[https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md][mattpocock/skills – grilling]].  Disabled by default; enable it with:
   #+begin_src emacs-lisp
   (setq ai-code-grill-me-enabled t)
+  #+end_src
+- `ai-code-use-compose-buffer`: when non-nil, edit prompts longer than two lines in a full =*AI Compose*= buffer instead of the minibuffer. Accept with =C-c C-c=, cancel with =C-c C-k=; =@= file completion works as in prompt buffers. Every invocation starts from a fresh buffer and any stale compose buffer is discarded. Disabled by default; enable it with:
+  #+begin_src emacs-lisp
+  (setq ai-code-use-compose-buffer t)
   #+end_src
 - [[https://github.com/obra/superpowers][obra/superpowers]] pair well with these features.
 
@@ -438,15 +536,39 @@ When working with multiple AI sessions, it can be useful to receive desktop noti
 - On Linux with D-Bus, native desktop notifications are used.
 - On other platforms, notifications appear in the Emacs minibuffer.
 
+*** Sessions Needing Attention
+
+When several AI sessions run in parallel, `ai-code-session-attention-mode` badges every tab-bar tab that shows an AI session, for every AI coding CLI backend, so you can tell AI tabs apart and see their state at a glance:
+
+#+begin_src emacs-lisp
+(ai-code-session-attention-mode 1)
+#+end_src
+
+| Badge | State | Meaning |
+|-------+-------+---------|
+| =○= | idle | An AI session is here; nothing is happening |
+| =◐= | working | The session is producing output |
+| =✓= | done unseen | The session finished while you were not looking at it |
+| =?= | needs input | The session waits for you, for example a permission prompt |
+
+[[file:./tab_bar_session_badges.png]]
+
+- Circles are ambient status; =✓= and =?= mean it is your turn. A tab with several sessions shows the most important badge: =?=, then =✓=, then =◐=, then =○=.
+- Showing a session in a window clears =✓= and =?=. Other tabs get no badge.
+- The session dashboard (`C-c a Z`) shows the same states in its Status column, plus =stopped= when the process has exited.
+- "Working" and "done" use the terminal output and idle check (`ai-code-backends-infra-idle-delay`), so typing in a session briefly shows =◐=. "Needs input" needs a terminal that reports program status, currently the Ghostel backend.
+
 *** Portable Agent Handoff via Task Files
 
 To transfer development work between different AI coding backends (e.g., from Codex to Antigravity CLI) without relying on backend-specific session histories, *ai-code-interface.el* supports portable agent handoffs using Org-mode task files.
 
 - *Create or Open Task Files (`k` / `ai-code-create-or-open-task-file`)*: Quickly initialize a new task file (by default under `.ai.code.files/`) with date, branch, selected backend, and structured Org headings (`Task Description`, `Investigation`, `Code Change`).
-- *Generate Portable Handoff (`H` / `ai-code-agent-handoff`)*:
-  - Run `C-c a H` (without a prefix) when not on an Org heading to ask the current AI agent to append a structured handoff section (`* Agent Handoff YYYY-MM-DD HH:MM`) summarizing the task objective, current progress, files modified, design decisions, failed approaches, test results, and a startup prompt for the next agent.
+- *Generate Portable Handoff (`H` / `ai-code-agent-handoff-or-checkpoint`)*: `C-c a H` picks its behavior from the current buffer.
+  - In an Org buffer, run `C-c a H` (without a prefix) outside any handoff section to ask the current AI agent to append a structured handoff section (`* Agent Handoff YYYY-MM-DD HH:MM`) summarizing the task objective, current progress, files modified, design decisions, failed approaches, test results, and a startup prompt for the next agent.
   - Run `C-c a H` with a prefix argument (e.g. `C-u C-c a H`) to load the whole task file as neutral handoff context in a new AI session.
-  - Run `C-c a H` when the cursor is positioned on an Org heading to load only that specific subtree as prompt context for the active session.
+  - Run `C-c a H` anywhere inside a handoff section, or with the cursor on any Org heading, to load only that subtree as prompt context for the active session. The cursor does not have to sit on the handoff headline itself.
+  - In an AI session buffer, `C-c a H` sends the session checkpoint prompt (`ai-code-session-checkpoint`) instead.
+  - In any other buffer, `C-c a H` asks which of the two actions to run.
 
 ** AI coding CLI backend
 
@@ -466,6 +588,7 @@ To transfer development work between different AI coding backends (e.g., from Co
    - [[https://github.com/openai/codex][OpenAI codex CLI]] (`[[./ai-code-codex-cli.el][ai-code-codex-cli.el]]`)
    - [[https://pi.dev/][Pi]] (`[[./ai-code-pi.el][ai-code-pi.el]]`)
    - [[https://antigravity.google/product/antigravity-cli][Antigravity CLI]] (`[[./ai-code-antigravity-cli.el][ai-code-antigravity-cli.el]]`)
+   - [[https://developer.meta.com/ai/products/muse-code][Muse Code]] (`[[./ai-code-muse-cli.el][ai-code-muse-cli.el]]`)
    - [[https://opencode.ai/][Opencode]] (`[[./ai-code-opencode.el][ai-code-opencode.el]]`)
    - [[https://github.com/anthropics/claude-code][Claude Code]] (`[[./ai-code-claude-code.el][ai-code-claude-code.el]]`)
      - Binds =Shift+Enter=/=Ctrl+Enter= inside Claude sessions to send Claude's
@@ -538,6 +661,19 @@ To transfer development work between different AI coding backends (e.g., from Co
      point at a different binary or pass additional flags. After that, select the backend through
      `ai-code-select-backend` or bind a helper in your config.
      The resume command adds =--continue= automatically.
+     Emacs MCP tools are wired automatically through a temporary workspace
+     =.agents/mcp_config.json= entry when this backend is enabled in
+     =ai-code-mcp-agent-enabled-backends=.
+
+**** Muse Code setup
+     Install Muse Code on macOS or Linux with:
+     =curl -fsSL https://dev.meta.ai/install.sh | bash=
+     Review the script before piping it to your shell, then ensure the =muse=
+     executable is available to Emacs through =PATH= and =exec-path=.
+     Customize =ai-code-muse-cli-program= or
+     =ai-code-muse-cli-program-switches= to use a different executable or pass
+     additional startup flags. Select the backend with =ai-code-select-backend=.
+     The resume command runs =muse resume=.
 
 **** Open Interpreter CLI setup
      [[https://github.com/openinterpreter/openinterpreter][Open Interpreter CLI]] is treated as a Codex-compatible CLI. It can be installed with:
@@ -600,6 +736,10 @@ To transfer development work between different AI coding backends (e.g., from Co
 }
 #+end_src
 
+*** Q: How can I troubleshoot a CLI that exits immediately on startup?
+
+- A: AI Code preserves and displays the failed terminal buffer and adds a startup summary containing the backend, requested executable, working directory, process status, and exit status when known. The same summary appears in =*Messages*=. Arguments, environment values, and terminal output are omitted from the added diagnostics. Terminal setup errors, such as a missing dependency, retain their original error messages. A native terminal event pipe may not expose the CLI child's exit code, in which case the exit status is =unknown=.
+
 *** Q: During using ghostel terminal backend, for long conversation, I found the earliest conversation got truncated
 
 - A: Ghostel trims old output after `ghostel-max-scrollback` bytes are used. The default is 5 MB, so increase it before starting Ghostel sessions.
@@ -624,8 +764,9 @@ To transfer development work between different AI coding backends (e.g., from Co
   (setq ai-code-session-link-ghostel-image-preview-max-height nil)
 #+end_src
 
-*** Q: Gemini CLI response is relatively slow, how to improve?
+  =M-x ai-code-toggle-image-preview= turns these previews off or on in all Ghostel sessions without restarting them.
 
+*** Q: Gemini CLI response is relatively slow, how to improve?
 - A: use gemini-3-flash model, it is pretty fast, with good quality (being able to solve leetcode hard problems), and it is free. You can set the following in your Emacs config:
 
 #+begin_src elisp
@@ -633,8 +774,6 @@ To transfer development work between different AI coding backends (e.g., from Co
 #+end_src
 
 ** AI Assisted Programming related books
-
-The following books introduce how to use AI to assist programming and potentially be helpful to aider / aider.el users.
 
 - [[https://learning.oreilly.com/library/view/beyond-vibe-coding/9798341634749/][Beyond Vibe Coding]], by Addy Osmani, August, 2025
 - [[https://learning.oreilly.com/library/view/critical-thinking-habits/0642572243326/][Critical Thinking Habits for Coding with AI]], by Andrew Stellman, Oct 2025

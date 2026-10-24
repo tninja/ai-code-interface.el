@@ -20,6 +20,7 @@
 (require 'subr-x)
 (require 'ai-code-editor-viewport)
 (require 'ai-code-session)
+(require 'ai-code-session-attention)
 (require 'ai-code-session-link)
 (require 'ai-code-startup-diagnostics)
 ;; Terminal-specific implementations live in dedicated modules so this
@@ -30,6 +31,8 @@
 
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
 (declare-function ai-code--session-project-root "ai-code-utils" ())
+(declare-function ai-code-mcp-agent-refresh-source-context
+                  "ai-code-mcp-agent" (agent-buffer source-buffer))
 
 ;;; Customization
 
@@ -59,7 +62,7 @@ Can be either `vterm', `eat', or `ghostel'."
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-window-height 20
-  "Height of the side window when opened on top or bottom."
+  "Total height of the side window when opened on top or bottom."
   :type 'integer
   :group 'ai-code-backends-infra)
 
@@ -120,7 +123,7 @@ that process character-by-character input slowly."
   "Hash table mapping (prefix . directory) to last selected session buffer.")
 
 (defvar ai-code-backends-infra--file-session-map (make-hash-table :test 'equal)
-  "Hash table mapping (prefix . file) to attached AI session buffer.")
+  "Hash table mapping (prefix workspace file) to attached session buffers.")
 
 (defvar ai-code-backends-infra--preferred-session-buffer nil
   "Preferred session buffer to place first when prompting for session selection.")
@@ -384,10 +387,12 @@ the current buffer is an AI session buffer, apply these transformations:
     (with-current-buffer buffer
       (if (ai-code-backends-infra--idle-delay-elapsed-p)
           (let ((visible (ai-code-backends-infra--buffer-user-visible-p buffer)))
+            (ai-code-session-attention-set-working buffer nil)
             (if visible
                 (setq ai-code-backends-infra--response-seen t)
               (when (not ai-code-backends-infra--response-seen)
                 (setq ai-code-backends-infra--response-seen t)
+                (ai-code-session-attention-mark buffer 'done)
                 (when (require 'ai-code-notifications nil t)
                   (when (fboundp 'ai-code-notifications-response-ready)
                     (let ((buffer-name (buffer-name buffer)))
@@ -425,6 +430,8 @@ The timer is reset only after meaningful output is observed."
   "Record meaningful output and schedule idle tracking."
   (setq ai-code-backends-infra--response-seen nil
         ai-code-backends-infra--last-meaningful-output-time (float-time))
+  (ai-code-session-attention-clear (current-buffer) 'done)
+  (ai-code-session-attention-set-working (current-buffer) t)
   (ai-code-backends-infra--schedule-idle-check))
 
 (defun ai-code-backends-infra--configure-session-input-shortcuts ()
@@ -641,8 +648,7 @@ buffer is in scroll/copy mode, working around bug #1422."
                         ,@(when (memq side '(top bottom))
                             `((window-height . ,ai-code-backends-infra-window-height)
                               (preserve-size . (nil . t))))
-                        (window-parameters . ((no-delete-other-windows . t)
-                                              (window-size-fixed . ,(if (memq side '(left right)) 'width 'height))))))))
+                        (window-parameters . ((no-delete-other-windows . t)))))))
                (display-buffer buffer))
            (display-buffer buffer))))
     (setq ai-code-backends-infra--last-accessed-buffer buffer)
@@ -652,6 +658,7 @@ buffer is in scroll/copy mode, working around bug #1422."
     ;; The buffer may have been created with different dimensions before
     ;; being displayed in this window.
     (when (and window (buffer-live-p buffer))
+      (ai-code-backends-infra--configure-side-window-size window)
       (ai-code-backends-infra--sync-terminal-dimensions buffer window)
       (with-current-buffer buffer
         (when (eq ai-code-backends-infra--session-terminal-backend 'ghostel)
@@ -660,10 +667,94 @@ buffer is in scroll/copy mode, working around bug #1422."
 
 (defun ai-code-backends-infra--fit-side-window-body-width (window)
   "Resize WINDOW so its body width matches `ai-code-backends-infra-window-width'."
-  (let ((delta (- ai-code-backends-infra-window-width
-                  (window-body-width window))))
-    (unless (zerop delta)
-      (window-resize window delta t t))))
+  (ai-code-backends-infra--resize-and-preserve-window-size
+   window ai-code-backends-infra-window-width t))
+
+(defun ai-code-backends-infra--resize-and-preserve-window-size
+    (window target horizontal)
+  "Resize WINDOW toward TARGET and preserve its resulting size.
+HORIZONTAL non-nil means TARGET is a body width in columns; otherwise
+TARGET is a total height in lines.  Respect minimum sizes and other
+fixed windows.  Return non-nil only when WINDOW actually changes size."
+  (let ((size (if horizontal
+                  (window-body-width window)
+                (window-total-height window))))
+    ;; Release only this window's preservation, so competing panels cannot
+    ;; repeatedly steal space from each other when the frame is too small.
+    (window-preserve-size window horizontal nil)
+    (unwind-protect
+        (let ((delta (window-resizable window (- (max 1 target) size)
+                                       horizontal)))
+          (unless (zerop delta)
+            (window-resize window delta horizontal))
+          (not (zerop delta)))
+      ;; Preservation belongs to the current buffer and actual pixel size.
+      (window-preserve-size window horizontal t))))
+
+(defun ai-code-backends-infra--fit-side-window-size (window)
+  "Fit WINDOW to the configured size for its actual side.
+Return non-nil only when WINDOW changes size."
+  (pcase (window-parameter window 'window-side)
+    ((or 'left 'right)
+     (ai-code-backends-infra--fit-side-window-body-width window))
+    ((or 'top 'bottom)
+     (ai-code-backends-infra--resize-and-preserve-window-size
+      window ai-code-backends-infra-window-height nil))))
+
+(defun ai-code-backends-infra--managed-side-window-p (window)
+  "Return non-nil when WINDOW is a managed AI session side window."
+  (and (window-live-p window)
+       (window-parameter window 'ai-code-backends-infra-side-window)
+       (memq (window-parameter window 'window-side) '(left right top bottom))
+       (ai-code-backends-infra--session-buffer-p (window-buffer window))))
+
+(defun ai-code-backends-infra--restore-side-window-sizes (frame)
+  "Restore managed side windows on FRAME after a layout change."
+  (when (frame-live-p frame)
+    (ai-code-backends-infra--cancel-side-window-size-restore frame)
+    (when ai-code-backends-infra-use-side-window
+      (dolist (window (window-list frame 'nomini))
+        (when (ai-code-backends-infra--managed-side-window-p window)
+          (when (ai-code-backends-infra--fit-side-window-size window)
+            (ai-code-backends-infra--sync-terminal-dimensions
+             (window-buffer window) window)))))))
+
+(defun ai-code-backends-infra--schedule-side-window-size-restore (frame)
+  "Schedule one deferred side window size restoration for FRAME.
+Coalesce layout changes without resizing windows during redisplay."
+  (when (and ai-code-backends-infra-use-side-window
+             (frame-live-p frame)
+             (not (frame-parameter frame 'ai-code-backends-infra-resize-timer))
+             (cl-some #'ai-code-backends-infra--managed-side-window-p
+                      (window-list frame 'nomini)))
+    (set-frame-parameter
+     frame 'ai-code-backends-infra-resize-timer
+     (run-at-time 0.1 nil
+                  #'ai-code-backends-infra--restore-side-window-sizes frame))))
+
+(defun ai-code-backends-infra--cancel-side-window-size-restore (frame)
+  "Cancel any pending side window size restoration for FRAME."
+  (when-let* ((timer (frame-parameter
+                     frame 'ai-code-backends-infra-resize-timer)))
+    (cancel-timer timer)
+    (set-frame-parameter frame 'ai-code-backends-infra-resize-timer nil)))
+
+(defun ai-code-backends-infra--configure-side-window-size (window)
+  "Manage and refresh the size of an AI side WINDOW."
+  (when (and ai-code-backends-infra-use-side-window
+             (window-live-p window)
+             (memq (window-parameter window 'window-side)
+                   '(left right top bottom)))
+    (set-window-parameter window 'ai-code-backends-infra-side-window t)
+    ;; Older versions stored this buffer variable as an ineffective window
+    ;; parameter.  Keep size preservation local to the managed window instead.
+    (set-window-parameter window 'window-size-fixed nil)
+    (let ((changed (ai-code-backends-infra--fit-side-window-size window)))
+      (add-hook 'window-size-change-functions
+                #'ai-code-backends-infra--schedule-side-window-size-restore)
+      (add-hook 'delete-frame-functions
+                #'ai-code-backends-infra--cancel-side-window-size-restore)
+      changed)))
 
 (defun ai-code-backends-infra--sync-terminal-dimensions (buffer window)
   "Sync terminal dimensions in BUFFER to match WINDOW size.
@@ -740,13 +831,16 @@ use the branch name."
   (ai-code-backends-infra--branch-instance-name existing-instance-names))
 
 (defun ai-code-backends-infra--file-session-map-key (prefix source-buffer)
-  "Return file-session map key for PREFIX and SOURCE-BUFFER."
+  "Return workspace-scoped file-session key for PREFIX and SOURCE-BUFFER."
   (when (and prefix (buffer-live-p source-buffer))
     (with-current-buffer source-buffer
       (when (and (stringp buffer-file-name)
                  (> (length buffer-file-name) 0))
-        (cons prefix
-              (ai-code-backends-infra--normalize-file-path buffer-file-name))))))
+        (list prefix
+              (ai-code-backends-infra--normalize-session-directory
+               (ai-code--session-project-root))
+              (ai-code-backends-infra--normalize-file-path
+               buffer-file-name))))))
 
 (defun ai-code-backends-infra--remember-file-session-buffer (prefix source-buffer session-buffer)
   "Remember SESSION-BUFFER as attached session for SOURCE-BUFFER and PREFIX."
@@ -774,11 +868,16 @@ use the branch name."
   "Return live sessions explicitly attached to SOURCE's file."
   (when-let* ((file (buffer-local-value 'buffer-file-name source))
               (normalized-file
-               (ai-code-backends-infra--normalize-file-path file)))
+               (ai-code-backends-infra--normalize-file-path file))
+              (root (with-current-buffer source
+                      (ai-code--session-project-root)))
+              (normalized-root
+               (ai-code-backends-infra--normalize-session-directory root)))
     (let (sessions)
       (maphash
        (lambda (key session)
-         (when (and (equal (cdr-safe key) normalized-file)
+         (when (and (equal (nth 1 key) normalized-root)
+                    (equal (nth 2 key) normalized-file)
                     (ai-code-backends-infra--live-terminal-session-p session))
            (push session sessions)))
        ai-code-backends-infra--file-session-map)
@@ -858,12 +957,9 @@ Return a cons of (BUFFER . MISSING-P)."
         (cons nil nil)
       (let* ((attached (gethash key ai-code-backends-infra--file-session-map))
              (valid (and (buffer-live-p attached)
-                         (or (ai-code-backends-infra--parse-session-buffer-name
-                             (buffer-name attached)
-                              prefix)
-                             (ai-code-backends-infra--session-buffer-matches-directory-p
-                              attached
-                              working-dir)))))
+                         (ai-code-backends-infra--session-buffer-matches-directory-p
+                          attached
+                          working-dir))))
         (cond
          (valid
           (cons attached nil))
@@ -989,7 +1085,8 @@ When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
 
 (defun ai-code-backends-infra--session-key (directory instance-name)
   "Return a session key for DIRECTORY and INSTANCE-NAME."
-  (cons directory (ai-code-backends-infra--normalize-instance-name instance-name)))
+  (cons (ai-code-backends-infra--normalize-session-directory directory)
+        (ai-code-backends-infra--normalize-instance-name instance-name)))
 
 (defun ai-code-backends-infra--session-map-key (prefix directory)
   "Return a map key for PREFIX and DIRECTORY."
@@ -1127,7 +1224,7 @@ DEFAULT-INSTANCE-NAME seeds the minibuffer when prompting."
         "default")))
 
 (defun ai-code-backends-infra--resolve-start-command (program switches arg &optional prompt-label)
-  "Build command string for PROGRAM.
+  "Resolve PROGRAM and its arguments into display and argv forms.
 SWITCHES is the default command-line argument list.
 Use it as default input when ARG is non-nil and CLI args are prompted.
 PROMPT-LABEL is used in the minibuffer prompt.
@@ -1142,7 +1239,7 @@ were non-nil and append that UUID to the default CLI args."
                found-resume-switch
                (ai-code-backends-infra--selected-session-id)))
          (prompt-p (or arg selected-session-id))
-         (default-args (mapconcat #'shell-quote-argument
+         (default-args (mapconcat #'identity
                                    (append switches
                                            (and selected-session-id
                                                 (list selected-session-id)))
@@ -1153,13 +1250,21 @@ were non-nil and append that UUID to the default CLI args."
          (resolved-args (if prompt-p
                             (split-string-shell-command prompt-args)
                           switches))
-         (resolved-program (if (string-prefix-p "~" program)
-                               (expand-file-name program)
-                             program))
-         (command (mapconcat #'shell-quote-argument
-                             (cons resolved-program resolved-args)
+         (command (mapconcat #'identity
+                             (cons program resolved-args)
                              " ")))
-    (list :command command :args resolved-args)))
+    (list :command command
+          :argv (cons program resolved-args)
+          :args resolved-args)))
+
+(defun ai-code-backends-infra--command-argv (command)
+  "Return COMMAND as an argv list.
+COMMAND may be an argv list or a legacy shell command string."
+  (cond
+   ((null command) nil)
+   ((and (listp command) (seq-every-p #'stringp command)) command)
+   ((stringp command) (split-string-shell-command command))
+   (t (error "Invalid CLI command: %S" command))))
 
 (defun ai-code-backends-infra--cleanup-session (directory buffer-name process-table
                                                           &optional instance-name prefix event)
@@ -1316,34 +1421,48 @@ behavior."
   (ai-code-backends-infra--display-buffer-in-side-window buffer))
 
 (defun ai-code-backends-infra--handle-session-start-failure
-    (buffer session-key process-table prefix command)
+    (buffer session-key process-table &optional prefix command working-dir)
   "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE.
-PREFIX identifies the backend that attempted to start.
-COMMAND is the launch command supplied to the terminal backend."
-  (let ((process (gethash session-key process-table))
-        (backend (or prefix
-                     (when (buffer-live-p buffer)
-                       (with-current-buffer buffer
-                         ai-code-backends-infra--session-prefix)))))
+PREFIX, COMMAND, and WORKING-DIR identify the failed launch."
+  (let ((process (gethash session-key process-table)))
     (remhash session-key process-table)
     (ai-code-startup-diagnostics-report
-     buffer process backend command)))
+     buffer process
+     (or prefix
+         (when (buffer-live-p buffer)
+           (buffer-local-value 'ai-code-backends-infra--session-prefix buffer)))
+     command working-dir)))
+
+(defun ai-code-backends-infra--cleanup-failed-launch (cleanup-fn)
+  "Call CLEANUP-FN after a failed launch without masking the startup error."
+  (when cleanup-fn
+    (condition-case err
+        (funcall cleanup-fn)
+      (error
+       (display-warning
+        'ai-code-backends-infra
+        (format "Failed to clean up CLI launch resources: %s"
+                (error-message-string err)))))))
 
 (defun ai-code-backends-infra--start-cli-session (options arg)
   "Start a generic CLI session described by OPTIONS and prefix ARG.
-When ARG is non-nil, prompt for CLI args, working directory, and instance name.
+When ARG is non-nil, prompt for CLI args, working directory, and
+instance name.
 OPTIONS is a plist with these keys:
 :program is the CLI executable.
 :switches is the default list of CLI switches.
 :label is the user-facing CLI label.
 :process-table maps session keys to processes.
 :session-prefix is the session buffer prefix.
-:escape-function is an optional function bound to escape in the session buffer.
+:escape-function is an optional function bound to escape in the
+session buffer.
 :env-vars is an optional list of environment variable strings.
-:multiline-input-sequence is an optional terminal sequence for multiline input.
-:prepare-launch is an optional function called with (WORKING-DIR COMMAND).
-When :prepare-launch is present, it may return :command, :cleanup-fn, and
-:post-start-fn entries to customize session creation."
+:multiline-input-sequence is an optional terminal sequence for
+multiline input.
+:prepare-launch is an optional function called with (WORKING-DIR ARGV).
+When :prepare-launch is present, it may return :argv, :env-vars,
+:cleanup-fn, and :post-start-fn entries to customize session creation.
+A legacy :command entry is normalized to argv for compatibility."
   (let* ((resolved (ai-code-backends-infra--resolve-start-command
                     (plist-get options :program)
                     (plist-get options :switches)
@@ -1352,10 +1471,18 @@ When :prepare-launch is present, it may return :command, :cleanup-fn, and
          (working-dir (if arg
                           (ai-code-backends-infra--session-working-directory arg)
                         (ai-code-backends-infra--session-working-directory)))
-         (command (plist-get resolved :command))
+         (argv
+          (ai-code-backends-infra--command-argv
+           (or (plist-get resolved :argv)
+               (plist-get resolved :command))))
          (launch (when-let* ((prepare-launch (plist-get options :prepare-launch)))
-                   (funcall prepare-launch working-dir command)))
-         (launch-command (or (plist-get launch :command) command))
+                   (funcall prepare-launch working-dir argv)))
+         (launch-argv
+          (ai-code-backends-infra--command-argv
+           (or (plist-get launch :argv)
+               (plist-get launch :command)
+               argv)))
+         (launch-env-vars (plist-get launch :env-vars))
          (cleanup-fn (plist-get launch :cleanup-fn))
          (post-start-fn (plist-get launch :post-start-fn)))
     (let ((ai-code-backends-infra--launch-program
@@ -1364,13 +1491,13 @@ When :prepare-launch is present, it may return :command, :cleanup-fn, and
        working-dir
        nil
        (plist-get options :process-table)
-       launch-command
+       launch-argv
        (plist-get options :escape-function)
        cleanup-fn
        nil
        (plist-get options :session-prefix)
        arg
-       (plist-get options :env-vars)
+       (append launch-env-vars (plist-get options :env-vars))
        (plist-get options :multiline-input-sequence)
        post-start-fn))))
 
@@ -1475,6 +1602,7 @@ refresh session state and preserve file-to-session binding."
                                                    task-file source-buffer)
   "Create and finalize a new session buffer.
 RESOLVED-BUFFER-NAME, WORKING-DIR, COMMAND, and ENV-VARS create the terminal.
+COMMAND is an argv list or a legacy shell command string.
 SESSION-KEY and PROCESS-TABLE register the process.
 RESOLVED-INSTANCE, PREFIX, ESCAPE-FN, CLEANUP-FN,
 MULTILINE-INPUT-SEQUENCE, and POST-START-FN configure startup behavior.
@@ -1483,60 +1611,45 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
           (if (file-remote-p working-dir)
               env-vars
             (ai-code-editor-viewport-environment env-vars)))
-         buffer-and-process
-         startup-failed)
-    (condition-case err
-        (setq buffer-and-process
+         (buffer-and-process
+          (condition-case err
               (ai-code-backends-infra--create-terminal-session
-               resolved-buffer-name working-dir command editor-environment))
-      (error
-       (unwind-protect
-           (let ((failure-buffer (get-buffer resolved-buffer-name)))
-             (if failure-buffer
-                 (progn
-                   (ai-code-backends-infra--handle-session-start-failure
-                    failure-buffer
-                    session-key
-                    process-table
-                    prefix
-                    command)
-                   (setq startup-failed t))
-               (signal (car err) (cdr err))))
-         (when cleanup-fn
-           (funcall cleanup-fn)))))
-    (unless startup-failed
-      (let ((new-buffer (car buffer-and-process))
-            (process (cdr buffer-and-process)))
-        (puthash session-key process process-table)
-        ;; Wait for initialization before checking process status
-        (sleep-for ai-code-backends-infra-terminal-initialization-delay)
-        ;; Check if process is still alive after initialization delay
-        (if (and process (process-live-p process))
-            (progn
-              (ai-code-backends-infra--finalize-started-session
-               new-buffer
-               process
-               working-dir
-               resolved-buffer-name
-               process-table
-               resolved-instance
-               prefix
-               escape-fn
-               cleanup-fn
-               multiline-input-sequence
-               post-start-fn
-               task-file)
-              (ai-code-backends-infra--remember-file-session-buffer
-               prefix source-buffer new-buffer))
-          (unwind-protect
-              (ai-code-backends-infra--handle-session-start-failure
-               new-buffer
-               session-key
-               process-table
-               prefix
-               command)
-            (when cleanup-fn
-              (funcall cleanup-fn))))))))
+               resolved-buffer-name working-dir command editor-environment)
+            (error
+             (ai-code-backends-infra--cleanup-failed-launch cleanup-fn)
+             (signal (car err) (cdr err)))))
+         (new-buffer (car buffer-and-process))
+         (process (cdr buffer-and-process)))
+    (puthash session-key process process-table)
+    ;; Wait for initialization before checking process status
+    (sleep-for ai-code-backends-infra-terminal-initialization-delay)
+    ;; Check if process is still alive after initialization delay
+    (if (and process (process-live-p process))
+        (progn
+          (ai-code-backends-infra--finalize-started-session
+           new-buffer
+           process
+           working-dir
+           resolved-buffer-name
+           process-table
+           resolved-instance
+           prefix
+           escape-fn
+           cleanup-fn
+           multiline-input-sequence
+           post-start-fn
+           task-file)
+          (ai-code-backends-infra--remember-file-session-buffer
+           prefix source-buffer new-buffer))
+      (unwind-protect
+          (ai-code-backends-infra--handle-session-start-failure
+           new-buffer
+           session-key
+           process-table
+           prefix
+           command
+           working-dir)
+        (ai-code-backends-infra--cleanup-failed-launch cleanup-fn)))))
 
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
                                                                      &optional escape-fn cleanup-fn
@@ -1547,7 +1660,7 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
 WORKING-DIR is the directory for the session.
 BUFFER-NAME is the terminal buffer name.
 PROCESS-TABLE maps session keys to processes.
-COMMAND is the shell command to run.
+COMMAND is an argv list or a legacy shell command string.
 ESCAPE-FN is bound to `C-<escape>' inside the session buffer when non-nil.
 CLEANUP-FN is called with no arguments when the process exits or when an
 existing session makes the prepared launch unnecessary.
@@ -1617,7 +1730,10 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   force-prompt
                   source-buffer)))
     (if-let* ((window (get-buffer-window buffer)))
-        (select-window window)
+        (progn
+          (when (ai-code-backends-infra--configure-side-window-size window)
+            (ai-code-backends-infra--sync-terminal-dimensions buffer window))
+          (select-window window))
       (ai-code-backends-infra--display-buffer-in-side-window buffer))))
 
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
@@ -1632,6 +1748,9 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   working-dir
                   force-prompt
                   source-buffer)))
+    (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
+      (ai-code-mcp-agent-refresh-source-context buffer source-buffer))
+    (ai-code-session-note-prompt buffer line)
     (with-current-buffer buffer
       (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
       (if (and (string-match-p "\n" line)
@@ -1648,20 +1767,21 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
   "Generic function to create a terminal session.
 BUFFER-NAME is the name for the buffer.
 WORKING-DIR is the directory.
-COMMAND is the shell command to run.
+COMMAND is an argv list or a legacy shell command string.
 ENV-VARS is a list of environment variables."
-  (ai-code-backends-infra--terminal-ensure-backend)
-  (pcase ai-code-backends-infra-terminal-backend
-    ('vterm
-     (ai-code-backends-infra-vterm-create-session
-      buffer-name working-dir command env-vars))
-    ('eat
-     (ai-code-backends-infra-eat-create-session
-      buffer-name working-dir command env-vars))
-    ('ghostel
-     (ai-code-backends-infra-ghostel-create-session
-      buffer-name working-dir command env-vars))
-    (_ (error "Unknown backend"))))
+  (let ((argv (ai-code-backends-infra--command-argv command)))
+    (ai-code-backends-infra--terminal-ensure-backend)
+    (pcase ai-code-backends-infra-terminal-backend
+      ('vterm
+       (ai-code-backends-infra-vterm-create-session
+        buffer-name working-dir argv env-vars))
+      ('eat
+       (ai-code-backends-infra-eat-create-session
+        buffer-name working-dir argv env-vars))
+      ('ghostel
+       (ai-code-backends-infra-ghostel-create-session
+        buffer-name working-dir argv env-vars))
+      (_ (error "Unknown backend")))))
 
 (defun ai-code-backends-infra--cleanup-dead-processes (table)
   "Clean up dead processes from TABLE."

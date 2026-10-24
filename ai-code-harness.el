@@ -20,6 +20,7 @@
   (require 'ai-code-backends)
   (require 'ai-code-change)
   (require 'ai-code-discussion)
+  (require 'ai-code-github)
   (require 'ai-code-prompt-mode))
 
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
@@ -40,13 +41,16 @@
 (defvar ai-code--tdd-run-test-after-each-stage-instruction)
 (defvar ai-code--tdd-test-pattern-instruction)
 (defvar ai-code--tdd-with-refactoring-extension-instruction)
+(defvar ai-code-change--ask-question-note)
 (defvar ai-code-change--generic-note)
+(defvar ai-code-change--question-brief-default-boundaries)
 (defvar ai-code-change--selected-files-note)
 (defvar ai-code-change--selected-region-note)
 (defvar ai-code-discussion--exception-investigation-boundaries)
 (defvar ai-code-discussion--explain-prompt-prefixes)
 (defvar ai-code-discussion--question-only-note)
 (defvar ai-code-discussion--selected-region-note)
+(defvar ai-code-github--analysis-only-notes)
 (defvar ai-code-mcp-agent-enabled-backends)
 (defvar ai-code-prompt-suffix-functions)
 (defvar ai-code-selected-backend)
@@ -177,18 +181,20 @@ When INLINE is non-nil, use the inline-formatted diagnostics instruction."
     (_ (ai-code--auto-test-inline-suffix-for-type type))))
 
 (defun ai-code--ensure-auto-test-harness-file (type)
-  "Write and return the package prompt file path for auto test TYPE."
-  (when-let ((content (ai-code--auto-test-harness-text-for-type type)))
-    (let* ((directory (ai-code--ensure-auto-test-harness-prompt-directory))
-           (file-path (expand-file-name
-                       (ai-code--auto-test-harness-file-name type)
-                       directory)))
-      (unless (file-exists-p file-path)
+  "Return the package prompt file for TYPE, generating it when needed."
+  (let* ((directory (ai-code--auto-test-harness-directory))
+         (file-path (expand-file-name
+                     (ai-code--auto-test-harness-file-name type)
+                     directory)))
+    (if (file-exists-p file-path)
+        file-path
+      (when-let ((content (ai-code--auto-test-harness-text-for-type type)))
+        (ai-code--ensure-auto-test-harness-prompt-directory)
         (with-temp-file file-path
           (insert content)
           (unless (bolp)
-            (insert "\n"))))
-      file-path)))
+            (insert "\n")))
+        file-path))))
 
 (defun ai-code--auto-test-harness-reference-suffix (type)
   "Return a short suffix that references the package prompt file for TYPE.
@@ -208,7 +214,10 @@ If the harness file cannot be prepared, fall back to the inline suffix."
 (defun ai-code--auto-test-suffix-for-type (type)
   "Return prompt suffix for auto test TYPE."
   (pcase type
-    ((or 'test-after-change 'tdd 'tdd-with-refactoring)
+    ((or 'test-after-change 'tdd 'tdd-with-refactoring
+         'uncle-bob-coding-agent-harness
+         'uncle-bob-coding-agent-harness-plus
+         'evidence-first-coding-harness)
      (ai-code--auto-test-harness-reference-suffix type))
     ('no-test "Do not write or run any test.")
     (_ nil)))
@@ -331,7 +340,11 @@ See the later `defcustom' for user-facing documentation and default.")
   '(("Run tests after code change" . test-after-change)
     ("Do not write or run tests" . no-test)
     ("TDD Red + Green (write failing test, then make it pass)" . tdd)
-    ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring))
+    ("TDD Red + Green + Blue (refactor after Green)" . tdd-with-refactoring)
+    ("Evidence-First coding harness" . evidence-first-coding-harness)
+    ("Uncle Bob's coding agent harness" . uncle-bob-coding-agent-harness)
+    ("Uncle Bob's coding agent harness+"
+     . uncle-bob-coding-agent-harness-plus))
   "Resolve auto test suffix choices for `ask-me` mode.")
 
 (defconst ai-code--auto-test-type-persistent-choices
@@ -399,11 +412,15 @@ test suffixes."
 (defconst ai-code--non-code-change-prompt-markers
   (append
    (ai-code--downcase-strings
-    (list ai-code-discussion--question-only-note
+    (list ai-code-change--ask-question-note
+          ai-code-change--question-brief-default-boundaries
+          ai-code-discussion--question-only-note
           ai-code-discussion--selected-region-note
           ai-code-discussion--exception-investigation-boundaries))
    (ai-code--downcase-strings
-    ai-code-discussion--explain-prompt-prefixes))
+    ai-code-discussion--explain-prompt-prefixes)
+   (ai-code--downcase-strings
+    ai-code-github--analysis-only-notes))
   "Prompt markers that clearly indicate a non-code-change request.")
 
 (defun ai-code--prompt-contains-any-marker-p (text markers)
@@ -414,23 +431,26 @@ test suffixes."
 
 (defun ai-code--simple-classify-prompt-code-change (prompt-text)
   "Classify PROMPT-TEXT with cheap string matching before GPTel.
+Classification is driven only by PROMPT-TEXT, so editing a generated
+analysis-only prompt into a code-change request reclassifies it.
 Return one of: `code-change`, `non-code-change`, or `unknown`."
   (let ((text (downcase (or prompt-text ""))))
     (cond
      ((ai-code--prompt-contains-any-marker-p text
                                              ai-code--code-change-prompt-markers)
       'code-change)
-     ((ai-code--prompt-contains-any-marker-p text
-                                             ai-code--non-code-change-prompt-markers)
+     ((ai-code--prompt-contains-any-marker-p
+       text ai-code--non-code-change-prompt-markers)
       'non-code-change)
      (t 'unknown))))
 
 (defun ai-code--classify-prompt-code-change (prompt-text)
   "Classify whether PROMPT-TEXT requests a code change.
-Use simple string matching first, then fall back to GPTel."
+Use simple string matching first, then optionally fall back to GPTel."
   (let ((classification
          (ai-code--simple-classify-prompt-code-change prompt-text)))
-    (if (eq classification 'unknown)
+    (if (and (eq classification 'unknown)
+             ai-code-use-gptel-classify-prompt)
         (ai-code--gptel-classify-prompt-code-change prompt-text)
       classification)))
 
@@ -443,15 +463,18 @@ Return one of: `code-change`, `non-code-change`, or `unknown`."
                  (let* ((raw-answer (ai-code-call-gptel-sync
                                      (concat "Classify whether this user prompt requests program code changes in a repository.\n"
                                              "Reply with exactly one token: CODE_CHANGE or NOT_CODE_CHANGE.\n"
+                                             "Focus only on the action explicitly requested; ignore code or files supplied as context.\n"
                                              "Return CODE_CHANGE only for changes to program code or test code.\n"
+                                             "Only return CODE_CHANGE when the prompt explicitly asks to create, modify, fix, refactor, or delete program code or test code.\n"
+                                             "Do not infer a code change merely because the prompt mentions or includes code, repository files, bugs, or implementation details.\n"
                                              "Treat documentation changes and any other non-program-code actions as NOT_CODE_CHANGE.\n"
                                              "Treat explain/summarize/discuss/review without editing as NOT_CODE_CHANGE.\n\n"
                                              "Prompt:\n" prompt-text)))
                         (answer (upcase (string-trim (or raw-answer "")))))
-                   (cond
-                    ((string-match-p "\\`CODE_CHANGE\\b" answer) 'code-change)
-                    ((string-match-p "\\`NOT_CODE_CHANGE\\b" answer) 'non-code-change)
-                    (t 'unknown)))
+                   (pcase answer
+                     ("CODE_CHANGE" 'code-change)
+                     ("NOT_CODE_CHANGE" 'non-code-change)
+                     (_ 'unknown)))
                'unknown)
            (error
             (message "GPTel prompt classification failed: %s" (error-message-string err))
@@ -473,13 +496,11 @@ CLASSIFICATION is the optional prompt classification result."
 (defun ai-code--resolve-ask-auto-test-type-for-send (&optional prompt-text classification)
   "Resolve the send-time auto test type for ask-me mode with PROMPT-TEXT.
 CLASSIFICATION is the optional prompt classification result."
-  (if ai-code-use-gptel-classify-prompt
-      (pcase (or classification
-                 (ai-code--classify-prompt-code-change prompt-text))
-        ('code-change (ai-code--read-auto-test-type-choice))
-        ('non-code-change nil)
-        (_ (ai-code--read-auto-test-type-choice)))
-    (ai-code--read-auto-test-type-choice)))
+  (pcase (or classification
+             (ai-code--classify-prompt-code-change prompt-text))
+    ('code-change (ai-code--read-auto-test-type-choice))
+    ('non-code-change nil)
+    (_ (ai-code--read-auto-test-type-choice))))
 
 (defun ai-code--ensure-discussion-follow-up-harness-file ()
   "Write and return the package prompt file path for discussion follow-up."
@@ -512,8 +533,8 @@ CLASSIFICATION is the optional prompt classification result."
   (when (and ai-code-discussion-auto-follow-up-enabled
              ai-code-next-step-suggestion-suffix)
     (let ((classification (or classification
-                              (and ai-code-use-gptel-classify-prompt
-                                   (ai-code--classify-prompt-code-change prompt-text)))))
+                              (ai-code--classify-prompt-code-change
+                               prompt-text))))
       (unless (and (eq classification 'code-change)
                    (not ai-code-discussion-auto-follow-up-on-code-change))
         (and (pcase ai-code-discussion-auto-follow-up-enabled
@@ -531,9 +552,8 @@ CLASSIFICATION is the optional prompt classification result."
 (defun ai-code--classify-prompt-for-send (&optional prompt-text)
   "Return prompt classification for PROMPT-TEXT when needed.
 Send-time routing uses this result for test and discussion follow-up suffixes."
-  (when (and ai-code-use-gptel-classify-prompt
-             (or ai-code-auto-test-type
-                 ai-code-discussion-auto-follow-up-enabled))
+  (when (or ai-code-auto-test-type
+            ai-code-discussion-auto-follow-up-enabled)
     (ai-code--classify-prompt-code-change prompt-text)))
 
 ;;;; Send-Time Routing: Providers and Setters

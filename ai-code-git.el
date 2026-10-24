@@ -10,6 +10,7 @@
 ;;; Code:
 
 (require 'magit)
+(require 'seq)
 
 (require 'ai-code-input)
 (require 'ai-code-task)
@@ -18,15 +19,20 @@
 (declare-function helm-gtags-create-tags "helm-gtags" (dir &optional label))
 (declare-function magit-anything-modified-p "magit" ())
 (declare-function magit-branch-p "magit" (branch))
-(declare-function magit-branch-read-args "magit-branch" (prompt))
 (declare-function magit-call-git "magit-git" (&rest args))
 (declare-function magit-diff-visit-directory "magit-diff" (directory))
 (declare-function magit-git-lines "magit-git" (&rest args))
 (declare-function magit-git-output "magit-git" (&rest args))
 (declare-function magit-git-string "magit-git" (&rest args))
+(declare-function magit-git-success "magit-git" (&rest args))
+(declare-function magit-list-local-branch-names "magit-git" ())
+(declare-function magit-list-remote-branch-names "magit-git" (&optional remote relative))
+(declare-function magit-read-starting-point "magit-git" (prompt &optional branch default))
+(declare-function magit-read-string-ns "magit-base" (prompt &optional initial-input history default-value inherit-input-method))
 (declare-function magit-rev-verify "magit-git" (rev))
 (declare-function magit-run-git "magit-git" (&rest args))
 (declare-function magit-worktree-status "magit-worktree" ())
+(declare-function magit-worktree-delete "magit-worktree" (worktree))
 (declare-function difftastic-magit-diff "difftastic" ())
 (declare-function ai-code-pull-or-review-diff-file "ai-code-github" ())
  (declare-function ai-code--open-git-web-compare "ai-code-github" (start end))
@@ -52,8 +58,10 @@ Candidate values:
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--ensure-files-directory "ai-code-utils" ())
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function ai-code--worktree-main-repo-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--generate-task-filename "ai-code-task" (task-name))
 (declare-function ai-code--initialize-task-file-content "ai-code-task" (task-name task-url))
+(declare-function ai-code--set-session-project-root "ai-code-utils" (root))
 
 (defvar ai-code-files-dir-name)
 
@@ -83,9 +91,84 @@ Candidate values:
    (ignore-errors
      (magit-git-string "symbolic-ref" "--quiet" "--short" "refs/remotes/origin/HEAD"))))
 
+(defun ai-code--strip-remote-prefix (ref)
+  "Strip a configured remote prefix from remote-tracking REF.
+REF is a name below `refs/remotes/'.  Match against the configured remote
+names rather than splitting on the first path segment, because a remote name
+may itself contain a slash while a branch name may contain several."
+  (let ((remotes (ignore-errors (magit-git-lines "remote"))))
+    (or (seq-some (lambda (remote)
+                    (let ((prefix (concat remote "/")))
+                      (when (and (string-prefix-p prefix ref)
+                                 (> (length ref) (length prefix)))
+                        (substring ref (length prefix)))))
+                  ;; Longest remote name first, so that a remote named "grp/sub"
+                  ;; wins over a remote named "grp".
+                  (sort (copy-sequence remotes)
+                        (lambda (a b) (> (length a) (length b)))))
+        ref)))
+
+(defun ai-code--branch-creation-source (branch)
+  "Return the raw ref BRANCH was created from, or nil when unknown.
+Read the oldest \"branch: Created from REF\" entry in the reflog of BRANCH.
+Git does not record a branch parent, so this is the only available record and
+it disappears once the reflog expires (see `gc.reflogExpire')."
+  (when (and branch (not (string-empty-p branch)))
+    (let* ((entries (ignore-errors
+                      (magit-git-lines "reflog" "show" "--format=%gs" branch)))
+           ;; The creation entry is the oldest one; later resets and rebases add
+           ;; newer entries that must not be mistaken for the creation record.
+           (creation-entry
+            (car (last (seq-filter
+                        (lambda (entry)
+                          (string-match-p "\\`branch: Created from " entry))
+                        entries)))))
+      (when creation-entry
+        (let ((source (string-trim
+                       (substring creation-entry
+                                  (length "branch: Created from ")))))
+          (unless (string-empty-p source) source))))))
+
+(defun ai-code--creation-source-parent-branch (source)
+  "Return the bare branch name SOURCE refers to, or nil when it is not a branch.
+SOURCE is a raw creation ref recorded in a reflog.  Resolve it with
+`git rev-parse --symbolic-full-name', which dereferences a symbolic ref such as
+`origin/HEAD' to the branch it points at."
+  ;; A bare HEAD records "created from wherever HEAD was", which carries no
+  ;; parent information: it resolves to whatever branch happens to be checked
+  ;; out now rather than to the fork point being looked up.
+  (unless (string= source "HEAD")
+    (when-let* ((full-ref (ignore-errors
+                            (magit-git-string "rev-parse"
+                                              "--symbolic-full-name"
+                                              source))))
+      (cond
+       ((string-prefix-p "refs/heads/" full-ref)
+        (substring full-ref (length "refs/heads/")))
+       ((string-prefix-p "refs/remotes/" full-ref)
+        (ai-code--strip-remote-prefix
+         (substring full-ref (length "refs/remotes/"))))
+       ;; Tags and other namespaces are not usable PR targets.
+       (t nil)))))
+
+(defun ai-code--branch-parent-branch (branch)
+  "Return the branch BRANCH was created from, or nil when not determinable.
+Only refs that resolve inside a branch namespace qualify, so raw commits, tags,
+and deleted branches are rejected.  Return a bare branch name, because a PR base
+takes a branch name rather than a remote-qualified one."
+  (when-let* ((source (ai-code--branch-creation-source branch))
+              (parent (ai-code--creation-source-parent-branch source)))
+    ;; Checking out an existing remote branch records its own remote-tracking
+    ;; ref as the creation source, which would make BRANCH its own PR target.
+    (unless (or (string-empty-p parent)
+                (string= parent branch))
+      parent)))
+
 (defun ai-code--default-pr-target-branch (current-branch)
   "Return the default PR target branch for CURRENT-BRANCH."
-  (let* ((upstream-branch
+  (let* ((parent-branch
+          (ai-code--branch-parent-branch current-branch))
+         (upstream-branch
           (ignore-errors
             (magit-git-string "rev-parse"
                               "--abbrev-ref"
@@ -96,6 +179,8 @@ Candidate values:
          (normalized-upstream
           (ai-code--normalize-branch-name upstream-branch)))
     (cond
+     ;; The branch this one was forked from is the most likely PR target.
+     (parent-branch parent-branch)
      ((and normalized-upstream
            (not (string-empty-p normalized-upstream))
            (not (string= normalized-upstream current-branch)))
@@ -117,6 +202,83 @@ Return the git root directory if valid, otherwise signal an error."
     (if git-root
         git-root
       (user-error "Not in a git repository"))))
+
+(defun ai-code--git-current-changes-p ()
+  "Return non-nil when the current repository needs a commit."
+  (let ((status (magit-git-output "status" "--porcelain")))
+    (and status (not (string-empty-p status)))))
+
+(defun ai-code--git-generate-commit-message (diff)
+  "Generate a concise commit message from staged DIFF."
+  (unless (fboundp 'ai-code-call-gptel-sync)
+    (user-error "GPTel commit message generation is not available"))
+  (let ((message
+         (ai-code-call-gptel-sync
+          (concat
+           "Generate a concise Git commit message for the staged diff below.\n\n"
+           "Return only the commit message. Use imperative mood. Keep the first "
+           "line under 72 characters. Do not use Markdown.\n\n"
+           diff))))
+    (setq message (and message (string-trim message)))
+    (unless (and message (not (string-empty-p message)))
+      (user-error "Could not generate commit message"))
+    message))
+
+(defun ai-code--git-default-push-remote ()
+  "Return a suitable remote name for pushing the current branch."
+  (cond
+   ((ignore-errors (magit-git-string "remote" "get-url" "origin"))
+    "origin")
+   ((car (magit-git-lines "remote")))
+   (t
+    (user-error "No Git remote configured"))))
+
+(defun ai-code--git-push-current-branch ()
+  "Push the current branch, setting an upstream when needed."
+  (let ((branch (ai-code--require-current-branch)))
+    (if (ignore-errors
+          (magit-git-string "rev-parse"
+                            "--abbrev-ref"
+                            "--symbolic-full-name"
+                            "@{upstream}"))
+        (unless (zerop (magit-call-git "push"))
+          (user-error "Git push failed"))
+      (let ((remote (ai-code--git-default-push-remote)))
+        (unless (zerop (magit-call-git "push" "-u" remote branch))
+          (user-error "Git push failed"))))))
+
+;;;###autoload
+(defun ai-code-git-commit-current-changes ()
+  "Commit the current working tree state and optionally push it.
+Prompt for a commit message first.  When the message is empty, stage all
+changes, generate a message from the exact staged diff, and let the user edit
+that generated message before committing.  Finally ask whether to push the
+current branch to its remote."
+  (interactive)
+  (let* ((root (ai-code--validate-git-repository))
+         (default-directory root))
+    (unless (ai-code--git-current-changes-p)
+      (user-error "No changes to commit"))
+    (let ((commit-message
+           (ai-code-read-string "Commit message (empty = AI generate): ")))
+      (unless (zerop (magit-call-git "add" "-A"))
+        (user-error "Git add failed"))
+      (when (string-empty-p (or commit-message ""))
+        (let* ((diff (magit-git-output "diff" "--cached"))
+               (generated (ai-code--git-generate-commit-message diff)))
+          (setq commit-message
+                (if (and ai-code-use-compose-buffer
+                         (ai-code--long-prompt-p generated))
+                    (ai-code-compose-read "Commit message: " generated)
+                  (ai-code-read-string "Commit message: " generated)))))
+      (setq commit-message (string-trim (or commit-message "")))
+      (when (string-empty-p commit-message)
+        (user-error "Commit message cannot be empty"))
+      (unless (zerop (magit-call-git "commit" "-m" commit-message))
+        (user-error "Git commit failed"))
+      (message "Committed: %s" commit-message)
+      (when (y-or-n-p "Push to remote? ")
+        (ai-code--git-push-current-branch)))))
 
 (defun ai-code--validate-buffer-file ()
   "Validate that current buffer is visiting a file.
@@ -692,19 +854,76 @@ buffer from which this command was invoked, instead of visiting the file."
             (find-file (expand-file-name choice base-dir))))))))
 
 (defun ai-code--git-worktree-repo-dir (git-root)
-  "Return centralized worktree directory for repository at GIT-ROOT."
-  (let ((repo-name (file-name-nondirectory (directory-file-name git-root))))
+  "Return centralized worktree directory for repository at GIT-ROOT.
+When GIT-ROOT is inside a worktree, resolve to the centralized worktree
+directory of the main repository."
+  (let* ((main-root (or (ai-code--worktree-main-repo-root git-root) git-root))
+         (raw-name (file-name-nondirectory (directory-file-name main-root)))
+         (repo-name (if (string-suffix-p ".git" raw-name)
+                        (substring raw-name 0 -4)
+                      raw-name)))
     (expand-file-name repo-name ai-code-git-worktree-root)))
+
+(defun ai-code--validate-git-worktree-root ()
+  "Signal a user error unless `ai-code-git-worktree-root' is configured."
+  (unless (and (stringp ai-code-git-worktree-root)
+               (> (length ai-code-git-worktree-root) 0))
+    (user-error "Please configure `ai-code-git-worktree-root` first")))
+
+(defun ai-code--worktree-default-branch-name (start-point)
+  "Return a default new branch name derived from START-POINT, or nil.
+When START-POINT is a remote branch such as \"origin/topic\", suggest
+\"topic\", unless a local branch of that name already exists."
+  (let ((local-name (string-join (cdr (split-string start-point "/")) "/")))
+    (and (not (string-empty-p local-name))
+         (member start-point (magit-list-remote-branch-names))
+         (not (member local-name (magit-list-local-branch-names)))
+         local-name)))
+
+(defun ai-code--read-new-branch-name (start-point)
+  "Read the name of a new branch to be created at START-POINT.
+Ask again when Git rejects the name, so a typo does not abort the whole
+command.  `magit-read-string-ns' is used on purpose: it reads through
+`read-from-minibuffer', so completion frameworks cannot reject a name
+just because it matches no existing candidate."
+  (let* ((base-prompt (format "Name for new branch (starting at %s)" start-point))
+         (default (ai-code--worktree-default-branch-name start-point))
+         (prompt base-prompt)
+         (initial-input nil)
+         (name nil))
+    (while (not name)
+      (let ((input (magit-read-string-ns prompt initial-input nil default)))
+        (if (magit-git-success "check-ref-format" "--branch" input)
+            (setq name input)
+          (setq prompt (concat "Invalid branch name; " base-prompt))
+          (setq initial-input input))))
+    name))
+
+(defun ai-code--read-worktree-branch-args ()
+  "Read the (BRANCH START-POINT) arguments of `ai-code-git-worktree-branch'.
+Ask for the starting point first, then for the new branch name.
+
+This deliberately does not use `magit-branch-read-args': since Magit
+4.7 that function reads the branch name with `magit-completing-read'
+and passes a validation function as its REQUIRE-MATCH argument.  Helm
+coerces any such non-standard REQUIRE-MATCH into a strict match against
+a candidate list that is empty here, so a brand new branch name can
+never be confirmed and the whole command has to be aborted."
+  (let ((start-point (magit-read-starting-point "Create and checkout branch")))
+    (unless (magit-rev-verify start-point)
+      (user-error "Not a valid starting-point: %s" start-point))
+    (list (ai-code--read-new-branch-name start-point) start-point)))
 
 ;;;###autoload
 (defun ai-code-git-worktree-branch (branch start-point)
   "Create BRANCH and check it out in a new centralized worktree.
 The worktree path for START-POINT is
 `ai-code-git-worktree-root/REPO-NAME/BRANCH'."
-  (interactive
-   (magit-branch-read-args "Create and checkout branch"))
+  (interactive (ai-code--read-worktree-branch-args))
+  (ai-code--validate-git-worktree-root)
   (let* ((git-root (ai-code--validate-git-repository))
-         (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root))
+         (main-root (or (ai-code--worktree-main-repo-root git-root) git-root))
+         (repo-worktree-dir (ai-code--git-worktree-repo-dir main-root))
          (path (expand-file-name branch repo-worktree-dir))
          (parent-dir (file-name-directory path)))
     (unless (file-directory-p repo-worktree-dir)
@@ -715,14 +934,18 @@ The worktree path for START-POINT is
     (let ((branch-exists (magit-branch-p branch)))
       (when branch-exists
         (message "Branch '%s' already exists; reusing it for the new worktree." branch))
-      (when (zerop (if branch-exists
-                       (magit-call-git "worktree" "add"
-                                       (file-truename path) branch)
-                     (magit-call-git "worktree" "add" "-b" branch
-                                     (file-truename path) start-point)))
-        (dired path)
-        (when (y-or-n-p "Create a task file for this worktree? ")
-          (ai-code--worktree-create-and-link-task-file git-root path branch))))))
+      (let ((exit-code (if branch-exists
+                           (magit-call-git "worktree" "add"
+                                           (file-truename path) branch)
+                         (magit-call-git "worktree" "add" "-b" branch
+                                         (file-truename path) start-point))))
+        (unless (zerop exit-code)
+          (user-error
+           "Git failed to create worktree %s (exit code %s); see the *magit-process* buffer"
+           path exit-code)))
+      (dired path)
+      (when (y-or-n-p "Create a task file for this worktree? ")
+        (ai-code--worktree-create-and-link-task-file main-root path branch)))))
 
 (defun ai-code--worktree-create-and-link-task-file (git-root worktree-path branch)
   "Create a task file in GIT-ROOT and symlink it into WORKTREE-PATH.
@@ -741,26 +964,46 @@ BRANCH is used as the default task name."
           (ai-code--initialize-task-file-content task-name "")))
       (let ((symlink-path (expand-file-name confirmed-filename worktree-path)))
         (unless (file-exists-p symlink-path)
-          (make-symbolic-link task-file symlink-path)))
-      (find-file-other-window task-file))))
+          (make-symbolic-link task-file symlink-path))
+        (with-current-buffer (find-file-other-window symlink-path)
+          (ai-code--set-session-project-root worktree-path))))))
 
 ;;;###autoload
-(defun ai-code-git-worktree-action (&optional prefix)
-  "Dispatch worktree action by PREFIX.
-Without PREFIX, call `ai-code-git-worktree-branch'.
-With PREFIX (for example \\[universal-argument]), open Dired on
-the centralized worktree directory."
-  (interactive "P")
-  (unless (and (stringp ai-code-git-worktree-root)
-               (> (length ai-code-git-worktree-root) 0))
-    (user-error "Please configure `ai-code-git-worktree-root` first"))
-  (if prefix
-      (let* ((git-root (ai-code--validate-git-repository))
-             (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root)))
-        (if (file-directory-p repo-worktree-dir)
-            (dired repo-worktree-dir)
-          (user-error "Worktree directory does not exist: %s" repo-worktree-dir)))
-    (call-interactively #'ai-code-git-worktree-branch)))
+(defun ai-code-git-worktree-open-dir ()
+  "Open Dired on the centralized worktree directory of the current repository.
+The directory is `ai-code-git-worktree-root/REPO-NAME'."
+  (interactive)
+  (ai-code--validate-git-worktree-root)
+  (let* ((git-root (ai-code--validate-git-repository))
+         (repo-worktree-dir (ai-code--git-worktree-repo-dir git-root)))
+    (if (file-directory-p repo-worktree-dir)
+        (dired repo-worktree-dir)
+      (user-error "Worktree directory does not exist: %s" repo-worktree-dir))))
+
+(defconst ai-code--worktree-action-choices
+  '(("New branch and worktree"         . ai-code-git-worktree-branch)
+    ("Open worktree directory (Dired)" . ai-code-git-worktree-open-dir)
+    ("Visit existing worktree"         . magit-worktree-status)
+    ("Delete worktree"                 . magit-worktree-delete))
+  "Worktree actions offered by `ai-code-git-worktree-action'.
+The first entry is used as the completion default so that accepting the
+default keeps the historical behavior of creating a new worktree.")
+
+;;;###autoload
+(defun ai-code-git-worktree-action ()
+  "Choose a Git worktree action and run it.
+Candidates come from `ai-code--worktree-action-choices'.  The Magit-backed
+entries do not require `ai-code-git-worktree-root' to be configured."
+  (interactive)
+  (let* ((default-choice (caar ai-code--worktree-action-choices))
+         (choice (completing-read "Worktree action: "
+                                  (mapcar #'car ai-code--worktree-action-choices)
+                                  nil t nil nil default-choice))
+         (command (alist-get choice ai-code--worktree-action-choices
+                             nil nil #'string=)))
+    ;; Every candidate is a command with its own interactive spec, so it must
+    ;; be dispatched with `call-interactively' rather than `funcall'.
+    (call-interactively command)))
 
 (provide 'ai-code-git)
 

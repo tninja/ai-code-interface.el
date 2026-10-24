@@ -2,7 +2,71 @@
 * Release history
 
 ** Main branch change
-- Confirm before canceling a nonblank editor viewport and refocus its source
+- Feat: Session dashboard shows time in state, uncommitted change size, and a summary of the last prompt; toggles at the bottom with C-c a Z
+- Feat: Badge every AI session tab-bar tab with its state (○ idle, ◐ working, ✓ done unseen, ? needs input), and show the same state in the session dashboard
+
+** 1.981
+- Feat: Browse, edit and select source/Magit annotations for AI suggestions; clarify menu scopes and retain legacy notes and reply chains
+- Fix: Scroll up onto a Ghostel image preview from the rows below it, by Silex
+- Fix: Scroll line by line over Ghostel image previews, by Silex
+- Fix: Do not preview image names while completing, add a preview toggl, by Silexe
+- Fix: Stop Ghostel session links from blinking and going missing, by Silex
+- Fix: Autoload transient prefixes with explicit autoload forms, by Silex
+- Chore: Pre-fill derive topics from the scope at point; add learning tests to the TDD menu
+- Chore: Add human-led Value-driven Simplification to refactoring menu
+
+** 1.97
+- Chore: Derive learning unit tests for a topic; make in-buffer prompt dump opt-in
+- Feat: Architecture docs get topic scoping, navigable code links, and in-buffer prompts
+- Chore: C-c a @: copy file + line range only for regions longer than 5 lines
+- Feat: complete prompts you already wrote; fix input history data loss
+- Feat: discuss the next valuable growth step for Org tasks
+- Feat: choose which enclosing Org section scopes a prompt, and reference oversized sections by line range instead of inlining them
+- Feat: use selected Magit hunks for agent explain, change, and test actions
+
+** 1.96
+- Copy all marked Dired items in the @ context copy actions
+- feat: Add MCP support for Antigravity CLI, solution from lesteral
+- Add optional compose buffer for long prompts
+- Freeze scrolled-away vterm viewports during redraw
+- Expand `C-c a w` into a worktree action menu: create, open directory, visit, delete
+- Prevent MCP HTTP client buffer leaks
+- Fix: C-c a w silently aborts at the new branch name prompt
+- Merge the AI session checkpoint (`P`) into agent handoff (`H`), dispatching on buffer type
+- Load a handoff section from anywhere inside it, not only from its headline
+- Add Evidence-First Coding Harness
+- Improve native Windows support with Ghostel fallback
+
+** 1.95
+- Default PR target branch to the reflog-recorded parent branch
+- Update Grill harness to frontier-based rounds
+- Harden Uncle Bob harness (and +) against false-green checks
+- Add commit current changes workflow
+- Fix: adapt to ghostel 0.47+ link-detection API change
+- Fix: retain cached session links outside each linkified tail across ghostel redraws
+- Fix: keep ghostel plain-link detection asynchronous so session links survive redraws
+
+** 1.94
+- feat(treesit): symbol-level @# completion with qualified names
+- Add Tree-sitter semantic scope and structural context extraction
+- Skip test harnesses for non-code prompts
+- Reuse recent shell commands in run prompts
+
+** 1.93
+- Chore: sort backend selection by MRU order with history persistence
+- Fix session lookup across symlinks and worktrees
+- Fix prompt handling in read-only directories
+- Feat: Add Muse Code CLI backend support
+- Feat: Add maintainability sensors to Uncle Bob coding harness as plus version
+
+** 1.92
+- fix for agent-shell new api, by baohaojun
+- Feat: Add Uncle Bob's coding agent harness
+- Tighten GPTel code-change prompt classification
+- Harden and modernize Emacs MCP integration
+- Simplify agile development menu actions
+- Confirm prompt sending after starting a missing session
+- Confirm before canceling a nonblank editor viewport and refocus its source, by cxa
 
 ** 1.91
 - Add Grill support to some github related tool and scoped context copying, re-organize menu

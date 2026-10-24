@@ -1,0 +1,61 @@
+#+title: Native Windows Support
+
+* Recommended setup
+
+For native Windows Emacs, Ghostel is the recommended terminal backend for
+AI Code sessions.  Ghostel supports native Windows through ConPTY and publishes
+pre-built native modules for common Windows Emacs architectures.
+
+Ghostel 0.45 or newer is recommended because later Windows releases include
+important process-spawning and encoding fixes.
+
+Install Ghostel from MELPA:
+
+#+begin_src emacs-lisp
+(use-package ghostel
+  :ensure t)
+
+(setq ai-code-backends-infra-terminal-backend 'ghostel)
+#+end_src
+
+Run =M-x ghostel= once after installation.  Ghostel can download its pre-built
+native module on first use, so a local C/Zig toolchain is normally unnecessary.
+
+* Automatic vterm fallback
+
+The package default remains =vterm= for compatibility with existing users.
+On native Windows, when =vterm= is selected but cannot start,
+=ai-code-interface.el= automatically retries the session with Ghostel.  After a
+successful retry Ghostel becomes the selected terminal backend for subsequent
+AI Code sessions in that Emacs process.
+
+The fallback never changes an explicitly selected non-vterm backend.  It can be
+disabled with:
+
+#+begin_src emacs-lisp
+(setq ai-code-backends-infra-windows-vterm-fallback nil)
+#+end_src
+
+If both vterm and Ghostel fail, AI Code reports a Windows-specific error with
+Ghostel installation guidance instead of only reporting that vterm is missing.
+
+* Backend guidance
+
+| Backend | Native Windows guidance |
+|---------+-------------------------|
+| Ghostel | Recommended. Uses ConPTY and has pre-built Windows native modules. |
+| vterm   | Not recommended for native Windows; upstream vterm is Unix-oriented and requires a native module/toolchain. |
+| Eat     | User-selectable, but native Windows support should be treated as best-effort. |
+| Eshell  | Not a terminal backend for AI Code. Many coding CLIs require PTY/TUI terminal semantics that Eshell does not provide. |
+
+WSL Emacs reports itself as GNU/Linux rather than native Windows, so the Windows
+fallback is not applied there.  WSL users can choose vterm, Eat, or Ghostel in
+the same way as other Linux users.
+
+* Troubleshooting
+
+If an npm-installed coding CLI works in PowerShell but fails from AI Code,
+confirm that its command is visible to Emacs with =executable-find=.  Windows npm
+commands may resolve to =.cmd= shims, so reports should include the result of
+=executable-find=, the selected terminal backend, the Emacs version and
+architecture, and whether =M-x ghostel= can start a normal terminal.

@@ -12,6 +12,7 @@
 
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 
 (defgroup ai-code-antigravity-cli nil
   "Antigravity CLI integration via `ai-code-backends-infra'."
@@ -46,7 +47,11 @@ With prefix ARG, prompt for CLI args using
          :label "Antigravity"
          :process-table ai-code-antigravity-cli--processes
          :session-prefix ai-code-antigravity-cli--session-prefix
-         :escape-function #'ai-code-antigravity-cli-send-escape)
+         :escape-function #'ai-code-antigravity-cli-send-escape
+         :prepare-launch
+         (lambda (working-dir argv)
+           (ai-code-mcp-agent-prepare-launch
+            'antigravity working-dir argv)))
    arg))
 
 ;;;###autoload

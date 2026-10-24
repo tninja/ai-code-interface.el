@@ -45,7 +45,7 @@
               (if (and (not ai-code-test--in-read-string-advice)
                        (fboundp 'ai-code-read-string))
                   (let ((ai-code-test--in-read-string-advice t))
-                    (apply #'ai-code-read-string prompt initial-input args))
+                    (ai-code-read-string prompt initial-input))
                 (apply orig-fun prompt initial-input args))))
 
 (provide 'test_00-bootstrap)

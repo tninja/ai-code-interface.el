@@ -37,6 +37,8 @@ the terminal backend infrastructure.")
 (declare-function ai-code-cli-switch-to-buffer "ai-code-backends" ())
 (declare-function gptel-request "gptel" (prompt &rest args))
 (declare-function gptel-abort "gptel" (buffer))
+(defvar gptel-use-tools)
+(defvar gptel-tools)
 (declare-function ai-code--git-repo-recent-modified-files "ai-code-git" (base-dir limit))
 (declare-function ai-code--git-ignored-repo-file-p "ai-code-git" (file root))
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
@@ -48,7 +50,9 @@ the terminal backend infrastructure.")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--session-buffer-matches-directory-p "ai-code-backends-infra" (buffer directory))
 (declare-function ai-code-backends-infra--terminal-send-string
-  "ai-code-backends-infra" (string &optional paste))
+                  "ai-code-backends-infra" (string &optional paste))
+(declare-function ai-code-mcp-agent-refresh-source-context
+                  "ai-code-mcp-agent" (agent-buffer source-buffer))
 (declare-function ai-code-backends-infra--terminal-send-return "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--display-buffer-in-side-window "ai-code-backends-infra" (buffer))
 
@@ -165,6 +169,36 @@ This is the file name without path."
   :type 'string
   :group 'ai-code)
 
+;;;###autoload
+(defcustom ai-code-prompt-fallback-directory
+  (expand-file-name ".ai.code.files" "~")
+  "Fallback directory for the AI prompt history file.
+This directory is used when the preferred location returned by
+`ai-code--get-files-directory' cannot be created or written.  When nil,
+skip prompt history if the preferred location is unavailable.  Prompt
+sending continues even when neither location can be written."
+  :type '(choice (const :tag "Disable fallback" nil)
+                 (directory :tag "Fallback directory"))
+  :group 'ai-code)
+
+(defun ai-code--writable-prompt-file-path (directory)
+  "Return a writable prompt file path under DIRECTORY, or nil.
+Create the prompt file's parent directory when necessary."
+  (when directory
+    (condition-case nil
+        (let* ((prompt-file
+                (expand-file-name ai-code-prompt-file-name directory))
+               (prompt-directory (file-name-directory prompt-file)))
+          (unless (file-directory-p prompt-directory)
+            (make-directory prompt-directory t))
+          (when (and (file-directory-p prompt-directory)
+                     (file-writable-p prompt-directory)
+                     (not (file-directory-p prompt-file))
+                     (or (not (file-exists-p prompt-file))
+                         (file-writable-p prompt-file)))
+            prompt-file))
+      (file-error nil))))
+
 (defun ai-code--setup-snippets ()
   "Setup YASnippet directories for `ai-code-prompt-mode`."
   (condition-case _err
@@ -180,25 +214,32 @@ This is the file name without path."
 
 ;;;###autoload
 (defun ai-code-open-prompt-file ()
-  "Open AI prompt file under .ai.code.files/ directory.
-If file doesn't exist, create it with sample prompt."
+  "Open the writable AI prompt history file.
+Use `ai-code-prompt-fallback-directory' when the preferred location is
+unavailable.  If the file doesn't exist, create it with sample prompt."
   (interactive)
-  (let* ((files-dir (ai-code--ensure-files-directory))
-         (prompt-file (expand-file-name ai-code-prompt-file-name files-dir)))
-    (find-file-other-window prompt-file)
-    (unless (file-exists-p prompt-file)
-      ;; Insert initial content for new file
-      (insert "# AI Prompt File\n")
-      (insert "# This file is for storing AI prompts and instructions\n")
-      (insert "# Use this file to save reusable prompts for your AI assistant\n\n")
-      (insert "* Sample prompt:\n\n")
-      (insert "Explain the architecture of this codebase\n")
-      (save-buffer))))
+  (if-let ((prompt-file (ai-code--get-ai-code-prompt-file-path)))
+      (progn
+        (find-file-other-window prompt-file)
+        (unless (file-exists-p prompt-file)
+          ;; Insert initial content for new file
+          (insert "# AI Prompt File\n")
+          (insert "# This file is for storing AI prompts and instructions\n")
+          (insert "# Use this file to save reusable prompts for your AI assistant\n\n")
+          (insert "* Sample prompt:\n\n")
+          (insert "Explain the architecture of this codebase\n")
+          (save-buffer)))
+    (user-error "No writable AI prompt history directory is available")))
 
 (defun ai-code--get-ai-code-prompt-file-path ()
-  "Get the path to the AI prompt file in the .ai.code.files/ directory."
-  (let ((files-dir (ai-code--get-files-directory)))
-    (expand-file-name ai-code-prompt-file-name files-dir)))
+  "Return a writable path for the AI prompt history file.
+Prefer the project-local files directory, then try
+`ai-code-prompt-fallback-directory'.  Return nil when neither location is
+writable."
+  (or (ai-code--writable-prompt-file-path
+       (ai-code--get-files-directory))
+      (ai-code--writable-prompt-file-path
+       ai-code-prompt-fallback-directory)))
 
 (defun ai-code--execute-command (command)
   "Execute COMMAND directly without saving to prompt file."
@@ -218,9 +259,36 @@ If file doesn't exist, create it with sample prompt."
     (org-insert-time-stamp (current-time) t t))
   (insert "\n"))
 
+(defun ai-code--gptel-sync-intermediate-response-p (response info)
+  "Return non-nil when RESPONSE with INFO is an intermediate GPTel event.
+Reasoning blocks arrive before the final response, so they must not end
+the wait.  A reported error always ends it, even mid-reasoning."
+  (and (null (plist-get info :error))
+       (consp response)
+       (eq (car response) 'reasoning)))
+
+(defun ai-code--gptel-sync-failure-description (response info)
+  "Return a failure description for RESPONSE and INFO.
+RESPONSE and INFO follow the `gptel-request' callback contract."
+  (let ((gptel-error (plist-get info :error))
+        (status (plist-get info :status)))
+    (cond
+     (gptel-error
+      (if status
+          (format "%s (status: %s)" gptel-error status)
+        (format "%s" gptel-error)))
+     ((eq response 'abort) "Request aborted")
+     ;; A nil response means no response or an unreported error.
+     ((null response)
+      (format "Empty response from GPTel (status: %s)"
+              (or status "unknown")))
+     (t (format "Unexpected GPTel response: %S" response)))))
+
 (defun ai-code-call-gptel-sync (question)
   "Get an answer from gptel synchronously for a given QUESTION.
 This function blocks until a response is received or a timeout occurs.
+GPTel tools are disabled for the request, because this is a background
+query whose answer is consumed by ai-code rather than by the user.
 Only works when gptel package is installed, otherwise shows error message."
   (unless (featurep 'gptel)
     (user-error "GPTel package is required for AI command generation; please install gptel package"))
@@ -238,22 +306,35 @@ Only works when gptel package is installed, otherwise shows error message."
             (temp-buffer (generate-new-buffer " *gptel-sync*")))
         (unwind-protect
             (progn
-              (gptel-request truncated-question
-                             :buffer temp-buffer
-                             :stream nil
-                             :callback (lambda (response info)
-                                         (cond
-                                          ((stringp response)
-                                           (setq answer response))
-                                          ((eq response 'abort)
-                                           (setq error-info "Request aborted."))
-                                          (t
-                                           (setq error-info (or (plist-get info :status) "Unknown error"))))
-                                         (setq done t)))
+              ;; `gptel-request' copies these out of its `:buffer'.  That is a
+              ;; fresh buffer with no local values, so it inherits these
+              ;; bindings and the user's own tools stay out of this query.
+              (let ((gptel-use-tools nil)
+                    (gptel-tools nil))
+                (gptel-request truncated-question
+                               :buffer temp-buffer
+                               :stream nil
+                               :callback (lambda (response info)
+                                           (cond
+                                            ((ai-code--gptel-sync-intermediate-response-p
+                                              response info))
+                                            ((and (stringp response)
+                                                  (null (plist-get info :error)))
+                                             (setq answer response
+                                                   done t))
+                                            (t
+                                             (setq error-info
+                                                   (ai-code--gptel-sync-failure-description
+                                                    response info)
+                                                   done t))))))
               ;; Block until 'done' is true or timeout is reached
               (while (not done)
                 (when quit-flag
                   (keyboard-quit))
+                ;; Show progress without flooding the *Messages* log.
+                (let ((message-log-max nil))
+                  (message "Waiting for GPTel response... %ds (C-g to cancel)"
+                           (floor (- (float-time) start-time))))
                 (when (> (- (float-time) start-time) ai-code-gptel-sync-timeout)
                   ;; Try to abort any running processes
                   (gptel-abort temp-buffer)
@@ -261,7 +342,8 @@ Only works when gptel package is installed, otherwise shows error message."
                         error-info (format "Request timed out after %d seconds" ai-code-gptel-sync-timeout)))
                 ;; Use sit-for to process events and allow interruption
                 (sit-for 0.1)))
-          ;; Clean up temp buffer
+          ;; Clear the progress message and clean up temp buffer
+          (message nil)
           (when (buffer-live-p temp-buffer)
             (kill-buffer temp-buffer)))
         (cond
@@ -357,6 +439,8 @@ Return a session buffer, or nil for default backend dispatch."
 
 (defun ai-code--send-prompt-to-session-buffer (prompt buffer)
   "Send PROMPT directly to session BUFFER and display it."
+  (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
+    (ai-code-mcp-agent-refresh-source-context buffer (current-buffer)))
   (with-current-buffer buffer
     (if (and (string-match-p "\n" prompt)
              (bound-and-true-p ai-code-backends-infra-use-paste-backends)
@@ -381,18 +465,25 @@ backend dispatch."
       (ai-code-cli-switch-to-buffer))))
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text)
-  "Write PROMPT-TEXT to the AI prompt file."
+  "Record PROMPT-TEXT in prompt history and send it to the AI.
+If prompt history cannot be written, report the problem and continue
+sending the prompt."
   (let* ((full-prompt (concat prompt-text "\n"))
          (prompt-file (ai-code--get-ai-code-prompt-file-path))
          (original-default-directory default-directory))
     (if prompt-file
-      (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
-        (with-current-buffer buffer
-          (ai-code--append-prompt-to-buffer prompt-text)
-          (save-buffer)
-          (message "Prompt added to %s" prompt-file))
-        (let ((default-directory original-default-directory))
-          (ai-code--send-prompt full-prompt)))
+        (condition-case err
+            (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
+              (with-current-buffer buffer
+                (atomic-change-group
+                  (ai-code--append-prompt-to-buffer prompt-text)
+                  (save-buffer))
+                (message "Prompt added to %s" prompt-file)))
+          ((buffer-read-only file-error)
+           (message "Could not save prompt history to %s: %s; sending without history"
+                    prompt-file (error-message-string err))))
+      (message "No writable prompt history directory; sending without history"))
+    (let ((default-directory original-default-directory))
       (ai-code--send-prompt full-prompt))))
 
 (defun ai-code--filter-prompt-suffix-args (args)
@@ -424,11 +515,15 @@ If WORD is a file path, it's converted to a relative path."
 The function checks each non-whitespace token in the prompt; if a token is a
 file path within the current git repository it is replaced with a relative
 path prefixed with @.  Original whitespace is preserved.
+Text with the `ai-code-verbatim' property is kept unchanged.
 NOTE: This does not handle file paths containing spaces."
   (if-let* ((git-root-truename (ai-code--git-root)))
       (replace-regexp-in-string
        "[^ \t\n]+"
-       (lambda (word) (ai-code--process-word-for-filepath word git-root-truename))
+       (lambda (word)
+         (if (get-text-property 0 'ai-code-verbatim word)
+             word
+           (ai-code--process-word-for-filepath word git-root-truename)))
        prompt-text t t)
     ;; Not in a git repo, return original prompt
     prompt-text))
@@ -616,6 +711,12 @@ GIT-ROOT-TRUENAME is the normalized Git root."
   (and (string-prefix-p "/" prompt-text)
        (not (string-match-p "[[:space:]]" prompt-text))))
 
+(defvar ai-code--org-summary-anchor nil
+  "Org section the result summary should be appended to, or nil.
+When non-nil, a plist with `:name' and `:end-line' describing the section
+chosen for the prompt being built.  `ai-code--insert-prompt' anchors the
+summary there instead of at the line under point.")
+
 (defun ai-code--insert-prompt (prompt-text)
   "Preprocess and insert PROMPT-TEXT into the AI prompt file.
 If PROMPT-TEXT is a command (starts with /), execute it directly instead."
@@ -624,14 +725,21 @@ If PROMPT-TEXT is a command (starts with /), execute it directly instead."
                             prompt-text)))
     (if (ai-code--direct-command-p processed-prompt)
         (ai-code--execute-command processed-prompt)
-      (let* ((append-summary-p (and (derived-mode-p 'org-mode)
+      (let* ((anchor ai-code--org-summary-anchor)
+             (append-summary-p (and (derived-mode-p 'org-mode)
                                     (ignore-errors (save-excursion (org-back-to-heading t) t))
                                     (y-or-n-p "Append result summary to current section? ")))
-             (final-prompt (if append-summary-p
-                               (concat processed-prompt
-                                       (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
-                                               buffer-file-name (line-number-at-pos)))
-                             processed-prompt)))
+             (final-prompt
+              (if append-summary-p
+                  (concat processed-prompt
+                          (if anchor
+                              (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of section \"%s\" in file %s, after line %d."
+                                      (plist-get anchor :name)
+                                      buffer-file-name
+                                      (plist-get anchor :end-line))
+                            (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
+                                    buffer-file-name (line-number-at-pos))))
+                processed-prompt)))
         (ai-code--write-prompt-to-file-and-send final-prompt)))))
 
 ;; Define the AI Prompt Mode (derived from org-mode)
@@ -658,7 +766,7 @@ Special commands:
 Following issue #404 behavior:
 1. If cursor is on an Org section headline, call `ai-code-implement-todo`.
 2. If there is a selected region, send the selected region to the AI session.
-3. Otherwise, fallback to the existing `org-mode` `C-c C-c` action (`org-ctrl-c-ctrl-c`)."
+3. Otherwise, fall back to the existing `org-ctrl-c-ctrl-c' action."
   (interactive)
   (cond
    ((and (derived-mode-p 'org-mode)
@@ -681,7 +789,7 @@ Following issue #404 behavior:
    (t
     (if (fboundp 'org-ctrl-c-ctrl-c)
         (call-interactively #'org-ctrl-c-ctrl-c)
-      (user-error "org-ctrl-c-ctrl-c is not defined")))))
+      (user-error "Org command org-ctrl-c-ctrl-c is not defined")))))
 
 (defun ai-code--mark-prompt-block ()
   "Mark the current prompt block.

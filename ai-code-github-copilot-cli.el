@@ -69,14 +69,15 @@ With prefix ARG, prompt for CLI args using
          :multiline-input-sequence
          ai-code-github-copilot-cli-multiline-input-sequence
          :prepare-launch
-         (lambda (working-dir command)
+         (lambda (working-dir argv)
            (let* ((mcp-launch
                    (ai-code-mcp-agent-prepare-launch 'github-copilot-cli
                                                      working-dir
-                                                     command))
+                                                     argv))
                   (mcp-post-start-fn (plist-get mcp-launch :post-start-fn)))
              (list
-              :command (plist-get mcp-launch :command)
+              :argv (plist-get mcp-launch :argv)
+              :env-vars (plist-get mcp-launch :env-vars)
               :cleanup-fn (plist-get mcp-launch :cleanup-fn)
               :post-start-fn
               ;; Copilot redraws via alternate-screen sequences, so keep the

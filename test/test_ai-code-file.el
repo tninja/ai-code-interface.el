@@ -44,6 +44,129 @@ everything is cleaned up afterward."
        (when (file-directory-p test-dir)
          (delete-directory test-dir t)))))
 
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-dired-defaults-to-latest-command ()
+  "Test Dired command prompts with the latest dedicated history entry."
+  (let ((major-mode 'dired-mode)
+        (default-directory "/tmp/")
+        (ai-code-shell-command-history '("echo newest"))
+        captured-initial-input
+        captured-history)
+    (cl-letf (((symbol-function 'dired-current-directory)
+               (lambda () default-directory))
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input history &rest _args)
+                 (setq captured-initial-input initial-input
+                       captured-history history)
+                 "echo fallback"))
+              ((symbol-function 'compilation-start)
+               (lambda (&rest _args) nil)))
+      (ai-code-run-current-file-or-shell-cmd)
+      (should (eq captured-history 'ai-code-shell-command-history))
+      (should (equal captured-initial-input "echo newest")))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-region-overrides-history ()
+  "Test an active region takes precedence over shell command history."
+  (let ((ai-code-shell-command-history '("echo history"))
+        (transient-mark-mode t)
+        captured-initial-input)
+    (with-temp-buffer
+      (insert "echo selected")
+      (set-mark (point-min))
+      (goto-char (point-max))
+      (activate-mark)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input))
+                ((symbol-function 'compilation-start)
+                 (lambda (&rest _args) nil)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "echo selected"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-shell-defaults-to-latest-command ()
+  "Test shell buffers prompt with the latest dedicated history entry."
+  (let ((ai-code-shell-command-history '("echo newest"))
+        captured-initial-input)
+    (with-temp-buffer
+      (setq major-mode 'shell-mode)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "echo newest"))
+        (should (equal (buffer-string) "echo newest"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-file-reuses-matching-command ()
+  "Test a file reuses its latest matching run command."
+  (let ((ai-code-run-file-history '("pytest current.py -q"))
+        captured-initial-input)
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/current.py")
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input))
+                ((symbol-function 'ai-code--run-command-in-comint)
+                 (lambda (&rest _args) nil)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "pytest current.py -q"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-file-ignores-other-file-command ()
+  "Test a file does not default to another file's run command."
+  (let ((ai-code-run-file-history '("pytest other.py -q"))
+        captured-initial-input)
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/current.py")
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial-input &rest _args)
+                   (setq captured-initial-input initial-input)
+                   initial-input))
+                ((symbol-function 'ai-code--run-command-in-comint)
+                 (lambda (&rest _args) nil)))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal captured-initial-input "python current.py"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-remembers-ai-confirmed-command ()
+  "Test the confirmed AI command becomes the latest dedicated history entry."
+  (let ((ai-code-shell-command-history nil)
+        (read-count 0))
+    (with-temp-buffer
+      (setq major-mode 'shell-mode)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional _initial-input history &rest _args)
+                   (setq read-count (1+ read-count))
+                   (if (= read-count 1)
+                       (progn
+                         (add-to-history history ":list files")
+                         ":list files")
+                     "ls -la")))
+                ((symbol-function 'ai-code-call-gptel-sync)
+                 (lambda (_prompt) "ls -la")))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (equal (buffer-string) "ls -la"))
+        (should (equal (car ai-code-shell-command-history) "ls -la"))))))
+
+(ert-deftest ai-code-test-run-current-file-or-shell-cmd-skips-empty-ai-command-history ()
+  "Test an empty AI confirmation is not added to dedicated history."
+  (let ((ai-code-shell-command-history nil)
+        (read-count 0))
+    (with-temp-buffer
+      (setq major-mode 'shell-mode)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (_prompt &optional _initial-input history &rest _args)
+                   (setq read-count (1+ read-count))
+                   (if (= read-count 1)
+                       (progn
+                         (add-to-history history ":list files")
+                         ":list files")
+                     "")))
+                ((symbol-function 'ai-code-call-gptel-sync)
+                 (lambda (_prompt) "ls -la")))
+        (ai-code-run-current-file-or-shell-cmd)
+        (should (string-empty-p (buffer-string)))
+        (should (equal ai-code-shell-command-history '(":list files")))))))
+
 ;;; Tests for ai-code--sanitize-generated-path-name
 
 (ert-deftest ai-code-test-sanitize-basic-name ()
@@ -645,6 +768,61 @@ everything is cleaned up afterward."
       (should (equal (current-kill 0 t)
                      "third in /tmp/sample.el#L3-L3")))))
 
+(ert-deftest ai-code-test-copy-file-context-short-region-includes-text ()
+  "A region of 5 lines or fewer should keep including the selected text."
+  (with-temp-buffer
+    (insert "l1\nl2\nl3\nl4\nl5\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 4)
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "l1\nl2\nl3\nl4\nl5 in /tmp/sample.el#L1-L5")))))
+
+(ert-deftest ai-code-test-copy-file-context-long-region-uses-line-range-only ()
+  "A region longer than 5 lines should copy only the file line range."
+  (with-temp-buffer
+    (insert "l1\nl2\nl3\nl4\nl5\nl6\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 5)
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil))
+      (ai-code-copy-buffer-file-name-to-clipboard t)
+      (should (equal (current-kill 0 t)
+                     "/tmp/sample.el#L1-L6")))))
+
+(ert-deftest ai-code-test-context-action-long-region-copies-line-range-only ()
+  "C-c a @ copy actions should omit text for regions longer than 5 lines."
+  (with-temp-buffer
+    (insert "l1\nl2\nl3\nl4\nl5\nl6\nl7\n")
+    (setq buffer-file-name "/tmp/sample.el"
+          transient-mark-mode t)
+    (goto-char (point-min))
+    (set-mark (point))
+    (forward-line 6)
+    (end-of-line)
+    (activate-mark)
+    (let ((kill-ring nil)
+          (selected-actions '("Copy context"
+                              "Copy context with full path")))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _args) (pop selected-actions)))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _dir) nil)))
+        (ai-code-context-action nil)
+        (should (equal (current-kill 0 t) "/tmp/sample.el#L1-L7"))
+        (ai-code-context-action nil)
+        (should (equal (current-kill 0 t) "/tmp/sample.el#L1-L7"))))))
+
 (ert-deftest ai-code-test-context-action-copies-scoped-context ()
   "Test that context actions copy function and region references."
   (let* ((repo-root (make-temp-file "ai-code-context-copy-" t))
@@ -695,6 +873,103 @@ everything is cleaned up afterward."
       (when (buffer-live-p source-buffer)
         (kill-buffer source-buffer))
       (delete-directory repo-root t))))
+
+(defmacro ai-code-file-test--with-dired-repo (root buffer &rest body)
+  "Run BODY inside a Dired buffer for a temporary repository.
+ROOT is bound to the repository root truename and BUFFER to its Dired
+buffer.  The repository contains a.el, b.el and sub/.  `magit-toplevel'
+reports ROOT and `kill-ring' starts empty inside BODY."
+  (declare (indent 2))
+  `(let* ((,root (file-name-as-directory
+                  (file-truename (make-temp-file "ai-code-dired-copy-" t))))
+          (,buffer nil))
+     (unwind-protect
+         (progn
+           (with-temp-file (expand-file-name "a.el" ,root) (insert ";; a\n"))
+           (with-temp-file (expand-file-name "b.el" ,root) (insert ";; b\n"))
+           (make-directory (expand-file-name "sub" ,root) t)
+           (setq ,buffer (dired-noselect ,root))
+           (with-current-buffer ,buffer
+             (cl-letf (((symbol-function 'magit-toplevel)
+                        (lambda (&optional _dir) ,root)))
+               (let ((kill-ring nil))
+                 ,@body))))
+       (when (buffer-live-p ,buffer)
+         (kill-buffer ,buffer))
+       (delete-directory ,root t))))
+
+(defun ai-code-file-test--select-context-action (action)
+  "Return a `completing-read' replacement that always answers ACTION."
+  (lambda (&rest _args) action))
+
+(ert-deftest ai-code-test-context-action-copies-dired-marked-files ()
+  "Copy context copies every marked Dired item, one path per line."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "a.el" repo-root))
+    (dired-mark 1)
+    (dired-goto-file (expand-file-name "sub" repo-root))
+    (dired-mark 1)
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action "Copy context")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) "@a.el\n@sub"))))
+
+(ert-deftest ai-code-test-context-action-copies-dired-marked-files-full-path ()
+  "Copy context with full path copies marked Dired items as absolute paths."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "a.el" repo-root))
+    (dired-mark 1)
+    (dired-goto-file (expand-file-name "sub" repo-root))
+    (dired-mark 1)
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action
+                "Copy context with full path")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t)
+                   (concat (expand-file-name "a.el" repo-root)
+                           "\n"
+                           (expand-file-name "sub" repo-root))))))
+
+(ert-deftest ai-code-test-context-action-copies-single-dired-mark-without-newline ()
+  "A single marked item wins over the file at point and carries no newline."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "a.el" repo-root))
+    (dired-mark 1)
+    (dired-goto-file (expand-file-name "b.el" repo-root))
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action "Copy context")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) "@a.el"))))
+
+(ert-deftest ai-code-test-context-action-copies-dired-file-at-point-without-marks ()
+  "Without marks the copy action keeps copying the Dired file at point."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (dired-goto-file (expand-file-name "b.el" repo-root))
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action "Copy context")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) "@b.el"))))
+
+(ert-deftest ai-code-test-context-action-copies-dired-directory-without-file-at-point ()
+  "Without marks or a file at point the copy action keeps copying the directory."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (goto-char (point-min))
+    (cl-letf (((symbol-function 'completing-read)
+               (ai-code-file-test--select-context-action
+                "Copy context with full path")))
+      (ai-code-context-action nil))
+    (should (equal (current-kill 0 t) (dired-current-directory)))))
+
+(ert-deftest ai-code-test-add-context-stores-dired-marked-files ()
+  "Adding context from Dired keeps storing the marked items only."
+  (ai-code-file-test--with-dired-repo repo-root dired-buffer
+    (let ((ai-code--repo-context-info (make-hash-table :test #'equal)))
+      (dired-goto-file (expand-file-name "a.el" repo-root))
+      (dired-mark 1)
+      (dired-goto-file (expand-file-name "b.el" repo-root))
+      (ai-code-add-context)
+      (should (equal (gethash repo-root ai-code--repo-context-info)
+                     (list (expand-file-name "a.el" repo-root)))))))
 
 (ert-deftest ai-code-test-context-action-add-calls-add-context ()
   "Test that selecting 'Add context' calls `ai-code-add-context' and lists."
@@ -845,6 +1120,34 @@ everything is cleaned up afterward."
       (should-not build-called)
       (should-not run-test-called))))
 
+(ert-deftest ai-code-test-build-or-test-project-dispatches-flycheck-fix ()
+  "Test selecting the Flycheck action dispatches to its public command."
+  (let (action-candidates
+        flycheck-fix-called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq action-candidates collection)
+                 "Fix Flycheck errors in scope"))
+              ((symbol-function 'ai-code-flycheck-fix-errors-in-scope)
+               (lambda ()
+                 (setq flycheck-fix-called t))))
+      (ai-code-build-or-test-project)
+      (should (member "Fix Flycheck errors in scope" action-candidates))
+      (should flycheck-fix-called))))
+
+(ert-deftest ai-code-test-build-or-test-project-preserves-flycheck-command-context ()
+  "Test the Flycheck action retains its command context when dispatched."
+  (let ((this-command 'ai-code-build-or-test-project)
+        dispatched-command)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Fix Flycheck errors in scope"))
+              ((symbol-function 'ai-code-flycheck-fix-errors-in-scope)
+               (lambda ()
+                 (setq dispatched-command this-command))))
+      (ai-code-build-or-test-project)
+      (should (eq dispatched-command
+                  'ai-code-flycheck-fix-errors-in-scope)))))
+
 (ert-deftest ai-code-test-test-project-builds-ai-prompt-with-at-test-and-failure-follow-up ()
   "Test `ai-code-test-project' sends a project-wide @test prompt with follow-up instructions."
   (let ((captured-initial-input nil)
@@ -855,8 +1158,8 @@ everything is cleaned up afterward."
                (lambda (&optional _dir) "/tmp/demo-project/"))
               ((symbol-function 'ai-code--format-repo-context-info)
                (lambda () "Repo context goes here"))
-              ((symbol-function 'ai-code-read-string)
-               (lambda (_prompt initial-input)
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input &rest _args)
                  (setq captured-initial-input initial-input)
                  initial-input))
               ((symbol-function 'ai-code--insert-prompt)
@@ -877,8 +1180,8 @@ everything is cleaned up afterward."
         (captured-prompt nil))
     (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
                (lambda () "Repo context goes here"))
-              ((symbol-function 'ai-code-read-string)
-               (lambda (_prompt initial-input)
+              ((symbol-function 'read-string)
+               (lambda (_prompt &optional initial-input &rest _args)
                  (setq captured-initial-input initial-input)
                  initial-input))
               ((symbol-function 'ai-code--insert-prompt)
@@ -898,8 +1201,8 @@ everything is cleaned up afterward."
 
 ;;; --- ai-code--session-project-root tests ---
 
-(ert-deftest test-ai-code-session-project-root-prefers-project-el ()
-  "Should return project.el root when available."
+(ert-deftest test-ai-code-session-project-root-prefers-git-root ()
+  "Should return Git root when project.el reports a nested root."
   (let ((default-directory "/tmp/fallback/"))
     (cl-letf (((symbol-function 'project-current)
                (lambda (&optional _maybe-prompt _dir)
@@ -909,7 +1212,7 @@ everything is cleaned up afterward."
               ((symbol-function 'magit-toplevel)
                (lambda (&optional _dir) "/git/bar/")))
       (should (equal (ai-code--session-project-root)
-                     "/projects/foo/")))))
+                     "/git/bar/")))))
 
 (ert-deftest test-ai-code-session-project-root-falls-back-to-git-root ()
   "Should fall back to git root when project.el returns nil."
@@ -940,6 +1243,65 @@ everything is cleaned up afterward."
                (lambda (&optional _dir) nil)))
       (should (stringp (ai-code--session-project-root)))
       (should (not (string-empty-p (ai-code--session-project-root)))))))
+
+(ert-deftest ai-code-test-current-file-context-reference-normalizes-ts-indentation ()
+             "Include a qualified method anchor from indentation on its definition line."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (ai-code--current-file-context-reference t)
+                              "/tmp/project/service.py#Service.first"))))
+
+(ert-deftest ai-code-test-current-file-context-reference-keeps-class-anchor ()
+  "Anchor on the enclosing class when point is not inside a function."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/service.py")
+    (insert "class Service:\n"
+            "    enabled = True\n"
+            "    def first(self):\n"
+            "        return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (ai-code--current-file-context-reference t)
+                   "/tmp/project/service.py#Service"))))
+
+(ert-deftest ai-code-test-current-file-context-reference-module-function-unqualified ()
+  "Keep a module-level function anchor unqualified."
+  (skip-unless (and (fboundp 'treesit-language-available-p)
+                    (treesit-language-available-p 'python)
+                    (fboundp 'python-ts-mode)))
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/util.py")
+    (insert "def alpha():\n"
+            "    return 1\n")
+    (python-ts-mode)
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (equal (ai-code--current-file-context-reference t)
+                   "/tmp/project/util.py#alpha"))))
+
+(ert-deftest ai-code-test-current-file-context-reference-no-scope-plain-path ()
+  "Return a bare path when no semantic scope can be resolved."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/project/plain.txt")
+    (insert "just text\n")
+    (goto-char (point-min))
+    (cl-letf (((symbol-function 'ai-code--current-qualified-scope-name)
+               (lambda () nil)))
+      (should (equal (ai-code--current-file-context-reference t)
+                     "/tmp/project/plain.txt")))))
 
 (provide 'test_ai-code-file)
 

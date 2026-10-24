@@ -110,11 +110,27 @@
 (defun ai-code-mcp-debug-tools--register-base-tools ()
   "Register the standard MCP debugging tools."
   (dolist (tool ai-code-mcp-debug-tools--specs)
-    (apply #'ai-code-mcp-make-tool tool)))
+    (apply #'ai-code-mcp-make-tool
+           (append
+            tool
+            '(:category debug
+              :annotations
+              ((readOnlyHint . t)
+               (destructiveHint . :json-false)
+               (idempotentHint . t)
+               (openWorldHint . :json-false)))))))
 
 (defun ai-code-mcp-debug-tools--register-eval-tool ()
   "Register the optional `eval_elisp' MCP tool."
-  (apply #'ai-code-mcp-make-tool ai-code-mcp-debug-tools--eval-spec))
+  (apply #'ai-code-mcp-make-tool
+         (append
+          ai-code-mcp-debug-tools--eval-spec
+          '(:category eval
+            :annotations
+            ((readOnlyHint . :json-false)
+             (destructiveHint . t)
+             (idempotentHint . :json-false)
+             (openWorldHint . t))))))
 
 (defun ai-code-mcp-debug-tools--enabled-p ()
   "Return non-nil when debug tools are enabled globally."

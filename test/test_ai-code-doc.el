@@ -25,7 +25,7 @@
 (require 'ai-code)
 
 (defmacro ai-code-file-with-test-env (&rest body)
-  "Set up a temporary environment for testing file operations.
+  "Run BODY in a temporary environment for testing file operations.
 This macro creates a temporary directory structure and ensures
 everything is cleaned up afterward."
   `(let* ((test-dir (expand-file-name "test-file-ops/" temporary-file-directory))
@@ -39,6 +39,18 @@ everything is cleaned up afterward."
        ;; Teardown: Clean up test directory
        (when (file-directory-p test-dir)
          (delete-directory test-dir t)))))
+
+(defun ai-code-test--doc-read-string (topic language)
+  "Return a `read-string' stand-in answering TOPIC and LANGUAGE.
+The document topic question is recognized by its prompt prefix."
+  (lambda (prompt &rest _args)
+    (if (string-prefix-p "Document topic" prompt) topic language)))
+
+(defun ai-code-test--unit-test-read-string (topic language)
+  "Return a `read-string' stand-in answering TOPIC and LANGUAGE.
+The unit test topic question is recognized by its prompt prefix."
+  (lambda (prompt &rest _args)
+    (if (string-prefix-p "Unit test topic" prompt) topic language)))
 
 (ert-deftest ai-code-test-menu-agile-development-includes-derive-architecture-document-entry ()
   "Test that Agile Development menu exposes architecture document derivation."
@@ -91,6 +103,18 @@ everything is cleaned up afterward."
       (ai-code-derive-architecture-document))
     (should (eq called 'test-context))))
 
+(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-topic-unit-tests ()
+  "Test that architecture document derivation dispatches to topic unit tests."
+  (let (called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args)
+                 "Derive Unit Test to Help Understand the Topic"))
+              ((symbol-function 'ai-code-derive-topic-unit-tests)
+               (lambda ()
+                 (setq called 'topic-unit-tests))))
+      (ai-code-derive-architecture-document))
+    (should (eq called 'topic-unit-tests))))
+
 (ert-deftest ai-code-test-derive-architecture-guardrails-creates-template-and-prompt ()
   "Test `ai-code-derive-architecture-guardrails' initializes the Org file and prompt."
   (let* ((tmp-root (make-temp-file "ai-code-guardrails" t))
@@ -102,7 +126,7 @@ everything is cleaned up afterward."
                    (lambda (&optional _dir)
                      tmp-root))
                   ((symbol-function 'read-string)
-                   (lambda (&rest _args) "English"))
+                   (ai-code-test--doc-read-string "" "English"))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (prompt initial-input)
                      (should (equal prompt "Prompt: "))
@@ -133,7 +157,7 @@ everything is cleaned up afterward."
                                   captured-initial-prompt))
           (should (string-match-p (regexp-quote "Org-mode format")
                                   captured-initial-prompt))
-          (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol_or_line][description]]")
+          (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol][description]]")
                                   captured-initial-prompt))
           (should (equal captured-final-prompt captured-initial-prompt)))
       (ignore-errors (delete-directory tmp-root t)))))
@@ -152,7 +176,7 @@ everything is cleaned up afterward."
                      (lambda (&optional _dir)
                        tmp-root))
                     ((symbol-function 'read-string)
-                     (lambda (&rest _args) "English"))
+                     (ai-code-test--doc-read-string "" "English"))
                     ((symbol-function 'ai-code-plain-read-string)
                      (lambda (_prompt initial-input)
                        initial-input))
@@ -182,7 +206,7 @@ everything is cleaned up afterward."
                    (lambda (&optional _dir)
                      tmp-root))
                   ((symbol-function 'read-string)
-                   (lambda (&rest _args) "English"))
+                   (ai-code-test--doc-read-string "" "English"))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (_prompt _initial-input)
                      nil))
@@ -209,7 +233,7 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir)
                   default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (prompt &optional initial-input)
                   (setq captured-read-prompt prompt
@@ -226,9 +250,11 @@ everything is cleaned up afterward."
        (should (string-match-p
                 "\\.ai\\.code\\.files/architecture/domain-context\\.org"
                 captured-initial-prompt))
+       (should-not (string-match-p "Scope this document to the topic"
+                                   captured-initial-prompt))
        (should (string-match-p "\\*\\* Notes and Uncertainties"
                                captured-initial-prompt))
-       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol_or_line][description_text]]")
+       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol][description]]")
                                captured-initial-prompt))
        (should (equal inserted-prompt captured-initial-prompt))
        (should (file-exists-p
@@ -243,7 +269,7 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir)
                   default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code--format-repo-context-info)
                 (lambda ()
                   "\nStored repository context:\n  - Preserve existing CLI UX"))
@@ -275,7 +301,7 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir)
                   default-directory))
                ((symbol-function 'read-string)
-                (lambda (&rest _args) "English"))
+                (ai-code-test--doc-read-string "" "English"))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (prompt &optional initial-input)
                   (setq captured-read-prompt prompt
@@ -292,7 +318,7 @@ everything is cleaned up afterward."
        (should (string-match-p
                 "\\.ai\\.code\\.files/architecture/test-context\\.org"
                 captured-initial-prompt))
-       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol_or_line][description_text]]")
+       (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol][description]]")
                                captured-initial-prompt))
        (should (equal inserted-prompt captured-initial-prompt))
        (should (file-exists-p
@@ -311,9 +337,11 @@ everything is cleaned up afterward."
                    (lambda (&optional _dir) tmp-root))
                   ((symbol-function 'read-string)
                    (lambda (prompt &optional initial-input &rest _args)
-                     (setq captured-language-prompt prompt
-                           captured-language-default initial-input)
-                     mock-lang))
+                     (if (string-prefix-p "Document topic" prompt)
+                         ""
+                       (setq captured-language-prompt prompt
+                             captured-language-default initial-input)
+                       mock-lang)))
                   ((symbol-function 'ai-code-plain-read-string)
                    (lambda (_prompt initial-input) initial-input))
                   ((symbol-function 'ai-code--insert-prompt)
@@ -336,9 +364,11 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir) default-directory))
                ((symbol-function 'read-string)
                 (lambda (prompt &optional initial-input &rest _args)
-                  (setq captured-language-prompt prompt
-                        captured-language-default initial-input)
-                  mock-lang))
+                  (if (string-prefix-p "Document topic" prompt)
+                      ""
+                    (setq captured-language-prompt prompt
+                          captured-language-default initial-input)
+                    mock-lang)))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
@@ -360,9 +390,11 @@ everything is cleaned up afterward."
                 (lambda (&optional _dir) default-directory))
                ((symbol-function 'read-string)
                 (lambda (prompt &optional initial-input &rest _args)
-                  (setq captured-language-prompt prompt
-                        captured-language-default initial-input)
-                  mock-lang))
+                  (if (string-prefix-p "Document topic" prompt)
+                      ""
+                    (setq captured-language-prompt prompt
+                          captured-language-default initial-input)
+                    mock-lang)))
                ((symbol-function 'ai-code-plain-read-string)
                 (lambda (_prompt initial-input) initial-input))
                ((symbol-function 'ai-code--insert-prompt)
@@ -372,6 +404,405 @@ everything is cleaned up afterward."
        (should (equal captured-language-default "English"))
        (should (string-match-p (regexp-quote "Generate the document in German.")
                                captured-final-prompt))))))
+
+(ert-deftest ai-code-test-derive-ddd-context-inserts-into-prompt-mode-buffer ()
+  "In `ai-code-prompt-mode' the DDD prompt is written at point instead of sent."
+  (ai-code-file-with-test-env
+   (let (sent-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--doc-read-string "" "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq sent-prompt prompt)))
+               ((symbol-function 'y-or-n-p) (lambda (&rest _args) t)))
+       (with-temp-buffer
+         (ai-code-prompt-mode)
+         (insert "* Existing task\n** Sub task\n")
+         (goto-char (point-max))
+         (ai-code-derive-ddd-context)
+         (should-not sent-prompt)
+         (should (string-match-p "^\\*\\* Derive DDD Context for Repo \\["
+                                 (buffer-string)))
+         (should (string-match-p
+                  (regexp-quote "Domain-Driven Design (DDD) style context document")
+                  (buffer-string))))))))
+
+(ert-deftest ai-code-test-doc-emit-prompt-declines-buffer-dump-and-sends-to-ai ()
+  "Declining the question in `ai-code-prompt-mode' sends the prompt to the AI.
+The buffer dump must stay opt-in, so a no answer falls back to the
+behavior used outside `ai-code-prompt-mode'."
+  (let (sent-prompt
+        captured-question)
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (question)
+                 (setq captured-question question)
+                 nil))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt) (setq sent-prompt prompt))))
+      (with-temp-buffer
+        (ai-code-prompt-mode)
+        (insert "* Existing task\n")
+        (goto-char (point-max))
+        (ai-code--doc-emit-prompt "Derive Repository Map" "PROMPT BODY")
+        (should captured-question)
+        (should (equal sent-prompt "PROMPT BODY"))
+        (should (equal (buffer-string) "* Existing task\n"))))))
+
+(ert-deftest ai-code-test-derive-architecture-guardrails-inserts-into-prompt-mode-buffer ()
+  "In `ai-code-prompt-mode' the guardrails prompt is written at point, not sent."
+  (ai-code-file-with-test-env
+   (let (sent-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--doc-read-string "" "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq sent-prompt prompt)))
+               ((symbol-function 'y-or-n-p) (lambda (&rest _args) t)))
+       (with-temp-buffer
+         (ai-code-prompt-mode)
+         (insert "* Existing task\n")
+         (goto-char (point-max))
+         (ai-code-derive-architecture-guardrails)
+         (should-not sent-prompt)
+         (should (string-match-p "^\\* Derive Architecture Guardrails \\["
+                                 (buffer-string)))
+         (should (string-match-p
+                  (regexp-quote "Derive a lightweight architecture guardrails document")
+                  (buffer-string))))))))
+
+(ert-deftest ai-code-test-derive-ddd-context-scopes-to-topic ()
+  "A non-empty document topic narrows the DDD prompt and its output file."
+  (ai-code-file-with-test-env
+   (let (captured-topic-prompt
+         inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (lambda (prompt &rest _args)
+                  (cond ((string-prefix-p "Document topic" prompt)
+                         (setq captured-topic-prompt prompt)
+                         "Prompt Pipeline")
+                        (t "English"))))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-ddd-context)
+       (should (equal captured-topic-prompt
+                      "Document topic (empty for whole repo): "))
+       (should (string-match-p
+                (regexp-quote "Scope this document to the topic: Prompt Pipeline")
+                inserted-prompt))
+       (should (string-match-p
+                (regexp-quote ".ai.code.files/architecture/domain-context-prompt-pipeline-13b070827c7b.org")
+                inserted-prompt))
+       (should (file-exists-p
+                (expand-file-name
+                 ".ai.code.files/architecture/domain-context-prompt-pipeline-13b070827c7b.org"
+                 default-directory)))))))
+
+(ert-deftest ai-code-test-derive-architecture-guardrails-scopes-to-topic ()
+  "A non-empty document topic narrows the guardrails prompt and its output file."
+  (ai-code-file-with-test-env
+   (let (inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--doc-read-string "Git Integration" "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-architecture-guardrails)
+       (should (string-match-p
+                (regexp-quote "Scope this document to the topic: Git Integration")
+                inserted-prompt))
+       (should (string-match-p
+                (regexp-quote "@.ai.code.files/architecture/guardrails-git-integration-cd172722a457.org")
+                inserted-prompt))
+       (should (file-exists-p
+                (expand-file-name
+                 ".ai.code.files/architecture/guardrails-git-integration-cd172722a457.org"
+                 default-directory)))))))
+
+(ert-deftest ai-code-test-document-prompts-require-verified-org-links ()
+  "Every derived document prompt asks for verified relative Org links."
+  (dolist (builder '(ai-code--derive-ddd-context-prompt
+                     ai-code--derive-test-context-prompt
+                     ai-code--derive-c4-plantuml-prompt
+                     ai-code--derive-repo-map-prompt
+                     ai-code--build-architecture-guardrails-prompt))
+    (let ((prompt (funcall builder "/tmp/repo")))
+      (should (string-match-p
+               (regexp-quote "[[file:../../path/to/file::symbol][description]]")
+               prompt))
+      (should (string-match-p
+               (regexp-quote "fall back to ::<line-number> only when")
+               prompt))
+      (should (string-match-p
+               (regexp-quote "Only link to paths and symbols you have actually confirmed")
+               prompt))
+      (should (string-match-p (regexp-quote "first mention in each section")
+                              prompt)))))
+
+(ert-deftest ai-code-test-org-link-instruction-prefix-follows-output-depth ()
+  "The relative link prefix is derived from the document output depth."
+  (should (string-match-p (regexp-quote "[[file:../../path/to/file::symbol]")
+                          (ai-code--org-link-instruction "a/b/doc.org")))
+  (should (string-match-p (regexp-quote "[[file:../path/to/file::symbol]")
+                          (ai-code--org-link-instruction "a/doc.org")))
+  (should (string-match-p (regexp-quote "[[file:path/to/file::symbol]")
+                          (ai-code--org-link-instruction "doc.org"))))
+
+(ert-deftest test-ai-code-doc--topic-file-name-distinguishes-lossy-slugs ()
+  "Distinct topics must not update the same output document."
+  (let* ((topics '("\u8ba4\u8bc1" "\u652f\u4ed8" "C++" "C#" "c#"))
+         (paths (mapcar (lambda (topic)
+                          (ai-code--topic-file-name "docs/domain-context.org"
+                                                    topic))
+                        topics)))
+    (should (= (length topics) (length (delete-dups (copy-sequence paths)))))
+    (dolist (path paths)
+      (should (equal (file-name-directory path) "docs/"))
+      (should (equal (file-name-extension path) "org")))
+    (should (equal (car paths)
+                   (ai-code--topic-file-name "docs/domain-context.org"
+                                             (car topics))))))
+
+(ert-deftest test-ai-code-doc--topic-file-name-preserves-repository-path ()
+  "Whole-repository documents retain their established output path."
+  (should (equal (ai-code--topic-file-name "docs/domain-context.org" nil)
+                 "docs/domain-context.org")))
+
+(ert-deftest test-ai-code-doc--github-links-follow-analyzed-revision ()
+  "Pin feature-branch links and use local links for unpublished or dirty code."
+  (let* ((repo (make-temp-file "ai-code-doc-git-" t))
+         (default-directory (file-name-as-directory repo))
+         (process-environment (append '("GIT_CONFIG_GLOBAL=/dev/null"
+                                        "GIT_CONFIG_NOSYSTEM=1")
+                                      process-environment)))
+    (unwind-protect
+        ;; Execute real Git queries even when other test files stub Magit.
+        (cl-letf (((symbol-function 'magit-git-string)
+                   (lambda (&rest args)
+                     (with-temp-buffer
+                       (when (zerop (apply #'process-file "git" nil t nil args))
+                         (car (split-string (buffer-string) "\n" t))))))
+                  ((symbol-function 'magit-git-success)
+                   (lambda (&rest args)
+                     (zerop (apply #'process-file "git" nil nil nil args)))))
+          (cl-labels ((git (&rest args)
+                        (should (zerop
+                                 (apply #'process-file "git" nil nil nil
+                                        "-c" "user.name=Document Test"
+                                        "-c" "user.email=doc@example.com"
+                                        "-c" "commit.gpgsign=false" args)))))
+            (git "init" "-q" "-b" "main")
+            (git "remote" "add" "origin" "ssh://git@github.com/org/repo.git")
+            ;; An unborn repository cannot supply a source revision.
+            (should-not (ai-code--doc-github-source-url))
+            (with-temp-file "source.txt" (insert "Main definition\n"))
+            (with-temp-file ".gitignore" (insert "generated.txt\n"))
+            (git "add" ".")
+            (git "commit" "-qm" "Initial source")
+            (git "update-ref" "refs/remotes/origin/main" "HEAD")
+            (git "checkout" "-qb" "feature")
+            (with-temp-file "source.txt" (insert "Feature definition\n"))
+            (git "commit" "-qam" "Feature source")
+            ;; A commit on another remote does not prove origin has it.
+            (git "update-ref" "refs/remotes/upstream/feature" "HEAD")
+            (should-not (ai-code--doc-github-source-url))
+            (cl-letf (((symbol-function 'read-string)
+                       (lambda (&rest _) (ert-fail "Unexpected link question"))))
+              (should (eq (ai-code--read-document-link-style) 'local)))
+            (git "update-ref" "refs/remotes/origin/feature" "HEAD")
+            (let* ((revision (magit-git-string "rev-parse" "HEAD"))
+                   (source-url (concat "https://github.com/org/repo/blob/"
+                                       revision)))
+              (should (equal (ai-code--doc-github-source-url) source-url))
+              (cl-letf (((symbol-function 'read-string)
+                         (lambda (&rest _) "github")))
+                (should (eq (ai-code--read-document-link-style) 'github)))
+              (let ((prompt (ai-code--org-link-instruction "a/b/doc.org" 'github)))
+                (should (string-match-p (regexp-quote (concat source-url "/"))
+                                        prompt))
+                (should-not (string-match-p "/blob/HEAD/" prompt))
+                (should (string-match-p "untracked, ignored" prompt)))
+              ;; New document files must not disable links to committed code.
+              (with-temp-file "doc.org" (insert "Draft document\n"))
+              (with-temp-file "generated.txt" (insert "Generated output\n"))
+              (should (equal (ai-code--doc-github-source-url) source-url))
+              (git "checkout" "--detach" "-q")
+              (should (equal (ai-code--doc-github-source-url) source-url))
+              ;; Both unstaged and staged edits invalidate committed line numbers.
+              (with-temp-file "source.txt" (insert "Local definition\n"))
+              (should-not (ai-code--doc-github-source-url))
+              (git "add" "source.txt")
+              (should-not (ai-code--doc-github-source-url))
+              (let ((prompt (ai-code--org-link-instruction "a/b/doc.org" 'github)))
+                (should-not (string-match-p "https://github.com" prompt))
+                (should (string-match-p
+                         (regexp-quote "[[file:../../path/to/file::symbol]")
+                         prompt))))))
+      (delete-directory repo t))))
+
+(ert-deftest test-ai-code-doc--github-source-url-handles-git-failure ()
+  "An unavailable Git command must leave local document links usable."
+  (cl-letf (((symbol-function 'ai-code--doc-github-repo-url)
+             (lambda () "https://github.com/org/repo"))
+            ((symbol-function 'magit-git-string)
+             (lambda (&rest _) (error "Git unavailable"))))
+    (should-not (ai-code--doc-github-source-url))
+    (should (string-match-p
+             (regexp-quote "[[file:path/to/file::symbol]")
+             (ai-code--org-link-instruction "doc.org" 'github)))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-builds-learning-test-prompt ()
+  "Topic unit tests must be ordered, runnable, and create no Org document."
+  (ai-code-file-with-test-env
+   (let (captured-read-prompt
+         captured-initial-prompt
+         inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--unit-test-read-string "Prompt Pipeline" "Chinese"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (prompt &optional initial-input)
+                  (setq captured-read-prompt prompt
+                        captured-initial-prompt initial-input)
+                  initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-topic-unit-tests)
+       (should (equal captured-read-prompt "Derive topic unit tests prompt: "))
+       (should (string-match-p (regexp-quote "topic: Prompt Pipeline")
+                               captured-initial-prompt))
+       (should (string-match-p (regexp-quote "the most basic entry point first")
+                               captured-initial-prompt))
+       (should (string-match-p (regexp-quote "the project's normal test command")
+                               captured-initial-prompt))
+       (should (string-match-p
+                (regexp-quote "Write the test comments and any explanation in Chinese.")
+                captured-initial-prompt))
+       (should (equal inserted-prompt captured-initial-prompt))
+       ;; Learning tests are source code, so no architecture document is created.
+       (should-not (file-exists-p
+                    (expand-file-name ".ai.code.files/architecture"
+                                      default-directory)))))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-separates-stored-repo-context ()
+  "Stored repository context must not run into the language directive.
+`ai-code--format-repo-context-info' ends without a newline, so the
+directive has to supply the separator itself or the last context entry is
+corrupted."
+  (ai-code-file-with-test-env
+   (let (inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--unit-test-read-string "Prompt Pipeline" "English"))
+               ((symbol-function 'ai-code--format-repo-context-info)
+                (lambda ()
+                  "\nStored repository context:\n  - Preserve existing CLI UX"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (ai-code-derive-topic-unit-tests)
+       (should (string-match-p
+                (regexp-quote "  - Preserve existing CLI UX\nWrite the test comments")
+                inserted-prompt))))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-requires-a-topic ()
+  "An empty topic gives the backend nothing to teach, so it must be rejected."
+  (ai-code-file-with-test-env
+   (let (inserted-prompt)
+     (cl-letf (((symbol-function 'ai-code--git-root)
+                (lambda (&optional _dir) default-directory))
+               ((symbol-function 'read-string)
+                (ai-code-test--unit-test-read-string "   " "English"))
+               ((symbol-function 'ai-code-plain-read-string)
+                (lambda (_prompt &optional initial-input) initial-input))
+               ((symbol-function 'ai-code--insert-prompt)
+                (lambda (prompt) (setq inserted-prompt prompt))))
+       (should-error (ai-code-derive-topic-unit-tests) :type 'user-error)
+       (should-not inserted-prompt)))))
+
+(ert-deftest ai-code-test-derive-topic-unit-tests-errors-outside-git-repo ()
+  "Deriving topic unit tests should require a Git repository."
+  (cl-letf (((symbol-function 'ai-code--git-root)
+             (lambda (&optional _dir) nil)))
+    (should-error (ai-code-derive-topic-unit-tests) :type 'user-error)))
+
+(ert-deftest ai-code-test-read-document-topic-offers-scope-at-point ()
+  "A `prog-mode' buffer offers the scope at point with its repo-relative file.
+Accepting pre-fills the editable topic; declining means the whole
+repository without asking for a topic."
+  (ai-code-file-with-test-env
+   (with-temp-buffer
+     (prog-mode)
+     (setq buffer-file-name (expand-file-name "src/Service.java" default-directory))
+     (let ((answer t)
+           asked
+           initial-input)
+       (cl-letf (((symbol-function 'ai-code--git-root)
+                  (lambda (&optional _dir) default-directory))
+                 ((symbol-function 'ai-code--current-qualified-scope-name)
+                  (lambda () "Service.run"))
+                 ((symbol-function 'y-or-n-p)
+                  (lambda (prompt) (setq asked prompt) answer))
+                 ((symbol-function 'read-string)
+                  (lambda (_prompt &optional initial &rest _)
+                    (setq initial-input initial)
+                    (concat initial " retry"))))
+         (should (equal (ai-code--read-document-topic)
+                        "Service.run (src/Service.java) retry"))
+         (should (string-match-p (regexp-quote "\"Service.run (src/Service.java)\"")
+                                 asked))
+         (should (equal initial-input "Service.run (src/Service.java)"))
+         (setq answer nil
+               initial-input 'unread)
+         (should-not (ai-code--read-document-topic))
+         (should (eq initial-input 'unread)))))))
+
+(ert-deftest ai-code-test-read-document-topic-offers-nothing-outside-prog-mode ()
+  "Outside `prog-mode' the topic is asked blank, without a y/n question."
+  (with-temp-buffer
+    (let ((initial-input 'unread))
+      (cl-letf (((symbol-function 'ai-code--current-qualified-scope-name)
+                 (lambda () "Service.run"))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _) (error "Unexpected y-or-n-p")))
+                ((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial &rest _)
+                   (setq initial-input initial)
+                   "")))
+        (should-not (ai-code--read-document-topic))
+        (should-not initial-input)))))
+
+(ert-deftest ai-code-test-read-unit-test-topic-prefills-scope-at-point ()
+  "The required unit test topic is pre-filled without a y/n question.
+A buffer that visits no file offers the scope name alone."
+  (with-temp-buffer
+    (prog-mode)
+    (let (initial-input)
+      (cl-letf (((symbol-function 'ai-code--current-qualified-scope-name)
+                 (lambda () "Service"))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _) (error "Unexpected y-or-n-p")))
+                ((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial &rest _)
+                   (setq initial-input initial)
+                   initial)))
+        (should (equal (ai-code--read-unit-test-topic) "Service"))
+        (should (equal initial-input "Service"))))))
 
 (provide 'test_ai-code-doc)
 ;;; test_ai-code-doc.el ends here

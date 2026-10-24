@@ -1,10 +1,10 @@
-;;; test_ai-code-startup-diagnostics.el --- Startup diagnostic tests -*- lexical-binding: t; -*-
+;;; test_ai-code-startup-diagnostics.el --- Startup metadata tests -*- lexical-binding: t; -*-
 
 ;; Author: Kang Tu <tninja@gmail.com>
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Tests for safe CLI startup failure diagnostics.
+;; Startup reports contain metadata, never arguments or terminal output.
 
 ;;; Code:
 
@@ -12,183 +12,115 @@
 (require 'cl-lib)
 (require 'ai-code-startup-diagnostics)
 
-(defun test-ai-code-startup-diagnostics--report
-    (command &optional backend process directory)
-  "Report startup failure for COMMAND and return observable output.
-BACKEND, PROCESS, and DIRECTORY customize the diagnostic context."
+(defun test-ai-code-startup-diagnostics--report (command &optional process backend)
+  "Capture a report for COMMAND, PROCESS, and BACKEND."
   (with-temp-buffer
-    (setq-local default-directory (or directory "/tmp/project/"))
-    (let ((buffer (current-buffer))
-          captured-message
-          displayed)
+    (setq-local default-directory "/tmp/project/")
+    (insert "private terminal output\n")
+    (let ((buffer (current-buffer)) summary displayed)
       (cl-letf (((symbol-function 'pop-to-buffer)
                  (lambda (target &rest _args)
                    (setq displayed (eq target buffer))))
                 ((symbol-function 'message)
                  (lambda (format-string &rest args)
-                   (setq captured-message
-                         (apply #'format format-string args)))))
+                   (setq summary (apply #'format format-string args)))))
         (ai-code-startup-diagnostics-report
          buffer process (or backend "codex") command))
-      (list :buffer-output (buffer-string)
-            :message captured-message
-            :displayed displayed))))
+      (list :output (buffer-string) :summary summary :displayed displayed))))
 
-(ert-deftest test-ai-code-startup-diagnostics-report-redacts-secrets ()
-  "Reporting should preserve useful context without exposing secret values."
-  (let* ((secrets
-          '("inline-secret"
-            "separate-secret"
-            "github-secret"
-            "api-secret"
-            "bearer-secret"
-            "header-secret"
-            "compact-header-secret"
-            "environment-secret"
-            "aws-secret"))
-         (result
-          (test-ai-code-startup-diagnostics--report
-           '("codex"
-             "--api-key=inline-secret"
-             "--token" "separate-secret"
-             "--github-token" "github-secret"
-             "--api_key" "api-secret"
-             "--header" "Authorization: Bearer bearer-secret"
-             "-H" "X-API-Key: header-secret"
-             "-HAuthorization: Bearer compact-header-secret"
-             "OPENAI_API_KEY=environment-secret"
-             "AWS_SECRET_ACCESS_KEY=aws-secret"
-             "MONKEY=banana"
-             "--model" "gpt-5")))
-         (diagnostics (plist-get result :buffer-output))
-         (summary (plist-get result :message)))
-    (should (plist-get result :displayed))
-    (should (string-match-p "Backend: \"codex\"" diagnostics))
-    (should (string-match-p "Executable: \"codex\"" diagnostics))
-    (should (string-match-p "<redacted>" diagnostics))
-    (should (string-match-p "MONKEY=banana" diagnostics))
-    (should (string-match-p "--model" diagnostics))
-    (dolist (secret secrets)
-      (should-not (string-match-p (regexp-quote secret) diagnostics))
-      (should-not (string-match-p (regexp-quote secret) summary)))))
-
-(ert-deftest test-ai-code-startup-diagnostics-report-includes-process-context ()
-  "Reporting should include the requested executable and process outcome."
+(ert-deftest test-ai-code-startup-diagnostics-reports-launch-not-wrapper ()
+  "Report the requested CLI and its failed process outcome."
   (cl-letf (((symbol-function 'processp) (lambda (_process) t))
             ((symbol-function 'process-status) (lambda (_process) 'exit))
-            ((symbol-function 'process-exit-status) (lambda (_process) 127)))
-    (let* ((result
-            (test-ai-code-startup-diagnostics--report
-             "/usr/local/bin/codex --flag --token command-secret"
-             "codex"
-             'fake-process
-             "/tmp/example/"))
-           (diagnostics (plist-get result :buffer-output))
-           (summary (plist-get result :message)))
-      (should (string-match-p "Executable: \"/usr/local/bin/codex\""
-                              diagnostics))
-      (should (string-match-p "Working directory: \"/tmp/example/\""
-                              diagnostics))
-      (should (string-match-p "Process status: exit" diagnostics))
-      (should (string-match-p "Exit status: 127" diagnostics))
-      (should (string-match-p "backend=codex" summary))
-      (should (string-match-p "executable=/usr/local/bin/codex" summary))
-      (should (string-match-p "exit=127" summary))
-      (should-not (string-match-p "command-secret" diagnostics))
-      (should-not (string-match-p "command-secret" summary)))))
+            ((symbol-function 'process-exit-status) (lambda (_process) 127))
+            ((symbol-function 'process-command)
+             (lambda (_process) (ert-fail "Do not inspect shell wrappers"))))
+    (let* ((result (test-ai-code-startup-diagnostics--report
+                    '("/opt/bin/codex" "--flag") 'fake-process))
+           (summary (plist-get result :summary)))
+      (should (plist-get result :displayed))
+      (dolist (field '("backend=codex" "executable=/opt/bin/codex"
+                       "cwd=/tmp/project/" "status=exit" "exit=127"))
+        (should (string-match-p (regexp-quote field) summary)))
+      (should (string-match-p "Exit status: 127" (plist-get result :output))))))
 
-(ert-deftest test-ai-code-startup-diagnostics-report-redacts-nested-and-multiline-secrets ()
-  "Nested, chained, and multiline secret forms should remain confidential."
-  (let* ((secrets
-          '("nested-secret"
-            "separate-access-secret"
-            "inline-access-secret"
-            "key-id-secret"
-            "chained-secret"
-            "first-cli-line"
-            "second-cli-line"
-            "first-env-line"
-            "second-env-line"))
-         (result
-          (test-ai-code-startup-diagnostics--report
-           '("env"
-             "--env=AWS_SECRET_ACCESS_KEY=nested-secret"
-             "codex"
-             "--access-key" "separate-access-secret"
-             "--aws-access-key=inline-access-secret"
-             "--aws-access-key-id" "key-id-secret"
-             "--token" "--api-key" "chained-secret"
-             "--api-key=first-cli-line\nsecond-cli-line"
-             "PRIVATE_KEY=first-env-line\nsecond-env-line")))
-         (diagnostics (plist-get result :buffer-output)))
-    (should
-     (string-match-p
-      "--env=AWS_SECRET_ACCESS_KEY=<redacted>" diagnostics))
-    (should (string-match-p "--api-key=<redacted>" diagnostics))
-    (should (string-match-p "PRIVATE_KEY=<redacted>" diagnostics))
-    (dolist (secret secrets)
-      (should-not (string-match-p (regexp-quote secret) diagnostics)))))
+(ert-deftest test-ai-code-startup-diagnostics-omits-all-arguments ()
+  "Unknown credential forms and arbitrary prompt text are never logged."
+  (let* ((arguments '("--api-key=inline-secret" "--token" "token-secret"
+                      "--header" "Authorization: Bearer header-secret"
+                      "--new-provider-option" "unrecognized-secret"
+                      "private prompt\nsecond line"))
+         (result (test-ai-code-startup-diagnostics--report
+                  (cons "codex" arguments)))
+         (output (plist-get result :output))
+         (summary (plist-get result :summary)))
+    (dolist (argument arguments)
+      (should-not (string-match-p (regexp-quote argument) output))
+      (should-not (string-match-p (regexp-quote argument) summary)))
+    (should-not (string-match-p "private terminal output" summary))
+    (should (string-prefix-p "private terminal output\n" output))))
 
-(ert-deftest test-ai-code-startup-diagnostics-report-skips-environment-assignments ()
-  "Environment assignments should not replace the executable in summaries."
-  (let* ((result
-          (test-ai-code-startup-diagnostics--report
-           (concat "OPENAI_API_KEY=message-secret AWS_PROFILE=dev "
-                   "/opt/bin/codex --flag")))
-         (summary (plist-get result :message)))
-    (should (string-match-p "executable=/opt/bin/codex" summary))
-    (should-not (string-match-p "message-secret" summary))
-    (should-not (string-match-p "OPENAI_API_KEY" summary))))
+(ert-deftest test-ai-code-startup-diagnostics-supports-legacy-command ()
+  "Legacy commands skip environment assignments and preserve quoted paths."
+  (let* ((result (test-ai-code-startup-diagnostics--report
+                  "API_KEY=env-secret AWS_PROFILE=dev '/opt/AI Tools/codex' --token cli-secret"))
+         (summary (plist-get result :summary)))
+    (should (string-match-p "executable=/opt/AI Tools/codex" summary))
+    (should-not (string-match-p "env-secret\\|cli-secret\\|AWS_PROFILE"
+                                (plist-get result :output)))))
 
-(ert-deftest test-ai-code-startup-diagnostics-report-preserves-quoted-boundaries ()
-  "A quoted header should remain one argument and be fully redacted."
-  (let* ((result
-          (test-ai-code-startup-diagnostics--report
-           "codex --header 'Authorization: Bearer header-secret' --model gpt-5"))
-         (diagnostics (plist-get result :buffer-output)))
-    (should (string-match-p "--header" diagnostics))
-    (should (string-match-p "<redacted>" diagnostics))
-    (should (string-match-p "--model" diagnostics))
-    (should (string-match-p "gpt-5" diagnostics))
-    (should-not (string-match-p "header-secret" diagnostics))))
+(ert-deftest test-ai-code-startup-diagnostics-handles-malformed-command ()
+  "Unparseable commands should not prevent reporting or expose their text."
+  (let ((result (test-ai-code-startup-diagnostics--report
+                 "'malformed-secret")))
+    (should (plist-get result :displayed))
+    (should (string-match-p "executable=unknown" (plist-get result :summary)))
+    (should-not (string-match-p "malformed-secret" (plist-get result :output)))))
 
-(ert-deftest test-ai-code-startup-diagnostics-records-native-child-exit-status ()
-  "A recorded native child status should override its event pipe status."
-  (let ((process
-         (make-pipe-process
-          :name "ai-code-startup-diagnostics-native-exit"
-          :noquery t)))
+(ert-deftest test-ai-code-startup-diagnostics-escapes-control-characters ()
+  "Metadata cannot inject extra lines into the message log."
+  (let* ((result (test-ai-code-startup-diagnostics--report
+                  '("codex\nforged-executable") nil "codex\rforged-backend"))
+         (summary (plist-get result :summary)))
+    (should-not (string-match-p "[\n\r]" summary))
+    (should (string-match-p (regexp-quote "codex\\nforged-executable") summary))
+    (should (string-match-p "forged-backend" summary))))
+
+(ert-deftest test-ai-code-startup-diagnostics-does-not-invent-child-exit-code ()
+  "Open event pipes do not have a meaningful child exit code."
+  (let ((process (make-pipe-process :name "startup-event-pipe" :noquery t)))
     (unwind-protect
-        (progn
-          (ai-code-startup-diagnostics-record-child-exit-status process 1)
-          (let* ((result
-                  (test-ai-code-startup-diagnostics--report
-                   "codex" "codex" process))
-                 (diagnostics (plist-get result :buffer-output)))
-            (should (string-match-p "Exit status: 1" diagnostics))))
-      (when (processp process)
-        (delete-process process)))))
+        (let ((result (test-ai-code-startup-diagnostics--report '("codex") process)))
+          (should (string-match-p "exit=unknown" (plist-get result :summary))))
+      (delete-process process))))
 
-(ert-deftest test-ai-code-startup-diagnostics-report-fails-closed ()
-  "Malformed commands and control characters should not forge diagnostics."
-  (let* ((result
-          (test-ai-code-startup-diagnostics--report
-           "codex --model 'malformed-secret"
-           "codex\nforged-backend"
-           nil
-           "/tmp/project\nforged-directory/"))
-         (diagnostics (plist-get result :buffer-output))
-         (summary (plist-get result :message)))
-    (should (string-match-p "<unparseable-command>" diagnostics))
-    (should-not (string-match-p "malformed-secret" diagnostics))
-    (should-not (string-match-p "malformed-secret" summary))
-    (should-not (string-match-p "\n" summary))
-    (should
-     (string-match-p (regexp-quote "codex\\nforged-backend") summary))
-    (should
-     (string-match-p
-      (regexp-quote "/tmp/project\\nforged-directory/") summary))))
+(ert-deftest test-ai-code-startup-diagnostics-handles-killed-buffer ()
+  "An explicit session directory survives a terminal buffer being killed."
+  (let ((buffer (generate-new-buffer " *startup-killed*")) summary)
+    (kill-buffer buffer)
+    (cl-letf (((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (setq summary (apply #'format format-string args)))))
+      (ai-code-startup-diagnostics-report
+       buffer nil "codex" '("codex") "/ssh:host:/remote/project/"))
+    (should (string-match-p "cwd=/ssh:host:/remote/project/" summary))))
+
+(ert-deftest test-ai-code-startup-diagnostics-appending-is-best-effort ()
+  "Read-only buffers and failed insertion must still be displayed."
+  (with-temp-buffer
+    (setq buffer-read-only t)
+    (let ((buffer (current-buffer)) displayed summary)
+      (cl-letf (((symbol-function 'pop-to-buffer)
+                 (lambda (target &rest _args) (setq displayed (eq target buffer))))
+                ((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (setq summary (apply #'format format-string args)))))
+        (ai-code-startup-diagnostics-report buffer nil "codex" '("codex"))
+        (should (string-match-p "AI Code startup diagnostics" (buffer-string)))
+        (let ((before-change-functions (list (lambda (&rest _) (error "Cannot insert")))))
+          (ai-code-startup-diagnostics-report buffer nil "codex" '("codex")))
+        (should displayed)
+        (should (string-match-p "backend=codex" summary))))))
 
 (provide 'test_ai-code-startup-diagnostics)
-
 ;;; test_ai-code-startup-diagnostics.el ends here

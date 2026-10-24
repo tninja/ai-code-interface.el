@@ -136,6 +136,13 @@ Each function is called with the current buffer.  If any function
 returns non-nil, delayed linkification is retried later instead of
 touching text properties immediately.")
 
+(defvar-local ai-code-session-link-after-linkify-functions nil
+  "Hook run after session links are applied to a buffer region.
+
+Each function is called with START and END buffer positions, with the
+session buffer current.  Terminal backends can use this to preserve their
+own display invariants without advising linkification internals.")
+
 (defvar-local ai-code-session-link-image-preview-position-function nil
   "Optional owner that decides whether a preview position is stable.
 The function receives START and END buffer positions.  A nil return suppresses
@@ -389,11 +396,14 @@ Tolerates Ghostel hard-wrapping via
   "Patterns used to detect image file references with looser path syntax.")
 
 (defconst ai-code-session-link--reference-wrapper-left-regexp
-  (rx (+ (any "\"'`<([{")))
+  ;; `in' rather than its synonym `any': package-lint reads the latter as a
+  ;; call to the Emacs 31.1 function of that name and errors on our
+  ;; (emacs "29.1") requirement.
+  (rx (+ (in "\"'`<([{")))
   "Regexp matching wrapper characters before a session file reference.")
 
 (defconst ai-code-session-link--reference-wrapper-right-regexp
-  (rx (+ (any "\"'`>)}],.;:!?")))
+  (rx (+ (in "\"'`>)}],.;:!?")))
   "Regexp matching wrapper characters after a session file reference.")
 
 (defvar-local ai-code-session-link--linkify-timer nil
@@ -413,6 +423,9 @@ Tolerates Ghostel hard-wrapping via
 
 (defvar-local ai-code-session-link--last-region-rules-version nil
   "Linkification rules version used for the last relinkified region.")
+
+(defvar-local ai-code-session-link--last-region-link-count nil
+  "Number of session link spans left by the last relinkified region pass.")
 
 (defvar ai-code-session-link--project-files-cache nil
   "Dynamic cache of project file lists used during one linkify pass.")
@@ -476,12 +489,28 @@ Tolerates Ghostel hard-wrapping via
       (setq ai-code-session-link--buffer-project-files-cache
             (make-hash-table :test 'equal))))
 
+(defun ai-code-session-link--count-link-spans (start end)
+  "Return the number of session link spans between START and END."
+  (let ((count 0)
+        (position start))
+    (while (< position end)
+      (when (get-text-property position 'ai-code-session-link)
+        (setq count (1+ count)))
+      (setq position (or (next-single-property-change
+                          position 'ai-code-session-link nil end)
+                         end)))
+    count))
+
 (defun ai-code-session-link--unchanged-region-p (bounds region-text)
-  "Return non-nil when BOUNDS and REGION-TEXT match the last relinkified region."
+  "Return non-nil when BOUNDS and REGION-TEXT match the last relinkified region.
+The region must also still carry the links that pass applied: terminals
+such as Ghostel repaint rows with identical text but no text properties."
   (and (equal ai-code-session-link--last-region-bounds bounds)
        (equal ai-code-session-link--last-region-rules-version
               ai-code-session-link--linkify-rules-version)
-       (equal ai-code-session-link--last-region-text region-text)))
+       (equal ai-code-session-link--last-region-text region-text)
+       (eql ai-code-session-link--last-region-link-count
+            (ai-code-session-link--count-link-spans (car bounds) (cdr bounds)))))
 
 (defun ai-code-session-link--project-files (root)
   "Return absolute project files for ROOT."
@@ -569,10 +598,12 @@ Optional PROJECT-FILES supplies the project file list."
                        ai-code-session-link--basename-file-extensions))))))
 
 (defun ai-code-session-link--cheap-file-link-candidate-p
-    (path &optional root allow-local-probing)
+    (path &optional root allow-local-probing line-reference)
   "Return non-nil when PATH is worth linkifying without project scans.
 Optional ROOT is the session project root used for bounded local existence
 checks.  When ALLOW-LOCAL-PROBING is nil, only syntactic checks are used.
+LINE-REFERENCE non-nil means PATH was followed by a line number; status
+lines never print one, so the name of ROOT is then not skipped.
 Expensive project-wide resolution stays in
 `ai-code-session-link--resolve-session-file' on activation."
   (when-let* ((normalized (ai-code-session-link--normalize-file path)))
@@ -580,16 +611,31 @@ Expensive project-wide resolution stays in
       (or (and allow-local-probing
                (ai-code-session-link--resolve-existing-local-path
                 normalized root))
-          (and (not (file-name-absolute-p normalized))
-               (or (string-prefix-p "./" normalized)
-                   (string-prefix-p "../" normalized)
-                   (string-match-p "[/\\\\]" normalized)
-                   (and extension
-                        (member (downcase extension)
-                                ai-code-session-link--basename-file-extensions))))
-          (and (not allow-local-probing)
-               (ai-code-session-link--syntactic-file-link-candidate-p
-                normalized))))))
+          (and (or line-reference
+                   (not (ai-code-session-link--root-directory-name-p
+                         normalized root)))
+               (or (and (not (file-name-absolute-p normalized))
+                        (or (string-prefix-p "./" normalized)
+                            (string-prefix-p "../" normalized)
+                            ;; With probing, an existing path already
+                            ;; matched above; an extensionless one that
+                            ;; does not exist is prose or a git ref such
+                            ;; as and/or or origin/main.
+                            (and (string-match-p "[/\\\\]" normalized)
+                                 (or extension (not allow-local-probing)))
+                            (and extension
+                                 (member (downcase extension)
+                                         ai-code-session-link--basename-file-extensions))))
+                   (and (not allow-local-probing)
+                        (ai-code-session-link--syntactic-file-link-candidate-p
+                         normalized))))))))
+
+(defun ai-code-session-link--root-directory-name-p (path root)
+  "Return non-nil when PATH is just the name of the session ROOT directory.
+Status lines such as Claude Code's footer print the working directory name,
+which reads as a file name when the directory is named like one (foo.el)."
+  (and root
+       (string= path (file-name-nondirectory (directory-file-name root)))))
 
 (defun ai-code-session-link--resolve-session-file (path)
   "Resolve PATH to an existing local path or a matching project file."
@@ -1613,10 +1659,12 @@ When ALLOW-LOCAL-PROBING is nil, only syntactic checks are used."
            start end root allow-local-probing))
     (cl-labels
         ((add-link
-          (match-start match-end link-text &optional candidate-text)
+          (match-start match-end link-text
+           &optional candidate-text line-reference)
           (unless (gethash match-start seen-starts)
             (when (ai-code-session-link--cheap-file-link-candidate-p
-                   (or candidate-text link-text) root allow-local-probing)
+                   (or candidate-text link-text) root allow-local-probing
+                   line-reference)
               (puthash match-start t seen-starts)
               (push (list :start match-start
                           :end match-end
@@ -1640,7 +1688,8 @@ When ALLOW-LOCAL-PROBING is nil, only syntactic checks are used."
               (add-link
                match-start match-end
                (buffer-substring-no-properties match-start match-end)
-               path))))))
+               path
+               (and (nth 2 pattern) t)))))))
     (ai-code-session-link--sort-and-prune-links file-links)))
 
 (defun ai-code-session-link--trim-url-end (start end)
@@ -2228,12 +2277,33 @@ visible-window recovery in large terminal scrollback."
               (setq ai-code-session-link--last-region-bounds bounds
                     ai-code-session-link--last-region-text region-text
                     ai-code-session-link--last-region-rules-version
-                    ai-code-session-link--linkify-rules-version))))))))
+                    ai-code-session-link--linkify-rules-version
+                    ai-code-session-link--last-region-link-count
+                    (ai-code-session-link--count-link-spans start end)))))))
+      (run-hook-with-args
+       'ai-code-session-link-after-linkify-functions start end)))
 
 (defun ai-code-session-link--recent-output-tail-width (output)
   "Return the tail width to rescan after OUTPUT."
   (max ai-code-session-link--linkify-min-tail-width
        (* 2 (length (or output "")))))
+
+(defun ai-code-session-link--recent-output-start (tail-width)
+  "Return where to start rescanning the last TAIL-WIDTH characters of output.
+The rescan also covers the last screenful of lines of every window showing
+the buffer.  On a wide window a character tail can span only a TUI's input
+box and footer, leaving the response rows above them unscanned."
+  (let ((start (max (point-min) (- (point-max) tail-width)))
+        (lines (apply #'max 0
+                      (mapcar #'window-body-height
+                              (get-buffer-window-list (current-buffer) nil t)))))
+    (if (zerop lines)
+        start
+      (min start
+           (save-excursion
+             (goto-char (point-max))
+             (forward-line (- lines))
+             (line-beginning-position))))))
 
 (defun ai-code-session-link--recent-output-plain-text (output)
   "Return OUTPUT with terminal control sequences removed."
@@ -2290,10 +2360,9 @@ visible-window recovery in large terminal scrollback."
            (current-buffer)
            ai-code-session-link--linkify-inhibited-retry-delay)
         (setq ai-code-session-link--pending-tail-width 0)
-        (let ((end (point-max)))
-          (ai-code-session-link--linkify-session-region
-           (max (point-min) (- end tail-width))
-           end))))))
+        (ai-code-session-link--linkify-session-region
+         (ai-code-session-link--recent-output-start tail-width)
+         (point-max))))))
 
 (defun ai-code-session-link--schedule-linkify-recent-output (buffer output &optional delay)
   "Linkify recent OUTPUT in BUFFER after terminal redraw settles.
@@ -2312,10 +2381,10 @@ Optional DELAY overrides the default redraw delay in seconds."
   (when (ai-code-session-link--should-linkify-recent-output-p
          (current-buffer)
          output)
-    (let* ((visible-width (ai-code-session-link--recent-output-tail-width output))
-           (end (point-max))
-           (start (max (point-min) (- end visible-width))))
-      (ai-code-session-link--linkify-session-region start end))))
+    (ai-code-session-link--linkify-session-region
+     (ai-code-session-link--recent-output-start
+      (ai-code-session-link--recent-output-tail-width output))
+     (point-max))))
 
 
 (provide 'ai-code-session-link)

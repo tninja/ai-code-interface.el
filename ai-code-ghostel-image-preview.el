@@ -43,6 +43,8 @@
 (declare-function ghostel--viewport-start "ghostel" ())
 (declare-function ultra-scroll "ultra-scroll" (event &optional arg))
 (declare-function ultra-scroll-mac "ultra-scroll" (event &optional arg))
+(declare-function evil-add-command-properties "evil-common"
+                  (command &rest properties))
 
 (defvar ai-code-session-link-image-preview-position-function)
 (defvar ai-code-session-link-image-preview-source-function)
@@ -120,6 +122,14 @@ ordinary pixel-scroll command."
   (let ((map (make-sparse-keymap)))
     (define-key map [remap pixel-scroll-precision]
                 #'ai-code-ghostel-image-preview-scroll)
+    (define-key map [remap scroll-up-line]
+                #'ai-code-ghostel-image-preview-scroll-line-down)
+    (define-key map [remap scroll-down-line]
+                #'ai-code-ghostel-image-preview-scroll-line-up)
+    (define-key map [remap evil-scroll-line-down]
+                #'ai-code-ghostel-image-preview-scroll-line-down)
+    (define-key map [remap evil-scroll-line-up]
+                #'ai-code-ghostel-image-preview-scroll-line-up)
     map)
   "Keymap used while Ghostel image-preview lifecycle management is active.")
 
@@ -217,6 +227,85 @@ ordinary pixel-scroll command."
          (overlay-get overlay 'ai-code-session-image-preview))
        (overlays-at (window-start window))))))
 
+(defun ai-code-ghostel-image-preview--preview-above (window pixels)
+  "Return the preview an upward scroll of PIXELS in WINDOW would enter.
+The value is (OVERLAY . ROWS): OVERLAY is the nearest local preview
+ending at or above WINDOW's start, and ROWS counts the rows between its
+lower edge and that start.  Return nil when WINDOW already starts at a
+preview, and when the scroll stops at or below the preview's lower edge."
+  (when (and (window-live-p window)
+             (buffer-live-p (window-buffer window))
+             (not (ai-code-ghostel-image-preview--preview-at-window-start-p
+                   window)))
+    (with-current-buffer (window-buffer window)
+      (let* ((start (window-start window))
+             (line-height (with-selected-window window
+                            (default-line-height)))
+             (reach (- pixels (window-vscroll window t)))
+             nearest)
+        (when (> reach 0)
+          ;; A preview ROWS rows above is entered once the scroll exceeds
+          ;; the height of those rows.
+          (let ((limit (save-excursion
+                         (goto-char start)
+                         (forward-line (- (/ (1- reach) line-height)))
+                         (point))))
+            (dolist (overlay (overlays-in (max (point-min) (1- limit)) start))
+              (let ((end (overlay-end overlay)))
+                (when (and (overlay-get overlay
+                                        'ai-code-session-image-preview)
+                           (<= limit end start)
+                           (or (null nearest)
+                               (> end (overlay-end nearest))))
+                  (setq nearest overlay))))))
+        (when nearest
+          (cons nearest (count-lines (overlay-end nearest) start)))))))
+
+(defun ai-code-ghostel-image-preview--preview-on-window-start-row-p (window)
+  "Return non-nil when WINDOW starts on the link row of a local preview."
+  (when (and (window-live-p window)
+             (buffer-live-p (window-buffer window)))
+    (with-current-buffer (window-buffer window)
+      (save-excursion
+        (goto-char (window-start window))
+        (cl-some
+         (lambda (overlay)
+           (overlay-get overlay 'ai-code-session-image-preview))
+         (overlays-at (line-end-position)))))))
+
+(defun ai-code-ghostel-image-preview--preview-pixel-height (overlay window)
+  "Return the pixel height in WINDOW of OVERLAY's preview and its link row.
+The link row and the row holding the image make one display line as far
+as scrolling is concerned."
+  (let ((line-height (with-selected-window window (default-line-height)))
+        (image-height
+         (or (ignore-errors
+               (cdr (image-size (overlay-get overlay 'display) t
+                                (window-frame window))))
+             0)))
+    (+ line-height (max line-height (ceiling image-height)))))
+
+(defun ai-code-ghostel-image-preview--enter-preview-from-below
+    (window overlay pixels)
+  "Start WINDOW on OVERLAY's link row with the preview's last PIXELS in view.
+Return the pixels left to scroll once the whole preview is in view.
+
+The window starts at the beginning of the link row and hides the rest
+with its vscroll, which is how `pixel-scroll-precision' and
+`ultra-scroll' themselves leave a window inside a tall line.  Starting
+at OVERLAY itself would start it in the middle of that line, and
+`ultra-scroll' then takes the line for one it has not shown yet."
+  (let* ((height (ai-code-ghostel-image-preview--preview-pixel-height
+                  overlay window))
+         (shown (min pixels height)))
+    (set-window-start window
+                      (with-current-buffer (window-buffer window)
+                        (save-excursion
+                          (goto-char (overlay-start overlay))
+                          (line-beginning-position))))
+    (ai-code-ghostel-image-preview--set-window-vscroll window (- height shown))
+    (- pixels shown)))
+
 (defun ai-code-ghostel-image-preview--clamp-up-event (event window)
   "Clamp upward EVENT to WINDOW's partially hidden preview top."
   (let* ((delta-pair (nth 4 event))
@@ -270,20 +359,23 @@ ordinary pixel-scroll command."
              ai-code-ghostel-image-preview--user-scrolled-windows))
       (memq window ai-code-ghostel-image-preview--user-scrolled-windows))))
 
-(defun ai-code-ghostel-image-preview--input-row-bounds ()
-  "Return the bounds of Ghostel's live cursor row, or nil."
+(defun ai-code-ghostel-image-preview--input-row-start ()
+  "Return the start of Ghostel's live cursor row, or nil."
   (when (and (boundp 'ghostel--cursor-char-pos)
              (integer-or-marker-p ghostel--cursor-char-pos))
     (save-excursion
       (goto-char (max (point-min)
                       (min (point-max) ghostel--cursor-char-pos)))
-      (cons (line-beginning-position) (line-end-position)))))
+      (line-beginning-position))))
 
 (defun ai-code-ghostel-image-preview--position-allowed-p (start _end)
-  "Return non-nil when an image preview may begin at START."
-  (if-let* ((input-bounds
-             (ai-code-ghostel-image-preview--input-row-bounds)))
-      (not (<= (car input-bounds) start (cdr input-bounds)))
+  "Return non-nil when an image preview may begin at START.
+Rows from the live cursor row down hold the TUI's input box, its file
+completion menu, and its status lines, so file names there are not
+previewed."
+  (if-let* ((input-start
+             (ai-code-ghostel-image-preview--input-row-start)))
+      (< start input-start)
     t))
 
 (defun ai-code-ghostel-image-preview--overlays-in-region (start end)
@@ -582,7 +674,10 @@ ordinary pixel-scroll command."
       'preserve)))
 
 (defun ai-code-ghostel-image-preview--window-at-live-cursor-p (window)
-  "Return non-nil when WINDOW point tracks Ghostel's live cursor."
+  "Return non-nil when WINDOW point tracks Ghostel's live cursor.
+WINDOW must also show the live end of the buffer: a window scrolled a few
+rows back keeps the input cursor, and so its point, on screen, and
+treating it as following would snap it to the bottom on every redraw."
   (when (and (window-live-p window)
              (boundp 'ghostel--cursor-char-pos)
              (integer-or-marker-p ghostel--cursor-char-pos))
@@ -591,7 +686,8 @@ ordinary pixel-scroll command."
                     ghostel--cursor-char-pos)))
       (and cursor
            (= (window-point window)
-              (max (point-min) (min (point-max) cursor)))))))
+              (max (point-min) (min (point-max) cursor)))
+           (pos-visible-in-window-p (point-max) window t)))))
 
 (defun ai-code-ghostel-image-preview--capture-window-state (window)
   "Capture semantic and pixel state for WINDOW."
@@ -870,6 +966,25 @@ Optional DELAYS overrides the default scan delays."
   (ai-code-ghostel-image-preview-schedule-visible-linkify
    window (list ai-code-ghostel-image-preview-scroll-linkify-delay)))
 
+(defun ai-code-ghostel-image-preview--scroll-up-onto-preview (event window)
+  "Scroll WINDOW onto the preview above it for upward wheel EVENT.
+Return non-nil when EVENT was handled here.  Both `ultra-scroll' and
+`pixel-scroll-precision' can fail to cross a preview's lower edge
+upwards, and then leave the window on the row below the preview."
+  (let* ((delta-pair (and (consp event) (nth 4 event)))
+         ;; emacs-mac has no pixel delta pair: it reports trackpad pixels
+         ;; in a property list in place of the line count.
+         (plist (and (consp event) (nth 3 event)))
+         (delta (cond ((consp delta-pair) (cdr delta-pair))
+                      ((consp plist) (plist-get plist :scrolling-delta-y)))))
+    (when (and (numberp delta)
+               (> delta 0)
+               (ai-code-ghostel-image-preview--preview-above
+                window (round delta)))
+      (with-selected-window window
+        (ai-code-ghostel-image-preview--scroll-pixels (- (round delta))))
+      t)))
+
 (defun ai-code-ghostel-image-preview-scroll (event)
   "Handle precision scroll EVENT in an enabled Ghostel session."
   (interactive "e")
@@ -877,23 +992,209 @@ Optional DELAYS overrides the default scan delays."
                     (selected-window))))
     (when (window-live-p window)
       (ai-code-ghostel-image-preview--note-user-scroll window))
-    (if (and window
-             ai-code-ghostel-image-preview-prefer-ultra-scroll
-             (ai-code-ghostel-image-preview--window-has-preview-p window)
-             (or (fboundp 'ultra-scroll)
-                 (require 'ultra-scroll nil t)))
-        (let ((event
-               (ai-code-ghostel-image-preview--clamp-up-event event window)))
-          (if (and (featurep 'mac-win)
-                   (fboundp 'ultra-scroll-mac))
-              (ultra-scroll-mac event)
-            (ultra-scroll event)))
-      (if (fboundp 'pixel-scroll-precision)
-          (pixel-scroll-precision event)
-        (mwheel-scroll event)))
+    (cond
+     ((and (window-live-p window)
+           (ai-code-ghostel-image-preview--scroll-up-onto-preview
+            event window)))
+     ((and window
+           ai-code-ghostel-image-preview-prefer-ultra-scroll
+           (ai-code-ghostel-image-preview--window-has-preview-p window)
+           (or (fboundp 'ultra-scroll)
+               (require 'ultra-scroll nil t)))
+      (let ((event
+             (ai-code-ghostel-image-preview--clamp-up-event event window)))
+        (if (and (featurep 'mac-win)
+                 (fboundp 'ultra-scroll-mac))
+            (ultra-scroll-mac event)
+          (ultra-scroll event))))
+     ((fboundp 'pixel-scroll-precision)
+      (pixel-scroll-precision event))
+     (t
+      (mwheel-scroll event)))
     (when (window-live-p window)
       (ai-code-ghostel-image-preview-schedule-visible-linkify
        window (list ai-code-ghostel-image-preview-scroll-linkify-delay)))))
+
+(defun ai-code-ghostel-image-preview--show-link-row (window)
+  "Start WINDOW at the row holding the link of the preview at its start."
+  (set-window-start
+   window
+   (with-current-buffer (window-buffer window)
+     (save-excursion
+       (goto-char (window-start window))
+       (line-beginning-position))))
+  (ai-code-ghostel-image-preview--set-window-vscroll window 0))
+
+(defun ai-code-ghostel-image-preview--align-window-start
+    (window old-start forward)
+  "Keep WINDOW's first row whole after a pixel scroll from OLD-START.
+FORWARD is non-nil when the scroll revealed later text.  A window that
+starts at a preview first draws the preview's leading newline as an
+empty row: skip that row forward, or show the preview's link row
+backward.  A text row left partly hidden is shown whole so rows stay
+aligned once an image preview scrolls out of view; a preview's link row
+is left alone while it hides part of the image below it."
+  (let ((vscroll (window-vscroll window t))
+        (line-height (with-selected-window window (default-line-height))))
+    (cond
+     ((ai-code-ghostel-image-preview--preview-at-window-start-p window)
+      (when (< vscroll line-height)
+        (if forward
+            (ai-code-ghostel-image-preview--set-window-vscroll
+             window line-height)
+          (ai-code-ghostel-image-preview--show-link-row window))))
+     ((and (/= old-start (window-start window))
+           (> vscroll 0)
+           (or (< vscroll line-height)
+               (not
+                (ai-code-ghostel-image-preview--preview-on-window-start-row-p
+                 window))))
+      (ai-code-ghostel-image-preview--set-window-vscroll window 0)))))
+
+(defun ai-code-ghostel-image-preview--keep-point-visible (window)
+  "Move WINDOW's point up onto a row WINDOW shows whole.
+Scrolling toward earlier text pushes the last rows out of WINDOW.  With
+point left on one of them, redisplay scrolls back to show point, which
+undoes the scroll."
+  (with-current-buffer (window-buffer window)
+    (unless (pos-visible-in-window-p (window-point window) window)
+      (let ((start (window-start window)))
+        (set-window-point
+         window
+         (save-excursion
+           (goto-char (max start (or (window-end window t) start)))
+           (while (and (> (point) start)
+                       (not (pos-visible-in-window-p (point) window)))
+             (forward-line -1))
+           (point)))))))
+
+(defun ai-code-ghostel-image-preview--scroll-pixels (pixels)
+  "Scroll the selected window by PIXELS toward later text.
+Negative PIXELS scroll toward earlier text."
+  (let* ((window (selected-window))
+         (start (window-start window))
+         (forward (> pixels 0)))
+    (if forward
+        (pixel-scroll-precision-scroll-down pixels)
+      (let ((pixels (- pixels)))
+        ;; Emacs cannot always measure backwards across a preview.  From
+        ;; the rows below one, `pixel-scroll-precision-scroll-up' can
+        ;; signal `beginning-of-buffer' and leave the window stuck there.
+        ;; Walk to the preview's lower edge and step onto it by hand.
+        (when-let* ((above (ai-code-ghostel-image-preview--preview-above
+                            window pixels)))
+          (let ((rows (cdr above))
+                (line-height (default-line-height)))
+            (setq pixels
+                  (ai-code-ghostel-image-preview--enter-preview-from-below
+                   window (car above)
+                   (- pixels
+                      (window-vscroll window t)
+                      ;; A window starting right below a preview draws the
+                      ;; preview's trailing newline as an empty row at its
+                      ;; top.  The preview's last pixels take its place.
+                      (if (zerop rows)
+                          (- line-height)
+                        (* rows line-height))))))
+          ;; The preview was not in view when the caller recorded the
+          ;; scroll.  Record it now, or Ghostel anchors the window back to
+          ;; live output on its next redraw.
+          (ai-code-ghostel-image-preview--note-user-scroll window))
+        (let ((vscroll (window-vscroll window t)))
+          ;; From the top of a preview, the same function can fail to
+          ;; measure the row above it.  Step onto the preview's link row,
+          ;; which lies VSCROLL pixels above.
+          (when (and (> pixels vscroll)
+                     (ai-code-ghostel-image-preview--preview-at-window-start-p
+                      window))
+            (ai-code-ghostel-image-preview--show-link-row window)
+            (setq pixels (- pixels vscroll)))
+          (when (> pixels 0)
+            (pixel-scroll-precision-scroll-up pixels)))))
+    (ai-code-ghostel-image-preview--align-window-start window start forward)
+    (unless forward
+      (ai-code-ghostel-image-preview--keep-point-visible window))))
+
+(defun ai-code-ghostel-image-preview--scroll-lines (lines)
+  "Scroll the selected window LINES rows by pixels over image previews.
+Positive LINES scroll toward later text.  Return non-nil when a local
+preview is visible, or is about to be scrolled into view from above, and
+the scroll was handled here."
+  (let ((window (selected-window)))
+    (when (and (integerp lines)
+               (/= lines 0)
+               (or (ai-code-ghostel-image-preview--window-has-preview-p window)
+                   (and (< lines 0)
+                        (ai-code-ghostel-image-preview--preview-above
+                         window (* (- lines) (default-line-height))))))
+      (ai-code-ghostel-image-preview--note-user-scroll window)
+      (ai-code-ghostel-image-preview--scroll-pixels
+       (* lines (default-line-height)))
+      (ai-code-ghostel-image-preview-schedule-visible-linkify
+       window (list ai-code-ghostel-image-preview-scroll-linkify-delay))
+      t)))
+
+(defun ai-code-ghostel-image-preview--remapped-command (commands fallback)
+  "Return the command remapped to the current one if in COMMANDS.
+Otherwise return FALLBACK."
+  (if (memq this-original-command commands)
+      this-original-command
+    fallback))
+
+(defun ai-code-ghostel-image-preview-scroll-line-down (&optional count)
+  "Scroll COUNT lines toward later output in an enabled Ghostel session.
+While a local image preview is visible, scroll by pixels so an image
+taller than one line does not pass in a single step.  Otherwise run
+the line-scroll command this one remaps."
+  (interactive "p")
+  (unwind-protect
+      (unless (ai-code-ghostel-image-preview--scroll-lines (or count 1))
+        (funcall (ai-code-ghostel-image-preview--remapped-command
+                  '(evil-scroll-line-down scroll-up-line)
+                  #'scroll-up-line)
+                 count))
+    (ai-code-ghostel-image-preview--clear-user-scroll-at-live-end
+     (selected-window))))
+
+(defun ai-code-ghostel-image-preview-scroll-line-up (&optional count)
+  "Scroll COUNT lines toward earlier output in an enabled Ghostel session.
+While a local image preview is visible, scroll by pixels so an image
+taller than one line does not pass in a single step.  Otherwise run
+the line-scroll command this one remaps."
+  (interactive "p")
+  (unwind-protect
+      (unless (ai-code-ghostel-image-preview--scroll-lines (- (or count 1)))
+        (funcall (ai-code-ghostel-image-preview--remapped-command
+                  '(evil-scroll-line-up scroll-down-line)
+                  #'scroll-down-line)
+                 count))
+    (ai-code-ghostel-image-preview--clear-user-scroll-at-live-end
+     (selected-window))))
+
+(defun ai-code-ghostel-image-preview--wheel-scroll-up (&optional arg)
+  "Scroll ARG lines toward later output for `mwheel-scroll'.
+Scroll by pixels while a local image preview is visible; otherwise call
+the global `mwheel-scroll-up-function'."
+  (unless (ai-code-ghostel-image-preview--scroll-lines arg)
+    (funcall (default-value 'mwheel-scroll-up-function) arg)))
+
+(defun ai-code-ghostel-image-preview--wheel-scroll-down (&optional arg)
+  "Scroll ARG lines toward earlier output for `mwheel-scroll'.
+Scroll by pixels while a local image preview is visible; otherwise call
+the global `mwheel-scroll-down-function'."
+  (unless (ai-code-ghostel-image-preview--scroll-lines
+           (and (integerp arg) (- arg)))
+    (funcall (default-value 'mwheel-scroll-down-function) arg)))
+
+(defun ai-code-ghostel-image-preview--declare-evil-commands ()
+  "Give the line-scroll commands the evil properties of those they remap."
+  (when (fboundp 'evil-add-command-properties)
+    (dolist (command '(ai-code-ghostel-image-preview-scroll-line-down
+                       ai-code-ghostel-image-preview-scroll-line-up))
+      (evil-add-command-properties command :repeat nil :keep-visual t))))
+
+(with-eval-after-load 'evil
+  (ai-code-ghostel-image-preview--declare-evil-commands))
 
 (defun ai-code-ghostel-image-preview-enable ()
   "Enable stable Ghostel image previews in the current AI Code session."
@@ -904,6 +1205,10 @@ Optional DELAYS overrides the default scan delays."
               #'ai-code-ghostel-image-preview--cached-source)
   (setq-local ai-code-session-link-image-preview-transaction-function
               #'ai-code-ghostel-image-preview--call-transaction)
+  (setq-local mwheel-scroll-up-function
+              #'ai-code-ghostel-image-preview--wheel-scroll-up)
+  (setq-local mwheel-scroll-down-function
+              #'ai-code-ghostel-image-preview--wheel-scroll-down)
   (setq ai-code-ghostel-image-preview--captured-sources nil
         ai-code-ghostel-image-preview--output-tail "")
   (add-hook 'ghostel-inhibit-anchor-functions
@@ -928,10 +1233,40 @@ Optional DELAYS overrides the default scan delays."
   (setq-local ai-code-session-link-image-preview-position-function nil)
   (setq-local ai-code-session-link-image-preview-source-function nil)
   (setq-local ai-code-session-link-image-preview-transaction-function nil)
+  (kill-local-variable 'mwheel-scroll-up-function)
+  (kill-local-variable 'mwheel-scroll-down-function)
   (setq ai-code-ghostel-image-preview--user-scrolled-windows nil
         ai-code-ghostel-image-preview--captured-sources nil
         ai-code-ghostel-image-preview--output-tail "")
   (ai-code-ghostel-image-preview-mode -1))
+
+;;;###autoload
+(defun ai-code-toggle-image-preview ()
+  "Toggle local image previews in all Ghostel AI session buffers."
+  (interactive)
+  (setq ai-code-session-link-ghostel-image-preview-enabled
+        (not ai-code-session-link-ghostel-image-preview-enabled))
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when (ai-code-session-link--ghostel-session-p)
+        (let ((sources ai-code-ghostel-image-preview--captured-sources))
+          (unwind-protect
+              (cond
+               ((not ai-code-session-link-ghostel-image-preview-enabled)
+                (when ai-code-ghostel-image-preview-mode
+                  (ai-code-ghostel-image-preview-disable))
+                (save-restriction
+                  (widen)
+                  (ai-code-session-link--delete-image-preview-overlays
+                   (point-min) (point-max))))
+               ((and (not ai-code-ghostel-image-preview-mode)
+                     (ai-code-session-link--image-preview-enabled-p))
+                (ai-code-ghostel-image-preview-enable)))
+            (setq ai-code-ghostel-image-preview--captured-sources
+                  sources))))))
+  (message "AI Code image previews %s"
+           (if ai-code-session-link-ghostel-image-preview-enabled
+               "enabled" "disabled")))
 
 (defun ai-code-ghostel-image-preview-unload-function ()
   "Remove global integration installed by this module."

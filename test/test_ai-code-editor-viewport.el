@@ -62,10 +62,15 @@ Give the source side window WIDTH columns, defaulting to 40."
           :viewport-window (plist-get display-state :window))))
 
 (defun ai-code-editor-viewport-test--transpose-parent-if-supported (window)
-  "Transpose WINDOW's parent when the current Emacs provides `window-x'."
+  "Transpose WINDOW's parent when the current Emacs and layout allow it.
+`window-layout-transpose' needs `window-x', which only ships with newer
+Emacs versions, and it refuses layouts holding a dedicated, fixed size or
+atomic window, which side windows are.  Both cases only cost the caller
+the extra stress of a rearranged layout, so they are ignored here."
   (when (require 'window-x nil t)
     (let ((ignore-window-parameters t))
-      (window-layout-transpose (window-parent window)))))
+      (ignore-error user-error
+        (window-layout-transpose (window-parent window))))))
 
 (ert-deftest test-ai-code-editor-viewport--mode-uses-one-yank-key ()
   "Viewport users should paste every supported clipboard type with `C-y'."

@@ -12,6 +12,7 @@
 (require 'ai-code-prompt-mode)
 (require 'ai-code-git)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 (require 'magit)
 (require 'cl-lib)
 
@@ -22,6 +23,48 @@
 (defvar ai-code-discussion-auto-follow-up-suffix)
 (defvar ai-code-use-prompt-suffix)
 (defvar org-roam-directory)
+;; Declared special so `let' binds them dynamically here, the way gptel's own
+;; defcustoms do when gptel is loaded.
+(defvar gptel-use-tools)
+(defvar gptel-tools)
+
+(ert-deftest ai-code-test-send-prompt-refreshes-mcp-source-before-terminal-io ()
+  "Sending a prompt should snapshot its source before terminal output."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (session-id "prompt-source-refresh")
+        (source-buffer (generate-new-buffer " *ai-code-prompt-source*"))
+        (agent-buffer (generate-new-buffer "*codex[prompt-source]*"))
+        snapshot-at-send)
+    (unwind-protect
+        (progn
+          (with-current-buffer source-buffer
+            (insert "first\nsecond\n")
+            (goto-char (point-min)))
+          (ai-code-mcp-register-session session-id "/tmp/" source-buffer)
+          (ai-code-mcp-attach-agent-buffer session-id agent-buffer)
+          (with-current-buffer agent-buffer
+            (setq-local ai-code-mcp-agent--session-id session-id))
+          (with-current-buffer source-buffer
+            (forward-line 1)
+            (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                       (lambda (&rest _args)
+                         (setq snapshot-at-send
+                               (plist-get
+                                (ai-code-mcp-get-session-context session-id)
+                                :source-snapshot))))
+                      ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                       #'ignore)
+                      ((symbol-function 'get-buffer-window)
+                       (lambda (&rest _args) nil))
+                      ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                       #'ignore)
+                      ((symbol-function 'sit-for) #'ignore))
+              (ai-code--send-prompt-to-session-buffer "Inspect this" agent-buffer)))
+          (should (eq source-buffer (plist-get snapshot-at-send :buffer)))
+          (should (= 2 (plist-get snapshot-at-send :line))))
+      (dolist (buffer (list source-buffer agent-buffer))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
 
 (ert-deftest ai-code-test-direct-command-p-accepts-single-token-command ()
   "A single-token slash command should use direct command routing."
@@ -69,6 +112,157 @@
           (cl-incf calls)
           nil))))
     (should (= calls 1))))
+
+(defmacro ai-code-test-with-stub-gptel (request-fn &rest body)
+  "Evaluate BODY with `gptel-request' stubbed by REQUEST-FN.
+GPTel is reported as available and blocking helpers are neutralized."
+  (declare (indent 1))
+  `(let ((ai-code-gptel-sync-timeout 1)
+         (original-featurep (symbol-function 'featurep)))
+     (cl-letf (((symbol-function 'featurep)
+                (lambda (feature &optional subfeature)
+                  (or (eq feature 'gptel)
+                      (funcall original-featurep feature subfeature))))
+               ((symbol-function 'gptel-request) ,request-fn)
+               ((symbol-function 'gptel-abort) #'ignore)
+               ((symbol-function 'sit-for) #'ignore))
+       ,@body)))
+
+(defun ai-code-test--gptel-sync-error-message (question)
+  "Return the error message raised by `ai-code-call-gptel-sync' for QUESTION."
+  (condition-case err
+      (progn (ai-code-call-gptel-sync question) nil)
+    (error (error-message-string err))))
+
+(ert-deftest ai-code-test-call-gptel-sync-ignores-reasoning-before-final-response ()
+  "A reasoning callback should not complete a synchronous GPTel request."
+  (let ((aborted nil))
+    (ai-code-test-with-stub-gptel
+        (lambda (_question &rest args)
+          (let ((callback (plist-get args :callback)))
+            (funcall callback '(reasoning . "")
+                     '(:status "HTTP/2 200" :error nil))
+            (funcall callback '(reasoning . "more thinking")
+                     '(:status "HTTP/2 200" :error nil))
+            (funcall callback "NOT_CODE_CHANGE"
+                     '(:status "HTTP/2 200" :error nil))))
+      (cl-letf (((symbol-function 'gptel-abort)
+                 (lambda (&rest _args) (setq aborted t))))
+        (should (equal "NOT_CODE_CHANGE"
+                       (ai-code-call-gptel-sync "Classify this prompt")))))
+    (should-not aborted)))
+
+(ert-deftest ai-code-test-call-gptel-sync-disables-tools-for-the-request ()
+  "The synchronous request must not let the caller's GPTel tools run.
+A background classification or headline request should never execute
+tools on the user's machine, so tool use is suppressed for the request."
+  (let ((gptel-use-tools t)
+        (gptel-tools '(placeholder))
+        (tools-enabled 'unset))
+    (ai-code-test-with-stub-gptel
+        (lambda (_question &rest args)
+          (setq tools-enabled (and gptel-use-tools gptel-tools t))
+          (funcall (plist-get args :callback)
+                   "NO_TOOLS" '(:status "HTTP/2 200" :error nil)))
+      (should (equal "NO_TOOLS" (ai-code-call-gptel-sync "Classify this prompt"))))
+    (should-not tools-enabled)
+    ;; The caller's configuration must be restored afterwards.
+    (should gptel-use-tools)
+    (should (equal gptel-tools '(placeholder)))))
+
+(ert-deftest ai-code-test-call-gptel-sync-reports-abort ()
+  "An aborted synchronous GPTel request should report the abort."
+  (ai-code-test-with-stub-gptel
+      (lambda (_question &rest args)
+        (funcall (plist-get args :callback)
+                 'abort '(:status "abort" :error nil)))
+    (let ((error-message
+           (ai-code-test--gptel-sync-error-message "Abort this prompt")))
+      (should (string-match-p "aborted" error-message)))))
+
+(ert-deftest ai-code-test-call-gptel-sync-reports-empty-response-with-status ()
+  "A nil response without an error field should report GPTel's status."
+  (ai-code-test-with-stub-gptel
+      (lambda (_question &rest args)
+        (funcall (plist-get args :callback)
+                 nil '(:status "HTTP/2 200" :error nil)))
+    (let ((error-message
+           (ai-code-test--gptel-sync-error-message "Empty this prompt")))
+      (should (string-match-p "HTTP/2 200" error-message)))))
+
+(ert-deftest ai-code-test-call-gptel-sync-reports-gptel-error-field ()
+  "A failed synchronous GPTel request should report INFO's error field."
+  (ai-code-test-with-stub-gptel
+      (lambda (_question &rest args)
+        (funcall (plist-get args :callback)
+                 nil
+                 '(:status "HTTP/2 500" :error "Backend failed")))
+    (should (string-match-p
+             "Backend failed"
+             (ai-code-test--gptel-sync-error-message "Fail this prompt")))))
+
+(ert-deftest ai-code-test-call-gptel-sync-error-includes-gptel-status ()
+  "A failed request should surface INFO's status alongside the error."
+  (ai-code-test-with-stub-gptel
+      (lambda (_question &rest args)
+        (funcall (plist-get args :callback)
+                 nil
+                 '(:status "HTTP/2 429" :error "Rate limited")))
+    (let ((error-message
+           (ai-code-test--gptel-sync-error-message "Throttle this prompt")))
+      (should (string-match-p "Rate limited" error-message))
+      (should (string-match-p "HTTP/2 429" error-message)))))
+
+(ert-deftest ai-code-test-call-gptel-sync-reports-error-arriving-with-reasoning ()
+  "An error reported alongside a reasoning block must end the request."
+  (ai-code-test-with-stub-gptel
+      (lambda (_question &rest args)
+        (funcall (plist-get args :callback)
+                 '(reasoning . "partial thought")
+                 '(:status "HTTP/2 500" :error "Backend died mid-stream")))
+    (should (string-match-p
+             "Backend died mid-stream"
+             (ai-code-test--gptel-sync-error-message "Break this prompt")))))
+
+(ert-deftest ai-code-test-call-gptel-sync-rejects-string-response-with-error ()
+  "A string response reported with an error must not be treated as an answer."
+  (ai-code-test-with-stub-gptel
+      (lambda (_question &rest args)
+        (funcall (plist-get args :callback)
+                 "partial output"
+                 '(:status "HTTP/2 500" :error "Truncated")))
+    (should (string-match-p
+             "Truncated"
+             (ai-code-test--gptel-sync-error-message "Truncate this prompt")))))
+
+(ert-deftest ai-code-test-call-gptel-sync-shows-waiting-message ()
+  "The blocking wait should show progress and clear it afterwards.
+The progress message must stay out of the *Messages* log."
+  (let ((callback nil)
+        (messages nil)
+        (logged-waiting nil))
+    (ai-code-test-with-stub-gptel
+        (lambda (_question &rest args)
+          (setq callback (plist-get args :callback)))
+      (cl-letf (((symbol-function 'sit-for)
+                 (lambda (&rest _args)
+                   (funcall callback "ANSWER"
+                            '(:status "HTTP/2 200" :error nil))))
+                ((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (let ((text (and format-string
+                                    (apply #'format format-string args))))
+                     (when (and text message-log-max
+                                (string-match-p "GPTel" text))
+                       (setq logged-waiting t))
+                     (push text messages)))))
+        (should (equal "ANSWER" (ai-code-call-gptel-sync "Question")))))
+    (should (cl-some (lambda (text)
+                       (and text (string-match-p "Waiting for GPTel" text)))
+                     messages))
+    (should-not logged-waiting)
+    ;; The most recent message call clears the echo area.
+    (should (null (car messages)))))
 
 (ert-deftest ai-code-test-custom-prompt-suffix-provider-respects-switch ()
   "The custom suffix provider should honor the legacy suffix switch."
