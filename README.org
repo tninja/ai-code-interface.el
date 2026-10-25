@@ -32,6 +32,8 @@ Native coding CLIs keep ownership of their own interaction model, tool execution
 
 Structured external backends such as agent-shell/ACP can provide deeper lifecycle and UI integration when available, without making those semantics a requirement for every backend. This keeps the common workflow portable while allowing each backend to use its native strengths.
 
+*Supported AI coding CLIs:* Claude Code, OpenAI Codex, Gemini CLI, GitHub Copilot CLI, Cursor CLI, Opencode, Aider, Grok CLI, Kiro CLI, Kilo, Pi, Antigravity CLI, Muse Code, CodeBuddy Code, and Open Interpreter, plus external backends such as agent-shell (ACP), ECA, claude-code-ide.el, and claude-code.el.
+
 See [[https://github.com/tninja/ai-code-interface.el/tree/main#ai-coding-cli-backend][AI coding CLI backend]] for the full backend list and configuration details.
 
 - Screenshot
