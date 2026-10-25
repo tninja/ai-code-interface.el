@@ -100,14 +100,18 @@ non-empty string or nil.  Provider errors abort the send."
                  provider (error-message-string err)))))
 
 (defun ai-code--collect-prompt-suffixes (context)
-  "Return non-empty suffix strings produced for CONTEXT in hook order."
-  (let (suffixes)
+  "Return non-empty suffix strings produced for CONTEXT in hook order.
+Suffixes already present in the prompt text, such as in replayed
+prompt history, are skipped."
+  (let ((prompt-text (or (ai-code-prompt-context-prompt-text context) ""))
+        suffixes)
     (run-hook-wrapped
      'ai-code-prompt-suffix-functions
      (lambda (provider prompt-context)
        (when-let ((suffix (ai-code--prompt-suffix-from-provider
                            provider prompt-context)))
-         (push suffix suffixes))
+         (unless (string-search suffix prompt-text)
+           (push suffix suffixes)))
        nil)
      context)
     (nreverse suffixes)))
@@ -148,11 +152,14 @@ This is prompt guidance only; Emacs never runs Git."
 
 (defconst ai-code--auto-commit-instruction
   (concat
-   "If you changed code for this task and relevant checks pass, commit only the "
-   "files you changed (stage them explicitly; never git add -A, git add . or "
-   "git commit -a) with a message prefixed by [ai], then report the hash. "
-   "Otherwise do not commit. Keep pre-existing edits and staged changes untouched, "
-   "ask if ownership is unclear, and never push, amend, rebase, reset, or bypass hooks.")
+   "Only after finishing this task, if you changed code and relevant checks pass, "
+   "commit just your own changes with a message prefixed by [ai], then report the "
+   "hash and the checks run. Otherwise, or if the user said not to commit, do not "
+   "commit. Run git status before editing to note pre-existing changes. Stage "
+   "explicitly (never git add -A, git add . or git commit -a) and commit only when "
+   "git diff --cached shows just your changes; if pre-existing staged changes or "
+   "user edits in the same files cannot be kept out, ask instead. Never push, "
+   "amend, rebase, reset, or bypass hooks.")
   "Agent commit guidance appended when `ai-code-auto-commit-enabled' is non-nil.")
 
 (defun ai-code--auto-commit-suffix-provider (_context)

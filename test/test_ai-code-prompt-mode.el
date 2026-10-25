@@ -100,6 +100,16 @@
     (should (equal (ai-code--apply-prompt-suffixes "Prompt")
                    "Prompt\nFIRST\nSECOND"))))
 
+(ert-deftest ai-code-test-apply-prompt-suffixes-skips-suffixes-already-present ()
+  "Replayed prompts should not receive the same suffix twice."
+  (let ((ai-code-prompt-suffix-functions
+         (list (lambda (_context) "FIRST")
+               (lambda (_context) "SECOND"))))
+    (should (equal (ai-code--apply-prompt-suffixes "Prompt\nFIRST")
+                   "Prompt\nFIRST\nSECOND"))
+    (should (equal (ai-code--apply-prompt-suffixes "Prompt\nFIRST\nSECOND")
+                   "Prompt\nFIRST\nSECOND"))))
+
 (ert-deftest ai-code-test-prompt-context-memoize-caches-nil-values ()
   "Prompt context memoization should evaluate each key once."
   (let ((context (ai-code--make-prompt-context :prompt-text "Prompt"))
