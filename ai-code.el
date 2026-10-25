@@ -578,6 +578,7 @@ Shows the current backend label to the right."
 
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
+  (ai-code--infix-toggle-suffix)
   ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
   ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume-with-session-checkpoint)
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
@@ -591,7 +592,6 @@ Shows the current backend label to the right."
   ("l" ai-code-select-terminal :description ai-code--select-terminal-description))
 
 (transient-define-group ai-code--menu-actions-with-context
-  (ai-code--infix-toggle-suffix)
   (ai-code--infix-toggle-auto-commit)
   ("c" "Code change (C-u: clipboard)" ai-code-code-change)
   ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
