@@ -688,7 +688,7 @@
          (object (get command 'transient--suffix))
          (ai-code-auto-commit-enabled nil))
     (should (eq command 'ai-code--infix-toggle-auto-commit))
-    (should (transient-get-suffix 'ai-code--menu-actions-with-context "^"))
+    (should (transient-get-suffix 'ai-code--menu-ai-cli-session "^"))
     (should (eq (oref object variable) 'ai-code-auto-commit-enabled))
     (should (string-match-p "%v" (oref object format)))
     (transient-init-value object)
