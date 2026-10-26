@@ -829,32 +829,48 @@ ARG controls whether clipboard context is included."
      (t ai-code-change--brief-default-boundaries))))
 
 (defun ai-code--implement-todo--verify-prompt (context)
-  "Build a verification-only prompt for the selected Org task in CONTEXT."
+  "Build an evidence-first verification prompt for the Org task in CONTEXT."
   (ai-code--compose-question-brief
    :goal (concat
-          "Independently verify the selected Org task against its original "
-          "goal and acceptance criteria. Inspect the current implementation "
-          "and run fresh, applicable tests or real-world checks. Do not treat "
-          "an earlier agent's success claim as verification.")
+          "Independently verify the selected Org task against its goal, "
+          "acceptance criteria, and relevant system constraints. Inspect "
+          "current artifacts and run fresh, applicable checks. Neither "
+          "reading plausible code nor an earlier agent's success claim or "
+          "test report constitutes independent verification.")
    :scope (ai-code--implement-todo--scope context)
    :context (ai-code--format-repo-context-info)
    :boundaries
    (concat
     "Do not modify program code, tests, configuration, or unrelated Org entries. "
-    "Do not commit or push. The only permitted edit is the selected Org "
-    "headline's TODO state after gathering verification evidence.")
+    "Do not commit or push. Use only safe, authorized verification checks; "
+    "do not access production systems or sensitive data without permission. "
+    "The only permitted edit is the selected Org headline's TODO state "
+    "after gathering verification evidence.")
    :instruction
    (concat
-    "PASS: if the task's acceptance criteria are satisfied by fresh evidence, "
-    "change only the selected Org headline from VERIFY to DONE. "
-    "FAIL: if a concrete defect or failed required check disproves completion, "
-    "change only that headline from VERIFY to TODO so it can be fixed. "
-    "UNVERIFIED: if required verification cannot be run or evidence is "
-    "inconclusive, Keep VERIFY unchanged. "
-    "Never mark DONE based solely on assertions or previous test reports. "
-    "Report the exact commands/checks run, their actual results, unverified "
-    "criteria, and remaining risks. Preserve the headline body and all "
-    "other tasks.")))
+    "Use an evidence-first verification loop:\n"
+    "1. Identify explicit acceptance criteria, expected observable behavior, "
+    "and relevant invariants. Disclose missing criteria and assumptions; "
+    "do not silently invent requirements.\n"
+    "2. Gather fresh observations from actual artifacts and applicable "
+    "checks (such as tests, output, logs, or a reproduction). Separate "
+    "observations from interpretations, and record each evidence source "
+    "or command and its result. For regressions, compare the failing case "
+    "with a working control or baseline when available; say when not.\n"
+    "3. Actively seek counterexamples and conflicting evidence. Check that "
+    "a reproduction matches the reported failure signals, not just similar "
+    "symptoms. Prefer targeted discriminating checks over speculative "
+    "hypothesis lists; passing tests prove only what they exercise.\n"
+    "4. Report each criterion as PASS, FAIL, or UNVERIFIED with supporting "
+    "evidence, coverage gaps, and remaining risks. Never fabricate results.\n"
+    "Overall PASS: only when all required criteria have current supporting "
+    "evidence and no unresolved contradictory evidence; change only the "
+    "selected Org headline from VERIFY to DONE. "
+    "Overall FAIL: when a concrete defect or failed required check "
+    "disproves completion, change only that headline from VERIFY to TODO. "
+    "Overall UNVERIFIED: when checks are unavailable, required criteria "
+    "lack evidence, or results conflict, Keep VERIFY unchanged. "
+    "Preserve the headline body and all other tasks.")))
 
 (defun ai-code--implement-todo--final-prompt (prompt context action-intent)
   "Return final prompt from PROMPT, CONTEXT, and ACTION-INTENT."
