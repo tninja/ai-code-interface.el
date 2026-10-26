@@ -112,6 +112,44 @@
         (should-not (string-match-p "Please implement code" sent))
         (should (equal "VERIFY" (org-get-todo-state)))))))
 
+(ert-deftest ai-code-task-verify-test-evidence-first-checks ()
+  "VERIFY prompts should demand independent facts and counterexamples."
+  (ai-code-task-verify-test--with-org
+      (concat ai-code-task-verify-test--header
+              "* VERIFY Fix request routing regression\n"
+              "Expected: correct shard routing.\n")
+    (let (sent)
+      (cl-letf (((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-implement-todo nil)
+        (dolist (needle '("Separate observations from interpretations"
+                          "working control or baseline"
+                          "counterexamples and conflicting evidence"
+                          "reproduction matches the reported failure signals"
+                          "passing tests prove only what they exercise"
+                          "coverage gaps"
+                          "required criteria"
+                          "Keep VERIFY unchanged"))
+          (should (string-match-p (regexp-quote needle) sent)))
+        (should (equal "VERIFY" (org-get-todo-state)))))))
+
+(ert-deftest ai-code-task-verify-test-noncode-task-and-safety ()
+  "Verification must remain generic and avoid unauthorized side effects."
+  (ai-code-task-verify-test--with-org
+      (concat ai-code-task-verify-test--header
+              "* VERIFY Update the user guide\n"
+              "Acceptance: document the new CLI option.\n")
+    (let (sent)
+      (cl-letf (((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-implement-todo nil)
+        (should (string-match-p "Inspect current artifacts" sent))
+        (should (string-match-p "applicable checks" sent))
+        (should (string-match-p "do not silently invent requirements" sent))
+        (should (string-match-p "do not access production systems" sent))
+        (should (string-match-p "selected Org headline" sent))
+        (should (equal "VERIFY" (org-get-todo-state)))))))
+
 (ert-deftest ai-code-task-verify-test-code-change-routes-to-verify ()
   "C-c a c and C-c a i converge on VERIFY headline behavior."
   (ai-code-task-verify-test--with-org
