@@ -599,7 +599,7 @@ Shows the current backend label to the right."
   ("c" "Code change (C-u: clipboard)" ai-code-code-change)
   ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
   ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)
-  ("V" "Verify current work (C-u: Git changes)" ai-code-verify-current-work)
+  ("V" "Verify branch / PR vs requirements" ai-code-verify-current-work)
   ("x" "Explain code in scope" ai-code-explain)
   ("m" "Address code annotation" ai-code-address-code-annotation)
   ("<SPC>" "Send command (C-u: context)" ai-code-send-command)

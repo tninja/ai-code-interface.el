@@ -553,17 +553,18 @@ Returns non-nil if handled and the caller should exit."
         (indent-according-to-mode)))
     t))
 
-(defun ai-code--implement-todo--get-org-todo-section-info (&optional include-done)
+(defun ai-code--implement-todo--get-org-todo-section-info (&optional include-done ignore-region)
   "Return the selected Org section info as a plist, or nil.
 The plist contains `:heading-line', `:content', `:inlined',
 `:line-number', `:end-line-number' and `:reference'.  Point may sit on a
 headline or anywhere inside its body; when the section has enclosing
 ancestors the user picks which one to use.  An active region suppresses
-Org scope so the region stays authoritative.  INCLUDE-DONE also allows
-completed headlines for independent verification.  Sections longer than
+Org scope so the region stays authoritative, unless IGNORE-REGION is non-nil.
+INCLUDE-DONE also allows completed headlines for independent verification.
+Sections longer than
 `ai-code-org-section-inline-max-lines' carry `:reference' in place of
 `:content', unless the buffer is modified or no reference is available."
-  (unless (region-active-p)
+  (unless (and (region-active-p) (not ignore-region))
     (let ((section (ai-code--org-select-section
                     (ai-code--org-section-candidates include-done))))
       (when section
