@@ -25,135 +25,191 @@
      (set-buffer-modified-p nil)
      ,@body))
 
-(ert-deftest ai-code-verify-test-todo-needs-no-opt-in-or-state-change ()
-  "Any Org task can be verified without a special TODO keyword sequence."
-  (ai-code-verify-test--with-org
-      "* TODO Update the guide\nCriteria: document the option.\n"
-    (let (sent)
-      (cl-letf (((symbol-function 'ai-code-read-string)
-                 (lambda (&rest _) ""))
-                ((symbol-function 'ai-code--insert-prompt)
-                 (lambda (prompt) (setq sent prompt))))
-        (ai-code-verify-current-work)
-        (should (string-match-p "TODO Update the guide" sent))
-        (should (string-match-p "Criteria: document the option" sent))
-        (should-not (string-match-p "from VERIFY to DONE" sent))
-        (should (equal "TODO" (org-get-todo-state)))
-        (should-not (buffer-modified-p))))))
 
-(ert-deftest ai-code-verify-test-done-task-and-nested-section ()
-  "DONE headlines remain available, including nested completed sections."
+(ert-deftest ai-code-verify-test-pr-url-validation ()
+  "Accept standard PR URLs without accepting unrelated GitHub pages."
+  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541"))
+  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541/"))
+  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541#issuecomment-1"))
+  (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/issues/541"))
+  (should-not (ai-code-verify--pr-url-p "https://example.org/tninja/x.el/pull/541"))
+  (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/no")))
+
+(ert-deftest ai-code-verify-test-branch-scope-requires-repo-and-branch ()
+  "Branch verification must identify an actual local branch and base."
+  (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _) "/tmp/repo/"))
+            ((symbol-function 'magit-get-current-branch) (lambda () "feature-x")))
+    (let ((scope (ai-code-verify--target-scope 'branch)))
+      (should (string-match-p "feature-x" scope))
+      (should (string-match-p "merge-base...HEAD" scope))
+      (should (string-match-p "staged/unstaged changes separately" scope))))
+  (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _) nil))
+            ((symbol-function 'magit-get-current-branch) (lambda () "feature-x")))
+    (should-error (ai-code-verify--target-scope 'branch) :type 'user-error))
+  (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _) "/tmp/repo/"))
+            ((symbol-function 'magit-get-current-branch) (lambda () nil)))
+    (should-error (ai-code-verify--target-scope 'branch) :type 'user-error)))
+
+(ert-deftest ai-code-verify-test-pr-scope-no-local-repo ()
+  "PR verification targets remote changes even without local Git checkout."
+  (let ((ai-code-default-review-source 'gh-cli))
+    (cl-letf (((symbol-function 'ai-code--git-root)
+               (lambda (&optional _) (ert-fail "Must not inspect local Git"))))
+      (let ((scope (ai-code-verify--target-scope
+                    'pr "https://github.com/owner/repo/pull/23")))
+        (should (string-match-p "GitHub pull request" scope))
+        (should (string-match-p "base and head SHAs" scope))
+        (should (string-match-p "gh CLI" scope)))))
+  (should-error (ai-code-verify--target-scope 'pr "not-a-pr") :type 'user-error))
+
+(ert-deftest ai-code-verify-test-org-context-can-reference-done-headline ()
+  "A completed Org task can supply requirements without status updates."
   (ai-code-verify-test--with-org
-      "* TODO Parent\n** DONE Child\nAcceptance: preserve behavior.\n"
+      "* TODO Parent\n** DONE Child\nAcceptance: support old configs.\n"
     (forward-line 1)
-    (let (sent)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt choices &rest _) (car choices))))
+      (let ((context (ai-code-verify--requirement-context)))
+        (should (string-match-p "DONE Child" context))
+        (should (string-match-p "support old configs" context))))
+    (should (equal (org-get-todo-state) "DONE"))
+    (should-not (buffer-modified-p))))
+
+(ert-deftest ai-code-verify-test-selected-requirements-win-over-org ()
+  "An explicit selection is authoritative over enclosing Org headlines."
+  (ai-code-verify-test--with-org
+      "* TODO Parent\nOnly verify this requirement.\nUnrelated context.\n"
+    (goto-char (point-min))
+    (search-forward "Only verify this requirement.")
+    (set-mark (- (point) (length "Only verify this requirement.")))
+    (cl-letf (((symbol-function 'use-region-p) (lambda () t)))
+      (let ((context (ai-code-verify--requirement-context)))
+        (should (string-match-p "Only verify" context))
+        (should-not (string-match-p "Unrelated context" context))))))
+
+(ert-deftest ai-code-verify-test-prompt-prioritizes-discussion ()
+  "Investigate requirement fit and ask one useful question, not binary PASS."
+  (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
+             (lambda () "Repository context")))
+    (let ((prompt (ai-code-verify--prompt
+                   "Current branch: feature-x"
+                   "Fix retry when connection drops"
+                   "Expected: exactly one retry")))
+      (dolist (needle '("Fix retry when connection drops"
+                        "Expected: exactly one retry"
+                        "requirements-to-evidence"
+                        "counterexamples"
+                        "not a one-shot PASS/FAIL"
+                        "ask ONE"
+                        "wait for the user's answer"
+                        "In subsequent turns"
+                        "The user decides"
+                        "do not commit, push, or merge"))
+        (should (string-match-p (regexp-quote needle) prompt))))))
+
+(ert-deftest ai-code-verify-test-pr-without-explicit-requirements ()
+  "When the PR itself supplies the problem, treat intent as provisional."
+  (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
+             (lambda () nil)))
+    (let ((prompt (ai-code-verify--prompt
+                   "GitHub pull request: https://github.com/a/b/pull/2"
+                   "" nil)))
+      (should (string-match-p "linked issue" prompt))
+      (should (string-match-p "ask the user to correct" prompt))
+      (should (string-match-p "inferred intent" prompt)))))
+
+(ert-deftest ai-code-verify-test-command-branch-requires-problem ()
+  "Avoid an aimless branch review without any requirements context."
+  (cl-letf (((symbol-function 'completing-read)
+             (lambda (&rest _) "Current branch"))
+            ((symbol-function 'ai-code--git-root)
+             (lambda (&optional _) "/tmp/project/"))
+            ((symbol-function 'magit-get-current-branch)
+             (lambda () "feature-x"))
+            ((symbol-function 'ai-code-read-string)
+             (lambda (&rest _) ""))
+            ((symbol-function 'ai-code--insert-prompt)
+             (lambda (&rest _) (ert-fail "Must not send without criteria"))))
+    (with-temp-buffer
+      (emacs-lisp-mode)
+      (should-error (ai-code-verify-current-work) :type 'user-error))))
+
+(ert-deftest ai-code-verify-test-command-branch-with-problem ()
+  "Current branch and user problem drive the discussion."
+  (let (sent)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "Current branch"))
+              ((symbol-function 'ai-code--git-root)
+               (lambda (&optional _) "/tmp/project/"))
+              ((symbol-function 'magit-get-current-branch)
+               (lambda () "feature-x"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (&rest _) "Fix previous regression"))
+              ((symbol-function 'ai-code--format-repo-context-info)
+               (lambda () nil))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (p) (setq sent p))))
+      (with-temp-buffer
+        (emacs-lisp-mode)
+        (ai-code-verify-current-work)
+        (should (string-match-p "Fix previous regression" sent))
+        (should (string-match-p "feature-x" sent))
+        (should (string-match-p "ONE" sent))))))
+
+(ert-deftest ai-code-verify-test-command-pr-without-local-repo ()
+  "PR verification asks for URL and can derive intent from linked issue."
+  (let (sent)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "GitHub PR"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (label &rest _)
+                 (if (string-match-p "URL" label)
+                     "https://github.com/owner/repo/pull/9" "")))
+              ((symbol-function 'ai-code--format-repo-context-info)
+               (lambda () nil))
+              ((symbol-function 'ai-code--git-root)
+               (lambda (&optional _) (ert-fail "No repo required")))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (p) (setq sent p))))
+      (with-temp-buffer
+        (fundamental-mode)
+        (ai-code-verify-current-work)
+        (should (string-match-p "owner/repo/pull/9" sent))
+        (should (string-match-p "linked issue" sent))))))
+
+(ert-deftest ai-code-verify-test-read-only-suffix-suppression ()
+  "Discussion cannot inherit auto-commit or append an Org summary."
+  (ai-code-verify-test--with-org "* TODO Fix regression\n"
+    (let ((ai-code-prompt-suffix-functions '(ignore))
+          (ai-code--suppress-org-summary-prompt nil)
+          applied-suffixes applied-summary)
       (cl-letf (((symbol-function 'completing-read)
-                 (lambda (_prompt choices &rest _) (car choices)))
+                 (lambda (&rest _) "Current branch"))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _) "/tmp/project/"))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "feature-x"))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (&rest _) ""))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () nil))
                 ((symbol-function 'ai-code--insert-prompt)
-                 (lambda (prompt) (setq sent prompt))))
+                 (lambda (_p)
+                   (setq applied-suffixes ai-code-prompt-suffix-functions
+                         applied-summary ai-code--suppress-org-summary-prompt))))
         (ai-code-verify-current-work)
-        (should (string-match-p "DONE Child" sent))
-        (should (string-match-p "preserve behavior" sent))
-        (should (equal "DONE" (org-get-todo-state)))
-        (should-not (buffer-modified-p))))))
+        (should-not applied-suffixes)
+        (should applied-summary)
+        (should (equal ai-code-prompt-suffix-functions '(ignore)))
+        (should-not ai-code--suppress-org-summary-prompt)
+        (should-not (buffer-modified-p))
+        (should (equal (org-get-todo-state) "TODO"))))))
 
-(ert-deftest ai-code-verify-test-regular-todo-ignores-done ()
-  "Existing implement-TODO behavior still omits DONE sections."
+(ert-deftest ai-code-verify-test-original-todo-handler-still-omits-done ()
+  "Existing implementation action continues to omit completed tasks."
   (ai-code-verify-test--with-org "* DONE Finished\n"
     (should-not (ai-code--org-section-candidates))
     (should (ai-code--org-section-candidates t))))
-
-(ert-deftest ai-code-verify-test-selected-region-wins-over-org-section ()
-  "An active selection should not accidentally verify the whole subtree."
-  (ai-code-verify-test--with-org
-      "* TODO Parent\nImportant line.\nUnrelated details.\n"
-    (goto-char (point-min))
-    (search-forward "Important line.")
-    (set-mark (- (point) (length "Important line.")))
-    (let (scope)
-      (cl-letf (((symbol-function 'region-active-p) (lambda () t))
-                ((symbol-function 'ai-code--scope-context-for-region)
-                 (lambda (&rest _) nil))
-                ((symbol-function 'ai-code--format-scope-context)
-                 (lambda (&rest _) "")))
-        (setq scope (ai-code-verify--scope)))
-      (should (string-match-p "Important line" scope))
-      (should-not (string-match-p "Unrelated details" scope)))))
-
-(ert-deftest ai-code-verify-test-source-function-context ()
-  "Verification uses current semantic scope without requiring Org mode."
-  (with-temp-buffer
-    (setq buffer-file-name "/tmp/example.el")
-    (emacs-lisp-mode)
-    (insert "(defun example () t)\n")
-    (set-buffer-modified-p nil)
-    (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
-               (lambda () (list :function-name "example")))
-              ((symbol-function 'ai-code--get-context-files-string)
-               (lambda () "")))
-      (let ((scope (ai-code-verify--scope)))
-        (should (string-match-p "example.el" scope))
-        (should (string-match-p "Function: example" scope))))))
-
-(ert-deftest ai-code-verify-test-git-changes-mode ()
-  "Prefix argument selects a Git diff scope and optional user focus."
-  (let (sent)
-    (cl-letf (((symbol-function 'ai-code--git-root)
-               (lambda (&optional _dir) "/tmp/project/"))
-              ((symbol-function 'ai-code-read-string)
-               (lambda (&rest _) "Backward compatibility"))
-              ((symbol-function 'ai-code--format-repo-context-info)
-               (lambda () "Repo: project"))
-              ((symbol-function 'ai-code--insert-prompt)
-               (lambda (prompt) (setq sent prompt))))
-      (ai-code-verify-current-work '(4))
-      (should (string-match-p "Current Git changes" sent))
-      (should (string-match-p "staged and unstaged" sent))
-      (should (string-match-p "Backward compatibility" sent)))))
-
-(ert-deftest ai-code-verify-test-git-mode-requires-repository ()
-  "Git verification rejects buffers outside repositories."
-  (cl-letf (((symbol-function 'ai-code--git-root)
-             (lambda (&optional _dir) nil)))
-    (should-error (ai-code-verify--scope t) :type 'user-error)))
-
-(ert-deftest ai-code-verify-test-unsaved-source-requires-selection ()
-  "Do not silently verify stale source content."
-  (with-temp-buffer
-    (setq buffer-file-name "/tmp/example.el")
-    (emacs-lisp-mode)
-    (insert "(defun edited () nil)")
-    (should-error (ai-code-verify--scope) :type 'user-error)))
-
-(ert-deftest ai-code-verify-test-read-only-suffix-suppression ()
-  "Verify turns suppress write-oriented suffixes and Org summary prompts."
-  (ai-code-verify-test--with-org "* TODO Check this\n"
-    (let ((ai-code-prompt-suffix-functions '(ignore))
-          (ai-code--suppress-org-summary-prompt nil)
-          effective-suffixes effective-summary)
-      (cl-letf (((symbol-function 'ai-code-read-string)
-                 (lambda (&rest _) ""))
-                ((symbol-function 'ai-code--insert-prompt)
-                 (lambda (_prompt)
-                   (setq effective-suffixes ai-code-prompt-suffix-functions
-                         effective-summary ai-code--suppress-org-summary-prompt))))
-        (ai-code-verify-current-work)
-        (should-not effective-suffixes)
-        (should effective-summary)
-        (should (equal ai-code-prompt-suffix-functions '(ignore)))
-        (should-not ai-code--suppress-org-summary-prompt)
-        (should-not (buffer-modified-p))))))
-
-(ert-deftest ai-code-verify-test-prompt-honors-uncertainty ()
-  "Verification must use actual evidence and report limitations."
-  (let ((prompt (ai-code-verify--prompt "Current file: a.el" "")))
-    (dolist (needle '("fresh observations" "counterexamples"
-                      "unverified" "without changing task status"
-                      "tests" "hypotheses"))
-      (should (string-match-p (regexp-quote needle) prompt)))
-    (should (string-match-p "do not edit source" prompt))))
 
 (provide 'test_ai-code-verify)
 
