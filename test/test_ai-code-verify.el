@@ -104,7 +104,7 @@
                         "wait for the user's answer"
                         "In subsequent turns"
                         "The user decides"
-                        "do not commit, push, or merge"))
+                        "Do not commit, push, merge"))
         (should (string-match-p (regexp-quote needle) prompt))))))
 
 (ert-deftest ai-code-verify-test-pr-without-explicit-requirements ()
