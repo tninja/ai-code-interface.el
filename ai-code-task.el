@@ -402,15 +402,25 @@ final decisions; surface conflicts, unfinished work and unverified behavior.
 ** Then versus Now
 Identify relevant code changes, stale assumptions and source freshness.
 ** References
+The primary deliverable is a reusable context source index: original sources
+plus brief information that helps the next operation, including but not limited
+to Verify. For each important context item, keep its original source alongside
+a 1-3 sentence summary of the relevant content and why/when to revisit it.
+Do not replace source references with an overall AI summary. Keep distinct
+original sources even when their summaries overlap.
 Preserve important original references exactly, including Radar IDs/rdar URLs,
 Slack thread permalinks, PR URLs, GitHub issue/commit/code links, meeting notes,
-and splint log links or file paths/run IDs. Do not shorten or invent identifiers,
+and Splunk log links or file paths/run IDs. Do not shorten or invent identifiers,
 replace permalinks with generic homepages, or omit a reference just because it
 cannot be accessed. Use clickable Org links when a real target exists.
 For each reference include its type, original link/identifier, source date or
 last retrieval time (unknown if absent), read/access status, and the specific
 requirement, decision or validation claim it supports. For logs include the
 scenario, run/commit/environment when known, and relevant lines or signal.
+For Splunk, preserve the original search URL, SPL/query, absolute time range and
+timezone, and useful event/request IDs when supplied. Keep saved-search/job IDs
+if provided; an expired link must not discard the available query and context.
+Mark unavailable information as unknown rather than inventing it.
 ** Verification Context
 Make this subtree usable as input to a separate branch/PR Verify discussion.
 Identify the target PR/branch, head/base commits when actually known, requirements
@@ -545,6 +555,7 @@ bullets:\n\
 - Files modified\n\
 - Important design decisions\n\
 - Source links, dated meeting/Slack excerpts, and the code changes they justify\n\
+- Original sources for important context, with brief summaries and next-use hints\n\
 - Constraints and assumptions\n\
 - Failed approaches\n\
 - Relevant test results\n\

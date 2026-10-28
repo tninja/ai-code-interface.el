@@ -537,7 +537,9 @@
                        "https://example.slack.com/archives/C012/p1234567890123456"
                        "https://github.com/example/app/pull/42"
                        "https://github.com/example/app/blob/abc123/src/main.el#L20"
-                       "[[file:/tmp/splint-run-7.log::42][splint failure]]"))
+                       "https://splunk.example.com/en-US/app/search/search?q=search%20index%3Dapp&earliest=1793160000&latest=1793163600"
+                       "SPL: index=app request_id=\"req-7\" | stats count by status"
+                       "[[file:/tmp/splunk-run-7.log::42][Splunk failure]]"))
          (content (concat "* Sources\n" (string-join references "\n")))
          (prompt (ai-code--task-resume-prompt "/tmp/task.org" content "HEAD: abc")))
     (dolist (reference references)
@@ -546,6 +548,10 @@
                           "** References" "** Verification Context"
                           "Source references | Implementation | Evidence/status"
                           "Do not shorten or invent identifiers"
+                          "original sources" "1-3 sentence summary"
+                          "why/when to revisit" "including but not limited"
+                          "Do not replace source references"
+                          "Splunk log" "SPL/query" "absolute time range"
                           "cannot be accessed" "not independent proof"))
       (should (string-match-p (regexp-quote instruction) prompt)))))
 
