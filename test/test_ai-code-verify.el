@@ -128,6 +128,8 @@
              (lambda () "feature-x"))
             ((symbol-function 'ai-code-read-string)
              (lambda (&rest _) ""))
+            ((symbol-function 'ai-code-compose-read)
+             (lambda (_label prompt) prompt))
             ((symbol-function 'ai-code--insert-prompt)
              (lambda (&rest _) (ert-fail "Must not send without criteria"))))
     (with-temp-buffer
@@ -147,7 +149,9 @@
                (lambda (&rest _) "Fix previous regression"))
               ((symbol-function 'ai-code--format-repo-context-info)
                (lambda () nil))
-              ((symbol-function 'ai-code--insert-prompt)
+              ((symbol-function 'ai-code-compose-read)
+             (lambda (_label prompt) prompt))
+            ((symbol-function 'ai-code--insert-prompt)
                (lambda (p) (setq sent p))))
       (with-temp-buffer
         (emacs-lisp-mode)
@@ -169,7 +173,9 @@
                (lambda () nil))
               ((symbol-function 'ai-code--git-root)
                (lambda (&optional _) (ert-fail "No repo required")))
-              ((symbol-function 'ai-code--insert-prompt)
+              ((symbol-function 'ai-code-compose-read)
+             (lambda (_label prompt) prompt))
+            ((symbol-function 'ai-code--insert-prompt)
                (lambda (p) (setq sent p))))
       (with-temp-buffer
         (fundamental-mode)
@@ -193,7 +199,9 @@
                  (lambda (&rest _) ""))
                 ((symbol-function 'ai-code--format-repo-context-info)
                  (lambda () nil))
-                ((symbol-function 'ai-code--insert-prompt)
+                ((symbol-function 'ai-code-compose-read)
+             (lambda (_label prompt) prompt))
+            ((symbol-function 'ai-code--insert-prompt)
                  (lambda (_p)
                    (setq applied-suffixes ai-code-prompt-suffix-functions
                          applied-summary ai-code--suppress-org-summary-prompt))))
@@ -228,7 +236,9 @@
                    (ert-fail "Do not ask for requirements already in task section")))
                 ((symbol-function 'ai-code--format-repo-context-info)
                  (lambda () nil))
-                ((symbol-function 'ai-code--insert-prompt)
+                ((symbol-function 'ai-code-compose-read)
+             (lambda (_label prompt) prompt))
+            ((symbol-function 'ai-code--insert-prompt)
                  (lambda (prompt) (setq sent prompt))))
         (ai-code-verify-current-work)
         (should (string-match-p "Primary user-provided problem/requirements" sent))
@@ -257,7 +267,9 @@
                      (ert-fail "Selected requirements should skip re-entry"))))
                 ((symbol-function 'ai-code--format-repo-context-info)
                  (lambda () nil))
-                ((symbol-function 'ai-code--insert-prompt)
+                ((symbol-function 'ai-code-compose-read)
+             (lambda (_label prompt) prompt))
+            ((symbol-function 'ai-code--insert-prompt)
                  (lambda (prompt) (setq sent prompt))))
         (ai-code-verify-current-work)
         (should (string-match-p "Selected requirements in" sent))
@@ -312,6 +324,81 @@
       (should (string-match-p "STRICT READ-ONLY INVESTIGATION" prompt))
       (should (string-match-p "DO NOT APPLY" prompt))
       (should (string-match-p "PR comments" prompt)))))
+
+
+(ert-deftest ai-code-verify-test-compose-edits-full-prompt ()
+  "Users can inspect and change the complete Verify prompt before sending."
+  (let (draft label sent)
+    (cl-letf (((symbol-function 'ai-code-compose-read)
+               (lambda (prompt-label initial)
+                 (setq label prompt-label
+                       draft initial)
+                 "Review only backwards compatibility and failure cases."))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt) (setq sent prompt))))
+      (ai-code-verify--confirm-and-send "Original full verification prompt")
+      (should (string-match-p "Edit Verify prompt" label))
+      (should (equal draft "Original full verification prompt"))
+      (should (string-prefix-p
+               "Review only backwards compatibility and failure cases." sent))
+      (should-not (string-match-p "Original full verification prompt" sent))
+      (should (string-suffix-p
+               ai-code-verify--mandatory-read-only-suffix sent)))))
+
+(ert-deftest ai-code-verify-test-compose-cancel-does-not-send ()
+  "Cancelling the compose buffer does not send a prompt."
+  (cl-letf (((symbol-function 'ai-code-compose-read)
+             (lambda (_label _initial) nil))
+            ((symbol-function 'ai-code--insert-prompt)
+             (lambda (_prompt) (ert-fail "Cancelled Verify must not send"))))
+    (should-not (ai-code-verify--confirm-and-send "Review branch changes"))))
+
+(ert-deftest ai-code-verify-test-compose-read-only-rule-survives-edit ()
+  "Removing the original boundaries cannot omit the final safety rule."
+  (let (sent)
+    (cl-letf (((symbol-function 'ai-code-compose-read)
+               (lambda (_label _initial)
+                 "Only discuss the changed behavior."))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt) (setq sent prompt))))
+      (ai-code-verify--confirm-and-send
+       (ai-code-verify--prompt "Current branch: feature" "Fix bug" nil))
+      (should (equal
+               sent
+               (concat "Only discuss the changed behavior."
+                       ai-code-verify--mandatory-read-only-suffix)))
+      (should (string-match-p "Do not create, edit, delete" sent))
+      (should (string-match-p "Discuss proposed fixes without implementing" sent)))))
+
+(ert-deftest ai-code-verify-test-command-org-context-shown-in-compose ()
+  "The compose buffer receives task context before any prompt is sent."
+  (ai-code-verify-test--with-org
+      "* TODO Preserve cache behavior\nAcceptance: old cache keys still work.\n"
+    (let (draft sent)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Current branch"))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _) "/tmp/project/"))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "fix-cache"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (&rest _)
+                   (ert-fail "Do not ask to retype the task section")))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () nil))
+                ((symbol-function 'ai-code-compose-read)
+                 (lambda (_label prompt)
+                   (setq draft prompt)
+                   (concat prompt "\nCheck legacy cache keys explicitly.")))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-verify-current-work)
+        (should (string-match-p "Preserve cache behavior" draft))
+        (should (string-match-p "old cache keys still work" draft))
+        (should (string-match-p "Check legacy cache keys explicitly" sent))
+        (should (string-suffix-p ai-code-verify--mandatory-read-only-suffix sent))
+        (should (equal (org-get-todo-state) "TODO"))
+        (should-not (buffer-modified-p))))))
 
 (provide 'test_ai-code-verify)
 
