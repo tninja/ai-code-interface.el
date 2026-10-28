@@ -277,6 +277,42 @@
         (should (string-match-p "old API still works" context))
         (should-not (string-match-p "Selected requirements in" context))))))
 
+
+(ert-deftest ai-code-verify-test-strict-read-only-boundaries ()
+  "Verification may discuss fixes but must prohibit implementation edits."
+  (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
+             (lambda () nil)))
+    (let ((prompt (ai-code-verify--prompt
+                   "Current branch: fix-bug"
+                   "Ensure backwards compatibility"
+                   nil)))
+      (dolist (needle '("STRICT READ-ONLY INVESTIGATION"
+                        "Never modify, create, delete"
+                        "source code, test code"
+                        "snapshots, fixtures"
+                        "documentation, Org tasks"
+                        "Do not commit, push, merge"
+                        "stage, checkout, install dependencies"
+                        "Never automatically implement"
+                        "non-destructive"
+                        "does not modify the repository"
+                        "ask the user to perform it separately"
+                        "DO NOT APPLY"
+                        "separate actions"))
+        (should (string-match-p (regexp-quote needle) prompt)))
+      (should (string-match-p "If the user wants changes" prompt)))))
+
+(ert-deftest ai-code-verify-test-pr-also-strict-read-only ()
+  "Read-only boundaries apply equally to PR investigation."
+  (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
+             (lambda () nil)))
+    (let ((prompt (ai-code-verify--prompt
+                   "GitHub pull request: https://github.com/owner/repo/pull/5"
+                   "" "A task section with acceptance criteria")))
+      (should (string-match-p "STRICT READ-ONLY INVESTIGATION" prompt))
+      (should (string-match-p "DO NOT APPLY" prompt))
+      (should (string-match-p "PR comments" prompt)))))
+
 (provide 'test_ai-code-verify)
 
 ;;; test_ai-code-verify.el ends here
