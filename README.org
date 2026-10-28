@@ -589,6 +589,8 @@ To transfer development work between different AI coding backends (e.g., from Co
 Use =C-c a K= (=ai-code-task-resume=) in an Org task file, or select a task
 from another buffer. Review the prompt; the agent appends a =Task Resume=
 subtree with progress, relevant Git changes, open questions and a next action.
+The prompt references the whole saved task file with =@file= and asks the agent
+to read every section, regardless of the selected region or narrowed Org view.
 
 - Preserve original context sources (Radar, Slack threads, PRs, GitHub links,
   meeting notes and Splunk logs), each with a brief summary and next-use hint.

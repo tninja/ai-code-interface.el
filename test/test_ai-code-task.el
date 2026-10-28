@@ -489,17 +489,34 @@
                    "/new/checkout/"))))
 
 (ert-deftest test-task--resume-saves-notes-and-preserves-reference-paths ()
-  "Save notes before the agent appends, preserving paths and the chosen project."
-  (let* ((task-file (make-temp-file "ai-code-resume-" nil ".org"))
+  "Reference all saved notes even from a narrowed subtree with a selection."
+  (let* ((task-file (make-temp-file "ai-code resume-" nil ".org"))
          (root (file-name-as-directory temporary-file-directory))
          (ai-code-use-prompt-suffix t)
          sent-prompt)
     (unwind-protect
         (with-current-buffer (find-file-noselect task-file)
           (org-mode)
-          (insert "#+TITLE: Recovery\n* Meeting\nUnsaved decision: preserve fallback.\n")
+          (insert "#+TITLE: Recovery\n#+REPO_ROOT: /saved/checkout/\n"
+                  "* Earlier Context\nrdar://12345678\n"
+                  (make-string 12000 ?x)
+                  "\n* Meeting\nUnsaved decision: preserve fallback.\n"
+                  "* Later Context\n[[file:/tmp/splunk.log::42][Splunk evidence]]\n")
+          (goto-char (point-min))
+          (search-forward "* Meeting")
+          (beginning-of-line)
+          (let ((start (point)))
+            (search-forward "* Later Context")
+            (beginning-of-line)
+            (narrow-to-region start (point)))
+          (goto-char (point-max))
+          (set-mark (point-min))
+          (setq mark-active t)
           (cl-letf (((symbol-function 'ai-code--task-resume-root)
-                     (lambda (_metadata) root))
+                     (lambda (metadata)
+                       (should (equal (plist-get metadata :repo-root)
+                                      "/saved/checkout/"))
+                       root))
                     ((symbol-function 'ai-code--task-git-snapshot)
                      (lambda (directory _metadata)
                        (should (equal directory root))
@@ -516,11 +533,16 @@
                        (setq sent-prompt prompt))))
             (ai-code-task-resume))
           (should ai-code-use-prompt-suffix)
+          (should (buffer-narrowed-p))
           (should-not (buffer-modified-p))
           (with-temp-buffer
             (insert-file-contents task-file)
-            (should (string-match-p "Unsaved decision" (buffer-string))))
-          (should (string-match-p "Unsaved decision: preserve fallback" sent-prompt))
+            (dolist (text '("rdar://12345678" "Unsaved decision"
+                            "file:/tmp/splunk.log::42"))
+              (should (string-match-p (regexp-quote text) (buffer-string)))))
+          (should (string-match-p (regexp-quote (concat "@" task-file)) sent-prompt))
+          (should-not (string-match-p "Unsaved decision: preserve fallback" sent-prompt))
+          (should (< (length sent-prompt) 10000))
           (should (string-match-p "CURRENT GIT FACTS" sent-prompt))
           (should (string-match-p "Do not modify other files" sent-prompt))
           (should (string-match-p "wait for my choice" sent-prompt))
@@ -532,19 +554,14 @@
       (delete-file task-file))))
 
 (ert-deftest test-task--resume-keeps-references-for-verify-input ()
-  "Preserve original references and ask for reusable, evidence-linked output."
-  (let* ((references '("rdar://12345678"
-                       "https://example.slack.com/archives/C012/p1234567890123456"
-                       "https://github.com/example/app/pull/42"
-                       "https://github.com/example/app/blob/abc123/src/main.el#L20"
-                       "https://splunk.example.com/en-US/app/search/search?q=search%20index%3Dapp&earliest=1793160000&latest=1793163600"
-                       "SPL: index=app request_id=\"req-7\" | stats count by status"
-                       "[[file:/tmp/splunk-run-7.log::42][Splunk failure]]"))
-         (content (concat "* Sources\n" (string-join references "\n")))
-         (prompt (ai-code--task-resume-prompt "/tmp/task.org" content "HEAD: abc")))
-    (dolist (reference references)
-      (should (string-match-p (regexp-quote reference) prompt)))
+  "Read the complete source file before producing evidence-linked output."
+  (let ((prompt (ai-code--task-resume-prompt "/tmp/Task Notes/task.org" "HEAD: abc")))
+    (should (string-match-p (regexp-quote "@/tmp/Task Notes/task.org") prompt))
     (dolist (instruction '("Append the briefing ONLY" "Task Resume"
+                          "Read the entire task file" "first line to the last"
+                          "continue reading until EOF" "every Org section"
+                          "selected region" "latest handoff"
+                          "report that and stop"
                           "** References" "** Verification Context"
                           "Source references | Implementation | Evidence/status"
                           "Do not shorten or invent identifiers"

@@ -374,8 +374,8 @@ This comparison excludes the old uncommitted state; consult the handoff."
                      (ai-code--task-git-summary "diff" "--stat" baseline "HEAD" "--"))
            "No usable recorded baseline; changes since the last work are unknown."))))))
 
-(defun ai-code--task-resume-prompt (task-file content snapshot)
-  "Build a task briefing prompt from TASK-FILE, CONTENT and SNAPSHOT."
+(defun ai-code--task-resume-prompt (task-file snapshot)
+  "Build a briefing prompt referencing the entire TASK-FILE plus SNAPSHOT."
   (format
    "Help me pick up this task after an interruption. Produce a concise resumption
 briefing before any implementation or validation. Append the briefing ONLY to the
@@ -383,7 +383,15 @@ task file below, preserving all existing content. Do not modify other files, run
 tests/builds, install dependencies, change branches, stage or commit. Read-only
 inspection of relevant source files and Git history is allowed.
 
-Task file: %s
+Task file: @%s
+Read the entire task file above, from the first line to the last, before
+producing the briefing. Include every Org section, notes, discussions, code
+blocks, logs, links and previous handoffs/resume entries. Do not limit the task
+context to the selected region, current heading, or latest handoff. If your read
+tool paginates or truncates output, continue reading until EOF. If any part of
+the file cannot be read, report that and stop instead of summarizing partial
+context as the complete task. The file is the primary task context.
+
 Append a new top-level Org subtree with this exact heading:
 * Task Resume %s
 
@@ -444,20 +452,16 @@ continue development, or add context. Report the task-file path and new heading
 in this session, then wait for my choice before doing those actions.
 
 --- Current Git observation ---
-%s
-
---- Task reference content ---
 %s"
-   task-file (format-time-string "%Y-%m-%d %H:%M") snapshot content))
+   (expand-file-name task-file) (format-time-string "%Y-%m-%d %H:%M") snapshot))
 
 ;;;###autoload
 (defun ai-code-task-resume ()
   "Brief the current Org task, or select a saved task to resume.
-Combine task notes, handoffs and current Git facts in an editable prompt for
-the current backend.  Save modified task notes first.  Ask the agent to append
-a referenced briefing to the task file and wait before validation or
-development.
-No previous checkpoint or old AI session is required."
+Reference the entire saved task file and current Git facts in an editable
+prompt for the current backend.  Save modified task notes first.  Ask the agent
+to append a referenced briefing to the task file and wait before validation or
+development.  No previous checkpoint or old AI session is required."
   (interactive)
   (let* ((task-file (ai-code--agent-handoff-read-task-file "Task to resume: "))
          (_saved (with-current-buffer (find-file-noselect task-file)
@@ -476,7 +480,7 @@ No previous checkpoint or old AI session is required."
             (ai-code--suppress-org-summary-prompt t))
         (ai-code--confirm-and-send
          "Resume task prompt: "
-         (ai-code--task-resume-prompt task-file content snapshot))))))
+         (ai-code--task-resume-prompt task-file snapshot))))))
 
 (defun ai-code--agent-handoff-subtree-text (position)
   "Return the Org subtree text for the heading at POSITION."
