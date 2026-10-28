@@ -182,7 +182,7 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "which human requirements are addressed, which may be missing, and "
     "which claims lack validation. Tests and CI show implementation "
     "behavior, not what humans originally asked for. Inspect relevant "
-    "implementation paths, 
+    "implementation paths, "
     "tests, and surrounding code as needed. Distinguish observed facts, "
     "inferences, and assumptions; cite concrete files, locations, "
     "test commands/results or CI evidence. Passing tests are not proof "
@@ -207,8 +207,7 @@ description, and CONTEXT is selected editor text or an Org subtree."
 (defun ai-code-verify--confirm-and-send (prompt)
   "Let the user edit the complete Verify PROMPT, then send if accepted.
 Always append mandatory read-only and original-source rules after editing.
-Cancellation
-does not send anything or update task or repository state."
+Cancellation does not send anything or update task or repository state."
   (when-let ((edited (ai-code-compose-read
                      "Edit Verify prompt (read-only rule appended)"
                      prompt)))
