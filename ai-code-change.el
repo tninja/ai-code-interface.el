@@ -40,9 +40,6 @@
 
 (defvar flycheck-current-errors)
 (defvar ai-code--harness-loading)
-(defvar ai-code-auto-test-type)
-(defvar ai-code-discussion-auto-follow-up-enabled)
-(defvar ai-code--suppress-org-summary-prompt)
 
 (defconst ai-code-change--selected-region-note
   "Note: Please apply the code change to the selected region specified above."
@@ -236,29 +233,12 @@ returns that function's name.  Otherwise returns the result of
                                              (t current-func))))))))))
     resolved-func))
 
-(defun ai-code--org-task-verification-enabled-p ()
-  "Return non-nil when this Org file opts into TODO/VERIFY/DONE.
-A file opts in with a local #+TODO: sequence containing all three
-keywords.  Plain Org notes and older task files keep their old behavior."
-  (and (derived-mode-p 'org-mode)
-       (save-restriction
-         (widen)
-         (cl-some
-          (lambda (sequence)
-            (let ((states
-                   (mapcar (lambda (token) (car (split-string token "(")))
-                           (split-string sequence "[ \t]+" t))))
-              (and (member "TODO" states)
-                   (member "VERIFY" states)
-                   (member "DONE" states))))
-          (cdr (assoc "TODO" (org-collect-keywords '("TODO"))))))))
-
-(defun ai-code--org-section-candidates ()
+(defun ai-code--org-section-candidates (&optional include-done)
   "Return the Org sections enclosing point, innermost first.
 Each element is a plist with `:heading-line', `:heading-begin',
 `:heading-end', `:begin-line', `:end-line' and `:label'.  Sections whose
-entry is DONE are omitted.  Returns nil outside `org-mode' and when point
-precedes the first headline."
+entry is DONE are omitted unless INCLUDE-DONE is non-nil.  Returns nil
+outside `org-mode' and when point precedes the first headline."
   (when (derived-mode-p 'org-mode)
     (save-excursion
       (when (and (ignore-errors (org-back-to-heading t) t)
@@ -273,10 +253,10 @@ precedes the first headline."
                    (end-line (save-excursion
                                (org-end-of-subtree t)
                                (line-number-at-pos (point)))))
-              (unless (or (org-entry-is-done-p)
-                          (string-match-p "^\\*+ DONE " heading-line))
+              (when (or include-done
+                        (not (or (org-entry-is-done-p)
+                                 (string-match-p "^\\*+ DONE " heading-line))))
                 (push (list :heading-line heading-line
-                            :todo-state (org-get-todo-state)
                             :heading-begin (line-beginning-position)
                             :heading-end (line-end-position)
                             :begin-line begin-line
@@ -553,7 +533,7 @@ Returns non-nil if handled and the caller should exit."
              comment-start
              ;; Inside an Org section, act on the section instead.
              (not (and (derived-mode-p 'org-mode)
-                       (ai-code--org-section-candidates))))
+                       (ai-code--org-section-candidates include-done))))
     (let ((todo-text (ai-code-read-string "Enter TODO comment: "))
           (comment-prefix (if (derived-mode-p 'emacs-lisp-mode)
                               (let* ((trimmed (string-trim-right comment-start)))
@@ -573,13 +553,14 @@ Returns non-nil if handled and the caller should exit."
         (indent-according-to-mode)))
     t))
 
-(defun ai-code--implement-todo--get-org-todo-section-info ()
+(defun ai-code--implement-todo--get-org-todo-section-info (&optional include-done)
   "Return the selected Org section info as a plist, or nil.
 The plist contains `:heading-line', `:content', `:inlined',
 `:line-number', `:end-line-number' and `:reference'.  Point may sit on a
 headline or anywhere inside its body; when the section has enclosing
 ancestors the user picks which one to use.  An active region suppresses
-Org scope so the region stays authoritative.  Sections longer than
+Org scope so the region stays authoritative.  INCLUDE-DONE also allows
+completed headlines for independent verification.  Sections longer than
 `ai-code-org-section-inline-max-lines' carry `:reference' in place of
 `:content', unless the buffer is modified or no reference is available."
   (unless (region-active-p)
@@ -594,9 +575,6 @@ Org scope so the region stays authoritative.  Sections longer than
                             (<= (1+ (- end-line begin-line))
                                 ai-code-org-section-inline-max-lines))))
           (list :heading-line (plist-get section :heading-line)
-                :file (expand-file-name buffer-file-name)
-                :todo-state (plist-get section :todo-state)
-                :verification-enabled (ai-code--org-task-verification-enabled-p)
                 :content (if inlined
                              (ai-code--org-section-body begin-line end-line)
                            "")
@@ -798,9 +776,6 @@ ARG controls whether clipboard context is included."
                 org-line-number
                 (if org-reference (format " (%s)" org-reference) "")
                 org-section-block)
-        (when (plist-get org-todo-section-info :verification-enabled)
-          (format "\nTask file to update: %s"
-                  (plist-get org-todo-section-info :file)))
         (unless org-inlined
           (format "\nRead %s in the file for the full section content."
                   org-reference))))
@@ -828,50 +803,6 @@ ARG controls whether clipboard context is included."
       "Keep the TODO comment in place and replace TODO as DONE after implementation; avoid unrelated cleanup.")
      (t ai-code-change--brief-default-boundaries))))
 
-(defun ai-code--implement-todo--verify-prompt (context)
-  "Build an evidence-first verification prompt for the Org task in CONTEXT."
-  (ai-code--compose-question-brief
-   :goal (concat
-          "Independently verify the selected Org task against its goal, "
-          "acceptance criteria, and relevant system constraints. Inspect "
-          "current artifacts and run fresh, applicable checks. Neither "
-          "reading plausible code nor an earlier agent's success claim or "
-          "test report constitutes independent verification.")
-   :scope (ai-code--implement-todo--scope context)
-   :context (ai-code--format-repo-context-info)
-   :boundaries
-   (concat
-    "Do not modify program code, tests, configuration, or unrelated Org entries. "
-    "Do not commit or push. Use only safe, authorized verification checks; "
-    "do not access production systems or sensitive data without permission. "
-    "The only permitted edit is the selected Org headline's TODO state "
-    "after gathering verification evidence.")
-   :instruction
-   (concat
-    "Use an evidence-first verification loop:\n"
-    "1. Identify explicit acceptance criteria, expected observable behavior, "
-    "and relevant invariants. Disclose missing criteria and assumptions; "
-    "do not silently invent requirements.\n"
-    "2. Gather fresh observations from actual artifacts and applicable "
-    "checks (such as tests, output, logs, or a reproduction). Separate "
-    "observations from interpretations, and record each evidence source "
-    "or command and its result. For regressions, compare the failing case "
-    "with a working control or baseline when available; say when not.\n"
-    "3. Actively seek counterexamples and conflicting evidence. Check that "
-    "a reproduction matches the reported failure signals, not just similar "
-    "symptoms. Prefer targeted discriminating checks over speculative "
-    "hypothesis lists; passing tests prove only what they exercise.\n"
-    "4. Report each criterion as PASS, FAIL, or UNVERIFIED with supporting "
-    "evidence, coverage gaps, and remaining risks. Never fabricate results.\n"
-    "Overall PASS: only when all required criteria have current supporting "
-    "evidence and no unresolved contradictory evidence; change only the "
-    "selected Org headline from VERIFY to DONE. "
-    "Overall FAIL: when a concrete defect or failed required check "
-    "disproves completion, change only that headline from VERIFY to TODO. "
-    "Overall UNVERIFIED: when checks are unavailable, required criteria "
-    "lack evidence, or results conflict, Keep VERIFY unchanged. "
-    "Preserve the headline body and all other tasks.")))
-
 (defun ai-code--implement-todo--final-prompt (prompt context action-intent)
   "Return final prompt from PROMPT, CONTEXT, and ACTION-INTENT."
   (let* ((ask-question-p (string= action-intent "Ask question"))
@@ -891,21 +822,9 @@ ARG controls whether clipboard context is included."
        :context (ai-code--format-repo-context-info)
        :clipboard-context clipboard-context
        :boundaries (ai-code--implement-todo--code-change-boundaries context)
-       :code-change-note
-       (concat
-        (if (plist-get context :region-text)
-            ai-code-change--selected-region-note
-          ai-code-change--generic-note)
-        (when-let ((org-task (plist-get context :org-todo-section-info)))
-          (when (and (plist-get org-task :verification-enabled)
-                     (equal (plist-get org-task :todo-state) "TODO"))
-            (concat
-             " Once this task is implemented, change only its Org headline "
-             "from TODO to VERIFY only after the requested implementation "
-             "is complete and applicable initial checks pass. "
-             "Otherwise leave it TODO. Do not mark it DONE: independent "
-             "verification is the next step. Preserve other headlines "
-             "and their content."))))))))
+       :code-change-note (if (plist-get context :region-text)
+                             ai-code-change--selected-region-note
+                           ai-code-change--generic-note)))))
 
 (defun ai-code--implement-todo--build-and-send-prompt (arg &optional default-action)
   "Build the TODO implementation prompt and insert it.
@@ -913,24 +832,7 @@ ARG is the prefix argument for clipboard context.
 Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
   (let ((context (ai-code--implement-todo--collect-prompt-context arg)))
     (ai-code--implement-todo--validate-prompt-context context)
-    ;; An agent editing this Org file must see its latest on-disk contents.
-    (when (and (plist-get (plist-get context :org-todo-section-info)
-                          :verification-enabled)
-               (buffer-modified-p))
-      (save-buffer))
-    (if (and (plist-get (plist-get context :org-todo-section-info)
-                        :verification-enabled)
-             (equal "VERIFY"
-                    (plist-get (plist-get context :org-todo-section-info)
-                               :todo-state)))
-        ;; A verification-only turn must not receive code-change TDD or
-        ;; discussion-follow-up suffixes, regardless of the user's defaults.
-        (let ((ai-code-auto-test-type nil)
-              (ai-code-discussion-auto-follow-up-enabled nil)
-              (ai-code--suppress-org-summary-prompt t))
-          (ai-code--insert-prompt
-           (ai-code--implement-todo--verify-prompt context)))
-      (let* ((action-intent
+    (let* ((action-intent
             (ai-code--implement-todo--read-action-intent default-action))
            (ask-question-p (string= action-intent "Ask question"))
            (prompt-label
@@ -949,7 +851,7 @@ Optional DEFAULT-ACTION skips the `completing-read' prompt when non-nil."
            (final-prompt
             (ai-code--implement-todo--final-prompt
              prompt context action-intent)))
-      (ai-code--insert-prompt final-prompt)))))
+      (ai-code--insert-prompt final-prompt))))
 
 ;;; Flycheck integration
 (defun ai-code-flycheck--get-errors-in-scope (start end)
