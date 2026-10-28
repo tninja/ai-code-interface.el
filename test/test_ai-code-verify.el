@@ -97,7 +97,7 @@
                    "Expected: exactly one retry")))
       (dolist (needle '("Fix retry when connection drops"
                         "Expected: exactly one retry"
-                        "requirements-to-evidence"
+                        "source-to-requirement-"
                         "counterexamples"
                         "not a one-shot PASS/FAIL"
                         "ask ONE"
