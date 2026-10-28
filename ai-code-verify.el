@@ -38,7 +38,7 @@ No task states are changed."
               (line-number-at-pos (region-end))
               selected))
      ((and (derived-mode-p 'org-mode) buffer-file-name)
-    (when-let ((info (ai-code--implement-todo--get-org-todo-section-info t)))
+    (when-let ((info (ai-code--implement-todo--get-org-todo-section-info t t)))
       (concat
        (format "Org section from %s at line %d:\n%s"
                (expand-file-name buffer-file-name)
