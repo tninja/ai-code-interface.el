@@ -118,6 +118,126 @@
   (re-search-forward "^S[0-9]+" nil t)
   (beginning-of-line))
 
+(ert-deftest ai-code-test-session-dashboard-entry-shows-attention ()
+  "The Status column shows the same states as the tab badge."
+  (ai-code-test-session--with-clean-registry
+   (let ((buffer (generate-new-buffer " *codex[attention]*")))
+     (unwind-protect
+         (cl-flet ((status (metadata)
+                     (let ((session (ai-code-session-register
+                                     :buffer buffer :backend "codex"
+                                     :metadata metadata)))
+                       (aref (cadr (ai-code-session-dashboard--entry session)) 5))))
+           (should (equal (status '(:status "running")) "idle"))
+           (should (equal (status '(:working t)) "working"))
+           (should (equal (status '(:attention done)) "done unseen"))
+           (should (equal (status '(:attention waiting)) "needs input"))
+           (should (equal (status '(:status "stopped" :attention nil :working nil))
+                          "stopped")))
+       (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-session-prompt-summary-uses-goal-line ()
+  "A structured prompt is summarized by the first line of its Goal."
+  (should (equal (ai-code-session--prompt-summary
+                  "Goal:\nRename the   helper\nand its callers\n\nScope:\nFile: a.el\n")
+                 "Rename the helper")))
+
+(ert-deftest ai-code-test-session-prompt-summary-puts-subject-first ()
+  "A scope that names a headline or comment puts that subject first."
+  (should (equal (ai-code-session--prompt-summary
+                  (concat "Goal:\nPlease answer my question about this Org headline. ultrathink\n\n"
+                          "Scope:\nOrg headline on line 2 (notes.org#L2-L3):\n"
+                          "** Boris Cherny start talking\n- what are his tips?\n"
+                          "Function: Boris Cherny start talking\n\nInstruction:\nAnswer only."))
+                 "Boris Cherny start talking — Please answer my question about this Org headline. ultrathink")))
+
+(ert-deftest ai-code-test-session-prompt-summary-plain-text ()
+  "A plain prompt is summarized by its first non-empty line."
+  (should (equal (ai-code-session--prompt-summary "\n\n  fix the flaky login test  \nmore detail\n")
+                 "fix the flaky login test")))
+
+(ert-deftest ai-code-test-session-note-prompt-keeps-bounded-copy ()
+  "Recording a prompt keeps at most a bounded prefix of it."
+  (ai-code-test-session--with-clean-registry
+   (let ((buffer (generate-new-buffer " *codex[prompt]*")))
+     (unwind-protect
+         (progn
+           (ai-code-session-register :buffer buffer :backend "codex")
+           (ai-code-session-note-prompt buffer (make-string 5000 ?x))
+           (should (= (length (plist-get (ai-code-session-metadata
+                                          (ai-code-session-get buffer))
+                                         :last-prompt))
+                      ai-code-session--prompt-max-chars)))
+       (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-session-diff-shortstat-parsing ()
+  "Insertions and deletions are read from git's shortstat line."
+  (should (equal (ai-code-session--parse-shortstat
+                  " 3 files changed, 120 insertions(+), 34 deletions(-)")
+                 '(120 . 34)))
+  (should (equal (ai-code-session--parse-shortstat " 1 file changed, 2 insertions(+)")
+                 '(2 . 0)))
+  (should (equal (ai-code-session--parse-shortstat " 1 file changed, 5 deletions(-)")
+                 '(0 . 5)))
+  (should-not (ai-code-session--parse-shortstat nil)))
+
+(ert-deftest ai-code-test-session-dashboard-entry-shows-since-changes-and-prompt ()
+  "The dashboard shows time in state, change size, and the last prompt."
+  (ai-code-test-session--with-clean-registry
+   (let ((buffer (generate-new-buffer " *codex[columns]*"))
+         (now (float-time))
+         (prompt (concat "Goal:\n" (make-string 100 ?y) "\n\nScope:\nFile: a.el")))
+     (unwind-protect
+         (let* ((session (ai-code-session-register
+                          :buffer buffer :backend "codex"
+                          :metadata (list :status "running" :attention 'done
+                                          :attention-since (- now 180)
+                                          :dirty-count 3 :insertions 120 :deletions 34
+                                          :last-prompt prompt)))
+                (row (cadr (ai-code-session-dashboard--entry session)))
+                (prompt-cell (aref row 8)))
+           (should (equal (aref row 6) "3m"))
+           (should (equal (aref row 7) "3 files +120 −34"))
+           (should (= (string-width prompt-cell) ai-code-session-dashboard--prompt-width))
+           (should (string-suffix-p "…" prompt-cell))
+           (should (string-match-p "Scope:" (get-text-property 0 'help-echo prompt-cell))))
+       (kill-buffer buffer)))))
+
+(ert-deftest ai-code-test-session-dashboard-since-and-changes-formats ()
+  "Since follows the current state; Changes says clean when nothing changed."
+  (let ((now (float-time)))
+    (should (equal (ai-code-session-dashboard--since
+                    (list :working t :working-since (- now 45)) now)
+                   "45s"))
+    (should (equal (ai-code-session-dashboard--since
+                    (list :quiet-since (- now 7200)) now)
+                   "2h"))
+    (should (equal (ai-code-session-dashboard--since (list :status "stopped") now) ""))
+    (should (equal (ai-code-session-dashboard--changes (list :dirty-count 0)) "clean"))
+    (should (equal (ai-code-session-dashboard--changes (list :dirty-count 2)) "2 files"))))
+
+(ert-deftest ai-code-test-session-dashboard-toggles-bottom-window ()
+  "The dashboard opens in a bottom side window and the same command closes it."
+  (ai-code-test-session--with-clean-registry
+   (save-window-excursion
+     (delete-other-windows)
+     (unwind-protect
+         (progn
+           (ai-code-session-dashboard)
+           (let ((window (get-buffer-window ai-code-session-dashboard-buffer-name)))
+             (should window)
+             (should (eq (window-parameter window 'window-side) 'bottom))
+             (should (eq (selected-window) window))
+             ;; The key hint lives in the mode line only.
+             (should-not (string-match-p
+                          (regexp-quote ai-code-session-dashboard-shortcuts-hint)
+                          (with-current-buffer (window-buffer window)
+                            (buffer-string)))))
+           (ai-code-session-dashboard)
+           (should-not (get-buffer-window ai-code-session-dashboard-buffer-name)))
+       (when (get-buffer ai-code-session-dashboard-buffer-name)
+         (kill-buffer ai-code-session-dashboard-buffer-name))))))
+
 (ert-deftest ai-code-test-session-dashboard-renders-mvp-columns ()
   "Dashboard should render the MVP session information."
   (ai-code-test-session--with-clean-registry
@@ -161,8 +281,8 @@
                (should (equal (aref entry 2) "task_x.org"))
                (should (equal (aref entry 3) "Codex"))
                (should (equal (aref entry 4) "feature/x"))
-               (should (equal (aref entry 5) "running"))
-               (should (equal (aref entry 6) "3")))))
+               (should (equal (aref entry 5) "idle"))
+               (should (equal (aref entry 7) "3 files")))))
        (when (buffer-live-p session-buffer)
          (kill-buffer session-buffer))
        (when (file-directory-p repo-root)

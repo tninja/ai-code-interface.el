@@ -3,6 +3,17 @@
 
 ** Main branch change
 
+** 1.99
+- Feat: Session dashboard shows time in state, uncommitted change size, and a summary of the last prompt; toggles at the bottom with C-c a Z
+- Feat: Badge every AI session tab-bar tab with its state (○ idle, ◐ working, ✓ done unseen, ? needs input), and show the same state in the session dashboard
+- Fix: Ghostel 0.58+ program status compatibility
+- Fix: MCP references querying the symbol at the wrong position 
+- Fix: Keep a Ghostel window scrolled back a few rows while output arrives, by Silex
+- Fix: Preserve AI session panel sizes across layout changes - #535
+- Fix: Resolve main repo worktree directory when buffer is inside worktree
+- Fix: Act on enclosing Org section from a blank body line
+- Chore: Show GPTel wait progress; edit generated commit messages in compose buffer
+
 ** 1.981
 - Feat: Browse, edit and select source/Magit annotations for AI suggestions; clarify menu scopes and retain legacy notes and reply chains
 - Fix: Scroll up onto a Ghostel image preview from the rows below it, by Silex

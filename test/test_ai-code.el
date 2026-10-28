@@ -413,7 +413,7 @@
 
 (ert-deftest ai-code-test-menu-ai-cli-session-includes-session-dashboard-entry ()
   "Test that the AI CLI session menu exposes the session dashboard."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "j")))
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "Z")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-session-dashboard))
@@ -680,6 +680,25 @@
                 'ai-code-send-quick-prompt))
     (should (equal (plist-get (cdr suffix) :description)
                    "Send quick prompt"))))
+
+(ert-deftest ai-code-test-auto-commit-toggle ()
+  "The menu toggle must show nil/t and switch agent commits on and off."
+  (let* ((suffix (transient-get-suffix 'ai-code--menu-actions-with-context "C"))
+         (command (plist-get (cdr suffix) :command))
+         (object (get command 'transient--suffix))
+         (ai-code-auto-commit-enabled nil))
+    (should (eq command 'ai-code--infix-toggle-auto-commit))
+    (should (transient-get-suffix 'ai-code--menu-ai-cli-session "^"))
+    (should (eq (oref object variable) 'ai-code-auto-commit-enabled))
+    (should (string-match-p "%v" (oref object format)))
+    (transient-init-value object)
+    (should (equal (substring-no-properties (transient-format-value object)) "nil"))
+    (transient-infix-set object (funcall (oref object reader) nil nil nil))
+    (should ai-code-auto-commit-enabled)
+    (should (equal (substring-no-properties (transient-format-value object)) "t"))
+    (transient-infix-set object (funcall (oref object reader) nil nil nil))
+    (should-not ai-code-auto-commit-enabled)
+    (should (equal (substring-no-properties (transient-format-value object)) "nil"))))
 
 (ert-deftest ai-code-test-menu-other-tools-binds-plus-to-create-file ()
   "Test that Other Tools exposes file creation on +."

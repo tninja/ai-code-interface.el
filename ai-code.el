@@ -9,7 +9,7 @@
 ;; - MuseCode:Muse-Spark-1.2
 ;; - GeminiCLI:gemini-flash-3.5
 ;;
-;; Version: 1.981
+;; Version: 1.990
 ;; Package-Requires: ((emacs "29.1") (transient "0.9.0") (magit "2.1.0"))
 ;; URL: https://github.com/tninja/ai-code-interface.el
 
@@ -51,6 +51,8 @@
 ;;        (ai-code-set-backend 'codex)
 ;;        ;; Optional: use a narrower transient menu on smaller frames.
 ;;        ;; (setq ai-code-menu-layout 'two-columns)
+;;        ;; Optional: badge tab-bar tabs that show AI sessions with their state.
+;;        ;; (ai-code-session-attention-mode 1)
 ;;        (global-set-key (kbd "C-c a") #'ai-code-menu))
 ;;
 ;;   2) First 60 seconds:
@@ -481,6 +483,19 @@ Otherwise switch to AI CLI buffer."
   :reader (lambda (_prompt _initial-input _history)
             (not ai-code-use-prompt-suffix)))
 
+(defclass ai-code--auto-commit-enabled-type (transient-lisp-variable)
+  ((variable :initform 'ai-code-auto-commit-enabled)
+   (format :initform "%k %d %v"))
+  "Toggle helper for `ai-code-auto-commit-enabled`.")
+
+(transient-define-infix ai-code--infix-toggle-auto-commit ()
+  "Toggle `ai-code-auto-commit-enabled`."
+  :class 'ai-code--auto-commit-enabled-type
+  :key "C"
+  :description "Agent commit:"
+  :reader (lambda (_prompt _initial-input _history)
+            (not ai-code-auto-commit-enabled)))
+
 (defclass ai-code--code-change-auto-test-type (transient-lisp-variable)
   ((variable :initform 'ai-code-auto-test-type)
    (format :initform "%k %d %v")
@@ -566,11 +581,12 @@ Shows the current backend label to the right."
 
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
+  (ai-code--infix-toggle-suffix)
   ("a" "Start AI CLI (C-u: args)" ai-code-cli-start)
   ("R" "Resume AI CLI (C-u: args)" ai-code-cli-resume-with-session-checkpoint)
   ("z" "Switch to AI CLI (C-u: hide)" ai-code-cli-switch-to-buffer-or-hide)
+  ("Z" "Session dashboard" ai-code-session-dashboard)
   ("s" ai-code-select-backend :description ai-code--select-backend-description)
-  ("j" "Session dashboard" ai-code-session-dashboard)
   ;; DONE: similar to ai-code-select-backend, add ai-code-select-terminal, it will use ai-code-backends-infra-terminal-backend to select between different terminal emulators for AI sessions, such as vterm, eat, and ghostel.
   ("u" "Install / Upgrade AI CLI" ai-code-upgrade-backend)
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
@@ -579,7 +595,7 @@ Shows the current backend label to the right."
   ("l" ai-code-select-terminal :description ai-code--select-terminal-description))
 
 (transient-define-group ai-code--menu-actions-with-context
-  (ai-code--infix-toggle-suffix)
+  (ai-code--infix-toggle-auto-commit)
   ("c" "Code change (C-u: clipboard)" ai-code-code-change)
   ("i" "Implement TODO (C-u: clipboard)" ai-code-implement-todo)
   ("q" "Ask question (C-u: clipboard)" ai-code-ask-question)

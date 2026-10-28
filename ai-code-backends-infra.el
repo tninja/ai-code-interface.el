@@ -20,7 +20,9 @@
 (require 'subr-x)
 (require 'ai-code-editor-viewport)
 (require 'ai-code-session)
+(require 'ai-code-session-attention)
 (require 'ai-code-session-link)
+(require 'ai-code-startup-diagnostics)
 ;; Terminal-specific implementations live in dedicated modules so this
 ;; file can stay focused on shared session orchestration.
 (require 'ai-code-backends-infra-vterm)
@@ -385,10 +387,12 @@ the current buffer is an AI session buffer, apply these transformations:
     (with-current-buffer buffer
       (if (ai-code-backends-infra--idle-delay-elapsed-p)
           (let ((visible (ai-code-backends-infra--buffer-user-visible-p buffer)))
+            (ai-code-session-attention-set-working buffer nil)
             (if visible
                 (setq ai-code-backends-infra--response-seen t)
               (when (not ai-code-backends-infra--response-seen)
                 (setq ai-code-backends-infra--response-seen t)
+                (ai-code-session-attention-mark buffer 'done)
                 (when (require 'ai-code-notifications nil t)
                   (when (fboundp 'ai-code-notifications-response-ready)
                     (let ((buffer-name (buffer-name buffer)))
@@ -426,6 +430,8 @@ The timer is reset only after meaningful output is observed."
   "Record meaningful output and schedule idle tracking."
   (setq ai-code-backends-infra--response-seen nil
         ai-code-backends-infra--last-meaningful-output-time (float-time))
+  (ai-code-session-attention-clear (current-buffer) 'done)
+  (ai-code-session-attention-set-working (current-buffer) t)
   (ai-code-backends-infra--schedule-idle-check))
 
 (defun ai-code-backends-infra--configure-session-input-shortcuts ()
@@ -1414,14 +1420,18 @@ behavior."
    buffer working-dir prefix task-file)
   (ai-code-backends-infra--display-buffer-in-side-window buffer))
 
-(defun ai-code-backends-infra--handle-session-start-failure (buffer session-key process-table)
-  "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE."
-  (remhash session-key process-table)
-  (if (buffer-live-p buffer)
-      (progn
-        (pop-to-buffer buffer)
-        (message "CLI failed to start - see buffer for error details"))
-    (message "CLI failed to start - process exited immediately")))
+(defun ai-code-backends-infra--handle-session-start-failure
+    (buffer session-key process-table &optional prefix command working-dir)
+  "Handle startup failure for BUFFER and SESSION-KEY in PROCESS-TABLE.
+PREFIX, COMMAND, and WORKING-DIR identify the failed launch."
+  (let ((process (gethash session-key process-table)))
+    (remhash session-key process-table)
+    (ai-code-startup-diagnostics-report
+     buffer process
+     (or prefix
+         (when (buffer-live-p buffer)
+           (buffer-local-value 'ai-code-backends-infra--session-prefix buffer)))
+     command working-dir)))
 
 (defun ai-code-backends-infra--cleanup-failed-launch (cleanup-fn)
   "Call CLEANUP-FN after a failed launch without masking the startup error."
@@ -1635,7 +1645,10 @@ TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
           (ai-code-backends-infra--handle-session-start-failure
            new-buffer
            session-key
-           process-table)
+           process-table
+           prefix
+           command
+           working-dir)
         (ai-code-backends-infra--cleanup-failed-launch cleanup-fn)))))
 
 (defun ai-code-backends-infra--toggle-or-create-session (working-dir buffer-name process-table command
@@ -1737,6 +1750,7 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   source-buffer)))
     (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
       (ai-code-mcp-agent-refresh-source-context buffer source-buffer))
+    (ai-code-session-note-prompt buffer line)
     (with-current-buffer buffer
       (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
       (if (and (string-match-p "\n" line)

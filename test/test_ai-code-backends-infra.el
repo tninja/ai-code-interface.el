@@ -711,6 +711,55 @@ The prefix argument should also force instance-name prompting."
         (ai-code-backends-infra--check-response-complete (current-buffer))
         (should (= notification-count 1))))))
 
+(ert-deftest test-ai-code-backends-infra-response-hidden-marks-attention-done ()
+  "A response that completes while hidden marks the session as done."
+  (let (marked)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+               (lambda (_buffer) nil))
+              ((symbol-function 'ai-code-notifications-response-ready) #'ignore)
+              ((symbol-function 'ai-code-session-attention-mark)
+               (lambda (buffer state) (setq marked (list buffer state)))))
+      (with-temp-buffer
+        (rename-buffer "*testbackend[test-dir]*" t)
+        (setq ai-code-backends-infra--response-seen nil)
+        (ai-code-backends-infra--check-response-complete (current-buffer))
+        (should (equal marked (list (current-buffer) 'done)))))))
+
+(ert-deftest test-ai-code-backends-infra-meaningful-output-clears-attention-done ()
+  "New output means the agent is working again, so done is cleared."
+  (let (cleared)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--schedule-idle-check)
+               #'ignore)
+              ((symbol-function 'ai-code-session-attention-clear)
+               (lambda (buffer state) (setq cleared (list buffer state)))))
+      (with-temp-buffer
+        (ai-code-backends-infra--note-meaningful-output)
+        (should (equal cleared (list (current-buffer) 'done)))))))
+
+(ert-deftest test-ai-code-backends-infra-meaningful-output-marks-working ()
+  "New output means the agent is working."
+  (let (working)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--schedule-idle-check)
+               #'ignore)
+              ((symbol-function 'ai-code-session-attention-set-working)
+               (lambda (buffer value) (setq working (list buffer value)))))
+      (with-temp-buffer
+        (ai-code-backends-infra--note-meaningful-output)
+        (should (equal working (list (current-buffer) t)))))))
+
+(ert-deftest test-ai-code-backends-infra-idle-clears-working-even-when-visible ()
+  "An idle terminal is no longer working, whether or not it is shown."
+  (let (working)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+               (lambda (_buffer) t))
+              ((symbol-function 'ai-code-session-attention-set-working)
+               (lambda (buffer value) (setq working (list buffer value)))))
+      (with-temp-buffer
+        (rename-buffer "*testbackend[test-dir]*" t)
+        (setq ai-code-backends-infra--response-seen nil)
+        (ai-code-backends-infra--check-response-complete (current-buffer))
+        (should (equal working (list (current-buffer) nil)))))))
+
 (ert-deftest test-ai-code-backends-infra-response-not-idle-reschedules ()
   "Reschedule idle checks when meaningful output is too recent."
   (let ((scheduled nil)
@@ -1416,6 +1465,21 @@ The prefix argument should also force instance-name prompting."
           (should (equal (car calls) '("line1\nline2" nil))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-send-line-records-prompt ()
+  "Every prompt sent to a session is remembered for the session dashboard."
+  (let ((buffer (generate-new-buffer " *ai-code-prompt-record-test*"))
+        recorded)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-send-string) #'ignore)
+                  ((symbol-function 'ai-code-backends-infra--terminal-send-return) #'ignore)
+                  ((symbol-function 'sit-for) #'ignore)
+                  ((symbol-function 'ai-code-session-note-prompt)
+                   (lambda (target prompt) (setq recorded (list target prompt)))))
+          (ai-code-backends-infra--send-line-to-session
+           " *ai-code-prompt-record-test*" "no-session" "Goal:\nfix it")
+          (should (equal recorded (list buffer "Goal:\nfix it"))))
+      (kill-buffer buffer))))
 
 (ert-deftest test-ai-code-backends-infra-send-line-refreshes-mcp-source-context ()
   "Every resolved CLI send should snapshot its source before terminal I/O."
@@ -4016,9 +4080,10 @@ The prefix argument should also force instance-name prompting."
              session-key
              process-table)
             (should-not (gethash session-key process-table))
-            (should (equal (nreverse calls)
-                           (list (list :pop buffer)
-                                 "CLI failed to start - see buffer for error details")))))
+            (setq calls (nreverse calls))
+            (should (equal (car calls) (list :pop buffer)))
+            (should (string-prefix-p "CLI failed to start [backend=unknown"
+                                     (cadr calls)))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

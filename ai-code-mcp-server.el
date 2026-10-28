@@ -18,6 +18,7 @@
 (require 'project)
 (require 'seq)
 (require 'subr-x)
+(require 'thingatpt)
 (require 'url-parse)
 (require 'url-util)
 (require 'xref)
@@ -191,13 +192,21 @@ baseline in the model context itself.")
              :description "Path to the file to inspect.")))
     (:function ai-code-mcp-xref-find-references
      :name "xref_find_references"
-     :description "Find references to an identifier in project context."
+     :description "Find references to an identifier; supply a location when ambiguous."
      :args ((:name "identifier"
              :type string
              :description "Identifier to resolve.")
             (:name "file_path"
              :type string
-             :description "Path to the file that provides backend context.")))
+             :description "Path to the file that provides backend context.")
+            (:name "line"
+             :type integer
+             :description "Optional 1-based line of the identifier, for disambiguation."
+             :optional t)
+            (:name "column"
+             :type integer
+             :description "Optional 0-based display column on line, as in editor_state."
+             :optional t)))
     (:function ai-code-mcp-xref-find-definitions-at-point
      :name "xref_find_definitions_at_point"
      :description "Find definitions of the identifier at a file location."
@@ -1339,18 +1348,99 @@ Accepts local file URIs with no authority or with localhost authority."
             (index (imenu--make-index-alist t)))
         (ai-code-mcp--imenu-entries index resolved-file)))))
 
-(defun ai-code-mcp-xref-find-references (identifier file-path)
-  "Return formatted xref references for IDENTIFIER using FILE-PATH context."
+(defconst ai-code-mcp--point-only-reference-backends '(eglot)
+  "Xref backends whose references ignore the identifier and use point.")
+;; ponytail: known-backend list; extend it if another backend proves point-only.
+
+(defun ai-code-mcp--code-occurrences (identifier start end)
+  "Return up to two code positions of IDENTIFIER between START and END.
+Occurrences in strings, comments, and longer symbols are ignored."
+  (save-excursion
+    (goto-char start)
+    (let ((case-fold-search nil)
+          (regexp (concat "\\_<" (regexp-quote identifier) "\\_>"))
+          positions)
+      (while (and (< (length positions) 2)
+                  (re-search-forward regexp end t))
+        (let ((match (match-beginning 0)))
+          (unless (save-excursion (nth 8 (syntax-ppss match)))
+            (push match positions))))
+      (nreverse positions))))
+
+(defun ai-code-mcp--goto-reference-line (line)
+  "Move to the start of one-based LINE or signal a `user-error'."
+  (goto-char (point-min))
+  (unless (zerop (forward-line (1- line)))
+    (user-error "Reference location is outside the file")))
+
+(defun ai-code-mcp--reference-position (identifier line column)
+  "Move to IDENTIFIER at LINE and COLUMN, or to its unique code occurrence.
+LINE is one-based; COLUMN is a display column, as reported by
+`editor_state'.  With LINE alone, IDENTIFIER must occur once in code on
+that line.  Without LINE, return nil leaving point unchanged when
+IDENTIFIER has no code occurrence, and reject repeated occurrences
+instead of guessing which binding the caller meant."
+  (unless (and (or (null line) (and (integerp line) (> line 0)))
+               (or (null column) (and (integerp column) (>= column 0))))
+    (user-error "Use a positive line and a non-negative column"))
+  (when (and column (not line))
+    (user-error "A column requires a line"))
+  (when line
+    (ai-code-mcp--goto-reference-line line))
+  (if column
+      (progn
+        (when (< (move-to-column column) column)
+          (user-error "Reference location is outside the file"))
+        (unless (and (equal (thing-at-point 'symbol t) identifier)
+                     (not (nth 8 (syntax-ppss))))
+          (user-error "Reference location does not identify '%s'" identifier))
+        t)
+    (let ((positions (if line
+                         (ai-code-mcp--code-occurrences
+                          identifier (point) (line-end-position))
+                       (ai-code-mcp--code-occurrences
+                        identifier (point-min) nil))))
+      (cond
+       ((cdr positions)
+        (user-error "Ambiguous identifier '%s'; supply %s" identifier
+                    (if line "a column" "line and column")))
+       (positions (goto-char (car positions)))
+       (line (user-error "No code occurrence of '%s' on line %d"
+                         identifier line))))))
+
+(defun ai-code-mcp-xref-find-references (identifier file-path &optional line column)
+  "Return formatted xref references for IDENTIFIER using FILE-PATH context.
+Optional LINE (one-based) and COLUMN (display column) select a specific
+occurrence.  Without a location, a repeated IDENTIFIER is rejected and
+an absent one is queried by name, except with backends that only use
+point.  Preserve point and narrowing."
   (let ((buffer (ai-code-mcp--file-buffer
                  (ai-code-mcp--require-file-path file-path))))
     (with-current-buffer buffer
-      (let ((backend (xref-find-backend)))
-        (if (not backend)
-            (format "No xref backend available for %s" file-path)
-          (let ((items (xref-backend-references backend (format "%s" identifier))))
-            (if (not items)
-                (format "No references found for '%s'" identifier)
-              (mapcar #'ai-code-mcp--format-xref-item items))))))))
+      (save-excursion
+        (save-restriction
+          (widen)
+          (when (string-empty-p identifier)
+            (user-error "Identifier must not be empty"))
+          ;; Select the backend at the target, since backends may depend on
+          ;; point, and preserve any position data the backend stores in
+          ;; its identifier's text properties.
+          (let* ((found (ai-code-mcp--reference-position identifier line column))
+                 (backend (xref-find-backend)))
+            (cond
+             ((not backend)
+              (format "No xref backend available for %s" file-path))
+             ((and (not found)
+                   (memq backend ai-code-mcp--point-only-reference-backends))
+              (user-error "No code occurrence of '%s' in this file" identifier))
+             (t
+              (let* ((resolved (and found
+                                    (xref-backend-identifier-at-point backend)))
+                     (items (xref-backend-references
+                             backend (or resolved identifier))))
+                (if (not items)
+                    (format "No references found for '%s'" identifier)
+                  (mapcar #'ai-code-mcp--format-xref-item items)))))))))))
 
 (defun ai-code-mcp-xref-find-definitions-at-point (file-path line column)
   "Return formatted xref definitions for the identifier at FILE-PATH:LINE:COLUMN."

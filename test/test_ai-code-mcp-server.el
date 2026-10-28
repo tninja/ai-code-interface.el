@@ -1453,6 +1453,160 @@ the full diagnostics list is intentionally omitted from the response."
       (delete-directory project-dir t)
       (delete-directory other-dir t))))
 
+(defmacro ai-code-test-mcp--with-reference-buffer (text &rest body)
+  "Evaluate BODY in a file buffer containing TEXT with a position-aware backend."
+  (declare (indent 1))
+  `(let* ((file-path (make-temp-file "ai-code-references-" nil ".el"))
+          (buffer (find-file-noselect file-path))
+          queried)
+     (unwind-protect
+         (with-current-buffer buffer
+           (emacs-lisp-mode)
+           (insert ,text)
+           (goto-char (point-min))
+           (cl-letf (((symbol-function 'xref-find-backend)
+                      (lambda () 'position-aware))
+                     ((symbol-function 'xref-backend-identifier-at-point)
+                      (lambda (_backend)
+                        (when-let ((name (thing-at-point 'symbol t)))
+                          (propertize name 'reference-position (point)))))
+                     ((symbol-function 'xref-backend-references)
+                      (lambda (_backend identifier)
+                        (setq queried
+                              (list (substring-no-properties identifier)
+                                    (point)
+                                    (get-text-property
+                                     0 'reference-position identifier)))
+                        (list (xref-make "reference"
+                                         (xref-make-file-location file-path 1 0))))))
+             ,@body))
+       (when (buffer-live-p buffer)
+         (with-current-buffer buffer (set-buffer-modified-p nil))
+         (kill-buffer buffer))
+       (delete-file file-path))))
+
+(ert-deftest ai-code-test-mcp-references-resolve-requested-symbol-not-point ()
+  "A request for bar must not query foo or discard the backend identifier."
+  (ai-code-test-mcp--with-reference-buffer "foo\n;; bar\n\"bar\"\nfoobar\nbar\n"
+    (let ((original-point (point)))
+      (should (ai-code-mcp-xref-find-references "bar" file-path))
+      (should (equal (car queried) "bar"))
+      (should (= (cadr queried) (- (point-max) 4)))
+      (should (= (cadr queried) (caddr queried)))
+      (should (= (point) original-point)))))
+
+(ert-deftest ai-code-test-mcp-references-require-location-for-ambiguous-symbol ()
+  "Repeated identifiers must not silently select the wrong binding."
+  (ai-code-test-mcp--with-reference-buffer "foo\nbar\nbar\n"
+    (should-error (ai-code-mcp-xref-find-references "bar" file-path)
+                  :type 'user-error)
+    (should-not queried)))
+
+(ert-deftest ai-code-test-mcp-references-use-explicit-location ()
+  "An explicit line and column must disambiguate a repeated identifier."
+  (ai-code-test-mcp--with-reference-buffer "foo\nbar\nbar\n"
+    (ai-code-mcp-xref-find-references "bar" file-path 3 1)
+    (should (equal (car queried) "bar"))
+    (should (= (cadr queried) 10))
+    (should (= (caddr queried) 10))
+    (should (= (point) (point-min)))))
+
+(ert-deftest ai-code-test-mcp-references-reject-missing-or-wrong-symbol ()
+  "Invalid locations must fail before asking a position-sensitive backend."
+  (ai-code-test-mcp--with-reference-buffer "foo\n;; bar\n\"bar\"\n"
+    (dolist (location '((1 0) (2 3) (3 1) (0 0) (99 0) (1 -1) (1 99) (1)))
+      (should-error (apply #'ai-code-mcp-xref-find-references
+                           "bar" file-path location)
+                    :type 'user-error))
+    (should-not queried)))
+
+(ert-deftest ai-code-test-mcp-references-query-absent-identifier-by-name ()
+  "An identifier absent from the context file is queried by name as before."
+  (ai-code-test-mcp--with-reference-buffer "foo\n;; bar\n"
+    (ai-code-mcp-xref-find-references "bar" file-path)
+    (should (equal queried (list "bar" (point-min) nil)))))
+
+(ert-deftest ai-code-test-mcp-references-eglot-rejects-absent-identifier ()
+  "Eglot ignores the identifier string, so an absent one must not query point."
+  (ai-code-test-mcp--with-reference-buffer "foo\n"
+    (cl-letf (((symbol-function 'xref-find-backend) (lambda () 'eglot)))
+      (should-error (ai-code-mcp-xref-find-references "bar" file-path)
+                    :type 'user-error))
+    (should-not queried)))
+
+(ert-deftest ai-code-test-mcp-references-column-uses-display-column ()
+  "Columns follow `editor_state', which reports tabs expanded."
+  (ai-code-test-mcp--with-reference-buffer "foo\n\tbar\nbar\n"
+    (setq-local tab-width 8)
+    (ai-code-mcp-xref-find-references "bar" file-path 2 8)
+    (should (equal queried (list "bar" 6 6)))))
+
+(ert-deftest ai-code-test-mcp-references-line-without-column ()
+  "A line alone selects the identifier's unique code occurrence on that line."
+  (ai-code-test-mcp--with-reference-buffer "foo\n  bar \"bar\"\nbar bar\n"
+    (ai-code-mcp-xref-find-references "bar" file-path 2)
+    (should (equal queried (list "bar" 7 7)))
+    (setq queried nil)
+    (should-error (ai-code-mcp-xref-find-references "bar" file-path 3)
+                  :type 'user-error)
+    (should-not queried)))
+
+(ert-deftest ai-code-test-mcp-references-select-backend-at-target ()
+  "The xref backend must be chosen at the requested symbol, not at point."
+  (ai-code-test-mcp--with-reference-buffer "foo\nbar\n"
+    (cl-letf (((symbol-function 'xref-find-backend)
+               (lambda () (and (looking-at "bar") 'position-aware))))
+      (ai-code-mcp-xref-find-references "bar" file-path))
+    (should (equal queried (list "bar" 5 5)))))
+
+(ert-deftest ai-code-test-mcp-references-preserve-restriction-and-point ()
+  "Querying another part of a narrowed file must restore the editor state."
+  (ai-code-test-mcp--with-reference-buffer "foo\nbar\n"
+    (narrow-to-region 1 4)
+    (goto-char 2)
+    (ai-code-mcp-xref-find-references "bar" file-path)
+    (should (equal (car queried) "bar"))
+    (should (= (caddr queried) 5))
+    (should (= (point) 2))
+    (should (= (point-min) 1))
+    (should (= (point-max) 4))))
+
+(ert-deftest ai-code-test-mcp-references-eglot-request-uses-target-position ()
+  "The real Eglot backend must build its LSP request at the requested symbol."
+  (skip-unless (require 'eglot nil t))
+  (let* ((file-path (make-temp-file "ai-code-eglot-references-" nil ".c"))
+         (buffer (find-file-noselect file-path))
+         request)
+    (unwind-protect
+        (with-current-buffer buffer
+          (c-mode)
+          (insert "int foo;\nint bar;\n")
+          (goto-char (point-min))
+          (search-forward "foo")
+          (let ((original-point (point)))
+            (cl-letf (((symbol-function 'xref-find-backend) (lambda () 'eglot))
+                      ((symbol-function 'eglot--server-capable-or-lose) #'ignore)
+                      ((symbol-function 'eglot-server-capable)
+                       (lambda (&rest _) t))
+                      ((symbol-function 'eglot--current-server-or-lose) #'ignore)
+                      ;; Newer Eglot flushes document changes before sending
+                      ;; a request; this test has no live server to sync.
+                      ((symbol-function 'eglot--signal-textDocument/didChange)
+                       #'ignore)
+                      ((symbol-function 'jsonrpc-request)
+                       (lambda (_server method params &rest _)
+                         (setq request (list method params))
+                         [])))
+              (ai-code-mcp-xref-find-references "bar" file-path))
+            (should (eq (car request) :textDocument/references))
+            (should (equal (plist-get (cadr request) :position)
+                           '(:line 1 :character 4)))
+            (should (= (point) original-point))))
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer (set-buffer-modified-p nil))
+        (kill-buffer buffer))
+      (delete-file file-path))))
+
 (ert-deftest ai-code-test-mcp-xref-find-definitions-at-point-uses-location-context ()
   "Definitions-at-point should resolve via the xref backend at a file location."
   (let* ((project-dir (make-temp-file "ai-code-mcp-xref-defs-" t))
