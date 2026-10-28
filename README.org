@@ -577,6 +577,26 @@ To transfer development work between different AI coding backends (e.g., from Co
   - Run `C-c a H` anywhere inside a handoff section, or with the cursor on any Org heading, to load only that subtree as prompt context for the active session. The cursor does not have to sit on the handoff headline itself.
   - In an AI session buffer, `C-c a H` sends the session checkpoint prompt (`ai-code-session-checkpoint`) instead.
   - In any other buffer, `C-c a H` asks which of the two actions to run.
+  - New handoffs also record the observed Git state and a machine-readable HEAD
+    baseline, source links/dates, validation commands, task-related uncommitted
+    work, and one concrete first action for the next session.
+
+*** Pick Up an Interrupted Task
+
+Use =C-c a K= (=ai-code-task-resume=) in an Org task file, or select a task
+from another buffer. Review the prompt; the agent appends a =Task Resume=
+subtree with progress, relevant Git changes, open questions and a next action.
+
+- Preserve original context sources (Radar, Slack threads, PRs, GitHub links,
+  meeting notes and Splunk logs), each with a brief summary and next-use hint.
+  Keep supplied Splunk queries and time ranges alongside their search links.
+- Resume works without a prior handoff. Missing information and unread sources
+  stay explicit; external discussions are not automatically refreshed.
+- The agent writes only the task briefing and waits before tests or code changes.
+  These are prompt instructions, not enforced backend permissions.
+
+Select the complete subtree as context for the [[https://github.com/tninja/ai-code-interface.el/pull/541][Verify workflow]], or load it
+with =C-c a H=. Use its references to revisit the original evidence.
 
 ** AI coding CLI backend
 

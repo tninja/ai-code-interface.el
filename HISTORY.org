@@ -2,6 +2,10 @@
 * Release history
 
 ** Main branch change
+- Feat: Resume interrupted Org tasks with a referenced briefing saved in the task
+  file for later Verify input, current Git facts and explicit unknowns; enrich
+  handoffs with Git baselines, validation commands and the next concrete action
+  (=C-c a K= / =H=).
 
 ** 1.99
 - Feat: Session dashboard shows time in state, uncommitted change size, and a summary of the last prompt; toggles at the bottom with C-c a Z

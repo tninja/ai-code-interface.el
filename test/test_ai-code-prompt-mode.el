@@ -1536,5 +1536,36 @@ evaluates BODY, and ensures everything is cleaned up afterward."
       (ai-code--send-prompt "test prompt")
       (should-not switch-called))))
 
+(ert-deftest test-prompt-mode--suppress-summary-for-explicit-output-location ()
+  "Do not offer a second summary location when a workflow supplies its own."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Investigation\nNotes.\n")
+    (goto-char (point-max))
+    (let ((ai-code--suppress-org-summary-prompt t)
+          (ai-code-prompt-preprocess-filepaths nil)
+          sent)
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (&rest _args) (ert-fail "Unexpected summary prompt")))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code--insert-prompt "Append to the new Task Resume subtree."))
+      (should (equal sent "Append to the new Task Resume subtree.")))))
+
+(ert-deftest test-prompt-mode--task-prompt-ignores-visible-unrelated-session ()
+  "Task resumption must use project dispatch even if another session is visible."
+  (let ((visible (generate-new-buffer " *unrelated-session*"))
+        (ai-code--prompt-project-only t))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--find-visible-session-buffer)
+                   (lambda () visible))
+                  ((symbol-function 'ai-code--find-project-session-buffers)
+                   (lambda () nil)))
+          (should-not (ai-code--prompt-choose-target-session))
+          ;; The default routing behavior stays available to other commands.
+          (let ((ai-code--prompt-project-only nil))
+            (should (eq (ai-code--prompt-choose-target-session) visible))))
+      (kill-buffer visible))))
+
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here

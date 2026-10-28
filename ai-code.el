@@ -653,6 +653,7 @@ Shows the current backend label to the right."
 (transient-define-group ai-code--menu-other-tools
   (ai-code--infix-toggle-auto-follow-up)
   ("k" "Create/Open task file" ai-code-create-or-open-task-file)
+  ("K" "Resume task briefing" ai-code-task-resume)
   ("H" "Handoff / checkpoint" ai-code-agent-handoff-or-checkpoint)
   ("/" "Search notes with AI" ai-code-search-notes-with-ai)
   ("n" "Take notes from AI session" ai-code-take-notes)
