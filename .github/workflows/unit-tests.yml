@@ -47,6 +47,7 @@ jobs:
             --eval "(progn (require 'package) (package-initialize) (require 'magit))" \
             -l test/integration/test_ai-code-magit.el \
             -l test/integration/test_ai-code-annotate-magit.el \
+            -l test/integration/test_ai-code-task.el \
             -f ert-run-tests-batch-and-exit
 
       - name: Compile and check documentation for Magit handoff

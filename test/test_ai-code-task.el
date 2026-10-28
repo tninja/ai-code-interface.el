@@ -34,6 +34,7 @@
            (with-temp-file outside-file (insert "content"))
            (cl-letf (((symbol-function 'magit-toplevel) (lambda (&optional _dir) git-root))
                      ((symbol-function 'ai-code--git-root) (lambda (&optional _dir) git-root))
+                     ((symbol-function 'magit-git-string) (lambda (&rest _args) nil))
                      ((symbol-function 'magit-git-lines)
                       (lambda (&rest _args)
                         (let ((default-directory git-root))
@@ -427,6 +428,154 @@
     (should
      (string-match-p "/tmp/project/.ai.code.files/task.org" sent-prompt))))
 
+(ert-deftest test-task--resume-prefers-latest-handoff-baseline ()
+  "Use the latest handoff properties, ignoring nested pseudo-handoffs."
+  (let ((metadata
+         (ai-code--task-resume-metadata
+          "#+REPO_ROOT: /initial/\n#+BASE_COMMIT: initial\n
+* Agent Handoff old
+:PROPERTIES:
+:AI_CODE_HEAD: old
+:END:
+* Agent Handoff latest
+:PROPERTIES:
+:AI_CODE_REPO_ROOT: /worktree/
+:AI_CODE_HEAD: latest
+:END:
+** Agent Handoff nested
+:PROPERTIES:
+:AI_CODE_HEAD: wrong
+:END:
+")))
+    (should (equal (plist-get metadata :head) "latest"))
+    (should (equal (plist-get metadata :repo-root) "/worktree/"))
+    (should (equal (plist-get metadata :baseline) "Agent Handoff latest"))))
+
+(ert-deftest test-task--resume-without-handoff ()
+  "Use a creation baseline when available and accept legacy task files."
+  (let ((metadata (ai-code--task-resume-metadata
+                   "#+BASE_COMMIT: initial\n* Investigation\nStill investigating.\n")))
+    (should (equal (plist-get metadata :head) "initial"))
+    (should (equal (plist-get metadata :baseline) "Task creation")))
+  (should-not (plist-get (ai-code--task-resume-metadata "* Old task\n") :head)))
+
+(ert-deftest test-task--resume-chooses-working-directory-on-mismatch ()
+  "Ask instead of silently using a different checkout."
+  (let ((current (make-temp-file "ai-code-current-" t))
+        (recorded (make-temp-file "ai-code-recorded-" t)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code--session-project-root)
+                   (lambda () current))
+                  ((symbol-function 'completing-read)
+                   (lambda (_prompt candidates &rest _args)
+                     (should (member current candidates))
+                     (should (member recorded candidates))
+                     recorded)))
+          (should (equal (ai-code--task-resume-root (list :repo-root recorded))
+                         recorded))
+          (should (equal (ai-code--task-resume-root (list :repo-root current))
+                         current)))
+      (delete-directory current)
+      (delete-directory recorded))))
+
+(ert-deftest test-task--resume-relocates-missing-checkout ()
+  "Allow choosing an existing directory when a saved worktree is gone."
+  (cl-letf (((symbol-function 'file-directory-p) (lambda (_dir) nil))
+            ((symbol-function 'read-directory-name)
+             (lambda (_prompt _dir _default mustmatch &rest _args)
+               (should mustmatch)
+               "/new/checkout/")))
+    (should (equal (ai-code--task-resume-root '(:repo-root "/gone/"))
+                   "/new/checkout/"))))
+
+(ert-deftest test-task--resume-saves-notes-and-preserves-reference-paths ()
+  "Save notes before the agent appends, preserving paths and the chosen project."
+  (let* ((task-file (make-temp-file "ai-code-resume-" nil ".org"))
+         (root (file-name-as-directory temporary-file-directory))
+         (ai-code-use-prompt-suffix t)
+         sent-prompt)
+    (unwind-protect
+        (with-current-buffer (find-file-noselect task-file)
+          (org-mode)
+          (insert "#+TITLE: Recovery\n* Meeting\nUnsaved decision: preserve fallback.\n")
+          (cl-letf (((symbol-function 'ai-code--task-resume-root)
+                     (lambda (_metadata) root))
+                    ((symbol-function 'ai-code--task-git-snapshot)
+                     (lambda (directory _metadata)
+                       (should (equal directory root))
+                       "CURRENT GIT FACTS"))
+                    ((symbol-function 'ai-code--confirm-and-send)
+                     (lambda (_label prompt)
+                       (should-not ai-code-use-prompt-suffix)
+                       (should-not ai-code-prompt-suffix-functions)
+                       (should-not ai-code-prompt-preprocess-filepaths)
+                       (should ai-code--suppress-org-summary-prompt)
+                       (should ai-code--prompt-project-only)
+                       (should (equal (ai-code--session-project-root) root))
+                       (should (equal default-directory root))
+                       (setq sent-prompt prompt))))
+            (ai-code-task-resume))
+          (should ai-code-use-prompt-suffix)
+          (should-not (buffer-modified-p))
+          (with-temp-buffer
+            (insert-file-contents task-file)
+            (should (string-match-p "Unsaved decision" (buffer-string))))
+          (should (string-match-p "Unsaved decision: preserve fallback" sent-prompt))
+          (should (string-match-p "CURRENT GIT FACTS" sent-prompt))
+          (should (string-match-p "Do not modify other files" sent-prompt))
+          (should (string-match-p "wait for my choice" sent-prompt))
+          (should (string-match-p "historic passing" sent-prompt))
+          (set-buffer-modified-p nil))
+      (when-let* ((buffer (find-buffer-visiting task-file)))
+        (with-current-buffer buffer (set-buffer-modified-p nil))
+        (kill-buffer buffer))
+      (delete-file task-file))))
+
+(ert-deftest test-task--resume-keeps-references-for-verify-input ()
+  "Preserve original references and ask for reusable, evidence-linked output."
+  (let* ((references '("rdar://12345678"
+                       "https://example.slack.com/archives/C012/p1234567890123456"
+                       "https://github.com/example/app/pull/42"
+                       "https://github.com/example/app/blob/abc123/src/main.el#L20"
+                       "[[file:/tmp/splint-run-7.log::42][splint failure]]"))
+         (content (concat "* Sources\n" (string-join references "\n")))
+         (prompt (ai-code--task-resume-prompt "/tmp/task.org" content "HEAD: abc")))
+    (dolist (reference references)
+      (should (string-match-p (regexp-quote reference) prompt)))
+    (dolist (instruction '("Append the briefing ONLY" "Task Resume"
+                          "** References" "** Verification Context"
+                          "Source references | Implementation | Evidence/status"
+                          "Do not shorten or invent identifiers"
+                          "cannot be accessed" "not independent proof"))
+      (should (string-match-p (regexp-quote instruction) prompt)))))
+
+(ert-deftest test-task--resume-selects-existing-task-outside-org ()
+  "The resume entry point selects a task when invoked from source code."
+  (let* ((task-file (make-temp-file "ai-code-select-" nil ".org"))
+         (root (file-name-as-directory temporary-file-directory))
+         selected sent-prompt)
+    (unwind-protect
+        (with-temp-buffer
+          (cl-letf (((symbol-function 'ai-code--ensure-files-directory)
+                     (lambda () root))
+                    ((symbol-function 'ai-code--task-file-candidates)
+                     (lambda (_dir) (list (file-name-nondirectory task-file))))
+                    ((symbol-function 'completing-read)
+                     (lambda (prompt _candidates &rest _args)
+                       (setq selected prompt)
+                       (file-name-nondirectory task-file)))
+                    ((symbol-function 'ai-code--task-resume-root)
+                     (lambda (_metadata) root))
+                    ((symbol-function 'ai-code--task-git-snapshot)
+                     (lambda (&rest _args) "No baseline"))
+                    ((symbol-function 'ai-code--confirm-and-send)
+                     (lambda (_label prompt) (setq sent-prompt prompt))))
+            (ai-code-task-resume))
+          (should (equal selected "Task to resume: "))
+          (should (string-match-p (regexp-quote task-file) sent-prompt)))
+      (when-let* ((buffer (find-buffer-visiting task-file))) (kill-buffer buffer))
+      (delete-file task-file))))
+
 (ert-deftest ai-code-test-task-file-candidates-sort-by-modified-time-with-missing-scratch ()
   "Task candidates follow modified time and missing scratch.org is fifth."
   (ai-code-with-test-repo
@@ -616,6 +765,7 @@
                    (lambda (&optional _dir) worktree-root))
                   ((symbol-function 'magit-toplevel)
                    (lambda (&optional _dir) worktree-root))
+                  ((symbol-function 'magit-git-string) (lambda (&rest _args) nil))
                   ((symbol-function 'ai-code--worktree-main-repo-root)
                    (lambda () main-repo-root))
                   ((symbol-function 'ai-code--ensure-files-directory)

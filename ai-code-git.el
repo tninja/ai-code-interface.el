@@ -961,7 +961,8 @@ BRANCH is used as the default task name."
     (let ((task-file (expand-file-name confirmed-filename files-dir)))
       (unless (file-exists-p task-file)
         (with-temp-file task-file
-          (ai-code--initialize-task-file-content task-name "")))
+          (let ((default-directory (file-name-as-directory worktree-path)))
+            (ai-code--initialize-task-file-content task-name ""))))
       (let ((symlink-path (expand-file-name confirmed-filename worktree-path)))
         (unless (file-exists-p symlink-path)
           (make-symbolic-link task-file symlink-path))

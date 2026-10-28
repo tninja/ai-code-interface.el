@@ -74,6 +74,9 @@ non-empty string or nil.  Provider errors abort the send."
 (defvar ai-code--prompt-origin-command nil
   "Originating interactive command for the current prompt request.")
 
+(defvar ai-code--suppress-org-summary-prompt nil
+  "When non-nil, skip the optional Org result-summary question.")
+
 (defun ai-code-prompt-context-memoize (context key producer)
   "Return the cached value for KEY in CONTEXT, calling PRODUCER once."
   (let* ((cache (ai-code-prompt-context-cache context))
@@ -447,6 +450,10 @@ that should be recorded in the prompt history file."
             (ai-code-backends-infra--session-buffer-matches-directory-p buf git-root)))
      (buffer-list))))
 
+(defvar ai-code--prompt-project-only nil
+  "When non-nil, do not send prompts to a visible session in another project.
+Bind this for task workflows that explicitly choose their working directory.")
+
 (defun ai-code--prompt-choose-target-session ()
   "Choose AI session buffer to send prompt to.
 Return a session buffer, or nil for default backend dispatch."
@@ -456,6 +463,7 @@ Return a session buffer, or nil for default backend dispatch."
            (competing-sessions
             (cl-remove visible-session project-sessions)))
       (cond
+       ((and ai-code--prompt-project-only (not visible-is-project-session)) nil)
        (visible-is-project-session nil)
        ((null competing-sessions)
         visible-session)
@@ -758,7 +766,8 @@ If PROMPT-TEXT is a command (starts with /), execute it directly instead."
     (if (ai-code--direct-command-p processed-prompt)
         (ai-code--execute-command processed-prompt)
       (let* ((anchor ai-code--org-summary-anchor)
-             (append-summary-p (and (derived-mode-p 'org-mode)
+             (append-summary-p (and (not ai-code--suppress-org-summary-prompt)
+                                    (derived-mode-p 'org-mode)
                                     (ignore-errors (save-excursion (org-back-to-heading t) t))
                                     (y-or-n-p "Append result summary to current section? ")))
              (final-prompt

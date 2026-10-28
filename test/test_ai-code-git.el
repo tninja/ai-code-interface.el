@@ -561,6 +561,7 @@ test instead of creating a real worktree next to the repository."
                    (lambda () temp-git-root))
                   ((symbol-function 'ai-code--git-root)
                    (lambda (&optional _dir) temp-git-root))
+                  ((symbol-function 'magit-git-string) (lambda (&rest _args) nil))
                   ((symbol-function 'magit-branch-p)
                    (lambda (_b) nil))
                   ((symbol-function 'magit-call-git)

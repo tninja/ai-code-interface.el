@@ -557,6 +557,12 @@
     (should (string-prefix-p "Handoff / checkpoint"
                              (plist-get definition :description)))))
 
+(ert-deftest test-task--resume-menu-entry ()
+  "Expose task resumption alongside task creation and handoff in both layouts."
+  (let ((entry (transient-get-suffix 'ai-code--menu-other-tools "K")))
+    (should entry)
+    (should (eq (plist-get (cdr entry) :command) 'ai-code-task-resume))))
+
 (ert-deftest ai-code-test-menu-prefix-command-default-layout ()
   "Test that the default menu layout uses the original transient."
   (let ((ai-code-menu-layout 'default))

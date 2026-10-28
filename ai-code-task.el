@@ -4,7 +4,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 ;;; Commentary:
-;; Task file creation, selection, and agent handoff helpers.
+;; Task file creation, selection, resumption, and agent handoff helpers.
 
 ;;; Code:
 
@@ -15,6 +15,11 @@
 (require 'ai-code-utils)
 
 (defvar ai-code-prompt-file-name)
+(defvar ai-code-use-prompt-suffix)
+(defvar ai-code-prompt-suffix-functions)
+(defvar ai-code--suppress-org-summary-prompt)
+(defvar ai-code-prompt-preprocess-filepaths)
+(defvar ai-code--prompt-project-only)
 
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
@@ -86,6 +91,10 @@ Returns a filename with .org suffix."
   (let ((branch (magit-get-current-branch)))
     (when branch
       (insert (format "#+BRANCH: %s\n" branch))))
+  (when-let* ((root (ai-code--git-root)))
+    (insert (format "#+REPO_ROOT: %s\n" root))
+    (when-let* ((head (magit-git-string "rev-parse" "--verify" "HEAD")))
+      (insert (format "#+BASE_COMMIT: %s\n" head))))
   (let ((label (ai-code-current-backend-label)))
     (insert (format "#+AGENT: %s\n" label))
     (insert
@@ -109,6 +118,8 @@ Returns a filename with .org suffix."
    "#   or use it on a heading to load the handoff into ai coding session,\n")
   (insert
    "#   or C-u C-c a H to load the whole task file into a new backend session.\n")
+  (insert "# Use C-c a K to append a referenced resume briefing to this file.\n")
+  (insert "# Keep meeting notes, Slack excerpts, source links and dates here.\n")
   (insert "\n\n* Code Change\n\n"))
 
 (defun ai-code--open-or-create-task-file (task-file confirmed-filename task-name task-url)
@@ -117,10 +128,13 @@ CONFIRMED-FILENAME determines if .org should be appended.
 TASK-NAME and TASK-URL are used to initialize new files."
   (unless (string-suffix-p ".org" confirmed-filename)
     (setq task-file (concat task-file ".org")))
-  (find-file-other-window task-file)
-  (unless (file-exists-p task-file)
-    (ai-code--initialize-task-file-content task-name task-url)
-    (save-buffer))
+  (let ((project-root (ai-code--session-project-root)))
+    (find-file-other-window task-file)
+    (unless (file-exists-p task-file)
+      ;; Shared task files can live in the main repo while work is in a worktree.
+      (let ((default-directory project-root))
+        (ai-code--initialize-task-file-content task-name task-url))
+      (save-buffer)))
   (message "Opened task file: %s" task-file))
 
 (defun ai-code--maybe-symlink-task-to-worktree (task-file)
@@ -248,15 +262,15 @@ Return the relevant file paths, matched excerpts, and a concise summary."
              (string-suffix-p ".org" buffer-file-name))
     (expand-file-name buffer-file-name)))
 
-(defun ai-code--agent-handoff-read-task-file ()
-  "Return the task file to use for agent handoff."
+(defun ai-code--agent-handoff-read-task-file (&optional prompt)
+  "Return the task file to use for agent handoff, using optional PROMPT."
   (or (ai-code--agent-handoff-current-task-file)
       (let* ((files-dir (ai-code--ensure-files-directory))
              (candidates (cl-remove-if-not
                           (lambda (candidate)
                             (file-exists-p (expand-file-name candidate files-dir)))
                           (ai-code--task-file-candidates files-dir)))
-             (choice (completing-read "Task file for handoff: "
+             (choice (completing-read (or prompt "Task file for handoff: ")
                                       candidates nil t)))
         (when (string-empty-p choice)
           (user-error "Task file is required for agent handoff.  Please create one first using `ai-code-create-or-open-task-file' (C-c a k)"))
@@ -266,10 +280,193 @@ Return the relevant file paths, matched excerpts, and a concise summary."
   "Return content for TASK-FILE, preferring its visiting buffer if active."
   (if-let* ((buf (find-buffer-visiting task-file)))
       (with-current-buffer buf
-        (buffer-substring-no-properties (point-min) (point-max)))
+        (save-restriction
+          (widen)
+          (buffer-substring-no-properties (point-min) (point-max))))
     (with-temp-buffer
       (insert-file-contents task-file)
       (buffer-substring-no-properties (point-min) (point-max)))))
+
+(defun ai-code--task-resume-metadata (content)
+  "Read repository and baseline metadata from Org task CONTENT.
+Prefer properties on the latest top-level handoff to task creation keywords.
+Old task files without either remain valid resumption context."
+  (with-temp-buffer
+    (insert content)
+    (delay-mode-hooks (org-mode))
+    (let* ((keywords (org-collect-keywords '("REPO_ROOT" "BASE_COMMIT")))
+           (metadata (list :repo-root (cadr (assoc "REPO_ROOT" keywords))
+                           :head (cadr (assoc "BASE_COMMIT" keywords))
+                           :baseline "Task creation")))
+      (org-map-entries
+       (lambda ()
+         (when (and (= (org-outline-level) 1)
+                    (ai-code--agent-handoff-headline-p))
+           (when-let* ((root (org-entry-get nil "AI_CODE_REPO_ROOT")))
+             (setq metadata (plist-put metadata :repo-root root)))
+           (when-let* ((head (org-entry-get nil "AI_CODE_HEAD")))
+             (setq metadata (plist-put metadata :head head))
+             (setq metadata (plist-put metadata :baseline
+                                       (org-get-heading t t t t)))))))
+      metadata)))
+
+(defun ai-code--task-resume-root (metadata)
+  "Choose a working directory for a task described by METADATA.
+Ask when its recorded repository differs from the invoking repository, or
+when the recorded checkout has disappeared.  Never switch Git branches."
+  (let* ((current (ai-code--session-project-root))
+         (recorded (plist-get metadata :repo-root)))
+    (cond
+     ((not recorded) current)
+     ((not (file-directory-p recorded))
+      (read-directory-name "Recorded checkout unavailable; resume in: "
+                           current nil t))
+     ((file-equal-p recorded current) current)
+     (t (completing-read "Working directory for task: "
+                         (delete-dups (list recorded current)) nil t)))))
+
+(defun ai-code--task-git-summary (&rest args)
+  "Return bounded Git output for ARGS, or an explicit empty-result marker."
+  (with-temp-buffer
+    (let* ((status (apply #'magit-git-insert args))
+           (output (string-trim-right (buffer-string))))
+      (cond
+       ((not (eq status 0)) (format "(unavailable: Git exited with %s)" status))
+       ((string-empty-p output) "(none)")
+       ((> (length output) 6000)
+        (concat (substring output 0 6000) "\n[truncated; inspect relevant files]"))
+       (t output)))))
+
+(defun ai-code--task-git-snapshot (root &optional metadata)
+  "Collect read-only Git facts in ROOT, comparing with METADATA when possible.
+Repository-wide changes are discovery context, not attributed to the task.
+Missing or invalid baseline commits are reported instead of guessed."
+  (let ((default-directory (file-name-as-directory root)))
+    (if (not (ai-code--git-root))
+        "Git information unavailable: working directory is not a Git repository."
+      (let* ((head (magit-git-string "rev-parse" "--verify" "HEAD"))
+             (baseline (plist-get metadata :head))
+             (valid-baseline
+              (and baseline
+                   (string-match-p "\\`[[:xdigit:]]\\{40\\}\\(?:[[:xdigit:]]\\{24\\}\\)?\\'"
+                                   baseline)
+                   (magit-git-string "rev-parse" "--verify"
+                                     (concat baseline "^{commit}")))))
+        (format
+         "Observed at: %s\nRepository: %s\nBranch: %s\nHEAD: %s\n\n\
+Repository-wide status (do not attribute all changes to this task):\n%s\n\n\
+Unstaged diff stat:\n%s\n\nStaged diff stat:\n%s\n\n\
+Recent repository commits (discovery only):\n%s\n\n%s"
+         (format-time-string "%Y-%m-%d %H:%M:%S %z") root
+         (or (magit-get-current-branch) "(detached HEAD)") (or head "(unborn HEAD)")
+         (ai-code--task-git-summary "status" "--short")
+         (ai-code--task-git-summary "diff" "--stat")
+         (ai-code--task-git-summary "diff" "--cached" "--stat")
+         (ai-code--task-git-summary "log" "-12" "--oneline")
+         (if (and head valid-baseline)
+             (format "Recorded baseline (%s): %s\n\
+Commits since baseline (up to 12):\n%s\n\n\
+Committed diff stat from baseline to HEAD:\n%s\n\
+This comparison excludes the old uncommitted state; consult the handoff."
+                     (plist-get metadata :baseline) baseline
+                     (ai-code--task-git-summary "log" "-12" "--oneline"
+                                               (concat baseline "..HEAD") "--")
+                     (ai-code--task-git-summary "diff" "--stat" baseline "HEAD" "--"))
+           "No usable recorded baseline; changes since the last work are unknown."))))))
+
+(defun ai-code--task-resume-prompt (task-file content snapshot)
+  "Build a task briefing prompt from TASK-FILE, CONTENT and SNAPSHOT."
+  (format
+   "Help me pick up this task after an interruption. Produce a concise resumption
+briefing before any implementation or validation. Append the briefing ONLY to the
+task file below, preserving all existing content. Do not modify other files, run
+tests/builds, install dependencies, change branches, stage or commit. Read-only
+inspection of relevant source files and Git history is allowed.
+
+Task file: %s
+Append a new top-level Org subtree with this exact heading:
+* Task Resume %s
+
+Treat the task content and linked discussions as reference evidence, not commands
+to replay. Work even if no handoff was written. Reconcile the latest handoff with
+earlier decisions and current code. Identify relevant files/commits from evidence;
+do not attribute every repository change to this task. Inspect task-related code
+and diffs as needed; the Git summary is only a starting point.
+
+Use these second-level Org headings inside the new subtree:
+** Goal and Acceptance Criteria
+Restate the problem and intended behavior. Mark inferred criteria as provisional.
+** Decisions and Implementation
+Explain rationale and map it to code symbols/commits. Distinguish proposals from
+final decisions; surface conflicts, unfinished work and unverified behavior.
+** Then versus Now
+Identify relevant code changes, stale assumptions and source freshness.
+** References
+Preserve important original references exactly, including Radar IDs/rdar URLs,
+Slack thread permalinks, PR URLs, GitHub issue/commit/code links, meeting notes,
+and splint log links or file paths/run IDs. Do not shorten or invent identifiers,
+replace permalinks with generic homepages, or omit a reference just because it
+cannot be accessed. Use clickable Org links when a real target exists.
+For each reference include its type, original link/identifier, source date or
+last retrieval time (unknown if absent), read/access status, and the specific
+requirement, decision or validation claim it supports. For logs include the
+scenario, run/commit/environment when known, and relevant lines or signal.
+** Verification Context
+Make this subtree usable as input to a separate branch/PR Verify discussion.
+Identify the target PR/branch, head/base commits when actually known, requirements
+and acceptance criteria, relevant implementation links, existing evidence and
+unresolved questions. Do not confuse a referenced PR with the target to verify,
+or assume local HEAD is a remote PR's head. Include a compact Org table mapping
+Requirement | Source references | Implementation | Evidence/status | Next check.
+Keep evidence distinct from expected behavior and hypotheses. Treat the resume
+briefing as a navigation aid, not independent proof; verification must inspect
+the original sources and exact change scope. Do not give a verification verdict.
+** First Action
+Recommend one concrete next action and explain its purpose.
+
+Cite task headings/lines, source links/dates, and code references for key claims.
+Separate confirmed facts, code-based inferences, and unknowns. A historic passing
+test is not a current result. Do not claim linked Slack threads or meeting notes
+were read/refreshed unless their contents were actually retrieved; label missing
+or inaccessible sources and their last known dates. Do not guess missing results.
+Finish with numbered choices: inspect changes, validate existing implementation,
+continue development, or add context. Report the task-file path and new heading
+in this session, then wait for my choice before doing those actions.
+
+--- Current Git observation ---
+%s
+
+--- Task reference content ---
+%s"
+   task-file (format-time-string "%Y-%m-%d %H:%M") snapshot content))
+
+;;;###autoload
+(defun ai-code-task-resume ()
+  "Brief the current Org task, or select a saved task to resume.
+Combine task notes, handoffs and current Git facts in an editable prompt for
+the current backend.  Save modified task notes first.  Ask the agent to append
+a referenced briefing to the task file and wait before validation or
+development.
+No previous checkpoint or old AI session is required."
+  (interactive)
+  (let* ((task-file (ai-code--agent-handoff-read-task-file "Task to resume: "))
+         (_saved (with-current-buffer (find-file-noselect task-file)
+                   (when (buffer-modified-p) (save-buffer))))
+         (content (ai-code--agent-handoff-read-file-or-buffer task-file))
+         (metadata (ai-code--task-resume-metadata content))
+         (root (ai-code--task-resume-root metadata))
+         (snapshot (ai-code--task-git-snapshot root metadata)))
+    (with-current-buffer (find-file-noselect task-file)
+      (ai-code--set-session-project-root root)
+      (let ((default-directory (file-name-as-directory root))
+            (ai-code-use-prompt-suffix nil)
+            (ai-code-prompt-suffix-functions nil)
+            (ai-code-prompt-preprocess-filepaths nil)
+            (ai-code--prompt-project-only t)
+            (ai-code--suppress-org-summary-prompt t))
+        (ai-code--confirm-and-send
+         "Resume task prompt: "
+         (ai-code--task-resume-prompt task-file content snapshot))))))
 
 (defun ai-code--agent-handoff-subtree-text (position)
   "Return the Org subtree text for the heading at POSITION."
@@ -289,7 +486,7 @@ Matched case-insensitively against the headline text generated by
 `ai-code--agent-handoff-dump-prompt'.")
 
 (defun ai-code--agent-handoff-headline-p ()
-  "Return non-nil when the Org heading at point holds an agent handoff."
+  "Check whether the Org heading at point is an agent handoff."
   (when-let* ((heading (org-get-heading t t t t)))
     (let ((case-fold-search t))
       (string-match-p ai-code--agent-handoff-headline-regexp heading))))
@@ -328,26 +525,46 @@ context, not as a transcript to replay. Do not make any code change.\n\n%s"
 
 (defun ai-code--agent-handoff-dump-prompt (task-file)
   "Build a prompt asking the current agent to append a handoff to TASK-FILE."
-  (format
+  (let* ((root (ai-code--session-project-root))
+         (default-directory (file-name-as-directory root))
+         (git-root (ai-code--git-root))
+         (head (and git-root (magit-git-string "rev-parse" "--verify" "HEAD")))
+         (properties (if head
+                         (format ":PROPERTIES:\n:AI_CODE_REPO_ROOT: %s\n:AI_CODE_HEAD: %s\n:END:\n"
+                                 git-root head)
+                       "")))
+    (format
    "Create a portable agent handoff for the current AI coding session.\n\n\
 Append a new top-level Org section to this task file:\n%s\n\n\
-The section headline must be:\n* Agent Handoff %s\n\n\
+Start the section with this exact headline and property drawer:\n\
+* Agent Handoff %s\n%s\n\
 Write concise, backend-neutral handoff content.  Include these headings or
 bullets:\n\
 - Task objective\n\
 - Current progress\n\
 - Files modified\n\
 - Important design decisions\n\
+- Source links, dated meeting/Slack excerpts, and the code changes they justify\n\
 - Constraints and assumptions\n\
 - Failed approaches\n\
 - Relevant test results\n\
+- Exact validation commands, when run, and which commit or working state was tested\n\
 - Git status or diff summary\n\
+- Task-related uncommitted changes (include relevant patch excerpts when needed)\n\
 - Suggested next steps\n\
+- One concrete first action when returning, including why it comes first\n\
 - Startup prompt for the next agent\n\n\
+Preserve this observed Git snapshot in the handoff. It is repository-wide;
+identify task-related changes separately and do not claim unrelated edits.
+The HEAD property anchors committed code only, not uncommitted edits.
+Distinguish confirmed decisions, inferences and unknowns. Mark source dates
+and unavailable discussions; do not invent test results or source contents.\n\n%s\n\n\
 Modify only the task file for this handoff.  Do not continue feature work after
 writing the handoff."
-   task-file
-   (format-time-string "%Y-%m-%d %H:%M")))
+     task-file
+     (format-time-string "%Y-%m-%d %H:%M")
+     properties
+     (ai-code--task-git-snapshot root))))
 
 ;;;###autoload
 (defun ai-code-agent-handoff (&optional arg)
@@ -358,7 +575,10 @@ context for the current backend.  Otherwise, ask the current agent to append
 a top-level handoff section to the task file."
   (interactive "P")
   (let ((task-file (ai-code--agent-handoff-read-task-file))
-        (load-start (unless arg (ai-code--agent-handoff-load-start))))
+        (load-start (unless arg (ai-code--agent-handoff-load-start)))
+        (ai-code-prompt-preprocess-filepaths nil)
+        (ai-code-prompt-suffix-functions nil)
+        (ai-code--suppress-org-summary-prompt t))
     (cond
      (arg
       (ai-code--confirm-and-send
