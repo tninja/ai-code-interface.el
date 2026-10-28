@@ -32,6 +32,15 @@
   "Read-only rule appended after editing the Verify prompt.
 This rule is not a filesystem or backend permission boundary.")
 
+(defconst ai-code-verify--mandatory-source-rule
+  (concat
+   "\n\nVERIFY SOURCE-OF-TRUTH RULE (mandatory): Judge the actual changes "
+   "against original human-provided requirements and referenced discussions, "
+   "not intermediate AI-generated summaries or implementation plans. "
+   "If original references are unavailable or contradictory, say so and "
+   "ask for clarification; do not claim verified compliance.")
+  "Original-source requirement appended after editing the Verify prompt.")
+
 (defun ai-code-verify--requirement-context ()
   "Return the selected text or enclosing Org section as problem context.
 A nonblank region takes precedence; Org section contents are used otherwise.
@@ -116,7 +125,7 @@ description, and CONTEXT is selected editor text or an Org subtree."
    (concat
     (or (ai-code--format-repo-context-info) "")
     (when (and context (not (string-blank-p context)))
-      (concat "\n\nPrimary user-provided problem/requirements:\n" context)))
+      (concat "\n\nSelected task/requirements context (may include original references and AI-generated notes):\n" context)))
    :boundaries
    (concat
     "STRICT READ-ONLY INVESTIGATION. Never modify, create, delete, "
@@ -136,24 +145,44 @@ description, and CONTEXT is selected editor text or an Org subtree."
    (concat
     (cond
      ((and context (not (string-blank-p context)))
-      (concat "The supplied selection or Org task section is the PRIMARY "
-              "problem statement. Derive intended behavior and acceptance "
-              "criteria from it before inspecting the changes. Do not ask "
-              "the user to repeat this context. Clarify only material "
-              "ambiguities that affect the investigation.\n"
+      (concat "The supplied selection or Org task section is the STARTING POINT "
+              "for finding original requirements, not necessarily the "
+              "authoritative requirement itself. Use any direct human "
+              "instructions it contains, and follow its links or IDs to "
+              "original human-authored discussions and decisions. Do not "
+              "ask the user to repeat available context. Clarify only "
+              "material ambiguities that affect the investigation.\n"
               (when (and requirements (not (string-blank-p requirements)))
                 (concat "Additional user clarification:\n"
                         requirements "\n"))))
      ((string-blank-p (or requirements ""))
-      (concat "No explicit problem statement was supplied. Reconstruct "
-              "the intended behavior from the PR description or linked "
-              "issue. Identify assumptions and ask the user to correct "
-              "them rather than treating inferred intent as fact.\n"))
+      (concat "No explicit problem statement was supplied. Trace original "
+              "human-authored requirements in the linked issue, PR "
+              "discussion, or other references. A PR description may "
+              "be AI-generated: check its provenance. Identify assumptions "
+              "and ask the user to correct them rather than treating "
+              "inferred intent as fact.\n"))
      (t (concat "User's problem/requirements:\n" requirements "\n")))
-    "First, inspect the actual changed behavior against the intended "
-    "behavior, not just code style. Build a small requirements-to-evidence "
-    "map: which requirements are addressed, which may be missing, and "
-    "which claims lack validation. Inspect relevant implementation paths, "
+    "SOURCE OF TRUTH: Before judging the changes, trace the task's or "
+    "selection's original references when available: human-authored "
+    "Slack threads, Radar tickets, GitHub issues and PR discussions, "
+    "meeting notes, and direct user instructions. Splunk logs are raw "
+    "observations, not automatically human requirements. Treat AI-generated "
+    "resume summaries, derived context, design drafts, implementation plans, "
+    "PR summaries, and agent conclusions as navigation aids, NOT acceptance "
+    "criteria. Read the original sources if accessible; never silently "
+    "substitute a generated summary. Identify which requirements came "
+    "directly from humans and which are inferences. Check for later human "
+    "decisions or conflicting sources; ask for clarification instead of "
+    "choosing a convenient interpretation. If original references cannot "
+    "be accessed, name the missing sources and state what remains unverified.\n"
+    "Then compare the actual changed behavior to the original-source "
+    "requirements, not just code style. Build a small source-to-requirement-"
+    "to-change-to-evidence map, with URLs or precise source locations: "
+    "which human requirements are addressed, which may be missing, and "
+    "which claims lack validation. Tests and CI show implementation "
+    "behavior, not what humans originally asked for. Inspect relevant "
+    "implementation paths, 
     "tests, and surrounding code as needed. Distinguish observed facts, "
     "inferences, and assumptions; cite concrete files, locations, "
     "test commands/results or CI evidence. Passing tests are not proof "
@@ -177,13 +206,15 @@ description, and CONTEXT is selected editor text or an Org subtree."
 
 (defun ai-code-verify--confirm-and-send (prompt)
   "Let the user edit the complete Verify PROMPT, then send if accepted.
-Always append the mandatory read-only rule after editing.  Cancellation
+Always append mandatory read-only and original-source rules after editing.
+Cancellation
 does not send anything or update task or repository state."
   (when-let ((edited (ai-code-compose-read
                      "Edit Verify prompt (read-only rule appended)"
                      prompt)))
     (ai-code--insert-prompt
-     (concat edited ai-code-verify--mandatory-read-only-suffix))))
+     (concat edited ai-code-verify--mandatory-read-only-suffix
+             ai-code-verify--mandatory-source-rule))))
 
 
 ;;;###autoload
