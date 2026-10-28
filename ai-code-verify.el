@@ -109,9 +109,19 @@ description, and CONTEXT is selected editor text or an Org subtree."
       (concat "\n\nPrimary user-provided problem/requirements:\n" context)))
    :boundaries
    (concat
-    "Investigation only. Do not edit code, tests, Org tasks, PR comments, "
-    "or metadata; do not commit, push, or merge. Run only safe, authorized "
-    "checks. Production or sensitive data access needs permission.")
+    "STRICT READ-ONLY INVESTIGATION. Never modify, create, delete, "
+    "format, regenerate, or apply patches to source code, test code, "
+    "snapshots, fixtures, configurations, documentation, Org tasks, "
+    "Git state, PR comments, or metadata. Do not commit, push, merge, "
+    "stage, checkout, install dependencies, or run auto-fix commands. "
+    "Never automatically implement a suggested fix, even when a defect "
+    "is obvious. Use read-only inspection and existing CI/test artifacts "
+    "as evidence. Run a fresh check only when it is known to be "
+    "non-destructive and does not modify the repository; otherwise "
+    "describe the check and ask the user to perform it separately. "
+    "Do not access production or sensitive data without permission. "
+    "If the user wants changes, propose a separate implementation "
+    "action/session: verification itself must remain read-only.")
    :instruction
    (concat
     (cond
@@ -150,8 +160,10 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "In subsequent turns, incorporate their feedback, challenge earlier "
     "hypotheses, investigate the requested path, and refine conclusions. "
     "The user decides when evidence is sufficient or when to stop. "
-    "If requested, provide a final assessment that distinguishes "
-    "demonstrated behavior from uncertainty.")))
+    "Suggestions may name locations and show proposed changes as text, "
+    "but DO NOT APPLY or write them during Verify; keep discussion and "
+    "implementation as separate actions. If requested, provide a final "
+    "assessment that distinguishes demonstrated behavior from uncertainty.")))
 
 ;;;###autoload
 (defun ai-code-verify-current-work ()
