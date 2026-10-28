@@ -211,6 +211,72 @@
     (should-not (ai-code--org-section-candidates))
     (should (ai-code--org-section-candidates t))))
 
+
+(ert-deftest ai-code-verify-test-org-section-is-primary-requirement-no-reprompt ()
+  "The current task section alone is enough to verify a branch."
+  (ai-code-verify-test--with-org
+      "* TODO Fix cache invalidation\nAcceptance: clear stale entries.\n"
+    (let (sent)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Current branch"))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _) "/tmp/project/"))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "fix-cache"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (&rest _)
+                   (ert-fail "Do not ask for requirements already in task section")))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () nil))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-verify-current-work)
+        (should (string-match-p "Primary user-provided problem/requirements" sent))
+        (should (string-match-p "Fix cache invalidation" sent))
+        (should (string-match-p "clear stale entries" sent))
+        (should (string-match-p "PRIMARY problem statement" sent))
+        (should-not (string-match-p "No explicit problem statement was supplied" sent))
+        (should (equal (org-get-todo-state) "TODO"))
+        (should-not (buffer-modified-p))))))
+
+(ert-deftest ai-code-verify-test-pr-selected-text-only-asks-url ()
+  "Selected requirements drive PR verification without another text prompt."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/issue-notes.org")
+    (insert "Must preserve old behavior.\nUnrelated follow-up.\n")
+    (goto-char (point-min))
+    (set-mark (+ (point) (length "Must preserve old behavior.")))
+    (let (sent)
+      (cl-letf (((symbol-function 'use-region-p) (lambda () t))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) "GitHub PR"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (label &rest _)
+                   (if (string-match-p "GitHub PR URL" label)
+                       "https://github.com/tninja/ai-code-interface.el/pull/541"
+                     (ert-fail "Selected requirements should skip re-entry"))))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () nil))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-verify-current-work)
+        (should (string-match-p "Selected requirements in" sent))
+        (should (string-match-p "Must preserve old behavior" sent))
+        (should-not (string-match-p "Unrelated follow-up" sent))
+        (should (string-match-p "pull/541" sent))))))
+
+(ert-deftest ai-code-verify-test-blank-selection-falls-back-to-org-section ()
+  "Whitespace-only selections do not hide the useful task section."
+  (ai-code-verify-test--with-org
+      "* TODO Verify retry change\n   \nAcceptance: old API still works.\n"
+    (forward-line 1)
+    (set-mark (line-end-position))
+    (cl-letf (((symbol-function 'use-region-p) (lambda () t)))
+      (let ((context (ai-code-verify--requirement-context)))
+        (should (string-match-p "Verify retry change" context))
+        (should (string-match-p "old API still works" context))
+        (should-not (string-match-p "Selected requirements in" context))))))
+
 (provide 'test_ai-code-verify)
 
 ;;; test_ai-code-verify.el ends here
