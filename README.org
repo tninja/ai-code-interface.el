@@ -578,54 +578,20 @@ To transfer development work between different AI coding backends (e.g., from Co
 
 *** Pick Up an Interrupted Task
 
-After a few days or weeks away, use =C-c a K= (=ai-code-task-resume=) in an Org
-task file, or run it elsewhere to select an existing task. Review the generated
-prompt and send it to the current AI backend. Modified task notes are saved first
-so an external agent can append without racing unsaved buffer content. It appends
-a new top-level =Task Resume YYYY-MM-DD HH:MM= subtree to the task file,
-preserving existing notes. It covers goal and acceptance criteria, decisions and their sources,
-implemented and unverified behavior, changes since the recorded baseline, and
-one recommended first action. It reports the saved heading in its session and
-offers numbered choices to inspect changes, validate, continue, or add context.
+Use =C-c a K= (=ai-code-task-resume=) in an Org task file, or select a task
+from another buffer. Review the prompt; the agent appends a =Task Resume=
+subtree with progress, relevant Git changes, open questions and a next action.
 
-- Keep meeting notes, dated Slack excerpts and original source links in the task
-  file. Sources are supplied as task context; this command does not automatically
-  connect to Slack or refresh external discussions. The briefing must distinguish
-  retrieved evidence, code-based inferences, missing sources and historical tests.
-- The =References= subsection retains important Radar IDs/URLs, Slack thread
-  permalinks, PR URLs, GitHub code/issue/commit links, meeting notes, and Splunk log
-  URLs or paths/run IDs. Its primary purpose is to preserve the original sources
-  for each important context item, with a brief 1-3 sentence summary and a hint
-  about why/when to revisit it for the next operation. Each entry also includes
-  the known date, access/read status and the claim it supports. Unread references
-  remain visible; an overall AI summary must not replace the source index.
-  For Splunk, keep the original search URL, supplied SPL/query, absolute time
-  range/timezone, and relevant event/request or saved-search/job IDs when known.
-- =Verification Context= identifies the target change and maps requirements to
-  sources, implementation, evidence and next checks. Select the whole =Task Resume=
-  subtree as input to a later branch/PR Verify discussion (including the workflow
-  proposed in [[https://github.com/tninja/ai-code-interface.el/pull/541][PR #541]]), or load it via =C-c a H=. A briefing is a navigation aid;
-  verification must independently inspect original evidence and the exact target.
-- Resume works without a previous handoff. New task files record their creation
-  commit as a fallback baseline; older files still work, with missing history
-  explicitly reported as unknown. New handoffs use an =AI_CODE_HEAD= property
-  on their top-level heading, together with =AI_CODE_REPO_ROOT=.
-- Git observations include current HEAD/branch, repository-wide status, staged
-  and unstaged diff stats, recent commits, and a committed comparison when the
-  recorded baseline is available. These are discovery context, not a claim that
-  all changes belong to the task. Uncommitted historical work must be recovered
-  from the handoff; a commit alone cannot represent it.
-- When the recorded checkout and current working directory differ, choose which
-  directory to use. No branch checkout occurs. Missing checkouts can be relocated.
-  A visible session from another project does not override the selected directory.
-- The generated prompt allows writing only the new task-file subtree and waits
-  before tests or implementation. Prompt suffixes and the optional current-section
-  summary prompt are disabled so they cannot change the output location or add
-  automatic test/commit instructions. This is agent guidance, not a runtime
-  permission sandbox; normal prompt history is also saved.
-- Original reference paths are sent verbatim rather than rewritten as =@file=
-  mentions. Handoff creation/loading preserves paths and suppresses extra suffixes
-  and the optional summary prompt in the same way.
+- Preserve original context sources (Radar, Slack threads, PRs, GitHub links,
+  meeting notes and Splunk logs), each with a brief summary and next-use hint.
+  Keep supplied Splunk queries and time ranges alongside their search links.
+- Resume works without a prior handoff. Missing information and unread sources
+  stay explicit; external discussions are not automatically refreshed.
+- The agent writes only the task briefing and waits before tests or code changes.
+  These are prompt instructions, not enforced backend permissions.
+
+Select the complete subtree as context for the [[https://github.com/tninja/ai-code-interface.el/pull/541][Verify workflow]], or load it
+with =C-c a H=. Use its references to revisit the original evidence.
 
 ** AI coding CLI backend
 
