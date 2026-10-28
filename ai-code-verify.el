@@ -120,7 +120,10 @@ description, and CONTEXT is selected editor text or an Org subtree."
               "problem statement. Derive intended behavior and acceptance "
               "criteria from it before inspecting the changes. Do not ask "
               "the user to repeat this context. Clarify only material "
-              "ambiguities that affect the investigation.\n"))
+              "ambiguities that affect the investigation.\n"
+              (when (and requirements (not (string-blank-p requirements)))
+                (concat "Additional user clarification:\n"
+                        requirements "\n"))))
      ((string-blank-p (or requirements ""))
       (concat "No explicit problem statement was supplied. Reconstruct "
               "the intended behavior from the PR description or linked "
