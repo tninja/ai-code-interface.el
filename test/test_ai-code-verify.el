@@ -241,10 +241,10 @@
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (prompt) (setq sent prompt))))
         (ai-code-verify-current-work)
-        (should (string-match-p "Primary user-provided problem/requirements" sent))
+        (should (string-match-p "Selected task/requirements context" sent))
         (should (string-match-p "Fix cache invalidation" sent))
         (should (string-match-p "clear stale entries" sent))
-        (should (string-match-p "PRIMARY problem statement" sent))
+        (should (string-match-p "STARTING POINT" sent))
         (should-not (string-match-p "No explicit problem statement was supplied" sent))
         (should (equal (org-get-todo-state) "TODO"))
         (should-not (buffer-modified-p))))))
@@ -344,7 +344,8 @@
                "Review only backwards compatibility and failure cases." sent))
       (should-not (string-match-p "Original full verification prompt" sent))
       (should (string-suffix-p
-               ai-code-verify--mandatory-read-only-suffix sent)))))
+               ai-code-verify--mandatory-source-rule sent))
+      (should (string-match-p "VERIFY MODE SAFETY RULE" sent)))))
 
 (ert-deftest ai-code-verify-test-compose-cancel-does-not-send ()
   "Cancelling the compose buffer does not send a prompt."
@@ -367,7 +368,8 @@
       (should (equal
                sent
                (concat "Only discuss the changed behavior."
-                       ai-code-verify--mandatory-read-only-suffix)))
+                       ai-code-verify--mandatory-read-only-suffix
+                       ai-code-verify--mandatory-source-rule)))
       (should (string-match-p "Do not create, edit, delete" sent))
       (should (string-match-p "Discuss proposed fixes without implementing" sent)))))
 
@@ -397,9 +399,67 @@
         (should (string-match-p "Preserve cache behavior" draft))
         (should (string-match-p "old cache keys still work" draft))
         (should (string-match-p "Check legacy cache keys explicitly" sent))
-        (should (string-suffix-p ai-code-verify--mandatory-read-only-suffix sent))
+        (should (string-suffix-p ai-code-verify--mandatory-source-rule sent))
+        (should (string-match-p "VERIFY MODE SAFETY RULE" sent))
         (should (equal (org-get-todo-state) "TODO"))
         (should-not (buffer-modified-p))))))
+
+
+(ert-deftest ai-code-verify-test-original-human-sources-over-ai-summary ()
+  "Branch review must trace human references rather than AI-derived context."
+  (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
+             (lambda () nil)))
+    (let ((prompt (ai-code-verify--prompt
+                   "Current branch: fix-cache" ""
+                   (concat "Task notes: AI summary says cache must be rewritten.\n"
+                           "Original references: Slack thread, Radar 1234, "
+                           "Splunk log, and meeting notes."))))
+      (dolist (needle '("STARTING POINT"
+                        "SOURCE OF TRUTH"
+                        "Slack threads"
+                        "Radar tickets"
+                        "GitHub issues and PR discussions"
+                        "meeting notes"
+                        "Splunk logs are raw"
+                        "resume summaries"
+                        "NOT acceptance"
+                        "never silently"
+                        "original-source"
+                        "source-to-requirement-"
+                        "URLs or precise source locations"
+                        "Tests and CI show implementation"))
+        (should (string-match-p (regexp-quote needle) prompt)))
+      (should (string-match-p "AI summary says cache must be rewritten" prompt)))))
+
+(ert-deftest ai-code-verify-test-conflicting-or-unavailable-originals ()
+  "Verify should disclose unavailable sources and ask about conflicting intent."
+  (cl-letf (((symbol-function 'ai-code--format-repo-context-info)
+             (lambda () nil)))
+    (let ((prompt (ai-code-verify--prompt
+                   "GitHub pull request: https://github.com/owner/repo/pull/2"
+                   "" nil)))
+      (dolist (needle '("PR description may"
+                        "AI-generated"
+                        "check its provenance"
+                        "later human"
+                        "conflicting sources"
+                        "ask for clarification"
+                        "original references cannot"
+                        "what remains unverified"))
+        (should (string-match-p (regexp-quote needle) prompt))))))
+
+(ert-deftest ai-code-verify-test-compose-cannot-omit-original-source-rule ()
+  "Edited prompts still require comparison with original human references."
+  (let (sent)
+    (cl-letf (((symbol-function 'ai-code-compose-read)
+               (lambda (_label _initial) "Only check generated design notes."))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (prompt) (setq sent prompt))))
+      (ai-code-verify--confirm-and-send "Initial source-of-truth instructions")
+      (should (string-suffix-p ai-code-verify--mandatory-source-rule sent))
+      (should (string-match-p "original human-provided requirements" sent))
+      (should (string-match-p "not intermediate AI-generated summaries" sent))
+      (should (string-match-p "VERIFY MODE SAFETY RULE" sent)))))
 
 (provide 'test_ai-code-verify)
 
