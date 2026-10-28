@@ -13,6 +13,7 @@
 (require 'magit)
 (require 'ai-code-change)
 (require 'ai-code-prompt-mode)
+(require 'ai-code-compose)
 (require 'ai-code-utils)
 
 (declare-function ai-code-read-string "ai-code-input")
@@ -21,6 +22,15 @@
 (defvar ai-code--suppress-org-summary-prompt)
 (defvar ai-code-prompt-suffix-functions)
 (defvar ai-code-default-review-source)
+
+(defconst ai-code-verify--mandatory-read-only-suffix
+  (concat
+   "\n\nVERIFY MODE SAFETY RULE (mandatory): This is a read-only review. "
+   "Do not create, edit, delete, or apply changes to any code, tests, "
+   "files, Org tasks, Git state, or PR metadata. Do not commit or push. "
+   "Discuss proposed fixes without implementing them.")
+  "Read-only rule appended after editing the Verify prompt.
+This rule is not a filesystem or backend permission boundary.")
 
 (defun ai-code-verify--requirement-context ()
   "Return the selected text or enclosing Org section as problem context.
@@ -165,13 +175,25 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "implementation as separate actions. If requested, provide a final "
     "assessment that distinguishes demonstrated behavior from uncertainty.")))
 
+(defun ai-code-verify--confirm-and-send (prompt)
+  "Let the user edit the complete Verify PROMPT, then send if accepted.
+Always append the mandatory read-only rule after editing.  Cancellation
+does not send anything or update task or repository state."
+  (when-let ((edited (ai-code-compose-read
+                     "Edit Verify prompt (read-only rule appended)"
+                     prompt)))
+    (ai-code--insert-prompt
+     (concat edited ai-code-verify--mandatory-read-only-suffix))))
+
+
 ;;;###autoload
 (defun ai-code-verify-current-work ()
   "Start a discussion verifying current branch or GitHub PR against a problem.
 Selected text takes precedence over the enclosing Org task section and
 supplies the primary problem statement automatically. Request a description
-only when neither is available. Continue discussing evidence in the current
-session without changing code, PR metadata, or Org task state."
+only when neither is available. Edit the full prompt in a compose buffer
+before sending; cancel without sending. Continue discussing evidence
+without changing code, PR metadata, or Org task state."
   (interactive)
   (let* ((context (ai-code-verify--requirement-context))
          (target-choice
@@ -194,7 +216,7 @@ session without changing code, PR metadata, or Org task state."
     ;; or add Org summaries during a read-only, open-ended discussion.
     (let ((ai-code-prompt-suffix-functions nil)
           (ai-code--suppress-org-summary-prompt t))
-      (ai-code--insert-prompt
+      (ai-code-verify--confirm-and-send
        (ai-code-verify--prompt target-scope requirements context)))))
 
 (provide 'ai-code-verify)
