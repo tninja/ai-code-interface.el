@@ -11,6 +11,7 @@
 (require 'org)
 (require 'subr-x)
 (require 'ai-code-change)
+(require 'ai-code-discussion)
 (require 'ai-code-prompt-mode)
 (require 'ai-code-utils)
 
