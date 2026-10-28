@@ -23,13 +23,21 @@
 (defvar ai-code-default-review-source)
 
 (defun ai-code-verify--requirement-context ()
-  "Return selected text or an enclosing Org section as requirement context.
-This is background for discussion; no task states are changed."
-  (cond
-   ((use-region-p)
-    (string-trim (buffer-substring-no-properties
-                  (region-beginning) (region-end))))
-   ((and (derived-mode-p 'org-mode) buffer-file-name)
+  "Return the selected text or enclosing Org section as problem context.
+A nonblank region takes precedence; Org section contents are used otherwise.
+No task states are changed."
+  (let ((selected (when (use-region-p)
+                    (string-trim
+                     (buffer-substring-no-properties
+                      (region-beginning) (region-end))))))
+    (cond
+     ((and selected (not (string-blank-p selected)))
+      (format "Selected requirements in %s (lines %d-%d):\n%s"
+              (or buffer-file-name (buffer-name))
+              (line-number-at-pos (region-beginning))
+              (line-number-at-pos (region-end))
+              selected))
+     ((and (derived-mode-p 'org-mode) buffer-file-name)
     (when-let ((info (ai-code--implement-todo--get-org-todo-section-info t)))
       (concat
        (format "Org section from %s at line %d:\n%s"
@@ -41,7 +49,7 @@ This is background for discussion; no task states are changed."
                  (expand-file-name buffer-file-name)
                  (plist-get info :line-number)
                  (plist-get info :end-line-number))))))
-   (t nil)))
+     (t nil))))
 
 (defun ai-code-verify--pr-url-p (url)
   "Return non-nil if URL is a GitHub pull request URL."
@@ -98,7 +106,7 @@ description, and CONTEXT is selected editor text or an Org subtree."
    (concat
     (or (ai-code--format-repo-context-info) "")
     (when (and context (not (string-blank-p context)))
-      (concat "\n\nAdditional requirement context:\n" context)))
+      (concat "\n\nPrimary user-provided problem/requirements:\n" context)))
    :boundaries
    (concat
     "Investigation only. Do not edit code, tests, Org tasks, PR comments, "
@@ -106,13 +114,19 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "checks. Production or sensitive data access needs permission.")
    :instruction
    (concat
-    (if (string-blank-p (or requirements ""))
-        (concat "No explicit problem statement was entered. Start by "
-                "reconstructing the intended behavior from the PR description, "
-                "linked issue or supplied context. Identify assumptions and "
-                "ask the user to correct or complete them rather than "
-                "treating inferred intent as a fact.\n")
-      (concat "User's problem/requirements:\n" requirements "\n"))
+    (cond
+     ((and context (not (string-blank-p context)))
+      (concat "The supplied selection or Org task section is the PRIMARY "
+              "problem statement. Derive intended behavior and acceptance "
+              "criteria from it before inspecting the changes. Do not ask "
+              "the user to repeat this context. Clarify only material "
+              "ambiguities that affect the investigation.\n"))
+     ((string-blank-p (or requirements ""))
+      (concat "No explicit problem statement was supplied. Reconstruct "
+              "the intended behavior from the PR description or linked "
+              "issue. Identify assumptions and ask the user to correct "
+              "them rather than treating inferred intent as fact.\n"))
+     (t (concat "User's problem/requirements:\n" requirements "\n")))
     "First, inspect the actual changed behavior against the intended "
     "behavior, not just code style. Build a small requirements-to-evidence "
     "map: which requirements are addressed, which may be missing, and "
@@ -139,9 +153,10 @@ description, and CONTEXT is selected editor text or an Org subtree."
 ;;;###autoload
 (defun ai-code-verify-current-work ()
   "Start a discussion verifying current branch or GitHub PR against a problem.
-Selected text or the enclosing Org section supplies optional requirements
-context. The agent investigates evidence, then discusses unresolved questions
-in the ongoing session without changing source, PR, or Org task state."
+Selected text takes precedence over the enclosing Org task section and
+supplies the primary problem statement automatically. Request a description
+only when neither is available. Continue discussing evidence in the current
+session without changing code, PR metadata, or Org task state."
   (interactive)
   (let* ((context (ai-code-verify--requirement-context))
          (target-choice
@@ -153,22 +168,19 @@ in the ongoing session without changing source, PR, or Org task state."
                    (ai-code-read-string "GitHub PR URL: " "")))
          (target-scope (ai-code-verify--target-scope target pr-url))
          (requirements
-          (ai-code-read-string
-           (if context
-               "Problem / requirements (optional; selected context included): "
-             "Problem / requirements (PR may supply linked issue): ")
-           "")))
+          (unless (and context (not (string-blank-p context)))
+            (ai-code-read-string
+             "Problem / requirements (PR may supply linked issue): " ""))))
     (when (and (eq target 'branch)
                (string-blank-p (or context ""))
                (string-blank-p (or requirements "")))
       (user-error "Provide the problem/requirements or select an Org section/region"))
-    (when requirements
-      ;; Do not inherit code-change, commit, or unrelated discussion suffixes
-      ;; or add Org summaries during a read-only, open-ended discussion.
-      (let ((ai-code-prompt-suffix-functions nil)
-            (ai-code--suppress-org-summary-prompt t))
-        (ai-code--insert-prompt
-         (ai-code-verify--prompt target-scope requirements context))))))
+    ;; Do not inherit code-change, commit, or unrelated discussion suffixes
+    ;; or add Org summaries during a read-only, open-ended discussion.
+    (let ((ai-code-prompt-suffix-functions nil)
+          (ai-code--suppress-org-summary-prompt t))
+      (ai-code--insert-prompt
+       (ai-code-verify--prompt target-scope requirements context)))))
 
 (provide 'ai-code-verify)
 
