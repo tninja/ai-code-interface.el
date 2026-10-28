@@ -533,7 +533,7 @@ Returns non-nil if handled and the caller should exit."
              comment-start
              ;; Inside an Org section, act on the section instead.
              (not (and (derived-mode-p 'org-mode)
-                       (ai-code--org-section-candidates include-done))))
+                       (ai-code--org-section-candidates))))
     (let ((todo-text (ai-code-read-string "Enter TODO comment: "))
           (comment-prefix (if (derived-mode-p 'emacs-lisp-mode)
                               (let* ((trimmed (string-trim-right comment-start)))
@@ -565,7 +565,7 @@ completed headlines for independent verification.  Sections longer than
 `:content', unless the buffer is modified or no reference is available."
   (unless (region-active-p)
     (let ((section (ai-code--org-select-section
-                    (ai-code--org-section-candidates))))
+                    (ai-code--org-section-candidates include-done))))
       (when section
         (let* ((begin-line (plist-get section :begin-line))
                (end-line (plist-get section :end-line))
