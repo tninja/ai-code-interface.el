@@ -184,7 +184,7 @@
         (should (string-match-p "linked issue" sent))))))
 
 (ert-deftest ai-code-verify-test-read-only-suffix-suppression ()
-  "Discussion cannot inherit auto-commit or append an Org summary."
+  "Verification suppresses auto-commit suffixes but allows Org notes."
   (ai-code-verify-test--with-org "* TODO Fix regression\n"
     (let ((ai-code-prompt-suffix-functions '(ignore))
           (ai-code--suppress-org-summary-prompt nil)
@@ -207,7 +207,7 @@
                          applied-summary ai-code--suppress-org-summary-prompt))))
         (ai-code-verify-current-work)
         (should-not applied-suffixes)
-        (should applied-summary)
+        (should-not applied-summary)
         (should (equal ai-code-prompt-suffix-functions '(ignore)))
         (should-not ai-code--suppress-org-summary-prompt)
         (should-not (buffer-modified-p))
@@ -302,7 +302,7 @@
                         "Never modify, create, delete"
                         "source code, test code"
                         "snapshots, fixtures"
-                        "documentation, Org tasks"
+                        "original Org task content"
                         "Do not commit, push, merge"
                         "stage, checkout, install dependencies"
                         "Never automatically implement"
@@ -312,7 +312,7 @@
                         "DO NOT APPLY"
                         "separate actions"))
         (should (string-match-p (regexp-quote needle) prompt)))
-      (should (string-match-p "If the user wants changes" prompt)))))
+      (should (string-match-p "If the user wants code changes" prompt)))))
 
 (ert-deftest ai-code-verify-test-pr-also-strict-read-only ()
   "Read-only boundaries apply equally to PR investigation."
@@ -371,7 +371,7 @@
                        ai-code-verify--mandatory-read-only-suffix
                        ai-code-verify--mandatory-source-rule)))
       (should (string-match-p "Do not create, edit, delete" sent))
-      (should (string-match-p "Discuss proposed fixes without implementing" sent)))))
+      (should (string-match-p "Discuss proposed code fixes without implementing" sent)))))
 
 (ert-deftest ai-code-verify-test-command-org-context-shown-in-compose ()
   "The compose buffer receives task context before any prompt is sent."
@@ -460,6 +460,125 @@
       (should (string-match-p "original human-provided requirements" sent))
       (should (string-match-p "not intermediate AI-generated summaries" sent))
       (should (string-match-p "VERIFY MODE SAFETY RULE" sent)))))
+
+
+(ert-deftest ai-code-verify-test-org-summary-opt-in-appends-verification-notes ()
+  "Accepted Verify prompts reuse the Org summary question and only append notes."
+  (ai-code-verify-test--with-org
+      "* TODO Fix retry\nHuman requirement: retry once.\n"
+    (let ((ai-code-prompt-preprocess-filepaths nil)
+          (ai-code-prompt-suffix-functions '(ignore))
+          sent question)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Current branch"))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _) "/tmp/project/"))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "fix-retry"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (&rest _) (ert-fail "Existing Org context is sufficient")))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () nil))
+                ((symbol-function 'ai-code-compose-read)
+                 (lambda (_label prompt) prompt))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (prompt) (setq question prompt) t))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-verify-current-work)
+        (should (equal question "Append result summary to current section? "))
+        (should (string-match-p "After completing, append a concise result summary" sent))
+        (should (string-match-p "at the end of section" sent))
+        (should (string-match-p "Fix retry" sent))
+        (should (string-match-p "OPTIONAL ORG WRITEBACK" sent))
+        (should (string-match-p "Only after the user explicitly finishes" sent))
+        (should (string-match-p "Verification Notes" sent))
+        (should (string-match-p "original human reference" sent))
+        (should (string-match-p "VERIFY MODE SAFETY RULE" sent))
+        (should (equal ai-code-prompt-suffix-functions '(ignore)))
+        (should (equal (org-get-todo-state) "TODO"))
+        (should-not (buffer-modified-p))))))
+
+(ert-deftest ai-code-verify-test-org-summary-declined-stays-read-only ()
+  "Declining optional notes never appends a write instruction."
+  (ai-code-verify-test--with-org
+      "* DONE Existing task\nOriginal issue: preserve old behavior.\n"
+    (let ((ai-code-prompt-preprocess-filepaths nil)
+          sent asked)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Current branch"))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _) "/tmp/project/"))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "preserve-behavior"))
+                ((symbol-function 'ai-code-read-string)
+                 (lambda (&rest _) (ert-fail "Org task is sufficient")))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () nil))
+                ((symbol-function 'ai-code-compose-read)
+                 (lambda (_label prompt) prompt))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (_prompt) (setq asked t) nil))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-verify-current-work)
+        (should asked)
+        (should (string-match-p "If there is no appended summary instruction" sent))
+        (should-not (string-match-p "After completing, append a concise result summary" sent))
+        (should (equal (org-get-todo-state) "DONE"))
+        (should-not (buffer-modified-p))))))
+
+(ert-deftest ai-code-verify-test-org-summary-targets-selected-ancestor ()
+  "An explicitly chosen ancestor task receives the summary instruction."
+  (ai-code-verify-test--with-org
+      "* TODO Parent requirement\n** TODO Child\nDetails.\n"
+    (forward-line 1)
+    (let ((ai-code-prompt-preprocess-filepaths nil)
+          sent)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Current branch"))
+                ((symbol-function 'ai-code--implement-todo--get-org-todo-section-info)
+                 (lambda (&rest _)
+                   (list :heading-line "* TODO Parent requirement"
+                         :content "Original human requirement"
+                         :inlined t :line-number 1 :end-line-number 3)))
+                ((symbol-function 'ai-code--git-root)
+                 (lambda (&optional _) "/tmp/project/"))
+                ((symbol-function 'magit-get-current-branch)
+                 (lambda () "feature"))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () nil))
+                ((symbol-function 'ai-code-compose-read)
+                 (lambda (_label prompt) prompt))
+                ((symbol-function 'y-or-n-p) (lambda (&rest _) t))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (prompt) (setq sent prompt))))
+        (ai-code-verify-current-work)
+        (should (string-match-p "end of section \\"TODO Parent requirement\\"" sent))
+        (should (string-match-p "after line 3" sent))
+        (should-not (string-match-p "end of section \\"TODO Child\\"" sent))
+        (should-not (buffer-modified-p))))))
+
+(ert-deftest ai-code-verify-test-cancel-compose-skips-summary-question ()
+  "A cancelled Compose edit must not ask about writing to the task file."
+  (ai-code-verify-test--with-org
+      "* TODO Verify behavior\nOriginal reference: issue #1.\n"
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "Current branch"))
+              ((symbol-function 'ai-code--git-root)
+               (lambda (&optional _) "/tmp/project/"))
+              ((symbol-function 'magit-get-current-branch)
+               (lambda () "feature"))
+              ((symbol-function 'ai-code--format-repo-context-info)
+               (lambda () nil))
+              ((symbol-function 'ai-code-compose-read)
+               (lambda (_label _prompt) nil))
+              ((symbol-function 'y-or-n-p)
+               (lambda (&rest _) (ert-fail "Cancelled Verify must not ask to append")))
+              ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+               (lambda (_prompt) (ert-fail "Cancelled Verify must not send"))))
+      (ai-code-verify-current-work)
+      (should-not (buffer-modified-p)))))
 
 (provide 'test_ai-code-verify)
 
