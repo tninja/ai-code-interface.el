@@ -554,9 +554,9 @@
                 ((symbol-function 'ai-code--write-prompt-to-file-and-send)
                  (lambda (prompt) (setq sent prompt))))
         (ai-code-verify-current-work)
-        (should (string-match-p "end of section \\"TODO Parent requirement\\"" sent))
+        (should (string-match-p "end of section \"TODO Parent requirement\"" sent))
         (should (string-match-p "after line 3" sent))
-        (should-not (string-match-p "end of section \\"TODO Child\\"" sent))
+        (should-not (string-match-p "end of section \"TODO Child\"" sent))
         (should-not (buffer-modified-p))))))
 
 (ert-deftest ai-code-verify-test-cancel-compose-skips-summary-question ()
