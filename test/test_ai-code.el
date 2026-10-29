@@ -546,22 +546,70 @@
         (ai-code-agent-handoff-or-checkpoint nil)))
     (should checkpoint-called)))
 
-(ert-deftest ai-code-test-menu-other-tools-includes-agent-handoff-entry ()
-  "Test that the Other Tools menu exposes the merged handoff/checkpoint entry."
-  (let* ((suffix (transient-get-suffix 'ai-code--menu-other-tools "H"))
-         (definition (cdr suffix)))
-    (should suffix)
-    (should (eq (plist-get definition :command)
-                'ai-code-agent-handoff-or-checkpoint))
-    ;; Only assert the prefix so the label can carry optional hints.
-    (should (string-prefix-p "Handoff / checkpoint"
-                             (plist-get definition :description)))))
+(ert-deftest ai-code-test-menu-other-tools-removes-merged-task-entries ()
+  "Test that task actions merged into \"Task file action\" lost their own keys."
+  (should-error (transient-get-suffix 'ai-code--menu-other-tools "V")
+                :type 'error)
+  (should-error (transient-get-suffix 'ai-code--menu-other-tools "H")
+                :type 'error))
+
+(ert-deftest ai-code-test-task-file-action-dispatches-each-choice ()
+  "Test that every task file action choice runs its command interactively."
+  (dolist (case '(("Resume task briefing" . ai-code-task-resume)
+                  ("Grow next step" . ai-code-grow-next-step)
+                  ("Verify branch / PR vs requirements"
+                   . ai-code-verify-current-work)
+                  ("Handoff / checkpoint"
+                   . ai-code-agent-handoff-or-checkpoint)))
+    (let (called)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _args) (car case)))
+                ((symbol-function 'ai-code-task-resume)
+                 (lambda () (interactive) (setq called 'ai-code-task-resume)))
+                ((symbol-function 'ai-code-grow-next-step)
+                 (lambda () (interactive) (setq called 'ai-code-grow-next-step)))
+                ((symbol-function 'ai-code-verify-current-work)
+                 (lambda () (interactive)
+                   (setq called 'ai-code-verify-current-work)))
+                ((symbol-function 'ai-code-agent-handoff-or-checkpoint)
+                 (lambda (&optional _arg) (interactive "P")
+                   (setq called 'ai-code-agent-handoff-or-checkpoint))))
+        (ai-code-task-file-action))
+      (should (eq called (cdr case))))))
+
+(ert-deftest ai-code-test-task-file-action-forwards-prefix-arg ()
+  "Test that the prefix argument reaches the selected command."
+  (let (received)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Handoff / checkpoint"))
+              ((symbol-function 'ai-code-agent-handoff-or-checkpoint)
+               (lambda (&optional arg) (interactive "P")
+                 (setq received arg))))
+      (let ((current-prefix-arg '(4)))
+        (ai-code-task-file-action)))
+    (should (equal received '(4)))))
+
+(ert-deftest ai-code-test-task-file-action-defaults-to-resume ()
+  "Test that the choice requires a match and defaults to task resumption."
+  (let (require-match default)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _collection &optional _predicate match
+                                _initial _history def &rest _)
+                 (setq require-match match
+                       default def)
+                 "Resume task briefing"))
+              ((symbol-function 'ai-code-task-resume)
+               (lambda () (interactive))))
+      (ai-code-task-file-action))
+    (should (eq require-match t))
+    (should (equal default "Resume task briefing"))))
 
 (ert-deftest test-task--resume-menu-entry ()
-  "Expose task resumption alongside task creation and handoff in both layouts."
+  "Expose the merged task file action next to task creation in both layouts."
   (let ((entry (transient-get-suffix 'ai-code--menu-other-tools "K")))
     (should entry)
-    (should (eq (plist-get (cdr entry) :command) 'ai-code-task-resume))))
+    (should (eq (plist-get (cdr entry) :command) 'ai-code-task-file-action))
+    (should (equal (plist-get (cdr entry) :description) "Task file action"))))
 
 (ert-deftest ai-code-test-menu-prefix-command-default-layout ()
   "Test that the default menu layout uses the original transient."

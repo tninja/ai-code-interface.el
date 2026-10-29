@@ -83,14 +83,10 @@
       (should (string-match-p "Only after the user explicitly asks to write it back" text))
       (should (string-match-p "independently verifiable" text)))))
 
-(ert-deftest ai-code-grow-test-agile-menu-exposes-grow-next-step ()
-  "Agile Development menu exposes Grow Next Step directly."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-agile-development "y")))
-    (should suffix)
-    (should (eq (plist-get (cdr suffix) :command)
-                'ai-code-grow-next-step))
-    (should (equal (plist-get (cdr suffix) :description)
-                   "Grow Next Step"))))
+(ert-deftest ai-code-grow-test-agile-menu-drops-grow-next-step ()
+  "Grow Next Step moved into the Task file action menu item."
+  (should-error (transient-get-suffix 'ai-code--menu-agile-development "y")
+                :type 'error))
 
 (provide 'test-ai-code-grow)
 
