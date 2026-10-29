@@ -17,6 +17,11 @@
 (require 'ai-code-file)
 (require 'ai-code-magit nil t)
 
+(defconst ai-code-magit-test--root
+  (file-name-as-directory (file-truename "/tmp/ai-code-magit-project/"))
+  "Fake repository root, resolved like the code under test.
+On macOS, /tmp is a symlink to /private/tmp.")
+
 (defmacro ai-code-magit-test--with-diff (&rest body)
   "Build a real Magit section tree and evaluate BODY at its first hunk."
   (declare (indent 0) (debug t))
@@ -44,9 +49,9 @@
                            (insert "-old-other\n+new-other\n")))))))
        (goto-char (oref first-hunk start))
        (cl-letf (((symbol-function 'magit-toplevel)
-                  (lambda (&optional _) "/tmp/ai-code-magit-project/"))
+                  (lambda (&optional _) ai-code-magit-test--root))
                  ((symbol-function 'ai-code--git-root)
-                  (lambda (&optional _) "/tmp/ai-code-magit-project/"))
+                  (lambda (&optional _) ai-code-magit-test--root))
                  ((symbol-function 'magit-rev-parse)
                   (lambda (&rest _) "0123456789abcdef")))
          ,@body))))
@@ -56,7 +61,7 @@
   (ai-code-magit-test--with-diff
     (let* ((context (ai-code-magit-context))
            (text (plist-get context :text)))
-      (should (equal (plist-get context :root) "/tmp/ai-code-magit-project/"))
+      (should (equal (plist-get context :root) ai-code-magit-test--root))
       (should (eq (plist-get context :type) 'unstaged))
       (should (string-match-p "index -> working tree" text))
       (should (string-match-p "0123456789abcdef" text))
@@ -204,7 +209,7 @@
   (ai-code-magit-test--with-diff
     (let ((ai-code--repo-context-info (make-hash-table :test 'equal)))
       (ai-code-add-context)
-      (let ((entry (car (gethash "/tmp/ai-code-magit-project/"
+      (let ((entry (car (gethash ai-code-magit-test--root
                                  ai-code--repo-context-info))))
         (should (string-match-p "new-value" entry))
         (should (string-match-p "snapshot" entry))
@@ -237,7 +242,7 @@
                    (lambda (text &rest _) (setq copied text)))
                   ((symbol-function 'ai-code-list-context) #'ignore))
           (ai-code-context-action nil))
-        (let ((text (or copied (car (gethash "/tmp/ai-code-magit-project/"
+        (let ((text (or copied (car (gethash ai-code-magit-test--root
                                             ai-code--repo-context-info)))))
           (should (string-match-p "new-value" text))
           (should (string-match-p "new-other" text)))))))

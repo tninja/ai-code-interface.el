@@ -491,7 +491,7 @@
 (ert-deftest test-task--resume-saves-notes-and-preserves-reference-paths ()
   "Reference all saved notes even from a narrowed subtree with a selection."
   (let* ((task-file (make-temp-file "ai-code resume-" nil ".org"))
-         (root (file-name-as-directory temporary-file-directory))
+         (root (file-name-as-directory (file-truename temporary-file-directory)))
          (ai-code-use-prompt-suffix t)
          sent-prompt)
     (unwind-protect

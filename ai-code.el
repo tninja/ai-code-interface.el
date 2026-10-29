@@ -309,8 +309,8 @@ which of the two commands to run."
 
 (defconst ai-code--task-file-action-choices
   '(("Resume task briefing" . ai-code-task-resume)
-    ("Grow next step" . ai-code-grow-next-step)
     ("Verify branch / PR vs requirements" . ai-code-verify-current-work)
+    ("Grow next step" . ai-code-grow-next-step)
     ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint))
   "Choices offered by `ai-code-task-file-action'.")
 
