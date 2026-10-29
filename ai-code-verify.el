@@ -19,16 +19,19 @@
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 
-(defvar ai-code--suppress-org-summary-prompt)
 (defvar ai-code-prompt-suffix-functions)
 (defvar ai-code-default-review-source)
 
 (defconst ai-code-verify--mandatory-read-only-suffix
   (concat
    "\n\nVERIFY MODE SAFETY RULE (mandatory): This is a read-only review. "
-   "Do not create, edit, delete, or apply changes to any code, tests, "
-   "files, Org tasks, Git state, or PR metadata. Do not commit or push. "
-   "Discuss proposed fixes without implementing them.")
+   "Do not create, edit, delete, or apply changes to code, tests, "
+   "repository files, Git state, or PR metadata. Do not commit or push. "
+   "The ONLY permitted write is one append-only verification note in "
+   "the selected Org task section, if the user explicitly opted in via "
+   "the appended summary instruction and later concludes the discussion. "
+   "Never overwrite original requirements or change TODO states. "
+   "Discuss proposed code fixes without implementing them.")
   "Read-only rule appended after editing the Verify prompt.
 This rule is not a filesystem or backend permission boundary.")
 
@@ -41,10 +44,11 @@ This rule is not a filesystem or backend permission boundary.")
    "ask for clarification; do not claim verified compliance.")
   "Original-source requirement appended after editing the Verify prompt.")
 
-(defun ai-code-verify--requirement-context ()
+(defun ai-code-verify--requirement-context (&optional anchor-summary)
   "Return the selected text or enclosing Org section as problem context.
 A nonblank region takes precedence; Org section contents are used otherwise.
-No task states are changed."
+When ANCHOR-SUMMARY is non-nil, remember the selected Org section for an
+optional, user-approved result summary.  No task states are changed."
   (let ((selected (when (use-region-p)
                     (string-trim
                      (buffer-substring-no-properties
@@ -58,6 +62,12 @@ No task states are changed."
               selected))
      ((and (derived-mode-p 'org-mode) buffer-file-name)
     (when-let ((info (ai-code--implement-todo--get-org-todo-section-info t t)))
+      (when anchor-summary
+        (setq ai-code--org-summary-anchor
+              (list :name (replace-regexp-in-string
+                           "\\`\\*+[[:space:]]*" ""
+                           (plist-get info :heading-line))
+                    :end-line (plist-get info :end-line-number))))
       (concat
        (format "Org section from %s at line %d:\n%s"
                (expand-file-name buffer-file-name)
@@ -130,8 +140,9 @@ description, and CONTEXT is selected editor text or an Org subtree."
    (concat
     "STRICT READ-ONLY INVESTIGATION. Never modify, create, delete, "
     "format, regenerate, or apply patches to source code, test code, "
-    "snapshots, fixtures, configurations, documentation, Org tasks, "
-    "Git state, PR comments, or metadata. Do not commit, push, merge, "
+    "snapshots, fixtures, configurations, documentation, or original "
+    "Org task content. Do not change TODO states, Git state, PR comments, "
+    "or metadata. Do not commit, push, merge, "
     "stage, checkout, install dependencies, or run auto-fix commands. "
     "Never automatically implement a suggested fix, even when a defect "
     "is obvious. Use read-only inspection and existing CI/test artifacts "
@@ -139,8 +150,10 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "non-destructive and does not modify the repository; otherwise "
     "describe the check and ask the user to perform it separately. "
     "Do not access production or sensitive data without permission. "
-    "If the user wants changes, propose a separate implementation "
-    "action/session: verification itself must remain read-only.")
+    "If the user wants code changes, propose a separate implementation "
+    "action/session. The ONLY exception to read-only verification is a "
+    "user-approved append-only verification note in the selected Org "
+    "task section, and only when the discussion is explicitly finished.")
    :instruction
    (concat
     (cond
@@ -199,6 +212,17 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "In subsequent turns, incorporate their feedback, challenge earlier "
     "hypotheses, investigate the requested path, and refine conclusions. "
     "The user decides when evidence is sufficient or when to stop. "
+    "OPTIONAL ORG WRITEBACK: If an appended result-summary instruction "
+    "appears after this prompt, the user opted in to saving the result. "
+    "Do not write any note during initial findings or while discussion "
+    "is ongoing. Only after the user explicitly finishes the discussion, "
+    "append ONE sub-heading labeled Verification Notes in the indicated "
+    "Org task section. Record the branch/PR, original human reference "
+    "links, evidence-backed findings, unmet requirements, and open "
+    "questions; clearly label AI interpretation and uncertainty. "
+    "Never replace or rewrite original human-authored requirements, "
+    "change task states, or turn the AI notes into acceptance criteria. "
+    "If there is no appended summary instruction, do not write anything. "
     "Suggestions may name locations and show proposed changes as text, "
     "but DO NOT APPLY or write them during Verify; keep discussion and "
     "implementation as separate actions. If requested, provide a final "
@@ -225,7 +249,8 @@ only when neither is available. Edit the full prompt in a compose buffer
 before sending; cancel without sending. Continue discussing evidence
 without changing code, PR metadata, or Org task state."
   (interactive)
-  (let* ((context (ai-code-verify--requirement-context))
+  (let* ((ai-code--org-summary-anchor nil)
+         (context (ai-code-verify--requirement-context t))
          (target-choice
           (completing-read "Verify changes in: "
                            '("Current branch" "GitHub PR")
@@ -242,10 +267,10 @@ without changing code, PR metadata, or Org task state."
                (string-blank-p (or context ""))
                (string-blank-p (or requirements "")))
       (user-error "Provide the problem/requirements or select an Org section/region"))
-    ;; Do not inherit code-change, commit, or unrelated discussion suffixes
-    ;; or add Org summaries during a read-only, open-ended discussion.
-    (let ((ai-code-prompt-suffix-functions nil)
-          (ai-code--suppress-org-summary-prompt t))
+    ;; Keep implementation/auto-commit suffixes disabled, but reuse the
+    ;; existing opt-in Org result-summary question.  A summary is the only
+    ;; permitted write, and only after the user concludes the discussion.
+    (let ((ai-code-prompt-suffix-functions nil))
       (ai-code-verify--confirm-and-send
        (ai-code-verify--prompt target-scope requirements context)))))
 
