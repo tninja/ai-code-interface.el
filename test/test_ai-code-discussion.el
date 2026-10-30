@@ -409,7 +409,7 @@
       (ai-code--ask-question-dired "clipboard details")
       (should (stringp captured-prompt))
       (should (string-match-p "Goal:\nWhat changed in these files\\?" captured-prompt))
-      (should (string-match-p "Scope:\nSelected files/directories:\n@b\\.el" captured-prompt))
+      (should (string-match-p "Scope:\nSelected files/directories:\n@a\\.el\n@b\\.el" captured-prompt))
       (should (string-match-p "Context:\nStored repository context" captured-prompt))
       (should (string-match-p "Clipboard context:\nclipboard details" captured-prompt))
       (should (string-match-p "Boundaries:\nAnswer the question only\\. Do not make code changes\\."
@@ -638,3 +638,4 @@
 (provide 'test_ai-code-discussion)
 
 ;;; test_ai-code-discussion.el ends here
+

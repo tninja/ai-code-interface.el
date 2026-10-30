@@ -430,7 +430,7 @@
       (cl-letf (((symbol-function 'derived-mode-p)
                  (lambda (&rest modes) (memq 'dired-mode modes)))
                 ((symbol-function 'dired-get-marked-files)
-                 (lambda () '("/repo/src/foo.el" "/repo/test/bar.el")))
+                 (lambda (&rest _) '("/repo/src/foo.el" "/repo/test/bar.el")))
                 ((symbol-function 'dired-get-filename)
                  (lambda (&optional _localp _no-error) "/repo/src/foo.el"))
                 ((symbol-function 'completing-read)
@@ -634,3 +634,4 @@
 
 (provide 'test_ai-code-agile)
 ;;; test_ai-code-agile.el ends here
+
