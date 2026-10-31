@@ -275,7 +275,8 @@ ARG is the prefix argument."
   ;; DONE: let user to edit and confirm the prompt before sending, with read-string function
   (when-let* ((prompt (read-string "Edit checkpoint prompt: "
                                    ai-code-session-checkpoint-prompt)))
-    (ai-code--insert-prompt prompt)))
+    (ai-code-with-prompt-policy ()
+      (ai-code--insert-prompt prompt))))
 
 (defconst ai-code--handoff-or-checkpoint-choices
   '(("Agent handoff" . ai-code-agent-handoff)

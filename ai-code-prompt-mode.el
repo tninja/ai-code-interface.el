@@ -77,6 +77,21 @@ non-empty string or nil.  Provider errors abort the send."
 (defvar ai-code--suppress-org-summary-prompt nil
   "When non-nil, skip the optional Org result-summary question.")
 
+(cl-defmacro ai-code-with-prompt-policy ((&key org-summary) &body body)
+  "Run BODY without automatic prompt suffixes.
+Custom suffixes, test/commit harnesses, and extension suffix providers
+are disabled for this send.  ORG-SUMMARY permits the existing opt-in Org
+summary question; by default it is suppressed so BODY owns any writeback.
+An enclosing summary suppression remains in effect.  Bindings are restored
+when BODY returns or signals an error.
+This controls prompt additions, not agent permissions or filesystem access."
+  (declare (indent 1))
+  `(let ((ai-code-use-prompt-suffix nil)
+         (ai-code-prompt-suffix-functions nil)
+         (ai-code--suppress-org-summary-prompt
+          (or ai-code--suppress-org-summary-prompt (not ,org-summary))))
+     ,@body))
+
 (defun ai-code-prompt-context-memoize (context key producer)
   "Return the cached value for KEY in CONTEXT, calling PRODUCER once."
   (let* ((cache (ai-code-prompt-context-cache context))
