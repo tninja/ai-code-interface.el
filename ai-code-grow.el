@@ -12,6 +12,7 @@
 
 (require 'org)
 (require 'ai-code-utils)
+(require 'ai-code-prompt-mode)
 
 (declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
@@ -85,8 +86,10 @@ implementation remains a separate workflow, such as `ai-code-implement-todo'."
   (let ((context (ai-code-grow--heading-context)))
     (when (buffer-modified-p)
       (save-buffer))
-    (ai-code--insert-prompt (ai-code-grow--build-prompt context))))
+    (ai-code-with-prompt-policy ()
+      (ai-code--insert-prompt (ai-code-grow--build-prompt context)))))
 
 (provide 'ai-code-grow)
 
 ;;; ai-code-grow.el ends here
+

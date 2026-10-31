@@ -786,8 +786,9 @@ If TDD-MODE is non-nil, adds TDD constraints to the prompt."
                       "documented constraints incrementally."))
             (unless (string-empty-p topic) (concat "\nTopic: " topic))
             (or (ai-code--get-context-files-string) ""))))
-      (when (ai-code--insert-prompt prompt)
-        (message "Value-driven Simplification discussion sent to AI Code Interface")))))
+      (ai-code-with-prompt-policy ()
+        (when (ai-code--insert-prompt prompt)
+          (message "Value-driven Simplification discussion sent to AI Code Interface"))))))
 
 ;;;###autoload
 (defun ai-code-refactor-book-method (&optional tdd-mode)
@@ -1159,3 +1160,4 @@ Works with both source code and test files that have been added to ai-code."
   (require 'ai-code-harness))
 
 ;;; ai-code-agile.el ends here
+

@@ -19,7 +19,6 @@
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 
-(defvar ai-code-prompt-suffix-functions)
 (defvar ai-code-default-review-source)
 
 (defconst ai-code-verify--mandatory-read-only-suffix
@@ -270,10 +269,11 @@ without changing code, PR metadata, or Org task state."
     ;; Keep implementation/auto-commit suffixes disabled, but reuse the
     ;; existing opt-in Org result-summary question.  A summary is the only
     ;; permitted write, and only after the user concludes the discussion.
-    (let ((ai-code-prompt-suffix-functions nil))
+    (ai-code-with-prompt-policy (:org-summary t)
       (ai-code-verify--confirm-and-send
        (ai-code-verify--prompt target-scope requirements context)))))
 
 (provide 'ai-code-verify)
 
 ;;; ai-code-verify.el ends here
+
