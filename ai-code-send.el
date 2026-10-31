@@ -99,7 +99,7 @@ When ROOT is nil, use the source buffer's project root."
   (cond
    ((derived-mode-p 'dired-mode)
     (let ((files (or (ai-code-send--dired-region-files)
-                     (dired-get-marked-files nil nil nil nil nil))))
+                     (plist-get (ai-code--dired-context) :files))))
       (and files (seq-filter #'file-exists-p files))))
    ((buffer-file-name) (list (buffer-file-name)))
    (t nil)))

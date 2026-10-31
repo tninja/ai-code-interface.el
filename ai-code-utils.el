@@ -13,6 +13,7 @@
 
 (require 'cl-lib)
 (require 'subr-x)
+(require 'dired)
 (require 'magit)
 (require 'project)
 ;; Optional: provides the non-Tree-sitter fallback for scope detection.
@@ -41,6 +42,20 @@
 
 (defvar-local ai-code--session-project-root-override nil
   "Explicit session project root associated with the current buffer.")
+
+;;; Context Utilities
+
+(defun ai-code--dired-context ()
+  "Return Dired context as a plist with `:files' and `:marked-p'.
+Explicitly marked files take precedence over the file at point.  Use
+Dired's single-mark indicator to distinguish one marked file from its
+unmarked fallback, even when point is on that same file.  Preserve Dired
+buffer order and absolute paths.  On a non-file line without marks,
+`:files' is nil so each action can choose its own fallback."
+  (let* ((selection (dired-get-marked-files nil nil nil t))
+         (single-marked (eq (car selection) t)))
+    (list :files (if single-marked (cdr selection) selection)
+          :marked-p (or single-marked (> (length selection) 1)))))
 
 ;;; Path Utilities
 

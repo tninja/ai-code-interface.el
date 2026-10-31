@@ -40,9 +40,6 @@
 (declare-function org-current-level "org")
 (declare-function org-roam-db-update-file "org-roam-db" (&optional file-path no-require))
 (declare-function org-roam-db-sync "org-roam-db" (&optional force))
-(declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
-(declare-function dired-get-marked-files "dired"
-                  (&optional localp arg filter distinguish-one-marked error-if-none-p))
 (declare-function ai-code-implement-todo
                   "ai-code-change" (arg &optional default-action))
 
@@ -188,32 +185,29 @@ Argument ARG is the prefix argument."
 (defun ai-code--ask-question-dired (clipboard-context)
   "Handle ask question for Dired buffer.
 CLIPBOARD-CONTEXT is optional clipboard text to append as context."
-  (let* ((all-marked (dired-get-marked-files))
-         (file-at-point (dired-get-filename nil t))
-         (truly-marked (remove file-at-point all-marked))
-         (has-marks (> (length truly-marked) 0))
-         (context-files (cond
-                         (has-marks truly-marked)
-                         (file-at-point (list file-at-point))
-                         (t nil)))
-         (git-relative-files (when context-files
-                              (ai-code--get-git-relative-paths context-files)))
+  (let* ((context (ai-code--dired-context))
+         (context-files (plist-get context :files))
+         (has-marks (plist-get context :marked-p))
+         (selected-file (car context-files))
+         (target-paths (when context-files
+                         (or (ai-code--get-git-relative-paths context-files)
+                             context-files)))
          (scope-string
-          (if git-relative-files
+          (if target-paths
               (concat "Selected files/directories:\n"
                       (mapconcat (lambda (f) (concat "@" f))
-                                 git-relative-files "\n"))
+                                 target-paths "\n"))
             (format "Current directory: %s" default-directory)))
          (prompt-label (cond
                         ((and clipboard-context
                               (string-match-p "\\S-" clipboard-context))
                          (if has-marks
                              "Question about marked files/directories (clipboard context): "
-                           (if file-at-point
-                               (format "Question about %s (clipboard context): " (file-name-nondirectory file-at-point))
+                           (if selected-file
+                               (format "Question about %s (clipboard context): " (file-name-nondirectory selected-file))
                              "General question about directory (clipboard context): ")))
                         (has-marks "Question about marked files/directories: ")
-                        (file-at-point (format "Question about %s: " (file-name-nondirectory file-at-point)))
+                        (selected-file (format "Question about %s: " (file-name-nondirectory selected-file)))
                         (t "General question about directory: ")))
          (question (ai-code-read-string prompt-label ""))
          (repo-context-string (ai-code--format-repo-context-info))
@@ -443,41 +437,34 @@ sends to AI."
 
 (defun ai-code--explain-dired ()
   "Handle explain for Dired buffer."
-  (let* ((file-at-point (dired-get-filename nil t))
-         (all-marked (dired-get-marked-files))
-         (has-marked-files (> (length all-marked) 1))
-         (context-files (if has-marked-files
-                            all-marked
-                          (when file-at-point
-                            (list file-at-point))))
-         (git-relative-paths (when context-files
-                               (ai-code--get-git-relative-paths context-files)))
-         (files-context-string (when git-relative-paths
-                                (concat "\nFiles:\n"
-                                        (mapconcat (lambda (path) (concat "@" path))
-                                                   git-relative-paths
-                                                   "\n"))))
-          (file-type (if (and file-at-point (file-directory-p file-at-point))
+  (let* ((context-files (or (plist-get (ai-code--dired-context) :files)
+                            (user-error "No file or directory selected in Dired")))
+         (multiple-files (> (length context-files) 1))
+         (selected-file (car context-files))
+         (target-paths (or (ai-code--get-git-relative-paths context-files)
+                           context-files))
+         (files-context-string (concat "\nFiles:\n"
+                                       (mapconcat (lambda (path) (concat "@" path))
+                                                  target-paths
+                                                  "\n")))
+          (file-type (if (and selected-file (file-directory-p selected-file))
                          "directory"
                        "file"))
           (path-prefix (if (string-equal file-type "directory")
                            ai-code-discussion--explain-directory-at-path-prefix
                          ai-code-discussion--explain-file-at-path-prefix))
           (initial-prompt (cond
-                           (has-marked-files
+                           (multiple-files
                             (format "%s\n\nProvide a clear explanation of what these files or directories contain, their purpose, and their role in the project structure.%s"
                                     ai-code-discussion--explain-selected-files-prefix
-                                    (or files-context-string "")))
-                           ((car git-relative-paths)
+                                    files-context-string))
+                           (t
                             (format "%s%s.\n\nProvide a clear explanation of what this %s contains, its purpose, and its role in the project structure.%s"
                                     path-prefix
-                                    (car git-relative-paths)
+                                    (car target-paths)
                                     file-type
-                                    (or files-context-string "")))
-                           (t "No file or directory found at cursor point."))))
-    (if git-relative-paths
-        (ai-code--confirm-and-send "Prompt: " initial-prompt)
-      (ai-code--insert-prompt initial-prompt))))
+                                    files-context-string)))))
+    (ai-code--confirm-and-send "Prompt: " initial-prompt)))
 
 (defun ai-code--explain-region ()
   "Explain the selected region with function/file context."

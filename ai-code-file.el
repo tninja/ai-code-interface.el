@@ -88,18 +88,6 @@ active region line range, then the current function, then the file path."
               (format "%s#%s" file-reference function-name)
             file-reference)))))))
 
-(defun ai-code--dired-explicitly-marked-files ()
-  "Return the files explicitly marked in the current Dired buffer.
-Return nil when nothing is marked.  `dired-get-marked-files' falls back
-to the file at point when no mark exists, so a single entry equal to
-that file is not an explicit mark."
-  (let ((all-marked (ignore-errors (dired-get-marked-files)))
-        (file-at-point (ignore-errors (dired-get-filename nil t))))
-    (unless (and (= (length all-marked) 1)
-                 file-at-point
-                 (equal (car all-marked) file-at-point))
-      all-marked)))
-
 ;;;###autoload
 (defun ai-code-copy-buffer-file-name-to-clipboard (&optional arg)
   "Copy the current buffer's file path or selected text to clipboard.
@@ -142,9 +130,8 @@ with @ prefix if within git repo."
            (let* ((git-root-truename (ai-code--git-root))
                   ;; Marked items win; otherwise keep the previous behavior of
                   ;; copying the file under cursor, then the dired directory.
-                  (targets (or (ai-code--dired-explicitly-marked-files)
-                               (list (or (ignore-errors (dired-get-file-for-visit))
-                                         (dired-current-directory))))))
+                  (targets (or (plist-get (ai-code--dired-context) :files)
+                               (list (dired-current-directory)))))
              (mapconcat (lambda (path)
                           (if (and git-root-truename (not arg))
                               (ai-code--process-word-for-filepath path git-root-truename)
@@ -318,7 +305,7 @@ Record the confirmed AI command in the dedicated history and return it."
          (initial-command
           (if (and (derived-mode-p 'dired-mode)
                    (string-match-p "\\*" initial-command))
-              (let* ((files (ignore-errors (dired-get-marked-files)))
+              (let* ((files (plist-get (ai-code--dired-context) :files))
                      (file-names (when files
                                    (delete-dups (mapcar #'file-name-nondirectory files)))))
                 (if file-names
@@ -335,7 +322,7 @@ Record the confirmed AI command in the dedicated history and return it."
               ;; If command starts with :, treat as prompt for AI
               (let* ((base-prompt (concat "Generate a shell command (pure command, no fense, no duplicate, in one line) for: " (substring initial-command 1)))
                      (prompt (if (derived-mode-p 'dired-mode)
-                                 (let* ((files (ignore-errors (dired-get-marked-files)))
+                                 (let* ((files (plist-get (ai-code--dired-context) :files))
                                         (file-names (when files (delete-dups (mapcar #'file-name-nondirectory files)))))
                                    (if file-names
                                        (concat (format "For these files %s, " (mapconcat #'identity file-names " "))
@@ -582,9 +569,7 @@ in the form filepath#Lstart-Lend."
                                          ordered-roots
                                          nil t nil nil (car ordered-roots))))))
       (if (derived-mode-p 'dired-mode)
-          (let* ((file-at-point (dired-get-filename nil t))
-                 (targets (or (ai-code--dired-explicitly-marked-files)
-                              (when file-at-point (list file-at-point)))))
+          (let ((targets (plist-get (ai-code--dired-context) :files)))
             (unless targets
               (user-error "No file or directory selected in Dired"))
             (dolist (path targets)
