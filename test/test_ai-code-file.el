@@ -25,7 +25,6 @@
 (defvar ai-code-auto-test-suffix)
 (defvar ai-code-cli)
 (defvar ai-code-selected-backend)
-(defvar ai-code-sed-command)
 
 ;; Helper macro to set up and tear down the test environment
 (defmacro ai-code-file-with-test-env (&rest body)
@@ -640,20 +639,23 @@ everything is cleaned up afterward."
 
 (ert-deftest ai-code-test-apply-prompt-on-current-file-uses-send-time-auto-test-suffix ()
   "Test that apply-prompt uses send-time resolved suffix when auto test is enabled."
+  (require 'ai-code-harness)
   (let ((captured-command nil)
         (resolved-called nil)
+        (ai-code-use-compose-buffer nil)
+        (ai-code-prompt-suffix-functions '(ai-code--auto-test-suffix-provider))
         (ai-code-use-prompt-suffix t)
         (ai-code-prompt-suffix nil)
         (ai-code-auto-test-type 'ask-me)
         (ai-code-auto-test-suffix nil)
-        (ai-code-cli "claude")
-        (ai-code-sed-command "sed"))
+        (ai-code-cli "claude"))
     (cl-letf (((symbol-function 'ai-code-read-string)
                (lambda (&rest _args) "Refactor this"))
               ((symbol-function 'ai-code--resolve-auto-test-suffix-for-send)
-               (lambda ()
+               (lambda (&rest _args)
                  (setq resolved-called t)
                  "RUN TESTS"))
+              ((symbol-function 'ai-code--get-ai-code-prompt-file-path) (lambda () nil))
               ((symbol-function 'compilation-start)
                (lambda (command &rest _args)
                  (setq captured-command command)
@@ -1306,3 +1308,4 @@ reports ROOT and `kill-ring' starts empty inside BODY."
 (provide 'test_ai-code-file)
 
 ;;; test_ai-code-file.el ends here
+

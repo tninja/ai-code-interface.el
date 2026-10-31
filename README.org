@@ -493,10 +493,11 @@ Instead of manually telling the AI what to do after every code change or discuss
   #+begin_src emacs-lisp
   (setq ai-code-grill-me-enabled t)
   #+end_src
-- `ai-code-use-compose-buffer`: when non-nil, edit prompts longer than two lines in a full =*AI Compose*= buffer instead of the minibuffer. Accept with =C-c C-c=, cancel with =C-c C-k=; =@= file completion works as in prompt buffers. Every invocation starts from a fresh buffer and any stale compose buffer is discarded. Disabled by default; enable it with:
+- `ai-code-use-compose-buffer`: when non-nil, edit complete generated prompts longer than two lines, including their context, in =*AI Compose*= before sending. This also covers Code Change, Ask Question, Implement TODO, Checkpoint, and Apply Prompt on File; already-confirmed prompts open only once. Accept with =C-c C-c= or cancel with =C-c C-k= before history, suffixes, or sending. Verify always uses compose. Disabled by default; enable it with:
   #+begin_src emacs-lisp
   (setq ai-code-use-compose-buffer t)
   #+end_src
+  Apply Prompt on File keeps its CLI pipe, using the shared suffix providers and prompt history. Multiline prompts are streamed with =printf= and =cat=; =ai-code-sed-command= is obsolete.
 - [[https://github.com/obra/superpowers][obra/superpowers]] pair well with these features.
 
 With the built-in =get_diagnostics= MCP tool, the loop can move further left:
@@ -833,3 +834,4 @@ Apache-2.0 License
 ** Contributing
 
 Contributions, issue reports, and improvement suggestions are welcome! Please open an issue or submit a pull request on the project's GitHub repository.
+
