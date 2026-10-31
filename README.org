@@ -832,4 +832,3 @@ Apache-2.0 License
 ** Contributing
 
 Contributions, issue reports, and improvement suggestions are welcome! Please open an issue or submit a pull request on the project's GitHub repository.
-

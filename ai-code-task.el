@@ -670,4 +670,3 @@ using GPTel, and creates the task file."
 
 (provide 'ai-code-task)
 ;;; ai-code-task.el ends here
-

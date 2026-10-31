@@ -720,4 +720,3 @@ Shows the current backend label to the right."
 (provide 'ai-code)
 
 ;;; ai-code.el ends here
-

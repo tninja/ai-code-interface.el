@@ -979,4 +979,3 @@ ARG is the prefix argument."
 (provide 'ai-code-prompt-mode)
 
 ;;; ai-code-prompt-mode.el ends here
-
