@@ -189,13 +189,14 @@ CLIPBOARD-CONTEXT is optional clipboard text to append as context."
          (context-files (plist-get context :files))
          (has-marks (plist-get context :marked-p))
          (selected-file (car context-files))
-         (git-relative-files (when context-files
-                              (ai-code--get-git-relative-paths context-files)))
+         (target-paths (when context-files
+                         (or (ai-code--get-git-relative-paths context-files)
+                             context-files)))
          (scope-string
-          (if git-relative-files
+          (if target-paths
               (concat "Selected files/directories:\n"
                       (mapconcat (lambda (f) (concat "@" f))
-                                 git-relative-files "\n"))
+                                 target-paths "\n"))
             (format "Current directory: %s" default-directory)))
          (prompt-label (cond
                         ((and clipboard-context
@@ -436,16 +437,16 @@ sends to AI."
 
 (defun ai-code--explain-dired ()
   "Handle explain for Dired buffer."
-  (let* ((context-files (plist-get (ai-code--dired-context) :files))
+  (let* ((context-files (or (plist-get (ai-code--dired-context) :files)
+                            (user-error "No file or directory selected in Dired")))
          (multiple-files (> (length context-files) 1))
          (selected-file (car context-files))
-         (git-relative-paths (when context-files
-                               (ai-code--get-git-relative-paths context-files)))
-         (files-context-string (when git-relative-paths
-                                (concat "\nFiles:\n"
-                                        (mapconcat (lambda (path) (concat "@" path))
-                                                   git-relative-paths
-                                                   "\n"))))
+         (target-paths (or (ai-code--get-git-relative-paths context-files)
+                           context-files))
+         (files-context-string (concat "\nFiles:\n"
+                                       (mapconcat (lambda (path) (concat "@" path))
+                                                  target-paths
+                                                  "\n")))
           (file-type (if (and selected-file (file-directory-p selected-file))
                          "directory"
                        "file"))
@@ -456,17 +457,14 @@ sends to AI."
                            (multiple-files
                             (format "%s\n\nProvide a clear explanation of what these files or directories contain, their purpose, and their role in the project structure.%s"
                                     ai-code-discussion--explain-selected-files-prefix
-                                    (or files-context-string "")))
-                           ((car git-relative-paths)
+                                    files-context-string))
+                           (t
                             (format "%s%s.\n\nProvide a clear explanation of what this %s contains, its purpose, and its role in the project structure.%s"
                                     path-prefix
-                                    (car git-relative-paths)
+                                    (car target-paths)
                                     file-type
-                                    (or files-context-string "")))
-                           (t "No file or directory found at cursor point."))))
-    (if git-relative-paths
-        (ai-code--confirm-and-send "Prompt: " initial-prompt)
-      (ai-code--insert-prompt initial-prompt))))
+                                    files-context-string)))))
+    (ai-code--confirm-and-send "Prompt: " initial-prompt)))
 
 (defun ai-code--explain-region ()
   "Explain the selected region with function/file context."
@@ -898,4 +896,3 @@ With prefix ARG, open the default note file in other window instead."
   (require 'ai-code-harness))
 
 ;;; ai-code-discussion.el ends here
-

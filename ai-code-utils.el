@@ -589,4 +589,3 @@ CONTEXT is a plist returned by `ai-code--current-scope-context'."
 (provide 'ai-code-utils)
 
 ;;; ai-code-utils.el ends here
-

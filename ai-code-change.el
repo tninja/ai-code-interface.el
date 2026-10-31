@@ -1003,4 +1003,3 @@ or whole file.  Requires the `flycheck` package to be installed and available."
   (require 'ai-code-harness))
 
 ;;; ai-code-change.el ends here
-

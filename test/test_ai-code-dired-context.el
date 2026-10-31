@@ -124,9 +124,36 @@
                 ((symbol-function 'ai-code--format-repo-context-info) (lambda () nil))
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (text) (setq prompt text))))
+        (should-error (ai-code-explain) :type 'user-error)
+        (should-not prompt)
         (ai-code-ask-question nil))
       (should (string-match-p (regexp-quote (concat "Current directory: " root))
                               prompt)))))
+
+(ert-deftest ai-code-test-dired-outside-git-keeps-absolute-targets ()
+  "Outside Git, Ask and Explain fall back to absolute target paths."
+  (ai-code-dired-test--with-files root
+    (let ((first (expand-file-name "a file.el" root))
+          (second (expand-file-name "b.el" root))
+          prompt)
+      (cl-letf (((symbol-function 'ai-code--git-root) (lambda (&optional _dir) nil))
+                ((symbol-function 'ai-code-read-string) (lambda (&rest _) "Explain"))
+                ((symbol-function 'ai-code--format-repo-context-info) (lambda () nil))
+                ((symbol-function 'ai-code--insert-prompt)
+                 (lambda (text) (setq prompt text)))
+                ((symbol-function 'ai-code--confirm-and-send)
+                 (lambda (_label text) (setq prompt text))))
+        (dired-goto-file first)
+        (ai-code-explain)
+        (should (string-match-p (regexp-quote (concat "explain the file at path @" first))
+                                prompt))
+        (dolist (file (list first second)) (dired-goto-file file) (dired-mark 1))
+        (ai-code-explain)
+        (should (string-match-p (regexp-quote (concat "@" first "\n@" second)) prompt))
+        (ai-code-ask-question nil)
+        (should (string-match-p (regexp-quote (concat "Selected files/directories:\n@"
+                                                      first "\n@" second))
+                                prompt))))))
 
 (ert-deftest ai-code-test-dired-insert-region-still-takes-precedence ()
   "Insert keeps its explicit region selection ahead of unrelated marks."
