@@ -13,11 +13,9 @@
 (require 'magit)
 (require 'subr-x)
 (require 'ai-code-utils)
+(require 'ai-code-prompt-mode)
 
 (defvar ai-code-prompt-file-name)
-(defvar ai-code-use-prompt-suffix)
-(defvar ai-code-prompt-suffix-functions)
-(defvar ai-code--suppress-org-summary-prompt)
 (defvar ai-code-prompt-preprocess-filepaths)
 (defvar ai-code--prompt-project-only)
 
@@ -490,14 +488,12 @@ development.  No previous checkpoint or old AI session is required."
     (with-current-buffer (find-file-noselect task-file)
       (ai-code--set-session-project-root root)
       (let ((default-directory (file-name-as-directory root))
-            (ai-code-use-prompt-suffix nil)
-            (ai-code-prompt-suffix-functions nil)
             (ai-code-prompt-preprocess-filepaths nil)
-            (ai-code--prompt-project-only t)
-            (ai-code--suppress-org-summary-prompt t))
-        (ai-code--confirm-and-send
-         "Resume task prompt: "
-         (ai-code--task-resume-prompt task-file snapshot))))))
+            (ai-code--prompt-project-only t))
+        (ai-code-with-prompt-policy ()
+          (ai-code--confirm-and-send
+           "Resume task prompt: "
+           (ai-code--task-resume-prompt task-file snapshot)))))))
 
 (defun ai-code--agent-handoff-subtree-text (position)
   "Return the Org subtree text for the heading at POSITION."
@@ -608,26 +604,25 @@ a top-level handoff section to the task file."
   (interactive "P")
   (let ((task-file (ai-code--agent-handoff-read-task-file))
         (load-start (unless arg (ai-code--agent-handoff-load-start)))
-        (ai-code-prompt-preprocess-filepaths nil)
-        (ai-code-prompt-suffix-functions nil)
-        (ai-code--suppress-org-summary-prompt t))
-    (cond
-     (arg
-      (ai-code--confirm-and-send
-       "Confirm handoff load prompt: "
-       (ai-code--agent-handoff-load-prompt
-        (ai-code--agent-handoff-read-file-or-buffer task-file)
-        t)))
-     (load-start
-      (ai-code--confirm-and-send
-       "Confirm handoff load prompt: "
-       (ai-code--agent-handoff-load-prompt
-        (ai-code--agent-handoff-subtree-text load-start)
-        nil)))
-     (t
-      (ai-code--confirm-and-send
-       "Confirm handoff dump prompt: "
-       (ai-code--agent-handoff-dump-prompt task-file))))))
+        (ai-code-prompt-preprocess-filepaths nil))
+    (ai-code-with-prompt-policy ()
+      (cond
+       (arg
+        (ai-code--confirm-and-send
+         "Confirm handoff load prompt: "
+         (ai-code--agent-handoff-load-prompt
+          (ai-code--agent-handoff-read-file-or-buffer task-file)
+          t)))
+       (load-start
+        (ai-code--confirm-and-send
+         "Confirm handoff load prompt: "
+         (ai-code--agent-handoff-load-prompt
+          (ai-code--agent-handoff-subtree-text load-start)
+          nil)))
+       (t
+        (ai-code--confirm-and-send
+         "Confirm handoff dump prompt: "
+         (ai-code--agent-handoff-dump-prompt task-file)))))))
 
 ;;;###autoload
 (defun ai-code-create-or-open-task-file ()
@@ -675,3 +670,4 @@ using GPTel, and creates the task file."
 
 (provide 'ai-code-task)
 ;;; ai-code-task.el ends here
+
