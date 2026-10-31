@@ -31,8 +31,6 @@
 (declare-function ai-code--get-git-relative-paths "ai-code-discussion")
 (declare-function ai-code--get-region-location-info "ai-code-discussion")
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
-(declare-function dired-get-marked-files "dired"
-                  (&optional localp arg filter distinguish-one-marked error-if-none-p))
 (declare-function flycheck-error-pos "flycheck")
 (declare-function flycheck-error-line "flycheck")
 (declare-function flycheck-error-column "flycheck")
@@ -410,7 +408,8 @@ REGION-ACTIVE indicates whether a region is selected."
   "Handle code change operation in Dired mode.
 ARG is the prefix argument."
   (let* ((clipboard-context (when arg (ai-code--get-clipboard-text)))
-         (files (dired-get-marked-files))
+         (files (or (plist-get (ai-code--dired-context) :files)
+                    (user-error "No file or directory selected in Dired")))
          (files-str (mapconcat #'identity files "\n"))
          (single-file (when (= (length files) 1) (car files)))
          (prompt-prefix (if single-file
@@ -1004,3 +1003,4 @@ or whole file.  Requires the `flycheck` package to be installed and available."
   (require 'ai-code-harness))
 
 ;;; ai-code-change.el ends here
+

@@ -33,9 +33,6 @@
 (declare-function magit-rev-verify "magit-git" (&rest args))
 (declare-function ai-code-derive-topic-unit-tests "ai-code-doc" ())
 (declare-function dired-current-directory "dired" ())
-(declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
-(declare-function dired-get-marked-files "dired"
-                  (&optional localp arg filter distinguish-one-marked error-if-none-p))
 
 (defvar ai-code-change--generic-note)
 
@@ -449,25 +446,6 @@
                       user-input)))))
     (ai-code--refactoring--ensure-string value)))
 
-(defun ai-code--refactoring-dired-has-explicit-marks-p (all-marked file-at-point)
-  "Return non-nil when ALL-MARKED records explicit Dired selections.
-A single FILE-AT-POINT entry means Dired is only reporting the current line."
-  (and all-marked
-       (not (and (= (length all-marked) 1)
-                 file-at-point
-                 (equal (car all-marked) file-at-point)))))
-
-(defun ai-code--refactoring-dired-targets ()
-  "Return selected Dired targets for refactoring."
-  (let* ((all-marked (dired-get-marked-files))
-         (file-at-point (dired-get-filename nil t))
-         (has-marks (ai-code--refactoring-dired-has-explicit-marks-p
-                     all-marked file-at-point)))
-    (cond
-     (has-marks all-marked)
-     (file-at-point (list file-at-point))
-     (t (user-error "No file or directory selected in Dired")))))
-
 (defun ai-code--refactoring-targets-git-root (targets)
   "Return Git root for refactoring TARGETS or current directory."
   (or (ai-code--git-root (car targets))
@@ -476,7 +454,8 @@ A single FILE-AT-POINT entry means Dired is only reporting the current line."
 (defun ai-code--get-refactoring-context ()
   "Get the current context for refactoring."
   (let* ((dired-targets (when (derived-mode-p 'dired-mode)
-                          (ai-code--refactoring-dired-targets)))
+                        (or (plist-get (ai-code--dired-context) :files)
+                            (user-error "No file or directory selected in Dired"))))
          (region-active (and (not dired-targets) (region-active-p)))
          (scope-context (unless dired-targets
                           (if region-active
@@ -1159,3 +1138,4 @@ Works with both source code and test files that have been added to ai-code."
   (require 'ai-code-harness))
 
 ;;; ai-code-agile.el ends here
+
