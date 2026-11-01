@@ -340,5 +340,19 @@
       (ai-code--file-symbol-records--imenu (current-buffer))
       (should (= scans 2)))))
 
+(ert-deftest ai-code-test-imenu-same-named-child-keeps-parent-prefix ()
+  "Qualify a child that shares its container's name."
+  (with-temp-buffer
+    (insert "class Foo:\n    class Foo:\n        def run(self): pass\n")
+    (cl-letf (((symbol-function 'ai-code--treesit-available-p)
+               (lambda (&optional _buffer) nil))
+              ((symbol-function 'imenu--make-index-alist)
+               (lambda (&optional _noerror)
+                 '(("Foo" (" " . 1)
+                    ("Foo" (" " . 16)
+                     ("run" . 35)))))))
+      (should (equal (ai-code--file-symbol-candidates--imenu (current-buffer))
+                     '("Foo" "Foo.Foo" "Foo.Foo.run"))))))
+
 (provide 'test_ai-code-symbol-completion)
 ;;; test_ai-code-symbol-completion.el ends here

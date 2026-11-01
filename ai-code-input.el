@@ -422,9 +422,7 @@ For example, Python's `run (def)' label still identifies `run'."
   "Return NAME qualified by PARENT-PREFIX without duplicating a prefix."
   (cond
    ((or (null parent-prefix) (string-empty-p parent-prefix)) name)
-   ((or (string= name parent-prefix)
-        (string-prefix-p (concat parent-prefix ".") name))
-    name)
+   ((string-prefix-p (concat parent-prefix ".") name) name)
    (t (concat parent-prefix "." name))))
 
 (defun ai-code--imenu-treesit-qualified-name-at-position (position)
