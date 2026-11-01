@@ -462,13 +462,13 @@ that should be recorded in the prompt history file."
 
 (defun ai-code--find-project-session-buffers ()
   "Return terminal-managed AI session buffers associated with the current project."
-  (when-let ((git-root (ai-code--git-root)))
+  (when-let ((workspace-root (ai-code--session-project-root)))
     (cl-remove-if-not
      (lambda (buf)
        (and (ai-code-backends-infra--session-buffer-p buf)
             (buffer-local-value
              'ai-code-backends-infra--session-terminal-backend buf)
-            (ai-code-backends-infra--session-buffer-matches-directory-p buf git-root)))
+            (ai-code-backends-infra--session-buffer-matches-directory-p buf workspace-root)))
      (buffer-list))))
 
 (defvar ai-code--prompt-project-only nil
