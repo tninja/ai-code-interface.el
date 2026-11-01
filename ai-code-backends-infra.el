@@ -1739,6 +1739,29 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
           (select-window window))
       (ai-code-backends-infra--display-buffer-in-side-window buffer))))
 
+(defun ai-code-backends-infra--submit-prompt (buffer prompt &optional source-buffer)
+  "Submit PROMPT to the already chosen terminal BUFFER.
+Refresh MCP context from SOURCE-BUFFER, defaulting to the current buffer,
+before terminal I/O.  Preserve the configured multiline paste policy and
+submission delay.  Record the last prompt and accessed session only after
+text and Return have both been sent successfully.  Return the transport's
+Return result.  This does not select a target or change window display."
+  (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
+    (ai-code-mcp-agent-refresh-source-context
+     buffer (or source-buffer (current-buffer))))
+  (prog1
+      (with-current-buffer buffer
+        (if (and (string-match-p "\n" prompt)
+                 (member ai-code-backends-infra--session-prefix
+                         ai-code-backends-infra-use-paste-backends))
+            (ai-code-backends-infra--terminal-send-string prompt t)
+          (ai-code-backends-infra--terminal-send-string prompt))
+        ;; Shorter delays can lose submissions in some CLI backends.
+        (sit-for 0.5)
+        (ai-code-backends-infra--terminal-send-return))
+    (ai-code-session-note-prompt buffer prompt)
+    (setq ai-code-backends-infra--last-accessed-buffer buffer)))
+
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
                                                                 &optional prefix working-dir force-prompt)
   "Send LINE to BUFFER-NAME or signal MISSING-MESSAGE.
@@ -1751,18 +1774,9 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   working-dir
                   force-prompt
                   source-buffer)))
-    (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
-      (ai-code-mcp-agent-refresh-source-context buffer source-buffer))
-    (ai-code-session-note-prompt buffer line)
     (with-current-buffer buffer
-      (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
-      (if (and (string-match-p "\n" line)
-               (member ai-code-backends-infra--session-prefix
-                       ai-code-backends-infra-use-paste-backends))
-          (ai-code-backends-infra--terminal-send-string line t)
-        (ai-code-backends-infra--terminal-send-string line))
-      (sit-for 0.5) ;; 0.1 might be too low for some cli backends such as github copilot cli
-      (ai-code-backends-infra--terminal-send-return))))
+      (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer))
+    (ai-code-backends-infra--submit-prompt buffer line source-buffer)))
 
 ;;; Generic Session Creation
 
