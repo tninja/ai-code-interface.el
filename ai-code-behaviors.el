@@ -2354,10 +2354,11 @@ Otherwise return nil to continue normal processing."
                      ""))
           t)))))
 
-(defun ai-code--insert-prompt-behaviors-advice (orig-fun prompt-text)
+(defun ai-code--insert-prompt-behaviors-advice (orig-fun prompt-text &rest args)
   "Advice for `ai-code--insert-prompt'.
 ORIG-FUN is the original function.
 PROMPT-TEXT is the prompt being processed.
+ARGS, such as an alternate send function, are forwarded unchanged.
 Handles preset-only detection, session checks, and preset application.
 Only applies command-specific behavior when called interactively.
 Signals `user-error' for preset-only prompts to abort the send cleanly."
@@ -2372,7 +2373,7 @@ Signals `user-error' for preset-only prompts to abort the send cleanly."
                 (user-error "Session started; please run the command again"))
             (user-error "Cancelled")))
         (ai-code--apply-preset-for-command this-command))
-      (funcall orig-fun prompt-text))))
+      (apply orig-fun prompt-text args))))
 
 ;;; Auto-enable functions
 
