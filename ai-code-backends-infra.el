@@ -30,7 +30,7 @@
 (require 'ai-code-backends-infra-ghostel)
 
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
-(declare-function ai-code--session-project-root "ai-code-utils" ())
+(declare-function ai-code--session-project-root "ai-code-utils" (&optional project-only))
 (declare-function ai-code-mcp-agent-refresh-source-context
                   "ai-code-mcp-agent" (agent-buffer source-buffer))
 
