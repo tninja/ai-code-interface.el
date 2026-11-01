@@ -987,11 +987,8 @@ or whole file.  Requires the `flycheck` package to be installed and available."
                      :scope scope-string
                      :context repo-context-string
                      :boundaries ai-code-change--flycheck-brief-boundaries
-                     :code-change-note ai-code-change--generic-note))
-                   (edited-prompt (ai-code-read-string "Edit prompt for AI: "
-                                                       prompt)))
-              (when (and edited-prompt (not (string-blank-p edited-prompt)))
-                (ai-code--insert-prompt edited-prompt)
+                     :code-change-note ai-code-change--generic-note)))
+              (when (ai-code--confirm-and-send "Edit prompt for AI: " prompt)
                 (message "Generated prompt to fix %d Flycheck error(s) in %s."
                          (length errors-in-scope)
                          scope-description)))))))))

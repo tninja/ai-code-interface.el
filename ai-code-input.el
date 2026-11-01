@@ -84,10 +84,11 @@ Return nil when compose is cancelled."
   "Edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI once.
 FORCE-COMPOSE always uses compose.  AFTER-EDIT, when non-nil, transforms
 the accepted text before sending, for example to append mandatory rules.
-Cancellation skips the transform and all send side effects."
+Cancellation or blank text skips the transform and all send side effects."
   (when-let ((prompt (ai-code--read-prompt prompt-label initial-prompt force-compose)))
-    (let ((ai-code--prompt-already-edited t))
-      (ai-code--insert-prompt (if after-edit (funcall after-edit prompt) prompt)))))
+    (unless (string-blank-p prompt)
+      (let ((ai-code--prompt-already-edited t))
+        (ai-code--insert-prompt (if after-edit (funcall after-edit prompt) prompt))))))
 
 (defun ai-code--read-input-history (file)
   "Read the saved input history list from FILE.
@@ -208,10 +209,9 @@ perform that action."
 
 (defun ai-code--speech-to-text-send-prompt (origin-buffer transcription)
   "Edit TRANSCRIPTION from ORIGIN-BUFFER and send the result to the AI session."
-  (when-let* ((prompt (with-current-buffer origin-buffer
-                        (ai-code-read-string "Send to AI: " transcription))))
-    (require 'ai-code-prompt-mode)
-    (ai-code--insert-prompt prompt)))
+  (require 'ai-code-prompt-mode)
+  (with-current-buffer origin-buffer
+    (ai-code--confirm-and-send "Send to AI: " transcription)))
 
 ;;;###autoload
 (defun ai-code-speech-to-text-input ()

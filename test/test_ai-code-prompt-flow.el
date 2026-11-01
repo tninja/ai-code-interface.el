@@ -90,6 +90,14 @@ Return the editor preview, final prompt, edit count and suffix count."
     (should (= edits 1))
     (should (equal sent "Edited\ncomplete\nprompt\n"))))
 
+(ert-deftest ai-code-flow-test-blank-confirmed-prompt-sends-nothing ()
+  "Clearing a confirmed prompt cancels the send."
+  (let ((ai-code-use-compose-buffer t))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "  \n "))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (&rest _) (ert-fail "Blank prompt was sent"))))
+      (should-not (ai-code--confirm-and-send "Edit: " "Original\ncomplete\nprompt")))))
+
 (ert-deftest ai-code-flow-test-verify-keeps-rules-after-one-edit ()
   "Verify's mandatory rules survive editing without another editable pass."
   (let ((ai-code-use-compose-buffer t)
@@ -218,6 +226,83 @@ Return the editor preview, final prompt, edit count and suffix count."
                 ((symbol-function 'compilation-start)
                  (lambda (&rest _) (ert-fail "Cancelled pipe launched CLI"))))
         (should-not (ai-code-apply-prompt-on-current-file))))))
+
+(defvar flycheck-current-errors)
+
+(defun ai-code-flow-test--flycheck-fix ()
+  "Run the Flycheck fix command against stubbed diagnostics."
+  (setq buffer-file-name "/tmp/project/test.el")
+  (setq-local flycheck-mode t)
+  (let ((flycheck-current-errors '(fake-error))
+        (original-featurep (symbol-function 'featurep)))
+    (cl-letf (((symbol-function 'featurep)
+               (lambda (feature &optional subfeature)
+                 (or (eq feature 'flycheck)
+                     (funcall original-featurep feature subfeature))))
+              ((symbol-function 'ai-code--git-root) (lambda () "/tmp/project"))
+              ((symbol-function 'ai-code--choose-flycheck-scope)
+               (lambda () (list (point-min) (point-max) "whole file")))
+              ((symbol-function 'ai-code-flycheck--get-errors-in-scope)
+               (lambda (_start _end) '(fake-error)))
+              ((symbol-function 'ai-code-flycheck--format-error-list)
+               (lambda (_errors _file) "test.el:1:1 fake diagnostic"))
+              ((symbol-function 'ai-code--get-context-files-string) (lambda () ""))
+              ((symbol-function 'ai-code--format-repo-context-info) (lambda () "")))
+      (ai-code-flycheck-fix-errors-in-scope))))
+
+(defun ai-code-flow-test--send-region ()
+  "Send a multi-line region from a buffer that is not the prompt file."
+  (insert "First line\nSecond line\nThird line")
+  (setq buffer-file-name "/tmp/notes.txt")
+  (cl-letf (((symbol-function 'use-region-p) (lambda () t))
+            ((symbol-function 'region-beginning) (lambda () (point-min)))
+            ((symbol-function 'region-end) (lambda () (point-max))))
+    (ai-code-prompt-send-block)))
+
+(defun ai-code-flow-test--search-notes ()
+  "Run note search with stubbed scopes and generated prompt."
+  (cl-letf (((symbol-function 'ai-code--ensure-files-directory) (lambda () "/tmp"))
+            ((symbol-function 'ai-code--read-note-search-scopes) (lambda (_dir) nil))
+            ((symbol-function 'ai-code--build-note-search-prompt)
+             (lambda (_scopes _description) "Search\nnotes\nprompt")))
+    (ai-code-search-notes-with-ai)))
+
+(defun ai-code-flow-test--search-tasks ()
+  "Run task search with a stubbed directory and generated prompt."
+  (cl-letf (((symbol-function 'ai-code--read-task-search-directory) (lambda (_dir) "/tmp"))
+            ((symbol-function 'ai-code--build-task-search-prompt)
+             (lambda (_dir _description) "Search\ntask\nprompt")))
+    (ai-code--search-task-files-with-ai "/tmp")))
+
+(defun ai-code-flow-test--speech ()
+  "Send a multi-line speech transcription."
+  (ai-code--speech-to-text-send-prompt (current-buffer) "Spoken\nmulti-line\nrequest"))
+
+(ert-deftest ai-code-flow-test-self-confirmed-prompts-open-one-editor ()
+  "Commands that confirm their complete prompt open compose exactly once."
+  (dolist (flow '(ai-code-flow-test--flycheck-fix
+                  ai-code-flow-test--send-region
+                  ai-code-flow-test--search-notes
+                  ai-code-flow-test--search-tasks
+                  ai-code-flow-test--speech))
+    (let ((ai-code-use-compose-buffer t)
+          (ai-code-prompt-preprocess-filepaths nil)
+          (ai-code-prompt-suffix-functions nil)
+          (ai-code--suppress-org-summary-prompt t)
+          (edits 0) sent)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (label &optional initial _candidates)
+                   (when (ai-code--long-prompt-p initial)
+                     (ert-fail (format "%s edited the full prompt in the minibuffer: %s"
+                                       flow label)))
+                   "short input"))
+                ((symbol-function 'ai-code-compose-read)
+                 (lambda (&rest _) (cl-incf edits) "Edited\ncomplete\nprompt"))
+                ((symbol-function 'ai-code--get-ai-code-prompt-file-path) (lambda () nil))
+                ((symbol-function 'ai-code--send-prompt) (lambda (text) (setq sent text))))
+        (with-temp-buffer (funcall flow)))
+      (should (equal (list flow edits) (list flow 1)))
+      (should (equal (list flow sent) (list flow "Edited\ncomplete\nprompt\n"))))))
 
 (provide 'test_ai-code-prompt-flow)
 

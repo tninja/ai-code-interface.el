@@ -937,6 +937,8 @@ is between the function definition and its body."
                  (lambda () "\nStored repository context:\n  - /tmp/project/test.el#old-helper"))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (_label input) input))
+                ((symbol-function 'read-string)
+                 (lambda (_label input &rest _) input))
                 ((symbol-function 'ai-code--insert-prompt)
                  (lambda (prompt) (setq captured-prompt prompt))))
           (ai-code-flycheck-fix-errors-in-scope)

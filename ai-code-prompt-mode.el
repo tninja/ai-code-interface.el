@@ -856,10 +856,8 @@ Following issue #404 behavior:
                    (string= (file-name-nondirectory buffer-file-name)
                             ai-code-prompt-file-name))
               (ai-code--send-prompt trimmed-text)
-            (when-let ((edited-prompt
-                        (ai-code-read-string "Confirm and edit prompt before sending: "
-                                             trimmed-text)))
-              (ai-code--insert-prompt edited-prompt)))
+            (ai-code--confirm-and-send "Confirm and edit prompt before sending: "
+                                       trimmed-text))
         (message "No text in the selected region to send."))))
    (t
     (if (fboundp 'org-ctrl-c-ctrl-c)
@@ -987,9 +985,8 @@ ARG is the prefix argument."
                             (concat "\nContext:\n" region-text))
                           (when (and clipboard-context
                                      (string-match-p "\\S-" clipboard-context))
-                            (concat "\n\nClipboard context:\n" clipboard-context))))
-         (confirmed-prompt (ai-code-read-string "Confirm search prompt: " default-prompt)))
-    (ai-code--insert-prompt confirmed-prompt)))
+                            (concat "\n\nClipboard context:\n" clipboard-context)))))
+    (ai-code--confirm-and-send "Confirm search prompt: " default-prompt)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist

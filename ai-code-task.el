@@ -248,10 +248,8 @@ Return the relevant file paths, matched excerpts, and a concise summary."
          (search-description
           (ai-code-read-string "Search description for .org files: "))
          (default-prompt
-          (ai-code--build-task-search-prompt target-dir search-description))
-         (confirmed-prompt
-          (ai-code-read-string "Confirm search prompt: " default-prompt)))
-    (ai-code--insert-prompt confirmed-prompt)))
+          (ai-code--build-task-search-prompt target-dir search-description)))
+    (ai-code--confirm-and-send "Confirm search prompt: " default-prompt)))
 
 (defun ai-code--agent-handoff-current-task-file ()
   "Return the current saved Org task file, or nil."
