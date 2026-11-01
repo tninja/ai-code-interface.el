@@ -605,7 +605,8 @@
 (defmacro ai-code-test--with-backends-history (content &rest body)
   "Evaluate BODY with a temporary backend history file containing CONTENT."
   (declare (indent 1) (debug t))
-  `(let* ((history-content ,content)
+  `(let* ((ai-code--repo-backend-alist nil)
+          (history-content ,content)
           (temp-file (make-temp-file "ai-code-backends-history-"))
           (ai-code-backends-history-file temp-file))
      (unwind-protect
