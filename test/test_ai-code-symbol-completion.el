@@ -325,5 +325,22 @@
     (should (equal (ai-code--file-symbol-candidates--imenu (current-buffer))
                    '("Outer" "Outer.Inner" "Outer.Inner.run" "zebra")))))
 
+(ert-deftest ai-code-test-imenu-symbol-records-rescan-only-after-edits ()
+  "Reuse the Imenu index until the buffer text changes."
+  (with-temp-buffer
+    (insert "def alpha():\n    pass\n")
+    (let ((scans 0))
+      (setq-local imenu-create-index-function
+                  (lambda ()
+                    (cl-incf scans)
+                    (list (cons "alpha" (point-min)))))
+      (ai-code--file-symbol-records--imenu (current-buffer))
+      (ai-code--file-symbol-records--imenu (current-buffer))
+      (should (= scans 1))
+      (goto-char (point-max))
+      (insert "def beta():\n    pass\n")
+      (ai-code--file-symbol-records--imenu (current-buffer))
+      (should (= scans 2)))))
+
 (provide 'test_ai-code-symbol-completion)
 ;;; test_ai-code-symbol-completion.el ends here

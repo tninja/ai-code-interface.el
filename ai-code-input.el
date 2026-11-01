@@ -548,6 +548,18 @@ the source line rather than an unrelated enclosing definition."
                           pos (plist-get record :name))))))
     record))
 
+(defvar-local ai-code--imenu-index-tick nil
+  "`buffer-chars-modified-tick' when ai-code last built the Imenu index.")
+
+(defun ai-code--imenu-index ()
+  "Return the current buffer's Imenu index, rescanning only after edits."
+  (let* ((tick (buffer-chars-modified-tick))
+         (imenu-auto-rescan (not (and imenu--index-alist
+                                      (eql tick ai-code--imenu-index-tick))))
+         (index (imenu--make-index-alist t)))
+    (setq ai-code--imenu-index-tick tick)
+    index))
+
 (defun ai-code--file-symbol-records--imenu (buffer)
   "Return Imenu symbol records from BUFFER in source-definition order."
   (with-current-buffer buffer
@@ -555,8 +567,7 @@ the source line rather than an unrelated enclosing definition."
       (save-restriction
         (widen)
         (condition-case nil
-            (let* ((imenu-auto-rescan t)
-                   (index (imenu--make-index-alist t))
+            (let* ((index (ai-code--imenu-index))
                    (records (ai-code--imenu-collect-symbol-records index)))
               (setq records (cl-stable-sort records #'ai-code--imenu-record-position-less-p))
               (mapcar #'ai-code--imenu-enrich-symbol-record records))
