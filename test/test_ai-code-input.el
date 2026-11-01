@@ -804,10 +804,10 @@
       (insert "@src/test.el")
       (should-not (ai-code--hash-completion-target-file (point))))))
 
-;; Tests for ai-code--file-symbol-candidates
+;; Tests for ai-code--file-symbol-candidates--imenu
 
 (ert-deftest ai-code-test-file-symbol-candidates-elisp ()
-  "Test that ai-code--file-symbol-candidates extracts symbols from Elisp file."
+  "Test that ai-code--file-symbol-candidates--imenu extracts symbols from Elisp file."
   (let ((test-file (expand-file-name "test-symbols.el" temporary-file-directory)))
     (unwind-protect
         (progn
@@ -817,14 +817,14 @@
             (insert "(defun test-func-2 () \"doc\" nil)\n")
             (insert "(defvar test-var 42)\n"))
           
-          (let ((symbols (ai-code--file-symbol-candidates test-file)))
+          (let ((symbols (ai-code--file-symbol-candidates--imenu (find-file-noselect test-file))))
             (should (member "test-func-1" symbols))
             (should (member "test-func-2" symbols))))
       ;; Cleanup
       (when (file-exists-p test-file) (delete-file test-file)))))
 
 (ert-deftest ai-code-test-file-symbol-candidates-source-order ()
-  "Test that ai-code--file-symbol-candidates preserves source order."
+  "Test that ai-code--file-symbol-candidates--imenu preserves source order."
   (let ((test-file (expand-file-name "test-source-order.el" temporary-file-directory)))
     (unwind-protect
         (progn
@@ -833,13 +833,13 @@
             (insert "(defun alpha () nil)\n")
             (insert "(defun beta () nil)\n"))
           
-          (let ((symbols (ai-code--file-symbol-candidates test-file)))
+          (let ((symbols (ai-code--file-symbol-candidates--imenu (find-file-noselect test-file))))
             (should (equal symbols '("zebra" "alpha" "beta")))))
       ;; Cleanup
       (when (file-exists-p test-file) (delete-file test-file)))))
 
 (ert-deftest ai-code-test-file-symbol-candidates-deduped ()
-  "Test that ai-code--file-symbol-candidates removes duplicates."
+  "Test that ai-code--file-symbol-candidates--imenu removes duplicates."
   (let ((test-file (expand-file-name "test-dedup.el" temporary-file-directory)))
     (unwind-protect
         (progn
@@ -847,7 +847,7 @@
             (insert "(defun duplicate () nil)\n")
             (insert "(defun duplicate () nil)\n"))
           
-          (let ((symbols (ai-code--file-symbol-candidates test-file)))
+          (let ((symbols (ai-code--file-symbol-candidates--imenu (find-file-noselect test-file))))
             (should (= 1 (cl-count "duplicate" symbols :test #'string=)))))
       ;; Cleanup
       (when (file-exists-p test-file) (delete-file test-file)))))

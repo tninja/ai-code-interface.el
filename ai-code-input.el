@@ -580,14 +580,6 @@ the source line rather than an unrelated enclosing definition."
          (mapcar (lambda (record) (plist-get record :qualified))
                  (ai-code--file-symbol-records--imenu buffer)))))
 
-(defun ai-code--file-symbol-candidates (file)
-  "Return qualified symbol candidates from FILE using Imenu.
-The major mode decides how the Imenu index is produced.  In Tree-sitter modes
-this naturally consumes Tree-sitter-backed Imenu without duplicating grammar
-knowledge in ai-code."
-  (when-let* ((buffer (ignore-errors (find-file-noselect file t))))
-    (ai-code--file-symbol-candidates--imenu buffer)))
-
 (defun ai-code--choose-symbol-annotation-alist (symbols-or-buffer)
   "Return completion annotations for SYMBOLS-OR-BUFFER.
 SYMBOLS-OR-BUFFER is either a list of Imenu symbol records or a buffer.
