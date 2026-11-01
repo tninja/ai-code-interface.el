@@ -20,11 +20,11 @@
 (defvar ai-code--prompt-project-only)
 
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (question))
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 (declare-function ai-code-read-string "ai-code-input"
                   (prompt &optional initial-input candidate-list))
-(declare-function ai-code--confirm-and-send "ai-code-input"
-                  (prompt-label initial-prompt))
+(declare-function ai-code--confirm-and-send "ai-code-input")
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 (declare-function ai-code--set-session-project-root "ai-code-utils" (root))
 

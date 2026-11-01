@@ -26,7 +26,8 @@
 (declare-function ai-code--format-repo-context-info "ai-code-utils" ())
 (declare-function ai-code--compose-question-brief "ai-code-change" (&rest plist))
 (declare-function ai-code--compose-code-change-brief "ai-code-change" (&rest plist))
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 
 (defvar magit-buffer-diff-range)
 (defvar magit-buffer-diff-range-oids)

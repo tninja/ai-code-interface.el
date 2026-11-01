@@ -26,7 +26,8 @@
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 (defvar ai-code--prompt-already-edited)
 (declare-function whisper-run "whisper" ())
 
@@ -796,4 +797,3 @@ Optional RESOLVED-FILE is an existing absolute file path to open directly."
 (provide 'ai-code-input)
 
 ;;; ai-code-input.el ends here
-

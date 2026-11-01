@@ -1308,4 +1308,3 @@ reports ROOT and `kill-ring' starts empty inside BODY."
 (provide 'test_ai-code-file)
 
 ;;; test_ai-code-file.el ends here
-

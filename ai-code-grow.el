@@ -14,7 +14,8 @@
 (require 'ai-code-utils)
 (require 'ai-code-prompt-mode)
 
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 
 (defun ai-code-grow--package-directory ()

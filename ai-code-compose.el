@@ -115,4 +115,3 @@ callers can keep their current prompt-building and sending flow unchanged."
 (provide 'ai-code-compose)
 
 ;;; ai-code-compose.el ends here
-

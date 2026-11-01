@@ -17,8 +17,7 @@
 (require 'ai-code-utils)
 
 (declare-function ai-code-read-string "ai-code-input")
-(declare-function ai-code--confirm-and-send "ai-code-input"
-                  (prompt-label initial-prompt &rest options))
+(declare-function ai-code--confirm-and-send "ai-code-input")
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 
 (defvar ai-code-default-review-source)
@@ -278,4 +277,3 @@ without changing code, PR metadata, or Org task state."
 (provide 'ai-code-verify)
 
 ;;; ai-code-verify.el ends here
-

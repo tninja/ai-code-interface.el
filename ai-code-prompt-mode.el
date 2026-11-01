@@ -47,7 +47,7 @@ the terminal backend infrastructure.")
 (declare-function ai-code--long-prompt-p "ai-code-input" (text))
 (declare-function ai-code--read-prompt "ai-code-input"
                   (prompt-label initial-prompt &optional force-compose))
-(declare-function ai-code--confirm-and-send "ai-code-input" (prompt-label initial-prompt))
+(declare-function ai-code--confirm-and-send "ai-code-input")
 (declare-function ai-code--worktree-main-repo-root "ai-code-utils" ())
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
@@ -998,4 +998,3 @@ ARG is the prefix argument."
 (provide 'ai-code-prompt-mode)
 
 ;;; ai-code-prompt-mode.el ends here
-

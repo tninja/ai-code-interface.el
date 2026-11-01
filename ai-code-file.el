@@ -37,7 +37,7 @@ File prompting now uses printf and cat to preserve multiline text."
   :type 'string
   :group 'ai-code)
 
-(make-obsolete-variable 'ai-code-sed-command nil "2026-10-31")
+(make-obsolete-variable 'ai-code-sed-command nil "2.00")
 
 (defcustom ai-code-region-text-max-lines 5
   "Maximum number of region lines whose text is kept in context references.
@@ -746,4 +746,3 @@ it in another window."
 (provide 'ai-code-file)
 
 ;;; ai-code-file.el ends here
-

@@ -15,7 +15,8 @@
 
 
 (declare-function ai-code-read-string "ai-code-input")
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 (declare-function magit-git-string "magit-git" (&rest args))
 (declare-function difftastic-magit-diff "difftastic" ())
 (declare-function ai-code--validate-git-repository "ai-code-git" ())
