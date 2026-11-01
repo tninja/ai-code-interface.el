@@ -15,7 +15,8 @@
 (require 'ai-code-prompt-mode)
 
 (declare-function ai-code-plain-read-string "ai-code-input" (prompt &optional initial-input history default inherit-input-method))
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--ensure-files-directory "ai-code-utils")

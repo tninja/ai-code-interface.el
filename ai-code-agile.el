@@ -20,7 +20,8 @@
 (require 'thingatpt)
 (require 'which-func)
 
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 (declare-function ai-code--compose-code-change-brief
                   "ai-code-change" (&rest plist))
 (declare-function ai-code--get-context-files-string "ai-code-utils")

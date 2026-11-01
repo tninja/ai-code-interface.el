@@ -26,7 +26,9 @@
 (declare-function ai-code-backends-infra--terminal-send-string "ai-code-backends-infra" (string))
 (declare-function ai-code-backends-infra--terminal-send-backspace "ai-code-backends-infra" ())
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
+(defvar ai-code--prompt-already-edited)
 (declare-function whisper-run "whisper" ())
 
 (eval-when-compile
@@ -64,16 +66,29 @@ reader, and with a compose buffer when `ai-code-use-compose-buffer' is set."
   (and text
        (> (length (split-string text "\n")) 2)))
 
-(defun ai-code--confirm-and-send (prompt-label initial-prompt)
-  "Let user edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI.
-Returns non-nil on successful send."
-  (when-let* ((prompt
-               (if (ai-code--long-prompt-p initial-prompt)
-                   (if ai-code-use-compose-buffer
-                       (ai-code-compose-read prompt-label initial-prompt)
-                     (read-string prompt-label initial-prompt))
-                 (ai-code-read-string prompt-label initial-prompt))))
-    (ai-code--insert-prompt prompt)))
+(defun ai-code--read-prompt (prompt-label initial-prompt &optional force-compose)
+  "Edit INITIAL-PROMPT with PROMPT-LABEL using the configured reader.
+FORCE-COMPOSE always opens the compose buffer.  Otherwise long prompts
+use compose only when enabled, retaining the existing minibuffer readers.
+Return nil when compose is cancelled."
+  (cond
+   ((or force-compose
+        (and ai-code-use-compose-buffer (ai-code--long-prompt-p initial-prompt)))
+    (ai-code-compose-read prompt-label initial-prompt))
+   ((ai-code--long-prompt-p initial-prompt)
+    (read-string prompt-label initial-prompt))
+   (t (ai-code-read-string prompt-label initial-prompt))))
+
+(cl-defun ai-code--confirm-and-send (prompt-label initial-prompt
+                                                  &key force-compose after-edit)
+  "Edit INITIAL-PROMPT with PROMPT-LABEL, then send to AI once.
+FORCE-COMPOSE always uses compose.  AFTER-EDIT, when non-nil, transforms
+the accepted text before sending, for example to append mandatory rules.
+Cancellation or blank text skips the transform and all send side effects."
+  (when-let ((prompt (ai-code--read-prompt prompt-label initial-prompt force-compose)))
+    (unless (string-blank-p prompt)
+      (let ((ai-code--prompt-already-edited t))
+        (ai-code--insert-prompt (if after-edit (funcall after-edit prompt) prompt))))))
 
 (defun ai-code--read-input-history (file)
   "Read the saved input history list from FILE.
@@ -194,10 +209,9 @@ perform that action."
 
 (defun ai-code--speech-to-text-send-prompt (origin-buffer transcription)
   "Edit TRANSCRIPTION from ORIGIN-BUFFER and send the result to the AI session."
-  (when-let* ((prompt (with-current-buffer origin-buffer
-                        (ai-code-read-string "Send to AI: " transcription))))
-    (require 'ai-code-prompt-mode)
-    (ai-code--insert-prompt prompt)))
+  (require 'ai-code-prompt-mode)
+  (with-current-buffer origin-buffer
+    (ai-code--confirm-and-send "Send to AI: " transcription)))
 
 ;;;###autoload
 (defun ai-code-speech-to-text-input ()

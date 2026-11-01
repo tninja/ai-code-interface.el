@@ -17,6 +17,7 @@
 (require 'ai-code-utils)
 
 (declare-function ai-code-read-string "ai-code-input")
+(declare-function ai-code--confirm-and-send "ai-code-input")
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 
 (defvar ai-code-default-review-source)
@@ -231,12 +232,12 @@ description, and CONTEXT is selected editor text or an Org subtree."
   "Let the user edit the complete Verify PROMPT, then send if accepted.
 Always append mandatory read-only and original-source rules after editing.
 Cancellation does not send anything or update task or repository state."
-  (when-let ((edited (ai-code-compose-read
-                     "Edit Verify prompt (read-only rule appended)"
-                     prompt)))
-    (ai-code--insert-prompt
-     (concat edited ai-code-verify--mandatory-read-only-suffix
-             ai-code-verify--mandatory-source-rule))))
+  (ai-code--confirm-and-send
+   "Edit Verify prompt (read-only rule appended)" prompt
+   :force-compose t
+   :after-edit (lambda (edited)
+                 (concat edited ai-code-verify--mandatory-read-only-suffix
+                         ai-code-verify--mandatory-source-rule))))
 
 
 ;;;###autoload

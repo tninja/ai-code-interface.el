@@ -5,7 +5,7 @@
 
 ;;; Commentary:
 ;; Optional full-buffer editor for long AI prompts.  This file only provides
-;; the compose UI; `ai-code--confirm-and-send' decides when to use it.
+;; the compose UI; the shared prompt editing and sending path selects it.
 ;; Existing ai-code commands continue to own context assembly, prompt suffixes,
 ;; harness behavior, backend selection, and sending.
 
@@ -18,10 +18,10 @@
 (defcustom ai-code-use-compose-buffer nil
   "When non-nil, use a compose buffer for prompts longer than two lines.
 
-`ai-code--confirm-and-send' keeps its existing two-line threshold.  Prompts
-with two lines or fewer keep their existing input UI.  For prompts longer
-than two lines, enabling this option replaces the previous minibuffer
-`read-string' editor with `ai-code-compose-read'."
+Edit the complete generated prompt, including its context, before sending.
+Commands that already confirmed their full prompt do not ask twice.
+Prompts with two lines or fewer retain their existing input UI.
+Verify always uses compose independently of this option."
   :type 'boolean
   :group 'ai-code)
 

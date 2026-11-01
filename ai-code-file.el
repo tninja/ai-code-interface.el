@@ -21,20 +21,23 @@
 
 
 (declare-function ai-code-read-string "ai-code-input")
-(declare-function ai-code--insert-prompt "ai-code-prompt-mode" (prompt-text))
+(declare-function ai-code--insert-prompt "ai-code-prompt-mode"
+                  (prompt-text &optional send-function))
 (declare-function ai-code--process-word-for-filepath "ai-code-prompt-mode" (word git-root-truename))
 (declare-function ai-code-call-gptel-sync "ai-code-prompt-mode" (prompt))
 (declare-function ai-code--extract-radar-id "ai-code-task" (text))
 (declare-function ai-code--normalize-radar-text "ai-code-task" (text))
-(declare-function ai-code--resolve-auto-test-suffix-for-send "ai-code")
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-run-test "ai-code-agile")
 (declare-function ai-code-flycheck-fix-errors-in-scope "ai-code-change")
 
 (defcustom ai-code-sed-command "sed"
-  "GNU sed command used to apply prompts to files."
+  "Obsolete compatibility option for the former sed prompt pipe.
+File prompting now uses printf and cat to preserve multiline text."
   :type 'string
   :group 'ai-code)
+
+(make-obsolete-variable 'ai-code-sed-command nil "2.00")
 
 (defcustom ai-code-region-text-max-lines 5
   "Maximum number of region lines whose text is kept in context references.
@@ -45,21 +48,11 @@ path with the line range, without the region text."
   :group 'ai-code)
 
 ;; Variables that will be defined in ai-code.el
-(defvar ai-code-use-prompt-suffix)
-(defvar ai-code-prompt-suffix)
-(defvar ai-code-auto-test-type)
-(defvar ai-code-auto-test-suffix)
 (defvar ai-code-cli)
 (defvar ai-code-selected-backend)
 (defvar ai-code-task-use-gptel-filename)
 
 
-
-(defun ai-code--resolve-auto-test-suffix-for-current-send ()
-  "Return auto test suffix for this send action in file operations."
-  (if (fboundp 'ai-code--resolve-auto-test-suffix-for-send)
-      (ai-code--resolve-auto-test-suffix-for-send)
-    ai-code-auto-test-suffix))
 
 (defun ai-code--current-file-context-reference (&optional full-path)
   "Return the current file context reference.
@@ -250,44 +243,36 @@ Maintains a dedicated history list for this command."
 (defun ai-code-apply-prompt-on-current-file ()
   "Apply a user prompt to the current file and send to an AI CLI tool.
 The file can be the one in the current buffer or at point in a Dired
-buffer.  It constructs a shell command:
-sed \"1i <prompt>: \" <file> | <ai-code-cli>
-and runs it in a compilation buffer."
+buffer.  Reuse complete-prompt editing, suffix providers and history,
+then pipe the prompt and file contents to the CLI in a compilation buffer."
   (interactive)
   (when (memq (and (boundp 'ai-code-selected-backend)
                    ai-code-selected-backend)
               '(agent-shell eca))
     (user-error "Backend '%s' does not support piping file content via ai-code-cli"
                 ai-code-selected-backend))
-  (let* ((prompt (ai-code-read-string "Prompt: "))
-         (suffix-parts (delq nil (list ai-code-prompt-suffix
-                                       (when ai-code-auto-test-type
-                                         (ai-code--resolve-auto-test-suffix-for-current-send)))))
-         (suffix (when (and ai-code-use-prompt-suffix suffix-parts)
-                   (string-join suffix-parts ", ")))
-         (prompt-with-suffix (if suffix
-                                 (concat prompt ", " suffix)
-                               prompt))
-         (file-name (cond
+  (let* ((file-name (cond
                      ((derived-mode-p 'dired-mode)
                       (dired-get-filename))
                      ((buffer-file-name)
                       (buffer-file-name))
                      (t (user-error "Cannot determine the file name"))))
-         (command (format "%s \"1i %s: \" %s | %s"
-                          ai-code-sed-command
-                          (shell-quote-argument prompt-with-suffix)
-                          (shell-quote-argument file-name)
-                          ai-code-cli)))
-    (when file-name
-      (let* ((default-directory (file-name-directory file-name))
-             (buffer-name (format "*ai-code-apply-prompt: %s*"
-                                  (file-name-base file-name))))
-        (compilation-start
-         command
-         nil
-         (lambda (_mode)
-           (generate-new-buffer-name buffer-name)))))))
+         (default-directory (file-name-directory file-name))
+         (buffer-name (format "*ai-code-apply-prompt: %s*" (file-name-base file-name)))
+         ;; The file is streamed literally, not supplied as an agent reference.
+         (ai-code-prompt-preprocess-filepaths nil)
+         (ai-code--suppress-org-summary-prompt t))
+    (when-let ((prompt (ai-code-read-string "Prompt: ")))
+      (ai-code--insert-prompt
+       (format "%s\n\nInput file: %s\nThe file contents follow on stdin." prompt file-name)
+       (lambda (full-prompt)
+         (compilation-start
+          (format "{ printf '%%s\\n' %s; cat %s; } | %s"
+                  (shell-quote-argument full-prompt)
+                  (shell-quote-argument file-name)
+                  ai-code-cli)
+          nil
+          (lambda (_mode) (generate-new-buffer-name buffer-name))))))))
 
 (defun ai-code--generate-shell-command (&optional initial-input)
   "Generate shell command from user input or AI assistance.

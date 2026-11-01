@@ -43,7 +43,7 @@
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
 (declare-function ai-code--backend-completion-table "ai-code-backends" (candidates))
 (declare-function ai-code--write-prompt-to-file-and-send "ai-code-prompt-mode"
-                  (prompt-text))
+                  (prompt-text &optional send-function))
 (declare-function ai-code-compose-read "ai-code-compose"
                   (prompt &optional initial-input candidate-list))
 (declare-function ai-code--annotate-missing "ai-code-annotate-magit" (purpose))

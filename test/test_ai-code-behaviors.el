@@ -1098,6 +1098,18 @@ This happens when gptel-agent package is not loaded."
      (should (equal (ai-code--behaviors-get-preset project-root) "tdd-dev"))
      (should-not (ai-code--behaviors-preset-readonly-p "tdd-dev")))))
 
+(ert-deftest ai-code-test-insert-prompt-advice-forwards-send-function ()
+  "Behavior advice forwards the optional alternate transport unchanged."
+  (let ((this-command nil)
+        received)
+    (cl-letf (((symbol-function 'ai-code--behaviors-check-preset-only-prompt)
+               #'ignore))
+      (ai-code--insert-prompt-behaviors-advice
+       (lambda (text &optional send-function)
+         (setq received (list text send-function)))
+       "Prompt" #'identity))
+    (should (equal received (list "Prompt" #'identity)))))
+
 (provide 'test_ai-code-behaviors)
 
 ;;; test_ai-code-behaviors.el ends here

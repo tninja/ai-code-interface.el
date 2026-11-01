@@ -44,7 +44,10 @@ the terminal backend infrastructure.")
 (declare-function ai-code--hash-completion-target-file "ai-code-input" (&optional end-pos))
 (declare-function ai-code--choose-symbol-from-file "ai-code-input" (file))
 (declare-function ai-code-read-string "ai-code-input" (prompt &optional initial-input candidate-list))
-(declare-function ai-code--confirm-and-send "ai-code-input" (prompt-label initial-prompt))
+(declare-function ai-code--long-prompt-p "ai-code-input" (text))
+(declare-function ai-code--read-prompt "ai-code-input"
+                  (prompt-label initial-prompt &optional force-compose))
+(declare-function ai-code--confirm-and-send "ai-code-input")
 (declare-function ai-code--worktree-main-repo-root "ai-code-utils" ())
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
@@ -91,6 +94,9 @@ This controls prompt additions, not agent permissions or filesystem access."
          (ai-code--suppress-org-summary-prompt
           (or ai-code--suppress-org-summary-prompt (not ,org-summary))))
      ,@body))
+
+(defvar ai-code--prompt-already-edited nil
+  "Non-nil when the complete prompt has already been edited for this send.")
 
 (defun ai-code-prompt-context-memoize (context key producer)
   "Return the cached value for KEY in CONTEXT, calling PRODUCER once."
@@ -519,8 +525,10 @@ backend dispatch."
     (when (ai-code-cli-send-command full-prompt)
       (ai-code-cli-switch-to-buffer))))
 
-(defun ai-code--write-prompt-to-file-and-send (prompt-text)
+(defun ai-code--write-prompt-to-file-and-send (prompt-text &optional send-function)
   "Record PROMPT-TEXT in prompt history and send it to the AI.
+SEND-FUNCTION, when non-nil, receives the final text instead of the
+ordinary session transport.
 If prompt history cannot be written, report the problem and continue
 sending the prompt."
   (let* ((full-prompt (concat prompt-text "\n"))
@@ -539,11 +547,11 @@ sending the prompt."
                     prompt-file (error-message-string err))))
       (message "No writable prompt history directory; sending without history"))
     (let ((default-directory original-default-directory))
-      (ai-code--send-prompt full-prompt))))
+      (funcall (or send-function #'ai-code--send-prompt) full-prompt))))
 
 (defun ai-code--filter-prompt-suffix-args (args)
   "Return ARGS with prompt suffix providers applied to its prompt text."
-  (list (ai-code--apply-prompt-suffixes (car args))))
+  (cons (ai-code--apply-prompt-suffixes (car args)) (cdr args)))
 
 (unless (advice-member-p #'ai-code--filter-prompt-suffix-args
                          'ai-code--write-prompt-to-file-and-send)
@@ -772,31 +780,42 @@ When non-nil, a plist with `:name' and `:end-line' describing the section
 chosen for the prompt being built.  `ai-code--insert-prompt' anchors the
 summary there instead of at the line under point.")
 
-(defun ai-code--insert-prompt (prompt-text)
+(defun ai-code--insert-prompt (prompt-text &optional send-function)
   "Preprocess and insert PROMPT-TEXT into the AI prompt file.
-If PROMPT-TEXT is a command (starts with /), execute it directly instead."
-  (let ((processed-prompt (if ai-code-prompt-preprocess-filepaths
-                              (ai-code--preprocess-prompt-text prompt-text)
-                            prompt-text)))
-    (if (ai-code--direct-command-p processed-prompt)
-        (ai-code--execute-command processed-prompt)
-      (let* ((anchor ai-code--org-summary-anchor)
-             (append-summary-p (and (not ai-code--suppress-org-summary-prompt)
-                                    (derived-mode-p 'org-mode)
-                                    (ignore-errors (save-excursion (org-back-to-heading t) t))
-                                    (y-or-n-p "Append result summary to current section? ")))
-             (final-prompt
-              (if append-summary-p
-                  (concat processed-prompt
-                          (if anchor
-                              (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of section \"%s\" in file %s, after line %d."
-                                      (plist-get anchor :name)
-                                      buffer-file-name
-                                      (plist-get anchor :end-line))
-                            (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
-                                    buffer-file-name (line-number-at-pos))))
-                processed-prompt)))
-        (ai-code--write-prompt-to-file-and-send final-prompt)))))
+With compose enabled, edit the complete generated prompt before adding
+notes, suffixes, or history, unless it was already edited for this send.
+SEND-FUNCTION selects an alternate transport.  Direct slash commands
+use the command path when no alternate transport is supplied."
+  (when (and (not ai-code--prompt-already-edited)
+             (bound-and-true-p ai-code-use-compose-buffer))
+    (require 'ai-code-input)
+    (when (ai-code--long-prompt-p prompt-text)
+      (setq prompt-text (ai-code--read-prompt "Edit complete prompt: " prompt-text))))
+  (when prompt-text
+    (let ((processed-prompt (if ai-code-prompt-preprocess-filepaths
+                                (ai-code--preprocess-prompt-text prompt-text)
+                              prompt-text)))
+      (if (and (not send-function) (ai-code--direct-command-p processed-prompt))
+          (ai-code--execute-command processed-prompt)
+        (let* ((anchor ai-code--org-summary-anchor)
+               (append-summary-p (and (not ai-code--suppress-org-summary-prompt)
+                                      (derived-mode-p 'org-mode)
+                                      (ignore-errors (save-excursion (org-back-to-heading t) t))
+                                      (y-or-n-p "Append result summary to current section? ")))
+               (final-prompt
+                (if append-summary-p
+                    (concat processed-prompt
+                            (if anchor
+                                (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of section \"%s\" in file %s, after line %d."
+                                        (plist-get anchor :name)
+                                        buffer-file-name
+                                        (plist-get anchor :end-line))
+                              (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
+                                      buffer-file-name (line-number-at-pos))))
+                  processed-prompt)))
+          (if send-function
+              (ai-code--write-prompt-to-file-and-send final-prompt send-function)
+            (ai-code--write-prompt-to-file-and-send final-prompt)))))))
 
 ;; Define the AI Prompt Mode (derived from org-mode)
 ;;;###autoload
@@ -837,10 +856,8 @@ Following issue #404 behavior:
                    (string= (file-name-nondirectory buffer-file-name)
                             ai-code-prompt-file-name))
               (ai-code--send-prompt trimmed-text)
-            (when-let ((edited-prompt
-                        (ai-code-read-string "Confirm and edit prompt before sending: "
-                                             trimmed-text)))
-              (ai-code--insert-prompt edited-prompt)))
+            (ai-code--confirm-and-send "Confirm and edit prompt before sending: "
+                                       trimmed-text))
         (message "No text in the selected region to send."))))
    (t
     (if (fboundp 'org-ctrl-c-ctrl-c)
@@ -968,9 +985,8 @@ ARG is the prefix argument."
                             (concat "\nContext:\n" region-text))
                           (when (and clipboard-context
                                      (string-match-p "\\S-" clipboard-context))
-                            (concat "\n\nClipboard context:\n" clipboard-context))))
-         (confirmed-prompt (ai-code-read-string "Confirm search prompt: " default-prompt)))
-    (ai-code--insert-prompt confirmed-prompt)))
+                            (concat "\n\nClipboard context:\n" clipboard-context)))))
+    (ai-code--confirm-and-send "Confirm search prompt: " default-prompt)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist

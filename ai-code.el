@@ -272,11 +272,9 @@ ARG is the prefix argument."
 (defun ai-code-session-checkpoint ()
   "Ask the active AI session to summarize its current state and stop editing."
   (interactive)
-  ;; DONE: let user to edit and confirm the prompt before sending, with read-string function
-  (when-let* ((prompt (read-string "Edit checkpoint prompt: "
-                                   ai-code-session-checkpoint-prompt)))
-    (ai-code-with-prompt-policy ()
-      (ai-code--insert-prompt prompt))))
+  (ai-code-with-prompt-policy ()
+    (ai-code--confirm-and-send "Edit checkpoint prompt: "
+                               ai-code-session-checkpoint-prompt)))
 
 (defconst ai-code--handoff-or-checkpoint-choices
   '(("Agent handoff" . ai-code-agent-handoff)
