@@ -1067,18 +1067,56 @@ TASK-FILE records the originating AI task file when available."
        :repo-root working-dir
        :task-file resolved-task-file))))
 
+(defun ai-code-backends-infra--format-session-buffer-name (prefix label instance-name)
+  "Return the session buffer name for PREFIX and LABEL.
+When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
+  (let ((instance (and instance-name
+                       (not (string= instance-name ""))
+                       (not (string= instance-name "default"))
+                       instance-name)))
+    (format "*%s[%s%s]*"
+            prefix
+            label
+            (if instance (format ":%s" instance) ""))))
+
 (defun ai-code-backends-infra--session-buffer-name (prefix directory &optional instance-name)
   "Return a session buffer name for PREFIX in DIRECTORY.
 When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
-  (let* ((base (file-name-nondirectory (directory-file-name directory)))
-         (instance (and instance-name
-                        (not (string= instance-name ""))
-                        (not (string= instance-name "default"))
-                        instance-name)))
-    (format "*%s[%s%s]*"
-            prefix
-            base
-            (if instance (format ":%s" instance) ""))))
+  (ai-code-backends-infra--format-session-buffer-name
+   prefix
+   (file-name-nondirectory (directory-file-name directory))
+   instance-name))
+
+(defun ai-code-backends-infra--session-buffer-foreign-p (buffer directory)
+  "Return non-nil when the session in BUFFER is not for DIRECTORY."
+  (when-let* ((owner (ai-code-backends-infra-session-directory buffer)))
+    (not (string= owner
+                  (ai-code-backends-infra--normalize-session-directory directory)))))
+
+(defun ai-code-backends-infra--unique-session-buffer-name (prefix directory &optional instance-name)
+  "Return a session buffer name for PREFIX that no other directory holds.
+Try the plain name of DIRECTORY first, then add its parent directories, then
+a number for identical paths on different hosts.  INSTANCE-NAME is handled as
+in `ai-code-backends-infra--session-buffer-name'."
+  (let ((plain-name (ai-code-backends-infra--session-buffer-name
+                     prefix directory instance-name)))
+    (if (not (ai-code-backends-infra--session-buffer-foreign-p
+              (get-buffer plain-name) directory))
+        plain-name
+      (let* ((parts (split-string
+                     (replace-regexp-in-string
+                      "[]:]" "-" (file-local-name (expand-file-name directory)) t t)
+                     "/" t))
+             (path (string-join parts "/")))
+        (cl-loop for depth from 2
+                 for label = (if (<= depth (length parts))
+                                 (string-join (last parts depth) "/")
+                               (format "%s-%d" path (1+ (- depth (length parts)))))
+                 for name = (ai-code-backends-infra--format-session-buffer-name
+                             prefix label instance-name)
+                 unless (ai-code-backends-infra--session-buffer-foreign-p
+                         (get-buffer name) directory)
+                 return name)))))
 
 (defun ai-code-backends-infra--normalize-instance-name (instance-name)
   "Return a normalized INSTANCE-NAME, defaulting to \"default\"."
@@ -1321,12 +1359,20 @@ Return a plist with :instance-name, :buffer-name, and :session-key."
                                (ai-code-backends-infra--default-instance-name
                                 existing-instance-names)))
                              (t "default")))
-         (resolved-buffer-name (or buffer-name
-                                    (and prefix
-                                         (ai-code-backends-infra--session-buffer-name
-                                          prefix
-                                         working-dir
-                                         resolved-instance)))))
+         (own-buffer (seq-find (lambda (buf)
+                                 (equal (ai-code-backends-infra--session-instance-name
+                                         (buffer-name buf)
+                                         prefix)
+                                        resolved-instance))
+                               existing-buffers))
+         (resolved-buffer-name (cond
+                                (buffer-name buffer-name)
+                                (own-buffer (buffer-name own-buffer))
+                                (prefix
+                                 (ai-code-backends-infra--unique-session-buffer-name
+                                  prefix
+                                  working-dir
+                                  resolved-instance)))))
     (list :instance-name resolved-instance
           :buffer-name resolved-buffer-name
           :session-key (ai-code-backends-infra--session-key
@@ -1766,12 +1812,25 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
 
 ;;; Generic Session Creation
 
+(defun ai-code-backends-infra--ensure-session-buffer-free (buffer-name working-dir)
+  "Signal `user-error' when BUFFER-NAME runs a session of another directory.
+Backends reuse a buffer by name and point it at WORKING-DIR before they start
+their process, so a refused start would still move the running session."
+  (when-let* ((buffer (get-buffer buffer-name))
+              ((ai-code-backends-infra--session-buffer-foreign-p buffer working-dir))
+              (process (get-buffer-process buffer))
+              ((process-live-p process)))
+    (user-error "Session buffer %s is already running in %s"
+                buffer-name
+                (ai-code-backends-infra-session-directory buffer))))
+
 (defun ai-code-backends-infra--create-terminal-session (buffer-name working-dir command env-vars)
   "Generic function to create a terminal session.
 BUFFER-NAME is the name for the buffer.
 WORKING-DIR is the directory.
 COMMAND is an argv list or a legacy shell command string.
 ENV-VARS is a list of environment variables."
+  (ai-code-backends-infra--ensure-session-buffer-free buffer-name working-dir)
   (let ((argv (ai-code-backends-infra--command-argv command)))
     (ai-code-backends-infra--terminal-ensure-backend)
     (pcase ai-code-backends-infra-terminal-backend
