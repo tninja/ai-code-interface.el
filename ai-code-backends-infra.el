@@ -1365,9 +1365,20 @@ Return a plist with :instance-name, :buffer-name, and :session-key."
                                          prefix)
                                         resolved-instance))
                                existing-buffers))
+         (sibling-name (when-let* ((sibling (car existing-buffers))
+                                   (label (car (ai-code-backends-infra--parse-session-buffer-name
+                                                (buffer-name sibling)
+                                                prefix))))
+                         (ai-code-backends-infra--format-session-buffer-name
+                          prefix label resolved-instance)))
          (resolved-buffer-name (cond
                                 (buffer-name buffer-name)
                                 (own-buffer (buffer-name own-buffer))
+                                ((and sibling-name
+                                      (not (ai-code-backends-infra--session-buffer-foreign-p
+                                            (get-buffer sibling-name)
+                                            working-dir)))
+                                 sibling-name)
                                 (prefix
                                  (ai-code-backends-infra--unique-session-buffer-name
                                   prefix

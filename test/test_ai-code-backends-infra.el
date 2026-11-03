@@ -2480,20 +2480,33 @@ The prefix argument should also force instance-name prompting."
                    "*codex[one/x/ai:next]*"))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-numbers-identical-paths ()
-  "Identical paths on two hosts should fall back to a numbered name."
-  (cl-letf (((symbol-function 'ai-code-backends-infra--session-buffer-foreign-p)
-             (lambda (buffer _directory)
-               (and buffer
-                    (not (string-match-p "-2" (buffer-name buffer))))))
-            ((symbol-function 'ai-code-backends-infra--find-session-buffers)
-             #'ignore))
-    (test-ai-code-backends-infra--with-session-buffers
-        '(("*codex[ai:next]*" . "/srv/ai/")
-          ("*codex[srv/ai:next]*" . "/srv/ai/"))
-      (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
-                                 "/srv/ai/" nil "codex" "next" nil)
-                                :buffer-name)
-                     "*codex[srv/ai-2:next]*")))))
+  "A path whose every parent label is taken should fall back to a number."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/host2/srv/ai/")
+        ("*codex[srv/ai:next]*" . "/tmp/ai-code-collision/host2/srv/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/srv/ai/" nil "codex" "next" nil)
+                              :buffer-name)
+                   "*codex[srv/ai-2:next]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-reuses-project-label ()
+  "A new instance should reuse the label the project already has."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[silex/ai:next]*" . "/tmp/ai-code-collision/silex/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/tmp/ai-code-collision/silex/ai/" nil "codex" "foo" nil)
+                              :buffer-name)
+                   "*codex[silex/ai:foo]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-skips-label-held-elsewhere ()
+  "A project label held by another directory should not be reused."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/silex/ai/")
+        ("*codex[ai:foo]*" . "/tmp/ai-code-collision/stvs/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/tmp/ai-code-collision/silex/ai/" nil "codex" "foo" nil)
+                              :buffer-name)
+                   "*codex[silex/ai:foo]*"))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-sanitizes-added-parents ()
   "Parent directories should not add name delimiters."
