@@ -193,21 +193,21 @@ Pending presets are shown in mode-line but not committed until first prompt.")
 Key: project root, Value: plist (:original ORIG :processed PROC :behaviors BEH).")
 
 (declare-function ai-code--git-root "ai-code-utils" (&optional dir))
+(declare-function ai-code--session-project-root "ai-code-utils" (&optional project-only))
 
 (defvar ai-code--active-constraint-bundles)
 (defvar ai-code--behavior-presets)
 (defvar ai-code-behaviors-gptel-agent-auto-classify)
 
 (defun ai-code--behaviors-project-root (&optional buffer)
-  "Return git root for BUFFER, or current buffer if nil.
-For gptel-agent buffers, falls back to extracting project from buffer name.
-Returns nil if not in a project (prevents state leakage between projects)."
-  (if (bufferp buffer)
-      (with-current-buffer buffer
-        (or (and (fboundp 'ai-code--git-root) (ai-code--git-root))
-            (and (fboundp 'ai-code--behaviors-extract-project-from-buffer-name)
-                 (ai-code--behaviors-extract-project-from-buffer-name))))
-    (or (and (fboundp 'ai-code--git-root) (ai-code--git-root))
+  "Return the execution workspace for BUFFER, or the current buffer.
+Honor explicit task/worktree bindings and known projects.  Keep the external
+agent buffer fallback, without assigning state to ordinary non-project buffers.
+When used standalone, retain optional Git detection without loading ai-code."
+  (with-current-buffer (if (bufferp buffer) buffer (current-buffer))
+    (or (if (fboundp 'ai-code--session-project-root)
+            (ai-code--session-project-root t)
+          (and (fboundp 'ai-code--git-root) (ai-code--git-root)))
         (and (fboundp 'ai-code--behaviors-extract-project-from-buffer-name)
              (ai-code--behaviors-extract-project-from-buffer-name)))))
 
