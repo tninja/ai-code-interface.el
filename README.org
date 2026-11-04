@@ -574,6 +574,32 @@ When several AI sessions run in parallel, `ai-code-session-attention-mode` badge
 - The session dashboard (`C-c a Z`) shows the same states in its Status column, plus =stopped= when the process has exited.
 - "Working" and "done" use the terminal output and idle check (`ai-code-backends-infra-idle-delay`), so typing in a session briefly shows =◐=. "Needs input" needs a terminal that reports program status, currently the Ghostel backend.
 
+*** Task Evidence Links (original-source traceability)
+
+Run =M-x ai-code-task-evidence-record= from an Org task heading, or choose
+=Record task evidence link= under =C-c a K=. Select an explicit link
+relationship: original human requirement, human decision, observation/log,
+implementation artifact, verification evidence, or AI-derived note.
+The task receives a dedicated =Evidence Links= child with stable Org IDs
+and URI references. The original requirement and human notes are untouched;
+links remain part of the task's regular Resume, Handoff and Verify context.
+
+Each link is marked as user-classified, **not source-authenticated**. A
+human-labeled link is a pointer to examine, not proof that the external
+document is genuinely authoritative, accessible or still current.
+AI-generated intermediate notes never count as original human sources.
+
+Use =M-x ai-code-task-evidence-audit= (or =Audit task evidence links= in
+=C-c a K=) for a read-only structural check of duplicate/missing links,
+missing local files, unresolved Org IDs, absent human sources and
+implementation references without verification. An empty audit report
+does not assert that the original requirements were satisfied: remote
+links are not fetched and the contents of evidence are not verified.
+
+Inspired by ThinkRail's [[https://github.com/JetBrains/thinkrail/tree/main/packages/spec-graph][Spec Graph]]
+relationships and [[https://github.com/JetBrains/thinkrail/blob/main/packages/spec-graph/tools/validate.ts][spec_validate]],
+adapted to existing Org headings instead of adding a new SPEC.md graph.
+
 *** Portable Agent Handoff via Task Files
 
 To transfer development work between different AI coding backends (e.g., from Codex to Antigravity CLI) without relying on backend-specific session histories, *ai-code-interface.el* supports portable agent handoffs using Org-mode task files.
