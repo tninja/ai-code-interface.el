@@ -81,16 +81,8 @@ optional, user-approved result summary.  No task states are changed."
                  (plist-get info :end-line-number))))))
      (t nil))))
 
-(defun ai-code-verify--pr-url-p (url)
-  "Return non-nil if URL is a GitHub or GitHub Enterprise pull request URL.
-Any HTTPS host is accepted, so only the owner/repo/pull/NUMBER path is checked."
-  (and (stringp url)
-       (string-match-p
-        "^https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+/?\\(?:[?#][^[:space:]]*\\)?$"
-        url)))
-
 (defun ai-code-verify--target-scope (target &optional pr-url)
-  "Describe TARGET as current branch or GitHub PR at PR-URL."
+  "Describe TARGET as current branch or a GitHub PR or compare view at PR-URL."
   (pcase target
     ('branch
      (let ((root (ai-code--git-root))
@@ -107,19 +99,21 @@ Any HTTPS host is accepted, so only the owner/repo/pull/NUMBER path is checked."
                 "Do not silently include unrelated untracked work.")
         branch root)))
     ('pr
-     (unless (ai-code-verify--pr-url-p pr-url)
-       (user-error "Enter a GitHub PR URL such as https://github.com/owner/repo/pull/123 (Enterprise hosts work too)"))
-     (concat
-      "GitHub pull request: " pr-url "\n"
-      "Retrieve PR metadata, linked issue(s), base and head SHAs, "
-      "actual diff, relevant surrounding code, review discussion, "
-      "and available CI. Prefer the configured review source "
-      (pcase ai-code-default-review-source
-        ('github-mcp "(GitHub MCP); ")
-        ('gh-cli "(gh CLI); ")
-        (_ "(GitHub MCP or gh CLI); "))
-      "if access is missing, say so rather than guessing. "
-      "Review the precise PR head, not an unrelated local branch."))
+     (let ((url (string-trim (or pr-url ""))))
+       (when (string-empty-p url)
+         (user-error "Enter a GitHub PR or compare URL"))
+       (concat
+        "GitHub PR or compare URL: " url "\n"
+        "For a pull request, retrieve PR metadata, linked issue(s), base and "
+        "head SHAs, actual diff, relevant surrounding code, review discussion, "
+        "and available CI. For a compare view or other change URL, review the "
+        "exact base...head range it names. Prefer the configured review source "
+        (pcase ai-code-default-review-source
+          ('github-mcp "(GitHub MCP); ")
+          ('gh-cli "(gh CLI); ")
+          (_ "(GitHub MCP or gh CLI); "))
+        "if access is missing, say so rather than guessing. "
+        "Review the precise head, not an unrelated local branch.")))
     (_ (error "Unknown verification target: %S" target))))
 
 (defun ai-code-verify--prompt (target-scope requirements context)
@@ -259,7 +253,7 @@ without changing code, PR metadata, or Org task state."
                            nil t nil nil "Current branch"))
          (target (if (equal target-choice "GitHub PR") 'pr 'branch))
          (pr-url (when (eq target 'pr)
-                   (ai-code-read-string "GitHub PR URL: " "")))
+                   (ai-code-read-string "GitHub PR or compare URL: " "")))
          (target-scope (ai-code-verify--target-scope target pr-url))
          (requirements
           (unless (and context (not (string-blank-p context)))

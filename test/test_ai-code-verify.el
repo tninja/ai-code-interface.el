@@ -26,19 +26,14 @@
      ,@body))
 
 
-(ert-deftest ai-code-verify-test-pr-url-validation ()
-  "Accept GitHub and GitHub Enterprise PR URLs, but not other pages or forges."
-  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541"))
-  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541/"))
-  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541#issuecomment-1"))
-  (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/issues/541"))
-  (should (ai-code-verify--pr-url-p "https://prodgit.example.com/team/repo/pull/1663"))
-  (should (ai-code-verify--pr-url-p "https://github.example.com/team/repo/pull/7/"))
-  (should-not (ai-code-verify--pr-url-p "https://gitlab.com/team/repo/-/merge_requests/3"))
-  (should-not (ai-code-verify--pr-url-p "https://bitbucket.org/team/repo/pull-requests/3"))
-  (should-not (ai-code-verify--pr-url-p "http://prodgit.example.com/team/repo/pull/1663"))
-  (should-not (ai-code-verify--pr-url-p "https:///team/repo/pull/1663"))
-  (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/no")))
+(ert-deftest ai-code-verify-test-pr-scope-accepts-any-change-url ()
+  "Any nonblank URL is accepted, such as an Enterprise compare view."
+  (let* ((url "https://prodgit.example.com/team/repo/compare/feature-1.91?expand=1")
+         (scope (ai-code-verify--target-scope 'pr (concat "  " url "  "))))
+    (should (string-match-p (regexp-quote (concat "URL: " url "\n")) scope))
+    (should (string-match-p "compare view" scope)))
+  (should-error (ai-code-verify--target-scope 'pr "   ") :type 'user-error)
+  (should-error (ai-code-verify--target-scope 'pr nil) :type 'user-error))
 
 (ert-deftest ai-code-verify-test-branch-scope-requires-repo-and-branch ()
   "Branch verification must identify an actual local branch and base."
@@ -62,10 +57,10 @@
                (lambda (&optional _) (ert-fail "Must not inspect local Git"))))
       (let ((scope (ai-code-verify--target-scope
                     'pr "https://github.com/owner/repo/pull/23")))
-        (should (string-match-p "GitHub pull request" scope))
+        (should (string-match-p "GitHub PR or compare URL" scope))
         (should (string-match-p "base and head SHAs" scope))
         (should (string-match-p "gh CLI" scope)))))
-  (should-error (ai-code-verify--target-scope 'pr "not-a-pr") :type 'user-error))
+  (should-error (ai-code-verify--target-scope 'pr "") :type 'user-error))
 
 (ert-deftest ai-code-verify-test-org-context-can-reference-done-headline ()
   "A completed Org task can supply requirements without status updates."
@@ -267,7 +262,7 @@
                  (lambda (&rest _) "GitHub PR"))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (label &rest _)
-                   (if (string-match-p "GitHub PR URL" label)
+                   (if (string-match-p "GitHub PR or compare URL" label)
                        "https://github.com/tninja/ai-code-interface.el/pull/541"
                      (ert-fail "Selected requirements should skip re-entry"))))
                 ((symbol-function 'ai-code--format-repo-context-info)
