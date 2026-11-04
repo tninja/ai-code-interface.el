@@ -125,6 +125,7 @@
 (require 'ai-code-session)
 (require 'ai-code-input)
 (require 'ai-code-task)
+(require 'ai-code-task-artifacts)
 (require 'ai-code-prompt-mode)
 (require 'ai-code-prompt-completion)
 (require 'ai-code-send)
@@ -310,7 +311,8 @@ which of the two commands to run."
   '(("Resume task briefing" . ai-code-task-resume)
     ("Verify branch / PR vs requirements" . ai-code-verify-current-work)
     ("Grow next step" . ai-code-grow-next-step)
-    ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint))
+    ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint)
+    ("Record task artifact" . ai-code-task-artifacts-record))
   "Choices offered by `ai-code-task-file-action'.")
 
 ;;;###autoload
