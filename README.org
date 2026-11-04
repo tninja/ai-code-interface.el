@@ -574,6 +574,37 @@ When several AI sessions run in parallel, `ai-code-session-attention-mode` badge
 - The session dashboard (`C-c a Z`) shows the same states in its Status column, plus =stopped= when the process has exited.
 - "Working" and "done" use the terminal output and idle check (`ai-code-backends-infra-idle-delay`), so typing in a session briefly shows =◐=. "Needs input" needs a terminal that reports program status, currently the Ghostel backend.
 
+*** Automatic Code Artifacts in Opt-in Org Summaries
+
+When working from an Org task, answer =y= to the existing =Append result
+summary to current section?= question. No separate artifact menu or
+manual registration is needed. The prompt asks the coding agent to append
+a concise result summary after finishing the work, including relevant
+artifacts it can confirm from the current task and actual Git state:
+
+- Modified files and the reason for each change (with file references).
+- Observed branch and HEAD commit SHA; task-specific commit hashes or PR
+  links, if independently confirmed. Staged/unstaged edits are labeled
+  separately from committed code.
+- Actual verification/test commands, results, CI or deployment evidence,
+  environment and date when known; outstanding checks and uncertainty.
+
+The agent must not assume that all repository changes belong to this
+task, invent hashes or tests, or present a dirty working tree as a
+reproducible revision. It adds artifacts **inside the same result-summary
+subheading** instead of creating a parallel metadata catalog. For tasks
+with no relevant code artifacts, it omits them. The summary remains
+prompt-directed, not a transactional writeback guarantee, and no Git
+mutations are performed by Emacs to gather artifacts.
+
+This also applies to Verify's opt-in notes, but never authorizes code
+changes or writing notes before the verification discussion is complete.
+Choosing =n= leaves the existing behavior and task contents unchanged.
+
+Inspired by ThinkRail's [[https://github.com/JetBrains/thinkrail/blob/main/packages/pi-todos/SPEC.md][pi-todos artifact model]] and
+[[https://github.com/JetBrains/thinkrail/blob/main/packages/server/src/todos/artifacts.ts][artifact tracking]], adapted to the already available Org result-summary
+workflow rather than adding a separate task-artifact interface.
+
 *** Portable Agent Handoff via Task Files
 
 To transfer development work between different AI coding backends (e.g., from Codex to Antigravity CLI) without relying on backend-specific session histories, *ai-code-interface.el* supports portable agent handoffs using Org-mode task files.
@@ -608,37 +639,6 @@ to read every section, regardless of the selected region or narrowed Org view.
 
 Select the complete subtree as context for the [[https://github.com/tninja/ai-code-interface.el/pull/541][Verify workflow]], or load it
 with =C-c a H=. Use its references to revisit the original evidence.
-
-*** Task Artifact Tracking (Commit, PR and Verification)
-
-In a saved Org task, use =C-c a K= then =Record task artifact=, or
-=M-x ai-code-task-artifacts-record=. Each task gets a dedicated =AI Artifacts=
-child containing an append-only log and its latest machine-readable
-properties; human requirement text is never replaced.
-
-- =Git snapshot= records the active execution worktree, branch, immutable
-  HEAD SHA, tracked-diff/status fingerprint and whether untracked files exist.
-  It is a read-only observation: a dirty snapshot cannot be reconstructed
-  from the fingerprint, and untracked file contents are not captured.
-- =Pull request= saves a user-supplied HTTPS GitHub/Enterprise PR URL.
-  It does not infer the PR from a branch name or query the remote.
-- =Verification document= stores a relative Org file link, for example to
-  =verify.org=. This link does not attest that any check actually passed.
-
-When running =Verify branch / PR vs requirements= from an Org task with saved
-artifacts, optional =Recorded task snapshot= and =Recorded task PR= targets
-appear. The snapshot target pins its recorded HEAD and reports HEAD/working
-change drift, or when freshness cannot be established. The PR target requests
-the actual current remote head, diff and CI. Both preserve Verify's editable
-Compose step, original human source-of-truth rule, read-only discussion, and
-opt-in Org notes; no code or Git state is modified. The generated artifact
-child remains part of the task's normal Resume/Handoff context.
-
-Adapted from ThinkRail's task-to-code artifact mapping:
-[[https://github.com/JetBrains/thinkrail/blob/main/packages/pi-todos/SPEC.md][ThinkRail pi-todos]]
-and [[https://github.com/JetBrains/thinkrail/blob/main/packages/server/src/todos/artifacts.ts][artifact reconciliation]].
-Unlike ThinkRail, this feature never commits files or claims to isolate
-interleaved changes from different sessions.
 
 ** AI coding CLI backend
 
