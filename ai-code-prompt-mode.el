@@ -27,9 +27,6 @@ This is set by `ai-code-backends-infra.el' for terminal-managed sessions
 such as `vterm' and `eat'.  A nil value means the buffer is not managed by
 the terminal backend infrastructure.")
 
-(defvar ai-code-backends-infra-use-paste-backends)
-(defvar ai-code-backends-infra--session-prefix)
-
 (declare-function yas-load-directory "yasnippet" (dir))
 (declare-function yas-minor-mode "yasnippet")
 (declare-function ai-code-implement-todo "ai-code-change" (arg &optional default-action))
@@ -52,11 +49,8 @@ the terminal backend infrastructure.")
 (declare-function ai-code-current-backend-label "ai-code-backends" ())
 (declare-function ai-code-backends-infra--session-buffer-p "ai-code-backends-infra" (buffer))
 (declare-function ai-code-backends-infra--session-buffer-matches-directory-p "ai-code-backends-infra" (buffer directory))
-(declare-function ai-code-backends-infra--terminal-send-string
-                  "ai-code-backends-infra" (string &optional paste))
-(declare-function ai-code-mcp-agent-refresh-source-context
-                  "ai-code-mcp-agent" (agent-buffer source-buffer))
-(declare-function ai-code-backends-infra--terminal-send-return "ai-code-backends-infra" ())
+(declare-function ai-code-backends-infra--submit-prompt
+                  "ai-code-backends-infra" (buffer prompt &optional source-buffer))
 (declare-function ai-code-backends-infra--display-buffer-in-side-window "ai-code-backends-infra" (buffer))
 
 (cl-defstruct (ai-code-prompt-context
@@ -500,17 +494,7 @@ Return a session buffer, or nil for default backend dispatch."
 
 (defun ai-code--send-prompt-to-session-buffer (prompt buffer)
   "Send PROMPT directly to session BUFFER and display it."
-  (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
-    (ai-code-mcp-agent-refresh-source-context buffer (current-buffer)))
-  (with-current-buffer buffer
-    (if (and (string-match-p "\n" prompt)
-             (bound-and-true-p ai-code-backends-infra-use-paste-backends)
-             (member ai-code-backends-infra--session-prefix
-                     ai-code-backends-infra-use-paste-backends))
-        (ai-code-backends-infra--terminal-send-string prompt t)
-      (ai-code-backends-infra--terminal-send-string prompt))
-    (sit-for 0.5)
-    (ai-code-backends-infra--terminal-send-return))
+  (ai-code-backends-infra--submit-prompt buffer prompt (current-buffer))
   (if-let ((window (get-buffer-window buffer)))
       (select-window window)
     (ai-code-backends-infra--display-buffer-in-side-window buffer)))
