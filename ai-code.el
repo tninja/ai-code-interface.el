@@ -310,7 +310,12 @@ which of the two commands to run."
   '(("Resume task briefing" . ai-code-task-resume)
     ("Verify branch / PR vs requirements" . ai-code-verify-current-work)
     ("Grow next step" . ai-code-grow-next-step)
-    ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint))
+    ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint)
+    ("Generate verification document" . ai-code-verify-generate-document)
+    ;; DONE: Add a sub task: Generate verification document. Example document: /Users/kangtu/feldspar/dataeng-docs/docs/knowledge_base/analysis/xedge/rdar_189661427_cors_options_support_news_edge_v1_configs/verify.org
+    ;; The command should ask user the directory to generate the document, the default filename is verify.org. Test cases can came from (and / or) the current task file, context of ai coding session, or user provided document list (it might ask user to provide, enter to bypass), as optional.
+    ;; The generated document should be in org-mode format, for each test case, if possible have the embedded link to source. Each test case need to be verified so that the doc contains if the test case pass or not. Make sure verify.org cover most of major test cases.
+    )
   "Choices offered by `ai-code-task-file-action'.")
 
 ;;;###autoload

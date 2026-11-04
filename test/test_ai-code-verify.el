@@ -580,6 +580,45 @@
       (ai-code-verify-current-work)
       (should-not (buffer-modified-p)))))
 
+(ert-deftest ai-code-verify-test-generate-document-uses-all-sources ()
+  "Verification document prompt targets DIR/verify.org with every source."
+  (let (sent dir-default)
+    (cl-letf (((symbol-function 'read-directory-name)
+               (lambda (_prompt &optional dir &rest _)
+                 (setq dir-default dir)
+                 "/tmp/out/"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (&rest _) "https://example.org/spec.md"))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (p &rest _) (setq sent p))))
+      (ai-code-verify-test--with-org
+          "* TODO Support CORS preflight\nOPTIONS must return 204.\n"
+        (ai-code-verify-generate-document)))
+    (should (equal dir-default "/tmp/"))
+    (should (string-match-p "/tmp/out/verify\\.org" sent))
+    (should (string-match-p "OPTIONS must return 204" sent))
+    (should (string-match-p "https://example\\.org/spec\\.md" sent))
+    (should (string-match-p "AI coding session" sent))
+    (should (string-match-p "PASS" sent))
+    (should (string-match-p "link" sent))))
+
+(ert-deftest ai-code-verify-test-generate-document-optional-sources ()
+  "Without task context or documents, rely on the session context only."
+  (let (sent)
+    (cl-letf (((symbol-function 'read-directory-name)
+               (lambda (&rest _) "/tmp/out"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (&rest _) ""))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (p &rest _) (setq sent p))))
+      (with-temp-buffer
+        (fundamental-mode)
+        (ai-code-verify-generate-document)))
+    (should (string-match-p "/tmp/out/verify\\.org" sent))
+    (should (string-match-p "AI coding session" sent))
+    (should-not (string-match-p "Task context" sent))
+    (should-not (string-match-p "User-provided documents" sent))))
+
 (provide 'test_ai-code-verify)
 
 ;;; test_ai-code-verify.el ends here

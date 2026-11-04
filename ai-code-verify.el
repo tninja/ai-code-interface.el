@@ -21,6 +21,7 @@
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 
 (defvar ai-code-default-review-source)
+(defvar ai-code-use-prompt-suffix)
 
 (defconst ai-code-verify--mandatory-read-only-suffix
   (concat
@@ -273,6 +274,53 @@ without changing code, PR metadata, or Org task state."
     (ai-code-with-prompt-policy (:org-summary t)
       (ai-code-verify--confirm-and-send
        (ai-code-verify--prompt target-scope requirements context)))))
+
+(defun ai-code-verify--document-prompt (file context documents)
+  "Build a prompt asking the AI to write and verify an Org test document.
+FILE is the target path.  CONTEXT is optional task text and DOCUMENTS an
+optional user-provided list of source documents."
+  (concat
+   "Generate a verification document in Org mode and write it to: " file "\n\n"
+   "Collect the major test cases from these sources, as available:\n"
+   "- The context of this AI coding session (requirements, decisions, "
+   "changes made, and checks already discussed).\n"
+   (when context
+     (concat "- Task context:\n" context "\n"))
+   (when documents
+     (concat "- User-provided documents: " documents "\n"))
+   "\nFor each test case, add an Org heading with: the scenario and expected "
+   "result; an embedded Org link to its source (URL, file:line, ticket, or "
+   "discussion) when possible; how it was verified (command, request, or "
+   "inspection) with the observed evidence; and a status of PASS, FAIL, or "
+   "UNVERIFIED with the reason.  Actually run each verification that is "
+   "safe and non-destructive; never mark a case PASS without evidence.  "
+   "Cover most of the major test cases, including edge and error cases, "
+   "and end with a summary table of case counts by status.  Do not modify "
+   "source code, tests, or Git state; the only file to write is the "
+   "verification document."))
+
+;;;###autoload
+(defun ai-code-verify-generate-document ()
+  "Ask the AI to generate and verify an Org verification document.
+Prompt for the output directory; the file is named verify.org.  Test cases
+come from the AI coding session, the selected region or current Org task
+section when available, and an optional list of documents (RET to skip)."
+  (interactive)
+  (let* ((context (ai-code-verify--requirement-context))
+         (dir (read-directory-name
+               "Directory for verify.org: "
+               (if buffer-file-name
+                   (file-name-directory buffer-file-name)
+                 default-directory)))
+         (file (expand-file-name "verify.org" dir))
+         (documents (string-trim
+                     (ai-code-read-string
+                      "Source documents for test cases (optional, RET to skip): "
+                      ""))))
+    (ai-code-with-prompt-policy ()
+      (ai-code--insert-prompt
+       (ai-code-verify--document-prompt
+        file context (unless (string-empty-p documents) documents))))))
 
 (provide 'ai-code-verify)
 
