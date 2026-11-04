@@ -82,10 +82,11 @@ optional, user-approved result summary.  No task states are changed."
      (t nil))))
 
 (defun ai-code-verify--pr-url-p (url)
-  "Return non-nil if URL is a GitHub pull request URL."
+  "Return non-nil if URL is a GitHub or GitHub Enterprise pull request URL.
+Any HTTPS host is accepted, so only the owner/repo/pull/NUMBER path is checked."
   (and (stringp url)
        (string-match-p
-        "^https://github\\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+/?\\(?:[?#][^[:space:]]*\\)?$"
+        "^https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+/?\\(?:[?#][^[:space:]]*\\)?$"
         url)))
 
 (defun ai-code-verify--target-scope (target &optional pr-url)
@@ -107,7 +108,7 @@ optional, user-approved result summary.  No task states are changed."
         branch root)))
     ('pr
      (unless (ai-code-verify--pr-url-p pr-url)
-       (user-error "Enter a GitHub PR URL such as https://github.com/owner/repo/pull/123"))
+       (user-error "Enter a GitHub PR URL such as https://github.com/owner/repo/pull/123 (Enterprise hosts work too)"))
      (concat
       "GitHub pull request: " pr-url "\n"
       "Retrieve PR metadata, linked issue(s), base and head SHAs, "

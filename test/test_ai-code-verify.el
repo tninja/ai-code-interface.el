@@ -27,12 +27,17 @@
 
 
 (ert-deftest ai-code-verify-test-pr-url-validation ()
-  "Accept standard PR URLs without accepting unrelated GitHub pages."
+  "Accept GitHub and GitHub Enterprise PR URLs, but not other pages or forges."
   (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541"))
   (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541/"))
   (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541#issuecomment-1"))
   (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/issues/541"))
-  (should-not (ai-code-verify--pr-url-p "https://example.org/tninja/x.el/pull/541"))
+  (should (ai-code-verify--pr-url-p "https://prodgit.example.com/team/repo/pull/1663"))
+  (should (ai-code-verify--pr-url-p "https://github.example.com/team/repo/pull/7/"))
+  (should-not (ai-code-verify--pr-url-p "https://gitlab.com/team/repo/-/merge_requests/3"))
+  (should-not (ai-code-verify--pr-url-p "https://bitbucket.org/team/repo/pull-requests/3"))
+  (should-not (ai-code-verify--pr-url-p "http://prodgit.example.com/team/repo/pull/1663"))
+  (should-not (ai-code-verify--pr-url-p "https:///team/repo/pull/1663"))
   (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/no")))
 
 (ert-deftest ai-code-verify-test-branch-scope-requires-repo-and-branch ()
