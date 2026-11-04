@@ -20,6 +20,7 @@
             "Human reference: https://example.org/issue/123\n")
     (org-mode)
     (goto-char (point-min))
+    (set-buffer-modified-p nil)
     (let ((ai-code--prompt-already-edited t)
           (ai-code-use-compose-buffer nil)
           (ai-code-prompt-preprocess-filepaths nil)
