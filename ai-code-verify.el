@@ -15,7 +15,6 @@
 (require 'ai-code-prompt-mode)
 (require 'ai-code-compose)
 (require 'ai-code-utils)
-(require 'ai-code-task-artifacts)
 
 (declare-function ai-code-read-string "ai-code-input")
 (declare-function ai-code--confirm-and-send "ai-code-input")
@@ -243,34 +242,23 @@ Cancellation does not send anything or update task or repository state."
 
 ;;;###autoload
 (defun ai-code-verify-current-work ()
-  "Discuss requirement fit of a branch, PR or recorded task artifact.
-Selected Org context takes precedence over manually entered requirements.
-Recorded targets are offered only for a task with an artifact entry.
-No verification or code changes run before the user accepts Compose."
+  "Start a discussion verifying current branch or GitHub PR against a problem.
+Selected text takes precedence over the enclosing Org task section and
+supplies the primary problem statement automatically. Request a description
+only when neither is available. Edit the full prompt in a compose buffer
+before sending; cancel without sending. Continue discussing evidence
+without changing code, PR metadata, or Org task state."
   (interactive)
   (let* ((ai-code--org-summary-anchor nil)
-         (artifacts (and (derived-mode-p 'org-mode)
-                         (ai-code-task-artifacts-latest)))
          (context (ai-code-verify--requirement-context t))
-         (choices (append
-                   '("Current branch" "GitHub PR")
-                   (when (plist-get artifacts :head) '("Recorded task snapshot"))
-                   (when (plist-get artifacts :pr) '("Recorded task PR"))))
          (target-choice
-          (completing-read "Verify changes in: " choices nil t nil nil
-                           "Current branch"))
-         (target (pcase target-choice
-                   ("GitHub PR" 'pr)
-                   ("Recorded task PR" 'recorded-pr)
-                   ("Recorded task snapshot" 'recorded-snapshot)
-                   (_ 'branch)))
+          (completing-read "Verify changes in: "
+                           '("Current branch" "GitHub PR")
+                           nil t nil nil "Current branch"))
+         (target (if (equal target-choice "GitHub PR") 'pr 'branch))
          (pr-url (when (eq target 'pr)
                    (ai-code-read-string "GitHub PR URL: " "")))
-         (target-scope
-          (pcase target
-            ('recorded-pr (ai-code-task-artifacts-pr-scope))
-            ('recorded-snapshot (ai-code-task-artifacts-snapshot-scope))
-            (_ (ai-code-verify--target-scope target pr-url))))
+         (target-scope (ai-code-verify--target-scope target pr-url))
          (requirements
           (unless (and context (not (string-blank-p context)))
             (ai-code-read-string
@@ -279,10 +267,13 @@ No verification or code changes run before the user accepts Compose."
                (string-blank-p (or context ""))
                (string-blank-p (or requirements "")))
       (user-error "Provide the problem/requirements or select an Org section/region"))
-    ;; Preserve the existing Compose, read-only policy, and opt-in Org notes.
+    ;; Keep implementation/auto-commit suffixes disabled, but reuse the
+    ;; existing opt-in Org result-summary question.  A summary is the only
+    ;; permitted write, and only after the user concludes the discussion.
     (ai-code-with-prompt-policy (:org-summary t)
       (ai-code-verify--confirm-and-send
        (ai-code-verify--prompt target-scope requirements context)))))
+
 (provide 'ai-code-verify)
 
 ;;; ai-code-verify.el ends here
