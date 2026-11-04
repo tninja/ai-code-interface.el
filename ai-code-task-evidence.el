@@ -136,7 +136,7 @@ or derived.  Source links are user-supplied and never authenticated here."
         (let ((entry (point)))
           (insert stars " " (symbol-name relation) ": " safe-label "\n")
           (goto-char entry)
-          (org-entry-put nil "ID" (org-id-new))
+          (org-id-get-create)
           (org-entry-put nil "AI_CODE_EVIDENCE_RELATION" (symbol-name relation))
           (org-entry-put nil "AI_CODE_EVIDENCE_REFERENCE" reference)
           (org-entry-put nil "AI_CODE_EVIDENCE_LABEL" safe-label)
