@@ -609,6 +609,37 @@ to read every section, regardless of the selected region or narrowed Org view.
 Select the complete subtree as context for the [[https://github.com/tninja/ai-code-interface.el/pull/541][Verify workflow]], or load it
 with =C-c a H=. Use its references to revisit the original evidence.
 
+*** Task Artifact Tracking (Commit, PR and Verification)
+
+In a saved Org task, use =C-c a K= then =Record task artifact=, or
+=M-x ai-code-task-artifacts-record=. Each task gets a dedicated =AI Artifacts=
+child containing an append-only log and its latest machine-readable
+properties; human requirement text is never replaced.
+
+- =Git snapshot= records the active execution worktree, branch, immutable
+  HEAD SHA, tracked-diff/status fingerprint and whether untracked files exist.
+  It is a read-only observation: a dirty snapshot cannot be reconstructed
+  from the fingerprint, and untracked file contents are not captured.
+- =Pull request= saves a user-supplied HTTPS GitHub/Enterprise PR URL.
+  It does not infer the PR from a branch name or query the remote.
+- =Verification document= stores a relative Org file link, for example to
+  =verify.org=. This link does not attest that any check actually passed.
+
+When running =Verify branch / PR vs requirements= from an Org task with saved
+artifacts, optional =Recorded task snapshot= and =Recorded task PR= targets
+appear. The snapshot target pins its recorded HEAD and reports HEAD/working
+change drift, or when freshness cannot be established. The PR target requests
+the actual current remote head, diff and CI. Both preserve Verify's editable
+Compose step, original human source-of-truth rule, read-only discussion, and
+opt-in Org notes; no code or Git state is modified. The generated artifact
+child remains part of the task's normal Resume/Handoff context.
+
+Adapted from ThinkRail's task-to-code artifact mapping:
+[[https://github.com/JetBrains/thinkrail/blob/main/packages/pi-todos/SPEC.md][ThinkRail pi-todos]]
+and [[https://github.com/JetBrains/thinkrail/blob/main/packages/server/src/todos/artifacts.ts][artifact reconciliation]].
+Unlike ThinkRail, this feature never commits files or claims to isolate
+interleaved changes from different sessions.
+
 ** AI coding CLI backend
 
 *** Backend Configuration
