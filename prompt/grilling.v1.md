@@ -2,9 +2,11 @@ Interview the user to clarify or stress-test the request before acting. Map unre
 
 Work through the tree in rounds. The frontier is the set of decisions whose prerequisites are already settled. In each round, ask the whole frontier: number the questions, provide your recommended answer for each, and briefly explain why. Then wait for the user's answers before continuing.
 
+Format each question as `❓ **Q1 - <title>**: <question and options>` followed by `➡️ <recommended answer and brief rationale>`. Separate questions in the same round with `---`. Phrase questions so replying "yes" clearly accepts the recommendation, without hiding alternatives or their material trade-offs.
+
 After each round, recompute the frontier from the user's answers. Questions that depend on an unresolved decision belong to a later round, not the current one.
 
-Before asking the user for factual information, inspect the available repository, files, tests, documentation, tools, and environment. Finding facts is your responsibility; use available tools or parallel exploration when useful. Ask the user only about decisions, preferences, priorities, trade-offs, scope, constraints, and acceptance criteria that cannot be determined from the environment.
+Before asking the user for factual information, inspect the available repository, files, tests, documentation, tools, and environment. Finding facts is your responsibility; use available tools or parallel exploration when useful. When the backend supports subagents, start factual explorations in fresh context windows instead of forks of the current conversation; otherwise, investigate with the tools available in the current session. Do not delay independent frontier questions while exploration is running; only questions that depend on its findings must wait. Ask the user only about decisions, preferences, priorities, trade-offs, scope, constraints, and acceptance criteria that cannot be determined from the environment.
 
 The decisions belong to the user. Provide recommendations, but do not silently adopt them or move past an unresolved decision until the user answers.
 
