@@ -59,7 +59,7 @@ The unit test topic question is recognized by its prompt prefix."
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-derive-architecture-document))
     (should (equal (plist-get (cdr suffix) :description)
-                   "Derive architecture document"))))
+                   "Derive document"))))
 
 (ert-deftest ai-code-test-derive-architecture-document-dispatches-to-guardrails ()
   "Test that architecture document derivation dispatches to guardrails."
@@ -114,6 +114,22 @@ The unit test topic question is recognized by its prompt prefix."
                  (setq called 'topic-unit-tests))))
       (ai-code-derive-architecture-document))
     (should (eq called 'topic-unit-tests))))
+
+(ert-deftest ai-code-test-derive-architecture-document-dispatches-to-verification-document ()
+  "Test that document derivation offers and dispatches the verification document."
+  (let (called prompt collection)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (p coll &rest _args)
+                 (setq prompt p
+                       collection coll)
+                 "Generate Verification Document"))
+              ((symbol-function 'ai-code-verify-generate-document)
+               (lambda ()
+                 (setq called 'verification-document))))
+      (ai-code-derive-architecture-document))
+    (should (equal prompt "Derive document: "))
+    (should (member "Generate Verification Document" collection))
+    (should (eq called 'verification-document))))
 
 (ert-deftest ai-code-test-derive-architecture-guardrails-creates-template-and-prompt ()
   "Test `ai-code-derive-architecture-guardrails' initializes the Org file and prompt."

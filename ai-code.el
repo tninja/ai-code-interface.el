@@ -664,7 +664,7 @@ Shows the current backend label to the right."
   ("t" "Test Driven Development" ai-code-tdd-cycle)
   ("v" "GitHub PR AI Action" ai-code-pull-or-review-diff-file)
   ;; DONE: Move ai-code-derive-architecture-guardrails ai-code-file.el. Add a new menu item: "Derive architecture document", bind to D. It let user choose from complet-reading: Derive Architecture Guardrails, and Derive DDD Context for Repo. No need to keep other two separate menu items
-  ("A" "Derive architecture document" ai-code-derive-architecture-document)
+  ("A" "Derive document" ai-code-derive-architecture-document)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build/Test/Diagnostics (AI follow-up)" ai-code-build-or-test-project)
   ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)
