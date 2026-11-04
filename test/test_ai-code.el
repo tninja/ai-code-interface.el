@@ -581,8 +581,8 @@
   "Test that the verification document choice runs its command."
   (let (called)
     (cl-letf (((symbol-function 'completing-read)
-               (lambda (&rest _args) "Generate verification document"))
-              ((symbol-function 'ai-code-verify-generate-document)
+               (lambda (&rest _args) "Generate deployment verification document"))
+              ((symbol-function 'ai-code-verify-generate-deployment-document)
                (lambda () (interactive) (setq called t))))
       (ai-code-task-file-action))
     (should called)))

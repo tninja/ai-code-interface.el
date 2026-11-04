@@ -31,7 +31,7 @@
     ("Derive DDD Context for Repo" . ai-code-derive-ddd-context)
     ("Derive Test Context Document" . ai-code-derive-test-context)
     ("Derive Unit Test to Help Understand the Topic" . ai-code-derive-topic-unit-tests)
-    ("Generate Verification Document" . ai-code-verify-generate-document))
+    ("Generate Deployment Verification Document" . ai-code-verify-generate-deployment-document))
   "Choices for `ai-code-derive-architecture-document'.")
 
 (defun ai-code--doc-emit-prompt (title prompt)

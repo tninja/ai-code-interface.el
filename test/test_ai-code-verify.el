@@ -581,23 +581,30 @@
       (should-not (buffer-modified-p)))))
 
 (ert-deftest ai-code-verify-test-generate-document-uses-all-sources ()
-  "Verification document prompt targets DIR/verify.org with every source."
+  "Deployment verification prompt targets DIR/verify.org with every source."
   (let (sent dir-default)
     (cl-letf (((symbol-function 'read-directory-name)
                (lambda (_prompt &optional dir &rest _)
                  (setq dir-default dir)
                  "/tmp/out/"))
               ((symbol-function 'ai-code-read-string)
-               (lambda (&rest _) "https://example.org/spec.md"))
+               (lambda (prompt &rest _)
+                 (if (string-match-p "environment" prompt)
+                     "test: https://test.example.com"
+                   "https://example.org/spec.md")))
               ((symbol-function 'ai-code--insert-prompt)
                (lambda (p &rest _) (setq sent p))))
       (ai-code-verify-test--with-org
           "* TODO Support CORS preflight\nOPTIONS must return 204.\n"
-        (ai-code-verify-generate-document)))
+        (ai-code-verify-generate-deployment-document)))
     (should (equal dir-default "/tmp/"))
     (should (string-match-p "/tmp/out/verify\\.org" sent))
     (should (string-match-p "OPTIONS must return 204" sent))
     (should (string-match-p "https://example\\.org/spec\\.md" sent))
+    (should (string-match-p "Target environment(s): test: https://test\\.example\\.com" sent))
+    (should (string-match-p "deployment verification" sent))
+    (should (string-match-p "unit tests and CI cannot" sent))
+    (should (string-match-p "production" sent))
     (should (string-match-p "AI coding session" sent))
     (should (string-match-p "PASS" sent))
     (should (string-match-p "link" sent))))
@@ -613,10 +620,11 @@
                (lambda (p &rest _) (setq sent p))))
       (with-temp-buffer
         (fundamental-mode)
-        (ai-code-verify-generate-document)))
+        (ai-code-verify-generate-deployment-document)))
     (should (string-match-p "/tmp/out/verify\\.org" sent))
     (should (string-match-p "AI coding session" sent))
     (should-not (string-match-p "Task context" sent))
+    (should-not (string-match-p "Target environment" sent))
     (should-not (string-match-p "User-provided documents" sent))))
 
 (provide 'test_ai-code-verify)

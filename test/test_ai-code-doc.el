@@ -122,13 +122,13 @@ The unit test topic question is recognized by its prompt prefix."
                (lambda (p coll &rest _args)
                  (setq prompt p
                        collection coll)
-                 "Generate Verification Document"))
-              ((symbol-function 'ai-code-verify-generate-document)
+                 "Generate Deployment Verification Document"))
+              ((symbol-function 'ai-code-verify-generate-deployment-document)
                (lambda ()
                  (setq called 'verification-document))))
       (ai-code-derive-architecture-document))
     (should (equal prompt "Derive document: "))
-    (should (member "Generate Verification Document" collection))
+    (should (member "Generate Deployment Verification Document" collection))
     (should (eq called 'verification-document))))
 
 (ert-deftest ai-code-test-derive-architecture-guardrails-creates-template-and-prompt ()
