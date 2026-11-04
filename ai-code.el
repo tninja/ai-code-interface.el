@@ -125,6 +125,7 @@
 (require 'ai-code-session)
 (require 'ai-code-input)
 (require 'ai-code-task)
+(require 'ai-code-task-evidence)
 (require 'ai-code-prompt-mode)
 (require 'ai-code-prompt-completion)
 (require 'ai-code-send)
@@ -309,6 +310,8 @@ which of the two commands to run."
 (defconst ai-code--task-file-action-choices
   '(("Resume task briefing" . ai-code-task-resume)
     ("Verify branch / PR vs requirements" . ai-code-verify-current-work)
+    ("Record task evidence link" . ai-code-task-evidence-record)
+    ("Audit task evidence links" . ai-code-task-evidence-audit)
     ("Grow next step" . ai-code-grow-next-step)
     ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint))
   "Choices offered by `ai-code-task-file-action'.")
