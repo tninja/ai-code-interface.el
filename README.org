@@ -192,6 +192,8 @@ appends the destination PNG path when invoking it:
   - A task associated with a worktree uses that checkout for backend selection, behavior settings, and project session lookup, even when the task file is shared from the main repository. Shared task storage stays in the main repository.
   - `Z` toggles the AI session dashboard in a window across the bottom of the frame, where you can inspect active sessions, refresh the list, visit a session buffer, kill a session, or open the repository's Magit status. Press `Z` again, or `q` in the dashboard, to close it. Besides repository, task file, backend and branch, each row shows the session's Status, how long it has been in that state (Since), its uncommitted changes (for example =2 files +3 −2=), and a one-line summary of the last prompt sent to it from Emacs; hover over the summary to see the prompt.
 
+    With =tab-bar-mode= enabled, =RET= returns to the tab showing the session and focuses its window, preserving existing tab layouts. If no tab shows it, a new tab opens for the session.
+
     [[file:./session_dashboard.png]]
 
   - `H` sends a session checkpoint prompt when run from an AI session buffer, asking the AI to summarize the goal, files changed, current hypothesis, tests/build result, blockers, and next action.

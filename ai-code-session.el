@@ -399,12 +399,20 @@ It uses the same states as the tab-bar badge."
   (tabulated-list-print t))
 
 (defun ai-code-session-dashboard-visit ()
-  "Visit the session buffer on the current line."
+  "Visit the session buffer on the current line.
+With `tab-bar-mode' enabled, select a tab already showing the session,
+preferring the current tab.  Create a new tab if none shows it.
+Existing tabs retain their window layouts."
   (interactive)
   (if-let* ((session (ai-code-session-dashboard--session-at-point))
             (buffer (ai-code-session-buffer session))
             ((buffer-live-p buffer)))
-      (pop-to-buffer buffer)
+      (if (bound-and-true-p tab-bar-mode)
+          ;; Give tab navigation priority over general buffer display rules.
+          (let ((display-buffer-overriding-action
+                 '((display-buffer-in-tab) (reusable-frames . t))))
+            (pop-to-buffer buffer))
+        (pop-to-buffer buffer))
     (user-error "No live AI session on this line")))
 
 (defun ai-code-session-dashboard-kill-session ()
