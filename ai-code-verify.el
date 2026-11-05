@@ -362,30 +362,35 @@ description, and CONTEXT is selected editor text or an Org subtree."
 Always append mandatory read-only and original-source rules after editing.
 Cancellation does not send anything or update task or repository state.
 When CODE-STATE is supplied, reobserve that checkout after Compose and
-remember it in the invoking buffer only after the send returns normally."
-  (let (current)
-    (prog1
-        (ai-code--confirm-and-send
-         "Edit Verify prompt (read-only rule appended)"
-         (concat prompt
-                 (when code-state
-                   (concat "\n\nInitial code observation before Compose:\n"
-                           (ai-code-verify--code-state-text code-state))))
-         :force-compose t
-         :after-edit
-         (lambda (edited)
-           (when code-state
-             (setq current (ai-code-verify--capture-code-state (plist-get code-state :root))))
-           (concat edited
-                   (when current
-                     (concat "\n\nCurrent code observation after Compose (supersedes the initial observation):\n"
-                             (unless (ai-code-verify--same-code-state-p code-state current)
-                               "Code changed while Compose was open, or its identity is unavailable.\n")
-                             (ai-code-verify--code-state-text current)))
-                   ai-code-verify--mandatory-read-only-suffix
-                   ai-code-verify--mandatory-source-rule)))
-      (when current
-        (setq-local ai-code-verify--last-code-state current)))))
+remember it in the invoking buffer only after the prompt is actually sent."
+  (let* ((origin (current-buffer))
+         current
+         (sent
+          (ai-code--confirm-and-send
+           "Edit Verify prompt (read-only rule appended)"
+           (concat prompt
+                   (when code-state
+                     (concat "\n\nInitial code observation before Compose:\n"
+                             (ai-code-verify--code-state-text code-state))))
+           :force-compose t
+           :after-edit
+           (lambda (edited)
+             (when code-state
+               (setq current (ai-code-verify--capture-code-state (plist-get code-state :root))))
+             (concat edited
+                     (when current
+                       (concat "\n\nCurrent code observation after Compose (supersedes the initial observation):\n"
+                               (unless (ai-code-verify--same-code-state-p code-state current)
+                                 "Code changed while Compose was open, or its identity is unavailable.\n")
+                               (ai-code-verify--code-state-text current)))
+                     ai-code-verify--mandatory-read-only-suffix
+                     ai-code-verify--mandatory-source-rule)))))
+    ;; Sending selects the session window, so store in the invoking buffer.
+    ;; A nil result means missing-session recovery was declined.
+    (when (and sent current (buffer-live-p origin))
+      (with-current-buffer origin
+        (setq-local ai-code-verify--last-code-state current)))
+    sent))
 
 
 ;;;###autoload

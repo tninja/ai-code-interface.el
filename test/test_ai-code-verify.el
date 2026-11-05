@@ -50,6 +50,35 @@
        (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :error "Unavailable")))
       (should (equal ai-code-verify--last-code-state '(:head "previous"))))))
 
+(ert-deftest ai-code-verify-test-observation-stays-in-invoking-buffer ()
+  "A sender that selects the session buffer does not receive the observation."
+  (let ((origin (generate-new-buffer " *verify-origin*"))
+        (session (generate-new-buffer " *verify-session*"))
+        (state '(:root "/tmp/repo/" :head "abc" :status "")))
+    (unwind-protect
+        (with-current-buffer origin
+          (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+                    ((symbol-function 'ai-code-verify--capture-code-state)
+                     (lambda (&rest _) state))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (&rest _) (set-buffer session) t)))
+            (ai-code-verify--confirm-and-send "Review" state))
+          (should (equal (buffer-local-value 'ai-code-verify--last-code-state origin) state))
+          (should-not (buffer-local-value 'ai-code-verify--last-code-state session)))
+      (kill-buffer origin)
+      (kill-buffer session))))
+
+(ert-deftest ai-code-verify-test-declined-send-keeps-observation ()
+  "Declining missing-session recovery returns nil and keeps the old baseline."
+  (with-temp-buffer
+    (setq-local ai-code-verify--last-code-state '(:head "previous"))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+              ((symbol-function 'ai-code-verify--capture-code-state)
+               (lambda (&rest _) '(:root "/tmp/repo/" :head "new" :status "")))
+              ((symbol-function 'ai-code--insert-prompt) (lambda (&rest _) nil)))
+      (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :head "new" :status ""))
+      (should (equal ai-code-verify--last-code-state '(:head "previous"))))))
+
 (ert-deftest ai-code-verify-test-pr-identity-and-note-instructions-survive-compose ()
   "Remote identity, freshness and note requirements survive prompt editing."
   (let (sent)

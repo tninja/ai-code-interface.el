@@ -499,7 +499,7 @@ Return a session buffer, or nil for default backend dispatch."
           (cdr (assoc selection choice-alist))))))))
 
 (defun ai-code--send-prompt-to-session-buffer (prompt buffer)
-  "Send PROMPT directly to session BUFFER and display it."
+  "Send PROMPT directly to session BUFFER and display it.  Return t."
   (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
     (ai-code-mcp-agent-refresh-source-context buffer (current-buffer)))
   (with-current-buffer buffer
@@ -513,17 +513,19 @@ Return a session buffer, or nil for default backend dispatch."
     (ai-code-backends-infra--terminal-send-return))
   (if-let ((window (get-buffer-window buffer)))
       (select-window window)
-    (ai-code-backends-infra--display-buffer-in-side-window buffer)))
+    (ai-code-backends-infra--display-buffer-in-side-window buffer))
+  t)
 
 (defun ai-code--send-prompt (full-prompt)
   "Send FULL-PROMPT to AI.
 When a visible AI session buffer is detected in the current frame,
 send the prompt directly to it instead of going through the default
-backend dispatch."
+backend dispatch.  Return t when sent, nil when the user cancelled."
   (if-let ((target (ai-code--prompt-choose-target-session)))
       (ai-code--send-prompt-to-session-buffer full-prompt target)
     (when (ai-code-cli-send-command full-prompt)
-      (ai-code-cli-switch-to-buffer))))
+      (ai-code-cli-switch-to-buffer)
+      t)))
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text &optional send-function)
   "Record PROMPT-TEXT in prompt history and send it to the AI.
