@@ -310,7 +310,12 @@ which of the two commands to run."
   '(("Resume task briefing" . ai-code-task-resume)
     ("Verify branch / PR vs requirements" . ai-code-verify-current-work)
     ("Grow next step" . ai-code-grow-next-step)
-    ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint))
+    ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint)
+    ("Generate deployment verification document" . ai-code-verify-generate-deployment-document)
+    ;; DONE: Add a sub task: Generate verification document. Example document: /Users/kangtu/feldspar/dataeng-docs/docs/knowledge_base/analysis/xedge/rdar_189661427_cors_options_support_news_edge_v1_configs/verify.org
+    ;; The command should ask user the directory to generate the document, the default filename is verify.org. Test cases can came from (and / or) the current task file, context of ai coding session, or user provided document list (it might ask user to provide, enter to bypass), as optional.
+    ;; The generated document should be in org-mode format, for each test case, if possible have the embedded link to source. Each test case need to be verified so that the doc contains if the test case pass or not. Make sure verify.org cover most of major test cases.
+    )
   "Choices offered by `ai-code-task-file-action'.")
 
 ;;;###autoload
@@ -659,7 +664,7 @@ Shows the current backend label to the right."
   ("t" "Test Driven Development" ai-code-tdd-cycle)
   ("v" "GitHub PR AI Action" ai-code-pull-or-review-diff-file)
   ;; DONE: Move ai-code-derive-architecture-guardrails ai-code-file.el. Add a new menu item: "Derive architecture document", bind to D. It let user choose from complet-reading: Derive Architecture Guardrails, and Derive DDD Context for Repo. No need to keep other two separate menu items
-  ("A" "Derive architecture document" ai-code-derive-architecture-document)
+  ("A" "Derive document" ai-code-derive-architecture-document)
   ("!" "Run Current File or Command" ai-code-run-current-file-or-shell-cmd)
   ("b" "Build/Test/Diagnostics (AI follow-up)" ai-code-build-or-test-project)
   ("e" "Investigate exception (C-u: clipboard)" ai-code-investigate-exception)

@@ -577,6 +577,16 @@
         (ai-code-task-file-action))
       (should (eq called (cdr case))))))
 
+(ert-deftest ai-code-test-task-file-action-generate-verification-document ()
+  "Test that the verification document choice runs its command."
+  (let (called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _args) "Generate deployment verification document"))
+              ((symbol-function 'ai-code-verify-generate-deployment-document)
+               (lambda () (interactive) (setq called t))))
+      (ai-code-task-file-action))
+    (should called)))
+
 (ert-deftest ai-code-test-task-file-action-forwards-prefix-arg ()
   "Test that the prefix argument reaches the selected command."
   (let (received)
