@@ -409,8 +409,13 @@ Existing tabs retain their window layouts."
             ((buffer-live-p buffer)))
       (if (bound-and-true-p tab-bar-mode)
           ;; Give tab navigation priority over general buffer display rules.
+          ;; Search the selected frame first: `frame-list' order is unspecified.
           (let ((display-buffer-overriding-action
-                 '((display-buffer-in-tab) (reusable-frames . t))))
+                 `((display-buffer-in-tab)
+                   (reusable-frames
+                    . ,(if (tab-bar-get-buffer-tab buffer (selected-frame))
+                           (selected-frame)
+                         'visible)))))
             (pop-to-buffer buffer))
         (pop-to-buffer buffer))
     (user-error "No live AI session on this line")))

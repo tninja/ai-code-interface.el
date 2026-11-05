@@ -343,6 +343,10 @@
             (source-buffer (generate-new-buffer " *dashboard-source*")))
         (unwind-protect
             (progn
+              ;; Batch frames can carry window sizes that disagree with the
+              ;; frame until a tab switch refits them; settle them first.
+              (tab-bar-new-tab)
+              (tab-bar-select-tab 1)
               (set-frame-parameter nil 'tabs nil)
               (delete-other-windows)
               (switch-to-buffer source-buffer)
@@ -400,6 +404,25 @@
       (should (= (length (tab-bar-tabs)) 2))
       (should (eq (car (nth 1 (tab-bar-tabs))) 'current-tab))
       (should (equal (ai-code-test-session--window-layout) layout)))))
+
+(ert-deftest ai-code-test-session-dashboard-visit-searches-selected-frame-first ()
+  "A session shown in the selected frame must not be looked up in other frames.
+`frame-list' order is unspecified, so searching all frames could select
+another frame's tab first."
+  (ai-code-test-session--with-tabs
+    (switch-to-buffer session-buffer)
+    (ai-code-session-dashboard)
+    (ai-code-test-session-dashboard-goto-first-entry)
+    (let* ((original (symbol-function 'tab-bar-get-buffer-tab))
+           scopes)
+      (cl-letf (((symbol-function 'tab-bar-get-buffer-tab)
+                 (lambda (buffer &optional all-frames &rest args)
+                   (push all-frames scopes)
+                   (apply original buffer all-frames args))))
+        (ai-code-session-dashboard-visit))
+      (should (eq (current-buffer) session-buffer))
+      (should scopes)
+      (should (cl-every (lambda (scope) (eq scope (selected-frame))) scopes)))))
 
 (ert-deftest ai-code-test-session-dashboard-visit-creates-missing-tab ()
   "A session without a tab opens in a new tab, preserving the source layout."
