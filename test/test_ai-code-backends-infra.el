@@ -1458,9 +1458,15 @@ The prefix argument should also force instance-name prompting."
             (ai-code-backends-infra--send-line-to-session " *ai-code-terminal-paste-test*" "no-session" "line1\nline2"))
           (should (equal (car calls) '("line1\nline2" t)))
           (setq calls nil)
-          ;; Case 2: Prefix is "claude" (not configured) -> should not paste
+          ;; Case 2: Prefix is "claude" (configured by default) -> should paste
           (with-current-buffer buffer
             (setq-local ai-code-backends-infra--session-prefix "claude"))
+          (ai-code-backends-infra--send-line-to-session " *ai-code-terminal-paste-test*" "no-session" "line1\nline2")
+          (should (equal (car calls) '("line1\nline2" t)))
+          (setq calls nil)
+          ;; Case 3: Prefix is "codex" (not configured) -> should not paste
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-prefix "codex"))
           (ai-code-backends-infra--send-line-to-session " *ai-code-terminal-paste-test*" "no-session" "line1\nline2")
           (should (equal (car calls) '("line1\nline2" nil))))
       (when (buffer-live-p buffer)
@@ -1829,7 +1835,7 @@ The prefix argument should also force instance-name prompting."
                   ((symbol-function 'get-buffer-process)
                    (lambda (target-buffer)
                      (with-current-buffer target-buffer
-                       ghostel--process))))
+                       (bound-and-true-p ghostel--process)))))
           (let ((default-directory "/tmp/"))
             (ai-code-backends-infra--create-terminal-session
              buffer-name
@@ -2437,6 +2443,168 @@ The prefix argument should also force instance-name prompting."
                      (cons (test-ai-code-backends-infra--session-dir working-dir)
                            "review")))
       (should-not prompt-called))))
+
+(defmacro test-ai-code-backends-infra--with-session-buffers (sessions &rest body)
+  "Run BODY with a live buffer for each (NAME . DIRECTORY) in SESSIONS."
+  (declare (indent 1))
+  `(let ((session-buffers
+          (mapcar (lambda (session)
+                    (let ((buffer (get-buffer-create (car session))))
+                      (ai-code-backends-infra--set-session-directory
+                       buffer (cdr session))
+                      buffer))
+                  ,sessions)))
+     (unwind-protect
+         (progn ,@body)
+       (mapc #'kill-buffer (seq-filter #'buffer-live-p session-buffers)))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-avoids-name-of-another-directory ()
+  "A name held by another directory should gain the parent directory."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/stvs/ai/"))
+    (let* ((working-dir "/tmp/ai-code-collision/silex/ai/")
+           (context (ai-code-backends-infra--resolve-session-target
+                     working-dir nil "codex" "next" nil))
+           (buffer-name (plist-get context :buffer-name)))
+      (should (equal buffer-name "*codex[silex/ai:next]*"))
+      (should (equal (ai-code-backends-infra--parse-session-buffer-name
+                      buffer-name "codex")
+                     '("silex/ai" . "next")))
+      (should (equal (plist-get context :session-key)
+                     (cons (test-ai-code-backends-infra--session-dir working-dir)
+                           "next"))))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-widens-until-name-is-free ()
+  "Parent directories should be added until the name is free."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/two/x/ai/")
+        ("*codex[x/ai:next]*" . "/tmp/ai-code-collision/three/x/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/tmp/ai-code-collision/one/x/ai/"
+                               nil "codex" "next" nil)
+                              :buffer-name)
+                   "*codex[one/x/ai:next]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-numbers-identical-paths ()
+  "A path whose every parent label is taken should fall back to a number."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/host2/srv/ai/")
+        ("*codex[srv/ai:next]*" . "/tmp/ai-code-collision/host2/srv/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/srv/ai/" nil "codex" "next" nil)
+                              :buffer-name)
+                   "*codex[srv/ai-2:next]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-reuses-project-label ()
+  "A new instance should reuse the label the project already has."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[silex/ai:next]*" . "/tmp/ai-code-collision/silex/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/tmp/ai-code-collision/silex/ai/" nil "codex" "foo" nil)
+                              :buffer-name)
+                   "*codex[silex/ai:foo]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-skips-label-held-elsewhere ()
+  "A project label held by another directory should not be reused."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/silex/ai/")
+        ("*codex[ai:foo]*" . "/tmp/ai-code-collision/stvs/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/tmp/ai-code-collision/silex/ai/" nil "codex" "foo" nil)
+                              :buffer-name)
+                   "*codex[silex/ai:foo]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-sanitizes-added-parents ()
+  "Parent directories should not add name delimiters."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/stvs/ai/"))
+    (let ((buffer-name
+           (plist-get (ai-code-backends-infra--resolve-session-target
+                       "/tmp/ai-code-collision/si:lex]/ai/"
+                       nil "codex" "next" nil)
+                      :buffer-name)))
+      (should (equal buffer-name "*codex[si-lex-/ai:next]*"))
+      (should (equal (ai-code-backends-infra--parse-session-buffer-name
+                      buffer-name "codex")
+                     '("si-lex-/ai" . "next"))))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-keeps-plain-own-name ()
+  "A directory should keep the plain name of its own session."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/silex/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/tmp/ai-code-collision/silex/ai/"
+                               nil "codex" "next" nil)
+                              :buffer-name)
+                   "*codex[ai:next]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-keeps-widened-own-name ()
+  "A session should keep its widened name after the collision ends."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[silex/ai:next]*" . "/tmp/ai-code-collision/silex/ai/"))
+    (should (equal (plist-get (ai-code-backends-infra--resolve-session-target
+                               "/tmp/ai-code-collision/silex/ai/"
+                               nil "codex" "next" nil)
+                              :buffer-name)
+                   "*codex[silex/ai:next]*"))))
+
+(ert-deftest test-ai-code-backends-infra-resolve-session-target-branch-default-avoids-collision ()
+  "The branch default should not prompt or reuse another directory's buffer."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/stvs/ai/"))
+    (cl-letf (((symbol-function 'magit-get-current-branch)
+               (lambda () "next"))
+              ((symbol-function 'read-string)
+               (lambda (&rest _args) (error "Unexpected prompt"))))
+      (let ((context (ai-code-backends-infra--resolve-session-target
+                      "/tmp/ai-code-collision/silex/ai/"
+                      nil "codex" nil nil)))
+        (should (equal (plist-get context :instance-name) "next"))
+        (should (equal (plist-get context :buffer-name)
+                       "*codex[silex/ai:next]*"))))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-refuses-running-foreign-buffer ()
+  "Starting in another directory's running buffer should leave it untouched."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/stvs/ai/"))
+    (let* ((buffer (car session-buffers))
+           (process (make-pipe-process :name "ai-code-collision"
+                                       :buffer buffer
+                                       :noquery t))
+           (backend-called nil)
+           (ai-code-backends-infra-terminal-backend 'ghostel))
+      (with-current-buffer buffer
+        (setq default-directory "/tmp/ai-code-collision/stvs/ai/"))
+      (unwind-protect
+          (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                     #'ignore)
+                    ((symbol-function 'ai-code-backends-infra-ghostel-create-session)
+                     (lambda (&rest _args) (setq backend-called t))))
+            (should-error
+             (ai-code-backends-infra--create-terminal-session
+              "*codex[ai:next]*" "/tmp/ai-code-collision/silex/ai/" "codex" nil)
+             :type 'user-error)
+            (should-not backend-called)
+            (should (equal (ai-code-backends-infra-session-directory buffer)
+                           (test-ai-code-backends-infra--session-dir
+                            "/tmp/ai-code-collision/stvs/ai/")))
+            (should (equal (buffer-local-value 'default-directory buffer)
+                           "/tmp/ai-code-collision/stvs/ai/")))
+        (delete-process process)))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-reuses-stopped-foreign-buffer ()
+  "An explicit name should still reuse a buffer without a running process."
+  (test-ai-code-backends-infra--with-session-buffers
+      '(("*codex[ai:next]*" . "/tmp/ai-code-collision/stvs/ai/"))
+    (let ((backend-called nil)
+          (ai-code-backends-infra-terminal-backend 'ghostel))
+      (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                 #'ignore)
+                ((symbol-function 'ai-code-backends-infra-ghostel-create-session)
+                 (lambda (&rest _args) (setq backend-called t))))
+        (ai-code-backends-infra--create-terminal-session
+         "*codex[ai:next]*" "/tmp/ai-code-collision/silex/ai/" "codex" nil)
+        (should backend-called)))))
 
 (ert-deftest test-ai-code-backends-infra-resolve-session-target-does-not-prefill-prompt-buffer-filename ()
   "Prompt-mode buffers should not seed new instance names from the file name."

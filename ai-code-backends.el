@@ -37,7 +37,7 @@
   "Currently selected backend key from `ai-code-backends'.")
 
 (defvar ai-code--repo-backend-alist nil
-  "Alist of (GIT-ROOT . BACKEND) to keep backend affinity per repository.")
+  "Alist of (WORKSPACE-ROOT . BACKEND) for project backend affinity.")
 
 (defun ai-code--normalize-git-root (git-root)
   "Return normalized GIT-ROOT path, or nil when invalid."
@@ -45,17 +45,11 @@
     (file-truename git-root)))
 
 (defun ai-code--current-git-root ()
-  "Return normalized current git root for backend affinity, or nil."
-  (let ((git-root
-         (cond
-          ((fboundp 'ai-code--git-root)
-           (ai-code--git-root))
-          ((fboundp 'magit-toplevel)
-           (condition-case nil
-               (magit-toplevel)
-             (error nil)))
-          (t nil))))
-    (ai-code--normalize-git-root git-root)))
+  "Return the execution workspace for backend affinity, or nil.
+Keep this historical helper name, but honor explicit task/worktree bindings
+and project.el just like session routing.  Do not remember ordinary
+non-project directories."
+  (ai-code--normalize-git-root (ai-code--session-project-root t)))
 
 (defun ai-code--repo-backend-for-root (git-root)
   "Return remembered backend for GIT-ROOT, or nil."
@@ -71,7 +65,7 @@
                             ai-code--repo-backend-alist)))))
 
 (defun ai-code--effective-backend ()
-  "Return backend for current context, preferring repo-local affinity."
+  "Return backend for current context, preferring workspace affinity."
   (let* ((git-root (ai-code--current-git-root))
          (repo-backend (and git-root (ai-code--repo-backend-for-root git-root))))
     (if (and repo-backend (ai-code--backend-spec repo-backend))
@@ -85,7 +79,7 @@
       (ai-code-set-backend effective))))
 
 (defun ai-code--remember-current-backend-for-repo ()
-  "Remember current backend for current git repository."
+  "Remember the current backend for the execution workspace."
   (let ((git-root (ai-code--current-git-root)))
     (when git-root
       (ai-code--remember-repo-backend git-root ai-code-selected-backend))))

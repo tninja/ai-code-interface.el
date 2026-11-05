@@ -22,6 +22,7 @@
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 
 (defvar ai-code-default-review-source)
+(defvar ai-code-use-prompt-suffix)
 
 (defconst ai-code-verify--mandatory-read-only-suffix
   (concat
@@ -209,15 +210,8 @@ optional, user-approved result summary.  No task states are changed."
                  (plist-get info :end-line-number))))))
      (t nil))))
 
-(defun ai-code-verify--pr-url-p (url)
-  "Return non-nil if URL is a GitHub pull request URL."
-  (and (stringp url)
-       (string-match-p
-        "^https://github\\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+/?\\(?:[?#][^[:space:]]*\\)?$"
-        url)))
-
 (defun ai-code-verify--target-scope (target &optional pr-url)
-  "Describe TARGET as current branch or GitHub PR at PR-URL."
+  "Describe TARGET as current branch or a GitHub PR or compare view at PR-URL."
   (pcase target
     ('branch
      (let ((root (ai-code--git-root))
@@ -234,19 +228,21 @@ optional, user-approved result summary.  No task states are changed."
                 "Do not silently include unrelated untracked work.")
         branch root)))
     ('pr
-     (unless (ai-code-verify--pr-url-p pr-url)
-       (user-error "Enter a GitHub PR URL such as https://github.com/owner/repo/pull/123"))
-     (concat
-      "GitHub pull request: " pr-url "\n"
-      "Retrieve PR metadata, linked issue(s), base and head SHAs, "
-      "actual diff, relevant surrounding code, review discussion, "
-      "and available CI. Prefer the configured review source "
-      (pcase ai-code-default-review-source
-        ('github-mcp "(GitHub MCP); ")
-        ('gh-cli "(gh CLI); ")
-        (_ "(GitHub MCP or gh CLI); "))
-      "if access is missing, say so rather than guessing. "
-      "Review the precise PR head, not an unrelated local branch."))
+     (let ((url (string-trim (or pr-url ""))))
+       (when (string-empty-p url)
+         (user-error "Enter a GitHub PR or compare URL"))
+       (concat
+        "GitHub PR or compare URL: " url "\n"
+        "For a pull request, retrieve PR metadata, linked issue(s), base and "
+        "head SHAs, actual diff, relevant surrounding code, review discussion, "
+        "and available CI. For a compare view or other change URL, review the "
+        "exact base...head range it names. Prefer the configured review source "
+        (pcase ai-code-default-review-source
+          ('github-mcp "(GitHub MCP); ")
+          ('gh-cli "(gh CLI); ")
+          (_ "(GitHub MCP or gh CLI); "))
+        "if access is missing, say so rather than guessing. "
+        "Review the precise head, not an unrelated local branch.")))
     (_ (error "Unknown verification target: %S" target))))
 
 (defun ai-code-verify--prompt (target-scope requirements context)
@@ -413,7 +409,7 @@ without changing code, PR metadata, or Org task state."
                                 (ai-code--session-project-root)
                               default-directory))
          (pr-url (when (eq target 'pr)
-                   (ai-code-read-string "GitHub PR URL: " "")))
+                   (ai-code-read-string "GitHub PR or compare URL: " "")))
          (target-scope (ai-code-verify--target-scope target pr-url))
          (requirements
           (unless (and context (not (string-blank-p context)))
@@ -431,6 +427,80 @@ without changing code, PR metadata, or Org task state."
        (ai-code-verify--prompt target-scope requirements context)
        (when (eq target 'branch)
          (ai-code-verify--capture-code-state (ai-code--git-root)))))))
+
+(defun ai-code-verify--document-prompt (file environment context documents)
+  "Build a prompt asking the AI to write and run a deployment verification doc.
+FILE is the target path.  ENVIRONMENT, CONTEXT and DOCUMENTS are optional:
+the target environment or hosts, task text, and a user-provided list of
+source documents."
+  (concat
+   "Write a deployment verification document in Org mode to: " file "\n\n"
+   "Purpose: show that the change works where it is deployed.  Cover what "
+   "unit tests and CI cannot: real endpoints and hosts, environment "
+   "configuration and routing, front layers such as proxies or gateways, "
+   "real clients such as browsers or apps, backward compatibility for "
+   "existing callers, and whether every instance runs the new version "
+   "during a rollout.  Do not repeat unit test cases; say in one line "
+   "which behavior unit tests already cover.\n"
+   (when environment
+     (concat "Target environment(s): " environment "\n"))
+   "\nFind the deployment verification cases in these sources, as available:\n"
+   "- This AI coding session: requirements, decisions, the change, and "
+   "checks already discussed.\n"
+   (when context
+     (concat "- Task context:\n" context "\n"))
+   (when documents
+     (concat "- User-provided documents: " documents "\n"))
+   "\nUse this Org structure:\n"
+   "* Summary: what is verified, the overall result with date and "
+   "environment, known failures, and links to the ticket, PR, and "
+   "requirement sources.\n"
+   "* Test case list: a table with id, case, source link, expected result, "
+   "and result with date.\n"
+   "* Before testing: an environment table (name, host, deployed version or "
+   "status), things to know, and the shell variables every command uses.\n"
+   "* One section per verification method (for example curl, browser or "
+   "client, scripts), with one heading per case: an Org link to its source, "
+   "a runnable command in a src block, the expected result, the observed "
+   "output in an example block with date and environment, and a status of "
+   "PASS, FAIL, NOT RUN, or TO CONFIRM with the reason.\n"
+   "* Known gaps: failures, cases not run, and risks such as a partial "
+   "rollout.\n\n"
+   "Run each read-only, safe case against the target non-production "
+   "environment and record what you observed; never mark a case PASS "
+   "without evidence.  Ask before running anything against production, "
+   "anything that changes data or state, or any load test.  Do not modify "
+   "source code, tests, or Git state; the only file to write is this "
+   "document."))
+
+(defun ai-code-verify--read-optional (prompt)
+  "Read a string with PROMPT; return nil when the answer is blank."
+  (let ((answer (string-trim (ai-code-read-string prompt ""))))
+    (unless (string-empty-p answer) answer)))
+
+;;;###autoload
+(defun ai-code-verify-generate-deployment-document ()
+  "Ask the AI to write and run an Org deployment verification document.
+The document covers what unit tests cannot, such as real hosts, routing,
+clients, and rollout state.  Prompt for the output directory (the file is
+named verify.org) and, optionally, the target environment.  Cases come
+from the AI coding session, the selected region or current Org task
+section when available, and an optional list of documents (RET to skip)."
+  (interactive)
+  (let* ((context (ai-code-verify--requirement-context))
+         (dir (read-directory-name
+               "Directory for verify.org: "
+               (if buffer-file-name
+                   (file-name-directory buffer-file-name)
+                 default-directory)))
+         (file (expand-file-name "verify.org" dir))
+         (environment (ai-code-verify--read-optional
+                       "Target environment / hosts (optional, RET to skip): "))
+         (documents (ai-code-verify--read-optional
+                     "Source documents for test cases (optional, RET to skip): ")))
+    (ai-code-with-prompt-policy ()
+      (ai-code--insert-prompt
+       (ai-code-verify--document-prompt file environment context documents)))))
 
 (provide 'ai-code-verify)
 

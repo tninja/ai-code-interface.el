@@ -30,7 +30,7 @@
 (require 'ai-code-backends-infra-ghostel)
 
 (declare-function ai-code--session-handle-at-input "ai-code-input" ())
-(declare-function ai-code--session-project-root "ai-code-utils" ())
+(declare-function ai-code--session-project-root "ai-code-utils" (&optional project-only))
 (declare-function ai-code-mcp-agent-refresh-source-context
                   "ai-code-mcp-agent" (agent-buffer source-buffer))
 
@@ -107,10 +107,12 @@ interval prevents flooding the scrollback with duplicate frames."
   :type 'number
   :group 'ai-code-backends-infra)
 
-(defcustom ai-code-backends-infra-use-paste-backends '("antigravity")
+(defcustom ai-code-backends-infra-use-paste-backends '("antigravity" "claude")
   "List of backend session prefixes for which multiline inputs should be pasted.
 This helps speed up sending multiline prompts to backends (like Antigravity)
-that process character-by-character input slowly."
+that process character-by-character input slowly.  Claude Code needs paste
+too: it collapses inputs over 10000 characters asynchronously, which races
+with typed input chunks and drops text from large prompts."
   :type '(repeat string)
   :group 'ai-code-backends-infra)
 
@@ -1067,18 +1069,56 @@ TASK-FILE records the originating AI task file when available."
        :repo-root working-dir
        :task-file resolved-task-file))))
 
+(defun ai-code-backends-infra--format-session-buffer-name (prefix label instance-name)
+  "Return the session buffer name for PREFIX and LABEL.
+When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
+  (let ((instance (and instance-name
+                       (not (string= instance-name ""))
+                       (not (string= instance-name "default"))
+                       instance-name)))
+    (format "*%s[%s%s]*"
+            prefix
+            label
+            (if instance (format ":%s" instance) ""))))
+
 (defun ai-code-backends-infra--session-buffer-name (prefix directory &optional instance-name)
   "Return a session buffer name for PREFIX in DIRECTORY.
 When INSTANCE-NAME is non-nil and not \"default\", include it in the name."
-  (let* ((base (file-name-nondirectory (directory-file-name directory)))
-         (instance (and instance-name
-                        (not (string= instance-name ""))
-                        (not (string= instance-name "default"))
-                        instance-name)))
-    (format "*%s[%s%s]*"
-            prefix
-            base
-            (if instance (format ":%s" instance) ""))))
+  (ai-code-backends-infra--format-session-buffer-name
+   prefix
+   (file-name-nondirectory (directory-file-name directory))
+   instance-name))
+
+(defun ai-code-backends-infra--session-buffer-foreign-p (buffer directory)
+  "Return non-nil when the session in BUFFER is not for DIRECTORY."
+  (when-let* ((owner (ai-code-backends-infra-session-directory buffer)))
+    (not (string= owner
+                  (ai-code-backends-infra--normalize-session-directory directory)))))
+
+(defun ai-code-backends-infra--unique-session-buffer-name (prefix directory &optional instance-name)
+  "Return a session buffer name for PREFIX that no other directory holds.
+Try the plain name of DIRECTORY first, then add its parent directories, then
+a number for identical paths on different hosts.  INSTANCE-NAME is handled as
+in `ai-code-backends-infra--session-buffer-name'."
+  (let ((plain-name (ai-code-backends-infra--session-buffer-name
+                     prefix directory instance-name)))
+    (if (not (ai-code-backends-infra--session-buffer-foreign-p
+              (get-buffer plain-name) directory))
+        plain-name
+      (let* ((parts (split-string
+                     (replace-regexp-in-string
+                      "[]:]" "-" (file-local-name (expand-file-name directory)) t t)
+                     "/" t))
+             (path (string-join parts "/")))
+        (cl-loop for depth from 2
+                 for label = (if (<= depth (length parts))
+                                 (string-join (last parts depth) "/")
+                               (format "%s-%d" path (1+ (- depth (length parts)))))
+                 for name = (ai-code-backends-infra--format-session-buffer-name
+                             prefix label instance-name)
+                 unless (ai-code-backends-infra--session-buffer-foreign-p
+                         (get-buffer name) directory)
+                 return name)))))
 
 (defun ai-code-backends-infra--normalize-instance-name (instance-name)
   "Return a normalized INSTANCE-NAME, defaulting to \"default\"."
@@ -1321,12 +1361,31 @@ Return a plist with :instance-name, :buffer-name, and :session-key."
                                (ai-code-backends-infra--default-instance-name
                                 existing-instance-names)))
                              (t "default")))
-         (resolved-buffer-name (or buffer-name
-                                    (and prefix
-                                         (ai-code-backends-infra--session-buffer-name
-                                          prefix
-                                         working-dir
-                                         resolved-instance)))))
+         (own-buffer (seq-find (lambda (buf)
+                                 (equal (ai-code-backends-infra--session-instance-name
+                                         (buffer-name buf)
+                                         prefix)
+                                        resolved-instance))
+                               existing-buffers))
+         (sibling-name (when-let* ((sibling (car existing-buffers))
+                                   (label (car (ai-code-backends-infra--parse-session-buffer-name
+                                                (buffer-name sibling)
+                                                prefix))))
+                         (ai-code-backends-infra--format-session-buffer-name
+                          prefix label resolved-instance)))
+         (resolved-buffer-name (cond
+                                (buffer-name buffer-name)
+                                (own-buffer (buffer-name own-buffer))
+                                ((and sibling-name
+                                      (not (ai-code-backends-infra--session-buffer-foreign-p
+                                            (get-buffer sibling-name)
+                                            working-dir)))
+                                 sibling-name)
+                                (prefix
+                                 (ai-code-backends-infra--unique-session-buffer-name
+                                  prefix
+                                  working-dir
+                                  resolved-instance)))))
     (list :instance-name resolved-instance
           :buffer-name resolved-buffer-name
           :session-key (ai-code-backends-infra--session-key
@@ -1739,6 +1798,29 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
           (select-window window))
       (ai-code-backends-infra--display-buffer-in-side-window buffer))))
 
+(defun ai-code-backends-infra--submit-prompt (buffer prompt &optional source-buffer)
+  "Submit PROMPT to the already chosen terminal BUFFER.
+Refresh MCP context from SOURCE-BUFFER, defaulting to the current buffer,
+before terminal I/O.  Preserve the configured multiline paste policy and
+submission delay.  Record the last prompt and accessed session only after
+text and Return have both been sent successfully.  Return the transport's
+Return result.  This does not select a target or change window display."
+  (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
+    (ai-code-mcp-agent-refresh-source-context
+     buffer (or source-buffer (current-buffer))))
+  (prog1
+      (with-current-buffer buffer
+        (if (and (string-match-p "\n" prompt)
+                 (member ai-code-backends-infra--session-prefix
+                         ai-code-backends-infra-use-paste-backends))
+            (ai-code-backends-infra--terminal-send-string prompt t)
+          (ai-code-backends-infra--terminal-send-string prompt))
+        ;; Shorter delays can lose submissions in some CLI backends.
+        (sit-for 0.5)
+        (ai-code-backends-infra--terminal-send-return))
+    (ai-code-session-note-prompt buffer prompt)
+    (setq ai-code-backends-infra--last-accessed-buffer buffer)))
+
 (defun ai-code-backends-infra--send-line-to-session (buffer-name missing-message line
                                                                 &optional prefix working-dir force-prompt)
   "Send LINE to BUFFER-NAME or signal MISSING-MESSAGE.
@@ -1751,20 +1833,23 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   working-dir
                   force-prompt
                   source-buffer)))
-    (when (fboundp 'ai-code-mcp-agent-refresh-source-context)
-      (ai-code-mcp-agent-refresh-source-context buffer source-buffer))
-    (ai-code-session-note-prompt buffer line)
     (with-current-buffer buffer
-      (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
-      (if (and (string-match-p "\n" line)
-               (member ai-code-backends-infra--session-prefix
-                       ai-code-backends-infra-use-paste-backends))
-          (ai-code-backends-infra--terminal-send-string line t)
-        (ai-code-backends-infra--terminal-send-string line))
-      (sit-for 0.5) ;; 0.1 might be too low for some cli backends such as github copilot cli
-      (ai-code-backends-infra--terminal-send-return))))
+      (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer))
+    (ai-code-backends-infra--submit-prompt buffer line source-buffer)))
 
 ;;; Generic Session Creation
+
+(defun ai-code-backends-infra--ensure-session-buffer-free (buffer-name working-dir)
+  "Signal `user-error' when BUFFER-NAME runs a session of another directory.
+Backends reuse a buffer by name and point it at WORKING-DIR before they start
+their process, so a refused start would still move the running session."
+  (when-let* ((buffer (get-buffer buffer-name))
+              ((ai-code-backends-infra--session-buffer-foreign-p buffer working-dir))
+              (process (get-buffer-process buffer))
+              ((process-live-p process)))
+    (user-error "Session buffer %s is already running in %s"
+                buffer-name
+                (ai-code-backends-infra-session-directory buffer))))
 
 (defun ai-code-backends-infra--create-terminal-session (buffer-name working-dir command env-vars)
   "Generic function to create a terminal session.
@@ -1772,6 +1857,7 @@ BUFFER-NAME is the name for the buffer.
 WORKING-DIR is the directory.
 COMMAND is an argv list or a legacy shell command string.
 ENV-VARS is a list of environment variables."
+  (ai-code-backends-infra--ensure-session-buffer-free buffer-name working-dir)
   (let ((argv (ai-code-backends-infra--command-argv command)))
     (ai-code-backends-infra--terminal-ensure-backend)
     (pcase ai-code-backends-infra-terminal-backend

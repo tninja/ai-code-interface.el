@@ -30,7 +30,8 @@
     ("Derive Repository Map" . ai-code-derive-repo-map)
     ("Derive DDD Context for Repo" . ai-code-derive-ddd-context)
     ("Derive Test Context Document" . ai-code-derive-test-context)
-    ("Derive Unit Test to Help Understand the Topic" . ai-code-derive-topic-unit-tests))
+    ("Derive Unit Test to Help Understand the Topic" . ai-code-derive-topic-unit-tests)
+    ("Generate Deployment Verification Document" . ai-code-verify-generate-deployment-document))
   "Choices for `ai-code-derive-architecture-document'.")
 
 (defun ai-code--doc-emit-prompt (title prompt)
@@ -52,10 +53,11 @@ handed to `ai-code--insert-prompt' as usual."
 
 ;;;###autoload
 (defun ai-code-derive-architecture-document ()
-  "Derive an architecture document by selecting one of the available options."
+  "Derive an architecture or verification document from the available options."
   (interactive)
   (let* ((default-choice (caar ai-code--architecture-document-choices))
-         (choice (completing-read "Derive architecture document: "
+         ;; DONE: add Generate verification document as an option here. Update the menu item / label here to Derive document: since it is not architecture only.
+         (choice (completing-read "Derive document: "
                                   (mapcar #'car ai-code--architecture-document-choices)
                                   nil t nil nil default-choice))
          (command (alist-get choice ai-code--architecture-document-choices

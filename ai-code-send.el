@@ -24,7 +24,7 @@
 (defvar flycheck-mode)
 
 (declare-function ai-code--prompt-filepath-candidates "ai-code-prompt-mode" ())
-(declare-function ai-code--session-project-root "ai-code-utils" ())
+(declare-function ai-code--session-project-root "ai-code-utils" (&optional project-only))
 (declare-function ai-code-backends-infra-current-buffer-session
                   "ai-code-backends-infra" (&optional buffer))
 (declare-function ai-code-backends-infra-session-buffers
