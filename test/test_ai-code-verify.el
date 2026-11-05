@@ -12,6 +12,83 @@
 (require 'cl-lib)
 (require 'ai-code-verify)
 
+(ert-deftest ai-code-verify-test-code-state-failures-are-unknown ()
+  "An unavailable observation never becomes unchanged or a clean identity."
+  (let ((state (ai-code-verify--capture-code-state "/nonexistent/verify-checkout/")))
+    (should (plist-get state :error))
+    (should-not (ai-code-verify--same-code-state-p state state))
+    (should (string-match-p "unavailable" (ai-code-verify--code-state-text state))))
+  (with-temp-buffer
+    (should-error (ai-code-verify-check-code-state) :type 'user-error)))
+
+(ert-deftest ai-code-verify-test-git-failure-does-not-produce-fingerprints ()
+  "A failed diff is unavailable, never the hash of an empty success result."
+  (cl-letf (((symbol-function 'magit-git-insert)
+             (lambda (&rest arguments)
+               (if (member "diff" arguments) 128
+                 (insert "/tmp/checkout") 0))))
+    (let ((state (ai-code-verify--capture-code-state temporary-file-directory)))
+      (should (plist-get state :error))
+      (should-not (plist-get state :staged))
+      (should-not (plist-get state :unstaged)))))
+
+(ert-deftest ai-code-verify-test-observation-cancel-and-send-failure ()
+  "Neither cancellation nor failed transport replaces the recorded observation."
+  (with-temp-buffer
+    (setq-local ai-code-verify--last-code-state '(:head "previous"))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) nil))
+              ((symbol-function 'ai-code-verify--capture-code-state)
+               (lambda (&rest _) (ert-fail "Do not reobserve cancelled Compose"))))
+      (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :error "Unavailable"))
+      (should (equal ai-code-verify--last-code-state '(:head "previous"))))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+              ((symbol-function 'ai-code-verify--capture-code-state)
+               (lambda (&rest _) '(:root "/tmp/repo/" :error "Unavailable")))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (&rest _) (error "Transport failed"))))
+      (should-error
+       (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :error "Unavailable")))
+      (should (equal ai-code-verify--last-code-state '(:head "previous"))))))
+
+(ert-deftest ai-code-verify-test-observation-stays-in-invoking-buffer ()
+  "A sender that selects the session buffer does not receive the observation."
+  (let ((origin (generate-new-buffer " *verify-origin*"))
+        (session (generate-new-buffer " *verify-session*"))
+        (state '(:root "/tmp/repo/" :head "abc" :status "")))
+    (unwind-protect
+        (with-current-buffer origin
+          (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+                    ((symbol-function 'ai-code-verify--capture-code-state)
+                     (lambda (&rest _) state))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (&rest _) (set-buffer session) t)))
+            (ai-code-verify--confirm-and-send "Review" state))
+          (should (equal (buffer-local-value 'ai-code-verify--last-code-state origin) state))
+          (should-not (buffer-local-value 'ai-code-verify--last-code-state session)))
+      (kill-buffer origin)
+      (kill-buffer session))))
+
+(ert-deftest ai-code-verify-test-declined-send-keeps-observation ()
+  "Declining missing-session recovery returns nil and keeps the old baseline."
+  (with-temp-buffer
+    (setq-local ai-code-verify--last-code-state '(:head "previous"))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+              ((symbol-function 'ai-code-verify--capture-code-state)
+               (lambda (&rest _) '(:root "/tmp/repo/" :head "new" :status "")))
+              ((symbol-function 'ai-code--insert-prompt) (lambda (&rest _) nil)))
+      (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :head "new" :status ""))
+      (should (equal ai-code-verify--last-code-state '(:head "previous"))))))
+
+(ert-deftest ai-code-verify-test-pr-identity-and-note-instructions-survive-compose ()
+  "Remote identity, freshness and note requirements survive prompt editing."
+  (let (sent)
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+              ((symbol-function 'ai-code--insert-prompt) (lambda (p) (setq sent p))))
+      (ai-code-verify--confirm-and-send "Review PR")
+      (dolist (text '("base/head" "merge-base" "re-fetch" "Verification Notes"
+                      "historical" "unverified"))
+        (should (string-match-p (regexp-quote text) sent))))))
+
 (defmacro ai-code-verify-test--with-org (content &rest body)
   "Evaluate BODY in a saved Org buffer containing CONTENT."
   (declare (indent 1) (debug t))
