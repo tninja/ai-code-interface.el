@@ -10,6 +10,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'ai-code-session)
+(require 'tab-bar)
 
 (defmacro ai-code-test-session--with-clean-registry (&rest body)
   "Run BODY with a fresh session registry."
@@ -293,7 +294,8 @@
 (ert-deftest ai-code-test-session-dashboard-visit-switches-to-session-buffer ()
   "RET should jump to the selected session buffer."
   (ai-code-test-session--with-clean-registry
-   (let ((session-buffer (get-buffer-create "*codex[visit]*"))
+   (let ((tab-bar-mode nil)
+         (session-buffer (get-buffer-create "*codex[visit]*"))
          (repo-root (make-temp-file "ai-code-dashboard-visit-" t))
          dashboard-buffer
          visited-buffer)
@@ -325,6 +327,116 @@
          (delete-directory repo-root t))
        (when (buffer-live-p dashboard-buffer)
          (kill-buffer dashboard-buffer))))))
+
+(defmacro ai-code-test-session--with-tabs (&rest body)
+  "Run BODY with isolated tabs and a registered session buffer."
+  (declare (indent 0) (debug t))
+  `(ai-code-test-session--with-clean-registry
+    (save-window-excursion
+      (let ((original-tabs (frame-parameter nil 'tabs))
+            (tab-bar-mode t)
+            (tab-bar-show nil)
+            (tab-bar-tabs-function #'tab-bar-tabs)
+            (tab-bar-new-tab-choice t)
+            (session-buffer (generate-new-buffer " *dashboard-session*"))
+            (editor-buffer (generate-new-buffer " *dashboard-editor*"))
+            (source-buffer (generate-new-buffer " *dashboard-source*")))
+        (unwind-protect
+            (progn
+              ;; Batch frames can carry window sizes that disagree with the
+              ;; frame until a tab switch refits them; settle them first.
+              (tab-bar-new-tab)
+              (tab-bar-select-tab 1)
+              (set-frame-parameter nil 'tabs nil)
+              (delete-other-windows)
+              (switch-to-buffer source-buffer)
+              (ai-code-session-register :buffer session-buffer :backend "codex")
+              ,@body)
+          (set-frame-parameter nil 'tabs original-tabs)
+          (dolist (buffer (list session-buffer editor-buffer source-buffer
+                                (get-buffer ai-code-session-dashboard-buffer-name)))
+            (when (buffer-live-p buffer)
+              (kill-buffer buffer))))))))
+
+(defun ai-code-test-session--window-layout ()
+  "Return displayed buffers, geometry and dedication of the current windows."
+  (mapcar (lambda (window)
+            (list (window-buffer window) (window-edges window)
+                  (window-dedicated-p window)
+                  (window-parameter window 'window-side)))
+          (window-list nil 'nomini (frame-first-window))))
+
+(ert-deftest ai-code-test-session-dashboard-visit-restores-existing-tab ()
+  "RET restores the session tab and preserves both tabs' window layouts."
+  (ai-code-test-session--with-tabs
+    (switch-to-buffer editor-buffer)
+    (let ((session-window (split-window-right)))
+      (set-window-buffer session-window session-buffer)
+      (set-window-dedicated-p session-window t)
+      (let ((session-layout (ai-code-test-session--window-layout)))
+        (tab-bar-new-tab)
+        (switch-to-buffer source-buffer)
+        (ai-code-session-dashboard)
+        (ai-code-test-session-dashboard-goto-first-entry)
+        (let ((source-layout (ai-code-test-session--window-layout))
+              ;; A general buffer rule must not override tab navigation.
+              (display-buffer-alist '(("." display-buffer-same-window))))
+          (ai-code-session-dashboard-visit)
+          (should (eq (current-buffer) session-buffer))
+          (should (eq (selected-window) session-window))
+          (should (= (length (tab-bar-tabs)) 2))
+          (should (equal (ai-code-test-session--window-layout) session-layout))
+          (tab-bar-select-tab 2)
+          (should (equal (ai-code-test-session--window-layout) source-layout)))))))
+
+(ert-deftest ai-code-test-session-dashboard-visit-prefers-current-tab ()
+  "If several tabs show the session, RET stays in the current tab."
+  (ai-code-test-session--with-tabs
+    (switch-to-buffer session-buffer)
+    (tab-bar-new-tab)
+    (switch-to-buffer session-buffer)
+    (set-window-buffer (split-window-right) editor-buffer)
+    (ai-code-session-dashboard)
+    (ai-code-test-session-dashboard-goto-first-entry)
+    (let ((layout (ai-code-test-session--window-layout)))
+      (ai-code-session-dashboard-visit)
+      (should (eq (current-buffer) session-buffer))
+      (should (= (length (tab-bar-tabs)) 2))
+      (should (eq (car (nth 1 (tab-bar-tabs))) 'current-tab))
+      (should (equal (ai-code-test-session--window-layout) layout)))))
+
+(ert-deftest ai-code-test-session-dashboard-visit-searches-selected-frame-first ()
+  "A session shown in the selected frame must not be looked up in other frames.
+`frame-list' order is unspecified, so searching all frames could select
+another frame's tab first."
+  (ai-code-test-session--with-tabs
+    (switch-to-buffer session-buffer)
+    (ai-code-session-dashboard)
+    (ai-code-test-session-dashboard-goto-first-entry)
+    (let* ((original (symbol-function 'tab-bar-get-buffer-tab))
+           scopes)
+      (cl-letf (((symbol-function 'tab-bar-get-buffer-tab)
+                 (lambda (buffer &optional all-frames &rest args)
+                   (push all-frames scopes)
+                   (apply original buffer all-frames args))))
+        (ai-code-session-dashboard-visit))
+      (should (eq (current-buffer) session-buffer))
+      (should scopes)
+      (should (cl-every (lambda (scope) (eq scope (selected-frame))) scopes)))))
+
+(ert-deftest ai-code-test-session-dashboard-visit-creates-missing-tab ()
+  "A session without a tab opens in a new tab, preserving the source layout."
+  (ai-code-test-session--with-tabs
+    (set-window-buffer (split-window-right) editor-buffer)
+    (ai-code-session-dashboard)
+    (ai-code-test-session-dashboard-goto-first-entry)
+    (let ((layout (ai-code-test-session--window-layout)))
+      (ai-code-session-dashboard-visit)
+      (should (eq (current-buffer) session-buffer))
+      (should (= (length (tab-bar-tabs)) 2))
+      (should (= (length (window-list)) 1))
+      (tab-bar-select-tab 1)
+      (should (equal (ai-code-test-session--window-layout) layout)))))
 
 (ert-deftest ai-code-test-session-dashboard-refresh-preserves-selected-entry ()
   "Refreshing should keep point on the selected dashboard entry."
