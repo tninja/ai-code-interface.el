@@ -22,6 +22,7 @@
 (defvar ghostel-kitty-graphics-mediums)
 (defvar ghostel-inhibit-redraw-functions)
 (defvar ghostel-plain-link-detection-delay)
+(defvar ghostel-glyph-scale-floor)
 (defvar ghostel-eval-cmds)
 (defvar ai-code-session-link-inhibit-functions)
 (defvar ai-code-session-link-after-linkify-functions)
@@ -237,6 +238,34 @@
       (should-not
        (memq #'ai-code-ghostel-image-preview--window-scroll
              window-scroll-functions)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-configures-glyph-scale-floor ()
+  "Ghostel AI sessions should apply the configured glyph scale floor locally."
+  (let ((ai-code-backends-infra-ghostel-glyph-scale-floor 1.0)
+        (ghostel-glyph-scale-floor 0.0))
+    (with-temp-buffer
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (cl-letf (((symbol-function 'ai-code-backends-infra--configure-session-input-shortcuts)
+                 #'ignore)
+                ((symbol-function 'ai-code-backends-infra--install-navigation-cursor-sync)
+                 #'ignore))
+        (ai-code-backends-infra--configure-ghostel-buffer))
+      (should (local-variable-p 'ghostel-glyph-scale-floor))
+      (should (equal ghostel-glyph-scale-floor 1.0)))
+    (should (equal ghostel-glyph-scale-floor 0.0))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-nil-glyph-scale-floor-keeps-ghostel-default ()
+  "A nil glyph scale floor should leave Ghostel's own setting untouched."
+  (let ((ai-code-backends-infra-ghostel-glyph-scale-floor nil)
+        (ghostel-glyph-scale-floor 0.0))
+    (with-temp-buffer
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (cl-letf (((symbol-function 'ai-code-backends-infra--configure-session-input-shortcuts)
+                 #'ignore)
+                ((symbol-function 'ai-code-backends-infra--install-navigation-cursor-sync)
+                 #'ignore))
+        (ai-code-backends-infra--configure-ghostel-buffer))
+      (should-not (local-variable-p 'ghostel-glyph-scale-floor)))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel-configures-ime-redraw-inhibition ()
   "Ghostel AI session configuration should enable IME redraw inhibition."

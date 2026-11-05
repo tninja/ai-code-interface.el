@@ -107,10 +107,12 @@ interval prevents flooding the scrollback with duplicate frames."
   :type 'number
   :group 'ai-code-backends-infra)
 
-(defcustom ai-code-backends-infra-use-paste-backends '("antigravity")
+(defcustom ai-code-backends-infra-use-paste-backends '("antigravity" "claude")
   "List of backend session prefixes for which multiline inputs should be pasted.
 This helps speed up sending multiline prompts to backends (like Antigravity)
-that process character-by-character input slowly."
+that process character-by-character input slowly.  Claude Code needs paste
+too: it collapses inputs over 10000 characters asynchronously, which races
+with typed input chunks and drops text from large prompts."
   :type '(repeat string)
   :group 'ai-code-backends-infra)
 
