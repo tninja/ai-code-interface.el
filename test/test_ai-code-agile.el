@@ -221,7 +221,7 @@
                         "Selected code (scope, not requirements)"
                         "original linked issues" "AI summaries"
                         "end-to-end tests" "integration or unit"
-                        "test fixtures" "original requirement/reference"
+                        "test-only fixtures" "original requirement/reference"
                         "exact commands"))
           (should (string-match-p (regexp-quote part) prompt)))))))
 
@@ -281,6 +281,29 @@
       (delete-directory other)
       (delete-file task)
       (delete-file wrong))))
+
+(ert-deftest ai-code-test-acceptance-task-reference-reports-ambiguity ()
+  "Multiple session tasks in one worktree must not be silently conflated."
+  (let* ((root (make-temp-file "acceptance-root-" t))
+         (a (make-temp-file "acceptance-a-" nil ".org"))
+         (b (make-temp-file "acceptance-b-" nil ".org")))
+    (unwind-protect
+        (with-temp-buffer
+          (emacs-lisp-mode)
+          (cl-letf (((symbol-function 'ai-code--session-project-root)
+                     (lambda (&optional _) root))
+                    ((symbol-function 'ai-code-session-list)
+                     (lambda ()
+                       (list
+                        (make-ai-code-session :repo-root root :task-file a)
+                        (make-ai-code-session :repo-root root :task-file b)))))
+            (let ((result (ai-code--acceptance-test-task-references)))
+              (should (string-match-p "Multiple tasks" result))
+              (should (string-match-p (regexp-quote a) result))
+              (should (string-match-p (regexp-quote b) result)))))
+      (delete-directory root)
+      (delete-file a)
+      (delete-file b))))
 
 (ert-deftest ai-code-test-acceptance-stage-uses-compose-and-suppresses-suffixes ()
   "The acceptance command is test-only and always editable before send."
