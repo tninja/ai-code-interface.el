@@ -164,22 +164,146 @@
         (ai-code-tdd-cycle)
         (should (equal called-function-name "my-function"))))))
 
-(ert-deftest ai-code-test-tdd-cycle-last-choice-derives-learning-tests ()
-  "Verify the last TDD stage derives learning unit tests for a topic."
+(ert-deftest ai-code-test-tdd-cycle-choice-6-derives-learning-tests ()
+  "Keep learning tests at stage 6 when acceptance tests are added."
   (with-temp-buffer
     (emacs-lisp-mode)
     (let (captured-choices called)
-      (cl-letf (((symbol-function 'ai-code--tdd-source-function-context-p) (lambda (_) nil))
+      (cl-letf (((symbol-function 'ai-code--tdd-source-function-context-p)
+                 (lambda (_) nil))
                 ((symbol-function 'completing-read)
                  (lambda (_prompt collection &rest _)
                    (setq captured-choices collection)
-                   (car (last collection))))
+                   "6. Learning tests (Derive unit tests as a tutorial for a topic)"))
                 ((symbol-function 'ai-code-derive-topic-unit-tests)
                  (lambda () (setq called t))))
         (ai-code-tdd-cycle)
-        (should (equal (car (last captured-choices))
-                       "6. Learning tests (Derive unit tests as a tutorial for a topic)"))
+        (should (member
+                 "6. Learning tests (Derive unit tests as a tutorial for a topic)"
+                 captured-choices))
         (should called)))))
+
+(ert-deftest ai-code-test-tdd-cycle-choice-7-dispatches-acceptance-tests ()
+  "Stage 7 invokes acceptance tests without changing prior TDD stages."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (seen)
+      (cl-letf (((symbol-function 'ai-code--current-line-scope-context)
+                 (lambda () '(:function-name "feature-fn")))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt choices &rest _)
+                   (should (equal (car (last choices))
+                                  "7. Acceptance tests (Verify feature requirements)"))
+                   "7. Acceptance tests (Verify feature requirements)"))
+                ((symbol-function 'ai-code--acceptance-test-stage)
+                 (lambda (&rest args) (setq seen args))))
+        (ai-code-tdd-cycle)
+        (should (equal seen '("feature-fn" nil nil)))))))
+
+(ert-deftest ai-code-test-acceptance-prompt-explicit-criteria-not-code-inference ()
+  "An explicit issue reference outranks implementation or AI summaries."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (cl-letf (((symbol-function 'ai-code--acceptance-test-task-references)
+               (lambda () nil))
+              ((symbol-function 'ai-code--session-project-root)
+               (lambda (&optional _) "/repo/worktree/"))
+              ((symbol-function 'ai-code--agile-current-scope-string)
+               (lambda (&rest _) "Function: parse-input"))
+              ((symbol-function 'ai-code--get-context-files-string)
+               (lambda () "")))
+      (let ((prompt
+             (ai-code--acceptance-test-prompt
+              "https://github.com/example/repo/issues/17"
+              "parse-input" nil "def parse_input(): pass")))
+        (dolist (part '("https://github.com/example/repo/issues/17"
+                        "/repo/worktree/" "Function: parse-input"
+                        "Selected code (scope, not requirements)"
+                        "original linked issues" "AI summaries"
+                        "end-to-end tests" "integration or unit"
+                        "test fixtures" "original requirement/reference"
+                        "exact commands"))
+          (should (string-match-p (regexp-quote part) prompt)))))))
+
+(ert-deftest ai-code-test-acceptance-prompt-no-input-uses-org-context ()
+  "A blank optional input keeps a raw Org selection in the prompt."
+  (with-temp-buffer
+    (org-mode)
+    (cl-letf (((symbol-function 'ai-code--acceptance-test-task-references)
+               (lambda () "Current Org file: @/tmp/feature.org"))
+              ((symbol-function 'ai-code--session-project-root)
+               (lambda (&optional _) "/repo/"))
+              ((symbol-function 'ai-code--agile-current-scope-string)
+               (lambda (&rest _) "Current file: /tmp/feature.org"))
+              ((symbol-function 'ai-code--get-context-files-string)
+               (lambda () "")))
+      (let ((prompt (ai-code--acceptance-test-prompt
+                     "" nil "Human: support empty input" nil)))
+        (should (string-match-p "(not supplied)" prompt))
+        (should (string-match-p "Human: support empty input" prompt))
+        (should (string-match-p
+                 (regexp-quote "@/tmp/feature.org") prompt))
+        (should (string-match-p "ask the user" prompt))))))
+
+(ert-deftest ai-code-test-acceptance-task-reference-prefers-current-org ()
+  "Use the invoking Org section rather than an unrelated active session."
+  (with-temp-buffer
+    (org-mode)
+    (setq-local buffer-file-name "/tmp/current-task.org")
+    (insert "* TODO Original acceptance notes\nSource: radar://42\n")
+    (goto-char (point-max))
+    (let ((result (ai-code--acceptance-test-task-references)))
+      (should (string-match-p
+               (regexp-quote "@/tmp/current-task.org") result))
+      (should (string-match-p "section begins at line 1" result))
+      (should (string-match-p "Unsaved Org edits" result)))))
+
+(ert-deftest ai-code-test-acceptance-task-reference-is-worktree-scoped ()
+  "Do not pick the active task file from a different worktree."
+  (let* ((root (make-temp-file "acceptance-root-" t))
+         (other (make-temp-file "acceptance-other-" t))
+         (task (make-temp-file "acceptance-task-" nil ".org"))
+         (wrong (make-temp-file "acceptance-wrong-" nil ".org")))
+    (unwind-protect
+        (with-temp-buffer
+          (emacs-lisp-mode)
+          (cl-letf (((symbol-function 'ai-code--session-project-root)
+                     (lambda (&optional _) root))
+                    ((symbol-function 'ai-code-session-list)
+                     (lambda ()
+                       (list
+                        (make-ai-code-session :repo-root other :task-file wrong)
+                        (make-ai-code-session :repo-root root :task-file task)))))
+            (let ((result (ai-code--acceptance-test-task-references)))
+              (should (string-match-p (regexp-quote (concat "@" task)) result))
+              (should-not (string-match-p (regexp-quote wrong) result)))))
+      (delete-directory root)
+      (delete-directory other)
+      (delete-file task)
+      (delete-file wrong))))
+
+(ert-deftest ai-code-test-acceptance-stage-uses-compose-and-suppresses-suffixes ()
+  "The acceptance command is test-only and always editable before send."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let (prompt options)
+      (cl-letf (((symbol-function 'ai-code-read-string)
+                 (lambda (&rest _) ""))
+                ((symbol-function 'ai-code--acceptance-test-prompt)
+                 (lambda (&rest _) "Review raw requirements"))
+                ((symbol-function 'ai-code--confirm-and-send)
+                 (lambda (_label text &rest args)
+                   (setq prompt text options args)
+                   (should-not ai-code-use-prompt-suffix)
+                   (should ai-code--suppress-org-summary-prompt))))
+        (let ((ai-code-use-prompt-suffix t)
+              (ai-code--suppress-org-summary-prompt nil))
+          (ai-code--acceptance-test-stage "feature-fn"))
+        (should (equal prompt "Review raw requirements"))
+        (should (plist-get options :force-compose))
+        (should (string-match-p
+                 "Change only test code"
+                 (funcall (plist-get options :after-edit) "Reviewed")))))))
 
 (ert-deftest ai-code-test-run-test-always-delegates-to-ai-assisted-runner ()
   "Verify `ai-code-run-test' always delegates to the AI-assisted test runner."
