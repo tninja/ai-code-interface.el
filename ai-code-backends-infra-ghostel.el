@@ -78,6 +78,7 @@ enabled by default because it widens the terminal's local resource access."
 (defvar ghostel-plain-link-detection-delay)
 (defvar ghostel-kitty-graphics-mediums)
 (defvar ghostel-glyph-scale-floor)
+(defvar ghostel-point-leave-input-mode)
 (defvar ghostel--term)
 (defvar ghostel-use-native-pty)
 (eval-when-compile
@@ -171,6 +172,17 @@ fallback glyphs at natural size; rows containing them may grow slightly
 taller.  nil leaves Ghostel's own setting untouched."
   :type '(choice (const :tag "Use Ghostel's setting" nil)
                  (float :tag "Minimum scale (0.0-1.0)"))
+  :group 'ai-code-backends-infra)
+
+(defcustom ai-code-backends-infra-ghostel-inhibit-point-leave-readonly t
+  "Keep AI Code Ghostel sessions live when point leaves the terminal cursor.
+
+Ghostel enters `ghostel-point-leave-input-mode' (copy mode by default) after
+a minibuffer exits with point off the live cursor.  AI Code prompts read from
+the minibuffer while terminal output moves the cursor, so a session can freeze
+in copy mode and hide new output until the next key.  Non-nil sets
+`ghostel-point-leave-input-mode' to nil in AI Code session buffers."
+  :type 'boolean
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-ghostel-native-preedit-overlay-symbols
@@ -812,6 +824,11 @@ plain-link detection asynchronous so restoration runs first."
     (setq-local ghostel-glyph-scale-floor
                 ai-code-backends-infra-ghostel-glyph-scale-floor)))
 
+(defun ai-code-backends-infra-ghostel--configure-point-leave ()
+  "Stop point leaving the cursor from freezing this session in copy mode."
+  (when ai-code-backends-infra-ghostel-inhibit-point-leave-readonly
+    (setq-local ghostel-point-leave-input-mode nil)))
+
 (defun ai-code-backends-infra-ghostel--redraw-output-p (output)
   "Return non-nil when OUTPUT looks like a TUI redraw frame."
   (let* ((output (or output ""))
@@ -1063,6 +1080,7 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
   (setq-local ghostel-kill-buffer-on-exit nil)
   (ai-code-backends-infra-ghostel--configure-image-support)
   (ai-code-backends-infra-ghostel--configure-glyph-scale)
+  (ai-code-backends-infra-ghostel--configure-point-leave)
   (ai-code-backends-infra-ghostel--enable-ime-integration)
   (ai-code-backends-infra-ghostel--install-redraw-inhibition)
   (ai-code-backends-infra-ghostel--install-link-preservation)

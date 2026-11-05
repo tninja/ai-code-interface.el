@@ -23,6 +23,7 @@
 (defvar ghostel-inhibit-redraw-functions)
 (defvar ghostel-plain-link-detection-delay)
 (defvar ghostel-glyph-scale-floor)
+(defvar ghostel-point-leave-input-mode)
 (defvar ghostel-eval-cmds)
 (defvar ai-code-session-link-inhibit-functions)
 (defvar ai-code-session-link-after-linkify-functions)
@@ -266,6 +267,34 @@
                  #'ignore))
         (ai-code-backends-infra--configure-ghostel-buffer))
       (should-not (local-variable-p 'ghostel-glyph-scale-floor)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-inhibits-point-leave-readonly ()
+  "Ghostel AI sessions should not freeze into read-only mode on point leave."
+  (let ((ai-code-backends-infra-ghostel-inhibit-point-leave-readonly t)
+        (ghostel-point-leave-input-mode 'default))
+    (with-temp-buffer
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (cl-letf (((symbol-function 'ai-code-backends-infra--configure-session-input-shortcuts)
+                 #'ignore)
+                ((symbol-function 'ai-code-backends-infra--install-navigation-cursor-sync)
+                 #'ignore))
+        (ai-code-backends-infra--configure-ghostel-buffer))
+      (should (local-variable-p 'ghostel-point-leave-input-mode))
+      (should-not ghostel-point-leave-input-mode))
+    (should (eq ghostel-point-leave-input-mode 'default))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-keeps-point-leave-readonly-when-disabled ()
+  "Disabling the inhibition should leave Ghostel's point-leave setting alone."
+  (let ((ai-code-backends-infra-ghostel-inhibit-point-leave-readonly nil)
+        (ghostel-point-leave-input-mode 'default))
+    (with-temp-buffer
+      (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+      (cl-letf (((symbol-function 'ai-code-backends-infra--configure-session-input-shortcuts)
+                 #'ignore)
+                ((symbol-function 'ai-code-backends-infra--install-navigation-cursor-sync)
+                 #'ignore))
+        (ai-code-backends-infra--configure-ghostel-buffer))
+      (should-not (local-variable-p 'ghostel-point-leave-input-mode)))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel-configures-ime-redraw-inhibition ()
   "Ghostel AI session configuration should enable IME redraw inhibition."
