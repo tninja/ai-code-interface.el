@@ -12,8 +12,9 @@
 (require 'cl-lib)
 (require 'ai-code-prompt-mode)
 
-(defun ai-code-test-summary-artifacts--send (accept)
-  "Return dispatched prompt when the Org summary choice is ACCEPT."
+(defun ai-code-test-summary-artifacts--send (accept &optional anchor)
+  "Return dispatched prompt when the Org summary choice is ACCEPT.
+ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
   (with-temp-buffer
     (setq buffer-file-name "/tmp/example-task.org")
     (insert "* TODO Fix config merge\nHuman-authored source: rdar://12345\n")
@@ -24,7 +25,7 @@
           (ai-code-use-compose-buffer nil)
           (ai-code-prompt-preprocess-filepaths nil)
           (ai-code--suppress-org-summary-prompt nil)
-          (ai-code--org-summary-anchor nil)
+          (ai-code--org-summary-anchor anchor)
           sent)
       (cl-letf (((symbol-function 'y-or-n-p)
                  (lambda (question)
@@ -42,14 +43,24 @@
   "Append artifact collection instructions as part of the same summary."
   (let ((prompt (ai-code-test-summary-artifacts--send t)))
     (should (string-match-p "After completing, append a concise result summary" prompt))
-    (should (string-match-p "commit" prompt))
-    (should (string-match-p "PR" prompt))
-    (should (string-match-p "verification" prompt))
-    (should (string-match-p "HEAD" prompt))
-    (should (string-match-p "after the work" prompt))
-    (should (string-match-p "other tasks" prompt))
-    (should (string-match-p "do not invent" prompt))
-    (should (string-match-p "same result-summary" prompt))))
+    (should (string-suffix-p ai-code--org-summary-artifacts-instruction prompt))))
+
+(ert-deftest ai-code-test-summary-artifacts-guards-git-and-pr-head ()
+  "Git reads are conditional and a remote PR head is never local HEAD."
+  (let ((case-fold-search nil))
+    (should (string-match-p "If this task changed code, read Git"
+                            ai-code--org-summary-artifacts-instruction))
+    (should (string-match-p "not local HEAD"
+                            ai-code--org-summary-artifacts-instruction))
+    (should-not (string-match-p "completing the implementation"
+                                ai-code--org-summary-artifacts-instruction))))
+
+(ert-deftest ai-code-test-summary-artifacts-with-section-anchor ()
+  "An anchored summary, as used by Verify, also gets artifact guidance."
+  (let ((prompt (ai-code-test-summary-artifacts--send
+                 t '(:name "Fix config merge" :end-line 2))))
+    (should (string-match-p "end of section \"Fix config merge\"" prompt))
+    (should (string-suffix-p ai-code--org-summary-artifacts-instruction prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-not-requested ()
   "Declining summary means no artifact writeback and no extra menu."
