@@ -141,6 +141,11 @@ When `ai-code-default-review-source' is set, return it directly."
      (concat
       "Review pull request: %s\n\n"
       "%s\n\n"
+      "Review Steps:\n"
+      "1. Requirement Fit: Verify the PR implementation against requirements.\n"
+      "2. Code Quality: Check code quality, security, and performance concerns.\n"
+      "3. Findings: For each issue include location, issue, fix suggestion, and priority.\n"
+      "4. %s\n\n"
       "Evidence-backed PR review:\n"
       "1. Intent and scope: Inspect the exact PR base/head diff and relevant "
       "surrounding code. Trace original human requirements and decisions in "
@@ -174,8 +179,7 @@ When `ai-code-default-review-source' is set, return it directly."
       "8. Result: Start with the number of actionable findings. If none "
       "were established, say no actionable findings discovered (not a "
       "guarantee of correctness). Summarize residual risks, checks "
-      "actually performed, and checks not performed.\n\n"
-      "%s")
+      "actually performed, and checks not performed.")
      pr-url source-instruction ai-code-github--analysis-only-note)))
 
 (defun ai-code--build-send-current-branch-pr-init-prompt
