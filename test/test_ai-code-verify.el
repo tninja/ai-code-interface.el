@@ -12,6 +12,83 @@
 (require 'cl-lib)
 (require 'ai-code-verify)
 
+(ert-deftest ai-code-verify-test-code-state-failures-are-unknown ()
+  "An unavailable observation never becomes unchanged or a clean identity."
+  (let ((state (ai-code-verify--capture-code-state "/nonexistent/verify-checkout/")))
+    (should (plist-get state :error))
+    (should-not (ai-code-verify--same-code-state-p state state))
+    (should (string-match-p "unavailable" (ai-code-verify--code-state-text state))))
+  (with-temp-buffer
+    (should-error (ai-code-verify-check-code-state) :type 'user-error)))
+
+(ert-deftest ai-code-verify-test-git-failure-does-not-produce-fingerprints ()
+  "A failed diff is unavailable, never the hash of an empty success result."
+  (cl-letf (((symbol-function 'magit-git-insert)
+             (lambda (&rest arguments)
+               (if (member "diff" arguments) 128
+                 (insert "/tmp/checkout") 0))))
+    (let ((state (ai-code-verify--capture-code-state temporary-file-directory)))
+      (should (plist-get state :error))
+      (should-not (plist-get state :staged))
+      (should-not (plist-get state :unstaged)))))
+
+(ert-deftest ai-code-verify-test-observation-cancel-and-send-failure ()
+  "Neither cancellation nor failed transport replaces the recorded observation."
+  (with-temp-buffer
+    (setq-local ai-code-verify--last-code-state '(:head "previous"))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) nil))
+              ((symbol-function 'ai-code-verify--capture-code-state)
+               (lambda (&rest _) (ert-fail "Do not reobserve cancelled Compose"))))
+      (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :error "Unavailable"))
+      (should (equal ai-code-verify--last-code-state '(:head "previous"))))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+              ((symbol-function 'ai-code-verify--capture-code-state)
+               (lambda (&rest _) '(:root "/tmp/repo/" :error "Unavailable")))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (&rest _) (error "Transport failed"))))
+      (should-error
+       (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :error "Unavailable")))
+      (should (equal ai-code-verify--last-code-state '(:head "previous"))))))
+
+(ert-deftest ai-code-verify-test-observation-stays-in-invoking-buffer ()
+  "A sender that selects the session buffer does not receive the observation."
+  (let ((origin (generate-new-buffer " *verify-origin*"))
+        (session (generate-new-buffer " *verify-session*"))
+        (state '(:root "/tmp/repo/" :head "abc" :status "")))
+    (unwind-protect
+        (with-current-buffer origin
+          (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+                    ((symbol-function 'ai-code-verify--capture-code-state)
+                     (lambda (&rest _) state))
+                    ((symbol-function 'ai-code--insert-prompt)
+                     (lambda (&rest _) (set-buffer session) t)))
+            (ai-code-verify--confirm-and-send "Review" state))
+          (should (equal (buffer-local-value 'ai-code-verify--last-code-state origin) state))
+          (should-not (buffer-local-value 'ai-code-verify--last-code-state session)))
+      (kill-buffer origin)
+      (kill-buffer session))))
+
+(ert-deftest ai-code-verify-test-declined-send-keeps-observation ()
+  "Declining missing-session recovery returns nil and keeps the old baseline."
+  (with-temp-buffer
+    (setq-local ai-code-verify--last-code-state '(:head "previous"))
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+              ((symbol-function 'ai-code-verify--capture-code-state)
+               (lambda (&rest _) '(:root "/tmp/repo/" :head "new" :status "")))
+              ((symbol-function 'ai-code--insert-prompt) (lambda (&rest _) nil)))
+      (ai-code-verify--confirm-and-send "Review" '(:root "/tmp/repo/" :head "new" :status ""))
+      (should (equal ai-code-verify--last-code-state '(:head "previous"))))))
+
+(ert-deftest ai-code-verify-test-pr-identity-and-note-instructions-survive-compose ()
+  "Remote identity, freshness and note requirements survive prompt editing."
+  (let (sent)
+    (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
+              ((symbol-function 'ai-code--insert-prompt) (lambda (p) (setq sent p))))
+      (ai-code-verify--confirm-and-send "Review PR")
+      (dolist (text '("base/head" "merge-base" "re-fetch" "Verification Notes"
+                      "historical" "unverified"))
+        (should (string-match-p (regexp-quote text) sent))))))
+
 (defmacro ai-code-verify-test--with-org (content &rest body)
   "Evaluate BODY in a saved Org buffer containing CONTENT."
   (declare (indent 1) (debug t))
@@ -26,14 +103,14 @@
      ,@body))
 
 
-(ert-deftest ai-code-verify-test-pr-url-validation ()
-  "Accept standard PR URLs without accepting unrelated GitHub pages."
-  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541"))
-  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541/"))
-  (should (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/541#issuecomment-1"))
-  (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/issues/541"))
-  (should-not (ai-code-verify--pr-url-p "https://example.org/tninja/x.el/pull/541"))
-  (should-not (ai-code-verify--pr-url-p "https://github.com/tninja/x.el/pull/no")))
+(ert-deftest ai-code-verify-test-pr-scope-accepts-any-change-url ()
+  "Any nonblank URL is accepted, such as an Enterprise compare view."
+  (let* ((url "https://prodgit.example.com/team/repo/compare/feature-1.91?expand=1")
+         (scope (ai-code-verify--target-scope 'pr (concat "  " url "  "))))
+    (should (string-match-p (regexp-quote (concat "URL: " url "\n")) scope))
+    (should (string-match-p "compare view" scope)))
+  (should-error (ai-code-verify--target-scope 'pr "   ") :type 'user-error)
+  (should-error (ai-code-verify--target-scope 'pr nil) :type 'user-error))
 
 (ert-deftest ai-code-verify-test-branch-scope-requires-repo-and-branch ()
   "Branch verification must identify an actual local branch and base."
@@ -57,10 +134,10 @@
                (lambda (&optional _) (ert-fail "Must not inspect local Git"))))
       (let ((scope (ai-code-verify--target-scope
                     'pr "https://github.com/owner/repo/pull/23")))
-        (should (string-match-p "GitHub pull request" scope))
+        (should (string-match-p "GitHub PR or compare URL" scope))
         (should (string-match-p "base and head SHAs" scope))
         (should (string-match-p "gh CLI" scope)))))
-  (should-error (ai-code-verify--target-scope 'pr "not-a-pr") :type 'user-error))
+  (should-error (ai-code-verify--target-scope 'pr "") :type 'user-error))
 
 (ert-deftest ai-code-verify-test-org-context-can-reference-done-headline ()
   "A completed Org task can supply requirements without status updates."
@@ -262,7 +339,7 @@
                  (lambda (&rest _) "GitHub PR"))
                 ((symbol-function 'ai-code-read-string)
                  (lambda (label &rest _)
-                   (if (string-match-p "GitHub PR URL" label)
+                   (if (string-match-p "GitHub PR or compare URL" label)
                        "https://github.com/tninja/ai-code-interface.el/pull/541"
                      (ert-fail "Selected requirements should skip re-entry"))))
                 ((symbol-function 'ai-code--format-repo-context-info)
@@ -579,6 +656,53 @@
                (lambda (_prompt) (ert-fail "Cancelled Verify must not send"))))
       (ai-code-verify-current-work)
       (should-not (buffer-modified-p)))))
+
+(ert-deftest ai-code-verify-test-generate-document-uses-all-sources ()
+  "Deployment verification prompt targets DIR/verify.org with every source."
+  (let (sent dir-default)
+    (cl-letf (((symbol-function 'read-directory-name)
+               (lambda (_prompt &optional dir &rest _)
+                 (setq dir-default dir)
+                 "/tmp/out/"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (prompt &rest _)
+                 (if (string-match-p "environment" prompt)
+                     "test: https://test.example.com"
+                   "https://example.org/spec.md")))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (p &rest _) (setq sent p))))
+      (ai-code-verify-test--with-org
+          "* TODO Support CORS preflight\nOPTIONS must return 204.\n"
+        (ai-code-verify-generate-deployment-document)))
+    (should (equal dir-default "/tmp/"))
+    (should (string-match-p "/tmp/out/verify\\.org" sent))
+    (should (string-match-p "OPTIONS must return 204" sent))
+    (should (string-match-p "https://example\\.org/spec\\.md" sent))
+    (should (string-match-p "Target environment(s): test: https://test\\.example\\.com" sent))
+    (should (string-match-p "deployment verification" sent))
+    (should (string-match-p "unit tests and CI cannot" sent))
+    (should (string-match-p "production" sent))
+    (should (string-match-p "AI coding session" sent))
+    (should (string-match-p "PASS" sent))
+    (should (string-match-p "link" sent))))
+
+(ert-deftest ai-code-verify-test-generate-document-optional-sources ()
+  "Without task context or documents, rely on the session context only."
+  (let (sent)
+    (cl-letf (((symbol-function 'read-directory-name)
+               (lambda (&rest _) "/tmp/out"))
+              ((symbol-function 'ai-code-read-string)
+               (lambda (&rest _) ""))
+              ((symbol-function 'ai-code--insert-prompt)
+               (lambda (p &rest _) (setq sent p))))
+      (with-temp-buffer
+        (fundamental-mode)
+        (ai-code-verify-generate-deployment-document)))
+    (should (string-match-p "/tmp/out/verify\\.org" sent))
+    (should (string-match-p "AI coding session" sent))
+    (should-not (string-match-p "Task context" sent))
+    (should-not (string-match-p "Target environment" sent))
+    (should-not (string-match-p "User-provided documents" sent))))
 
 (provide 'test_ai-code-verify)
 

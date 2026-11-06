@@ -1458,9 +1458,15 @@ The prefix argument should also force instance-name prompting."
             (ai-code-backends-infra--send-line-to-session " *ai-code-terminal-paste-test*" "no-session" "line1\nline2"))
           (should (equal (car calls) '("line1\nline2" t)))
           (setq calls nil)
-          ;; Case 2: Prefix is "claude" (not configured) -> should not paste
+          ;; Case 2: Prefix is "claude" (configured by default) -> should paste
           (with-current-buffer buffer
             (setq-local ai-code-backends-infra--session-prefix "claude"))
+          (ai-code-backends-infra--send-line-to-session " *ai-code-terminal-paste-test*" "no-session" "line1\nline2")
+          (should (equal (car calls) '("line1\nline2" t)))
+          (setq calls nil)
+          ;; Case 3: Prefix is "codex" (not configured) -> should not paste
+          (with-current-buffer buffer
+            (setq-local ai-code-backends-infra--session-prefix "codex"))
           (ai-code-backends-infra--send-line-to-session " *ai-code-terminal-paste-test*" "no-session" "line1\nline2")
           (should (equal (car calls) '("line1\nline2" nil))))
       (when (buffer-live-p buffer)

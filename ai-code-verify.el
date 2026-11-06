@@ -8,6 +8,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'org)
 (require 'subr-x)
 (require 'magit)
@@ -21,6 +22,7 @@
 (declare-function ai-code--format-repo-context-info "ai-code-utils")
 
 (defvar ai-code-default-review-source)
+(defvar ai-code-use-prompt-suffix)
 
 (defconst ai-code-verify--mandatory-read-only-suffix
   (concat
@@ -41,8 +43,136 @@ This rule is not a filesystem or backend permission boundary.")
    "against original human-provided requirements and referenced discussions, "
    "not intermediate AI-generated summaries or implementation plans. "
    "If original references are unavailable or contradictory, say so and "
-   "ask for clarification; do not claim verified compliance.")
+   "ask for clarification; do not claim verified compliance. "
+   "CODE STATE: Record the actual examined checkout and HEAD, comparison "
+   "base/head SHAs and merge-base, and staged/unstaged scope. Treat an "
+   "editor observation as a starting point, not evidence that a review or "
+   "test ran. Before final conclusions or Verification Notes, recheck the "
+   "examined source state; for a PR re-fetch its base/head metadata. "
+   "If it changed, label earlier evidence historical and investigate the "
+   "new delta before extending conclusions. Record the actual reviewed "
+   "identifiers and evidence scope in Verification Notes. If identity or "
+   "freshness cannot be established, label it unverified. Never substitute "
+   "local HEAD for a remote PR head.")
   "Original-source requirement appended after editing the Verify prompt.")
+
+(defvar-local ai-code-verify--last-code-state nil
+  "Local code observation for the last Verify sent from this buffer.
+This is an in-memory observation, not a verification result.")
+
+(defconst ai-code-verify--diff-arguments
+  '("--binary" "--full-index" "--no-ext-diff" "--no-textconv" "--no-color"
+    "--no-renames" "--ignore-submodules=none" "--src-prefix=a/" "--dst-prefix=b/")
+  "Read-only diff options used for tracked-content fingerprints.
+Binary patches retain content differences; external diff tools are disabled.")
+
+(defun ai-code-verify--git-output (&rest arguments)
+  "Return literal Git output for ARGUMENTS, signaling errors on failure."
+  (with-temp-buffer
+    (set-buffer-multibyte nil)
+    (let* ((coding-system-for-read 'no-conversion)
+           (coding-system-for-write 'no-conversion)
+           (status (apply #'magit-git-insert "--no-optional-locks"
+                          "-c" "core.fsmonitor=false" arguments)))
+      (unless (eq status 0)
+        (error "Git %s failed (%s)" (car arguments) status))
+      (buffer-string))))
+
+(defun ai-code-verify--capture-code-state (root)
+  "Observe tracked Git state in ROOT without saving buffers or writing Git.
+Hash full staged and unstaged patches, not diff statistics.  Untracked
+contents, ignored files and submodule contents are outside this identity.
+Unsaved buffer ticks are recorded separately.  This is not atomic; agents
+must recheck their actual source state before concluding a review."
+  (let ((state (list :observed-at (format-time-string "%FT%T%z"))))
+    (condition-case err
+        (let* ((default-directory (file-name-as-directory root))
+               (checkout (string-trim
+                          (ai-code-verify--git-output "rev-parse" "--show-toplevel")))
+               (head (string-trim
+                      (ai-code-verify--git-output "rev-parse" "--verify" "HEAD")))
+               (staged (apply #'ai-code-verify--git-output "diff" "--cached"
+                              (append ai-code-verify--diff-arguments '("--"))))
+               (unstaged (apply #'ai-code-verify--git-output "diff"
+                                (append ai-code-verify--diff-arguments '("--"))))
+               (status (ai-code-verify--git-output
+                        "status" "--porcelain=v1" "--untracked-files=normal"
+                        "--ignore-submodules=none"))
+               unsaved)
+          (unless (equal head (string-trim
+                               (ai-code-verify--git-output "rev-parse" "--verify" "HEAD")))
+            (error "HEAD changed during observation"))
+          (dolist (buffer (buffer-list))
+            (with-current-buffer buffer
+              (when (and buffer-file-name (buffer-modified-p)
+                         (file-in-directory-p buffer-file-name checkout))
+                (push (cons buffer-file-name (buffer-chars-modified-tick)) unsaved))))
+          (append state
+                  (list :root (file-name-as-directory (file-truename checkout))
+                        :head head
+                        :staged (secure-hash 'sha256 staged)
+                        :unstaged (secure-hash 'sha256 unstaged)
+                        :status status
+                        :unsaved (sort unsaved (lambda (a b) (string< (car a) (car b)))))))
+      (error (append state (list :root root :error (error-message-string err)))))))
+
+(defun ai-code-verify--same-code-state-p (before after)
+  "Return non-nil if usable observations BEFORE and AFTER have the same scope."
+  (and before after
+       (not (plist-get before :error)) (not (plist-get after :error))
+       (plist-get before :head) (plist-get before :staged) (plist-get before :unstaged)
+       (cl-every (lambda (key) (equal (plist-get before key) (plist-get after key)))
+                 '(:root :head :staged :unstaged :status :unsaved))))
+
+(defun ai-code-verify--code-state-text (state)
+  "Format code observation STATE with its explicit coverage limits."
+  (concat
+   (format "Observed at: %s\nCheckout: %s\n"
+           (plist-get state :observed-at) (plist-get state :root))
+   (if-let ((failure (plist-get state :error)))
+       (format "Code identity unavailable: %s. Do not claim current-state verification.\n"
+               failure)
+     (format
+      (concat "HEAD: %s\nStaged diff SHA-256: %s\nUnstaged diff SHA-256: %s\n"
+              "Git status SHA-256: %s\nGit status (at most 3000 characters):\n%s\n"
+              "Unsaved buffers (excluded from disk identity): %S\n")
+      (plist-get state :head) (plist-get state :staged) (plist-get state :unstaged)
+      (secure-hash 'sha256 (plist-get state :status))
+      (truncate-string-to-width (plist-get state :status) 3000 nil nil "...")
+      (plist-get state :unsaved)))
+   "Scope: Git-visible tracked patches only; excludes untracked contents, "
+   "ignored files, unsaved buffer contents and submodule contents. "
+   "Untracked paths are discovery context, not reviewed content. "
+   "This is not an atomic snapshot or proof that tests ran. "
+   "Reproduce diff fingerprints with SHA-256 of raw stdout in this checkout: "
+   (format "git --no-optional-locks -c core.fsmonitor=false diff [--cached] %s -- "
+           (mapconcat #'identity ai-code-verify--diff-arguments " "))
+   "(include --cached for staged; omit it for unstaged). "
+   "Use M-x ai-code-verify-check-code-state in the invoking buffer to "
+   "compare with this observation; preserve these identifiers and scope "
+   "alongside the actual comparison base/head in optional Verification Notes."))
+
+;;;###autoload
+(defun ai-code-verify-check-code-state ()
+  "Compare this buffer's last local Verify observation with current code.
+Report changed, unchanged within the recorded scope, or unavailable.
+Do not run tests, contact a remote PR, write files or change task states.
+The observation is kept only until this buffer or Emacs is closed."
+  (interactive)
+  (unless ai-code-verify--last-code-state
+    (user-error "No local Verify observation in this buffer"))
+  (let* ((current (ai-code-verify--capture-code-state (ai-code--session-project-root)))
+         (previous ai-code-verify--last-code-state)
+         (status (cond ((or (plist-get previous :error) (plist-get current :error))
+                        'unavailable)
+                       ((ai-code-verify--same-code-state-p previous current) 'unchanged)
+                       (t 'changed))))
+    (message "%s"
+             (pcase status
+               ('unchanged "Verify observation unchanged within recorded scope; this is not a test/review result")
+               ('changed "Code changed since Verify observation; earlier evidence may be stale.  Verify the new state")
+               (_ "Code identity unavailable; verification freshness is unknown")))
+    status))
 
 (defun ai-code-verify--requirement-context (&optional anchor-summary)
   "Return the selected text or enclosing Org section as problem context.
@@ -80,15 +210,8 @@ optional, user-approved result summary.  No task states are changed."
                  (plist-get info :end-line-number))))))
      (t nil))))
 
-(defun ai-code-verify--pr-url-p (url)
-  "Return non-nil if URL is a GitHub pull request URL."
-  (and (stringp url)
-       (string-match-p
-        "^https://github\\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+/?\\(?:[?#][^[:space:]]*\\)?$"
-        url)))
-
 (defun ai-code-verify--target-scope (target &optional pr-url)
-  "Describe TARGET as current branch or GitHub PR at PR-URL."
+  "Describe TARGET as current branch or a GitHub PR or compare view at PR-URL."
   (pcase target
     ('branch
      (let ((root (ai-code--git-root))
@@ -105,19 +228,21 @@ optional, user-approved result summary.  No task states are changed."
                 "Do not silently include unrelated untracked work.")
         branch root)))
     ('pr
-     (unless (ai-code-verify--pr-url-p pr-url)
-       (user-error "Enter a GitHub PR URL such as https://github.com/owner/repo/pull/123"))
-     (concat
-      "GitHub pull request: " pr-url "\n"
-      "Retrieve PR metadata, linked issue(s), base and head SHAs, "
-      "actual diff, relevant surrounding code, review discussion, "
-      "and available CI. Prefer the configured review source "
-      (pcase ai-code-default-review-source
-        ('github-mcp "(GitHub MCP); ")
-        ('gh-cli "(gh CLI); ")
-        (_ "(GitHub MCP or gh CLI); "))
-      "if access is missing, say so rather than guessing. "
-      "Review the precise PR head, not an unrelated local branch."))
+     (let ((url (string-trim (or pr-url ""))))
+       (when (string-empty-p url)
+         (user-error "Enter a GitHub PR or compare URL"))
+       (concat
+        "GitHub PR or compare URL: " url "\n"
+        "For a pull request, retrieve PR metadata, linked issue(s), base and "
+        "head SHAs, actual diff, relevant surrounding code, review discussion, "
+        "and available CI. For a compare view or other change URL, review the "
+        "exact base...head range it names. Prefer the configured review source "
+        (pcase ai-code-default-review-source
+          ('github-mcp "(GitHub MCP); ")
+          ('gh-cli "(gh CLI); ")
+          (_ "(GitHub MCP or gh CLI); "))
+        "if access is missing, say so rather than guessing. "
+        "Review the precise head, not an unrelated local branch.")))
     (_ (error "Unknown verification target: %S" target))))
 
 (defun ai-code-verify--prompt (target-scope requirements context)
@@ -228,25 +353,49 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "implementation as separate actions. If requested, provide a final "
     "assessment that distinguishes demonstrated behavior from uncertainty.")))
 
-(defun ai-code-verify--confirm-and-send (prompt)
+(defun ai-code-verify--confirm-and-send (prompt &optional code-state)
   "Let the user edit the complete Verify PROMPT, then send if accepted.
 Always append mandatory read-only and original-source rules after editing.
-Cancellation does not send anything or update task or repository state."
-  (ai-code--confirm-and-send
-   "Edit Verify prompt (read-only rule appended)" prompt
-   :force-compose t
-   :after-edit (lambda (edited)
-                 (concat edited ai-code-verify--mandatory-read-only-suffix
-                         ai-code-verify--mandatory-source-rule))))
+Cancellation does not send anything or update task or repository state.
+When CODE-STATE is supplied, reobserve that checkout after Compose and
+remember it in the invoking buffer only after the prompt is actually sent."
+  (let* ((origin (current-buffer))
+         current
+         (sent
+          (ai-code--confirm-and-send
+           "Edit Verify prompt (read-only rule appended)"
+           (concat prompt
+                   (when code-state
+                     (concat "\n\nInitial code observation before Compose:\n"
+                             (ai-code-verify--code-state-text code-state))))
+           :force-compose t
+           :after-edit
+           (lambda (edited)
+             (when code-state
+               (setq current (ai-code-verify--capture-code-state (plist-get code-state :root))))
+             (concat edited
+                     (when current
+                       (concat "\n\nCurrent code observation after Compose (supersedes the initial observation):\n"
+                               (unless (ai-code-verify--same-code-state-p code-state current)
+                                 "Code changed while Compose was open, or its identity is unavailable.\n")
+                               (ai-code-verify--code-state-text current)))
+                     ai-code-verify--mandatory-read-only-suffix
+                     ai-code-verify--mandatory-source-rule)))))
+    ;; Sending selects the session window, so store in the invoking buffer.
+    ;; A nil result means missing-session recovery was declined.
+    (when (and sent current (buffer-live-p origin))
+      (with-current-buffer origin
+        (setq-local ai-code-verify--last-code-state current)))
+    sent))
 
 
 ;;;###autoload
 (defun ai-code-verify-current-work ()
   "Start a discussion verifying current branch or GitHub PR against a problem.
 Selected text takes precedence over the enclosing Org task section and
-supplies the primary problem statement automatically. Request a description
-only when neither is available. Edit the full prompt in a compose buffer
-before sending; cancel without sending. Continue discussing evidence
+supplies the primary problem statement automatically.  Request a description
+only when neither is available.  Edit the full prompt in a compose buffer
+before sending; cancel without sending.  Continue discussing evidence
 without changing code, PR metadata, or Org task state."
   (interactive)
   (let* ((ai-code--org-summary-anchor nil)
@@ -256,8 +405,11 @@ without changing code, PR metadata, or Org task state."
                            '("Current branch" "GitHub PR")
                            nil t nil nil "Current branch"))
          (target (if (equal target-choice "GitHub PR") 'pr 'branch))
+         (default-directory (if (eq target 'branch)
+                                (ai-code--session-project-root)
+                              default-directory))
          (pr-url (when (eq target 'pr)
-                   (ai-code-read-string "GitHub PR URL: " "")))
+                   (ai-code-read-string "GitHub PR or compare URL: " "")))
          (target-scope (ai-code-verify--target-scope target pr-url))
          (requirements
           (unless (and context (not (string-blank-p context)))
@@ -272,7 +424,83 @@ without changing code, PR metadata, or Org task state."
     ;; permitted write, and only after the user concludes the discussion.
     (ai-code-with-prompt-policy (:org-summary t)
       (ai-code-verify--confirm-and-send
-       (ai-code-verify--prompt target-scope requirements context)))))
+       (ai-code-verify--prompt target-scope requirements context)
+       (when (eq target 'branch)
+         (ai-code-verify--capture-code-state (ai-code--git-root)))))))
+
+(defun ai-code-verify--document-prompt (file environment context documents)
+  "Build a prompt asking the AI to write and run a deployment verification doc.
+FILE is the target path.  ENVIRONMENT, CONTEXT and DOCUMENTS are optional:
+the target environment or hosts, task text, and a user-provided list of
+source documents."
+  (concat
+   "Write a deployment verification document in Org mode to: " file "\n\n"
+   "Purpose: show that the change works where it is deployed.  Cover what "
+   "unit tests and CI cannot: real endpoints and hosts, environment "
+   "configuration and routing, front layers such as proxies or gateways, "
+   "real clients such as browsers or apps, backward compatibility for "
+   "existing callers, and whether every instance runs the new version "
+   "during a rollout.  Do not repeat unit test cases; say in one line "
+   "which behavior unit tests already cover.\n"
+   (when environment
+     (concat "Target environment(s): " environment "\n"))
+   "\nFind the deployment verification cases in these sources, as available:\n"
+   "- This AI coding session: requirements, decisions, the change, and "
+   "checks already discussed.\n"
+   (when context
+     (concat "- Task context:\n" context "\n"))
+   (when documents
+     (concat "- User-provided documents: " documents "\n"))
+   "\nUse this Org structure:\n"
+   "* Summary: what is verified, the overall result with date and "
+   "environment, known failures, and links to the ticket, PR, and "
+   "requirement sources.\n"
+   "* Test case list: a table with id, case, source link, expected result, "
+   "and result with date.\n"
+   "* Before testing: an environment table (name, host, deployed version or "
+   "status), things to know, and the shell variables every command uses.\n"
+   "* One section per verification method (for example curl, browser or "
+   "client, scripts), with one heading per case: an Org link to its source, "
+   "a runnable command in a src block, the expected result, the observed "
+   "output in an example block with date and environment, and a status of "
+   "PASS, FAIL, NOT RUN, or TO CONFIRM with the reason.\n"
+   "* Known gaps: failures, cases not run, and risks such as a partial "
+   "rollout.\n\n"
+   "Run each read-only, safe case against the target non-production "
+   "environment and record what you observed; never mark a case PASS "
+   "without evidence.  Ask before running anything against production, "
+   "anything that changes data or state, or any load test.  Do not modify "
+   "source code, tests, or Git state; the only file to write is this "
+   "document."))
+
+(defun ai-code-verify--read-optional (prompt)
+  "Read a string with PROMPT; return nil when the answer is blank."
+  (let ((answer (string-trim (ai-code-read-string prompt ""))))
+    (unless (string-empty-p answer) answer)))
+
+;;;###autoload
+(defun ai-code-verify-generate-deployment-document ()
+  "Ask the AI to write and run an Org deployment verification document.
+The document covers what unit tests cannot, such as real hosts, routing,
+clients, and rollout state.  Prompt for the output directory (the file is
+named verify.org) and, optionally, the target environment.  Cases come
+from the AI coding session, the selected region or current Org task
+section when available, and an optional list of documents (RET to skip)."
+  (interactive)
+  (let* ((context (ai-code-verify--requirement-context))
+         (dir (read-directory-name
+               "Directory for verify.org: "
+               (if buffer-file-name
+                   (file-name-directory buffer-file-name)
+                 default-directory)))
+         (file (expand-file-name "verify.org" dir))
+         (environment (ai-code-verify--read-optional
+                       "Target environment / hosts (optional, RET to skip): "))
+         (documents (ai-code-verify--read-optional
+                     "Source documents for test cases (optional, RET to skip): ")))
+    (ai-code-with-prompt-policy ()
+      (ai-code--insert-prompt
+       (ai-code-verify--document-prompt file environment context documents)))))
 
 (provide 'ai-code-verify)
 

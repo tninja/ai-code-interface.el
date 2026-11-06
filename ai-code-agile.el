@@ -14,6 +14,7 @@
 (require 'ai-code-input)
 (require 'ai-code-magit)
 (require 'ai-code-prompt-mode)
+(require 'ai-code-session)
 (let ((ai-code--harness-loading t))
   (require 'ai-code-change))
 (require 'subr-x)
@@ -960,6 +961,128 @@ When REGION-TEXT is non-nil, use the selected code as the context for the test."
            :code-change-note ai-code--tdd-test-pattern-instruction)))
     (ai-code--insert-prompt tdd-instructions)))
 
+
+(defun ai-code--acceptance-test-task-references ()
+  "Return task references for the current worktree without guessing a task.
+Prefer the current Org file, then task files attached to matching sessions."
+  (let ((org-file (and (derived-mode-p 'org-mode)
+                       (stringp buffer-file-name)
+                       (string-suffix-p ".org" buffer-file-name)
+                       (expand-file-name buffer-file-name))))
+    (if org-file
+        (concat
+         (format "Current Org file: @%s" org-file)
+         (when-let ((line (save-excursion
+                            (when (ignore-errors (org-back-to-heading t))
+                              (line-number-at-pos nil t)))))
+           (format " (section begins at line %d)" line))
+         (when (buffer-modified-p)
+           "\nWARNING: Unsaved Org edits may be absent from @file. Ask the user to save or provide the original text."))
+      (let* ((root (ai-code--session-project-root t))
+             (tasks
+              (when root
+                (delete-dups
+                 (delq nil
+                       (mapcar
+                        (lambda (session)
+                          (let ((task (ai-code-session-task-file session))
+                                (dir (ai-code-session-repo-root session)))
+                            (when (and (stringp task) (file-readable-p task)
+                                       (stringp dir)
+                                       (string= (file-truename root)
+                                                (file-truename dir)))
+                              task)))
+                        (ai-code-session-list)))))))
+        (cond
+         ((null tasks) nil)
+         ((= (length tasks) 1)
+          (format "AI session's task file in this worktree: @%s" (car tasks)))
+         (t (concat "Multiple tasks in this worktree; confirm the correct one:\n"
+                    (mapconcat (lambda (file) (concat "- @" file))
+                               tasks "\n"))))))))
+
+(defconst ai-code--acceptance-test-only-boundary
+  (concat "\n\nACCEPTANCE-TEST-ONLY: Change only test code and necessary "
+          "test fixtures, never implementation code, documentation, "
+          "configuration, or Git state; do not commit or push. "
+          "Report defects rather than fixing implementation. "
+          "These are agent instructions, not enforced permissions.")
+  "Test-only boundaries appended after the user edits the prompt.")
+
+(defun ai-code--acceptance-test-prompt (requirements function-name
+                                                    selected-requirements source-region)
+  "Create an acceptance-test prompt based on human REQUIREMENTS.
+FUNCTION-NAME is the code scope; SELECTED-REQUIREMENTS is an Org selection;
+SOURCE-REGION is code context, never a source of requirements."
+  (string-join
+   (delq nil
+         (list
+          "Goal:\nWrite a few high-value acceptance tests showing whether this feature or change satisfies its real requirements."
+          (format "User requirements or original reference:\n%s"
+                  (if (string-blank-p (or requirements ""))
+                      "(not supplied)" requirements))
+          (when (not (string-blank-p (or selected-requirements "")))
+            (format "Selected Org context (check provenance):\n%s"
+                    selected-requirements))
+          (when-let ((task (ai-code--acceptance-test-task-references)))
+            (format "Task context:\n%s" task))
+          (format "Target code:\nWorking checkout: %s\n%s"
+                  (ai-code--session-project-root)
+                  (ai-code--agile-current-scope-string
+                   function-name (ai-code--get-context-files-string)))
+          (when (not (string-blank-p (or source-region "")))
+            (format "Selected code (scope, not requirements):\n%s"
+                    source-region))
+          (concat
+           "Source of truth:\n"
+           "1. Prefer explicit human requirements and original linked issues, "
+           "specifications and decisions. If not provided, inspect original "
+           "references in the current Org section, linked task file, or "
+           "current AI coding session history.\n"
+           "2. Never derive acceptance criteria merely from implementation "
+           "behavior, a PR description, AI summaries, or intermediate plans.\n"
+           "3. State observable criteria and source links before editing. "
+           "If sources are absent or conflicting, ask the user rather "
+           "than inventing criteria or asserting acceptance.")
+          (concat
+           "Test strategy:\n"
+           "- Prefer deterministic, maintainable end-to-end tests of user-visible "
+           "workflows when feasible; otherwise select integration or unit "
+           "tests that best demonstrate the requirement. Explain the choice; "
+           "avoid introducing heavy BDD infrastructure.\n"
+           "- Reuse the project's test framework, naming and patterns. "
+           "Cover distinct valuable cases and important failures; avoid "
+           "duplicate, brittle or low-value tests.\n"
+           "- Write concise comments next to tests connecting each scenario "
+           "to its original requirement/reference and explaining why it matters.\n"
+           "- Keep assertions externally observable and tests deterministic. "
+           "Run tests; do not modify implementation to make failing tests pass.")
+          (concat
+           "Boundaries and evidence:\n"
+           "Edit only tests and essential test-only fixtures. Never change "
+           "production code, docs, config or Git state; do not commit/push. "
+           "Report requirement-to-test mapping, paths, exact commands and "
+           "results, failures, uncovered criteria, and uncertainty. "
+           "Passing tests alone do not prove full requirement coverage.")))
+   "\n\n"))
+
+(defun ai-code--acceptance-test-stage (function-name
+                                      &optional selected-requirements source-region)
+  "Compose an acceptance-test request for FUNCTION-NAME.
+SELECTED-REQUIREMENTS and SOURCE-REGION are captured before menu input."
+  (let* ((requirements (ai-code-read-string
+                        "Acceptance requirements or URL (RET to infer): " ""))
+         (prompt (ai-code--acceptance-test-prompt
+                  requirements function-name selected-requirements source-region))
+         ;; Send the reviewed text unchanged, and only to this project's session.
+         (ai-code-prompt-preprocess-filepaths nil)
+         (ai-code--prompt-project-only t))
+    (ai-code-with-prompt-policy ()
+      (ai-code--confirm-and-send
+       "Edit acceptance-test request: " prompt :force-compose t
+       :after-edit (lambda (edited)
+                     (concat edited ai-code--acceptance-test-only-boundary))))))
+
 (defun ai-code--tdd-red-green-stage (function-name)
   "Handle the Red + Green stage for FUNCTION-NAME in one prompt."
   ;; (ai-code--ensure-test-buffer-visible)
@@ -1094,6 +1217,9 @@ Works with both source code and test files that have been added to ai-code."
                                    (let ((case-fold-search t))
                                      (not (string-match-p "test" (file-name-nondirectory buffer-file-name)))))
                           (buffer-substring-no-properties (region-beginning) (region-end))))
+           (selected-requirements
+            (when (and region-active (derived-mode-p 'org-mode))
+              (buffer-substring-no-properties (region-beginning) (region-end))))
            (use-write-test-stage (or (ai-code--tdd-source-function-context-p function-name)
                                      (and region-text (not (string-empty-p region-text)))))
            (red-stage-label (cond
@@ -1111,7 +1237,8 @@ Works with both source code and test files that have been added to ai-code."
                                "3. Blue (Refactor, improve code quality)"
                                "4. Red + Green (One prompt)"
                                "5. Red + Green + Blue (One prompt)"
-                               "6. Learning tests (Derive unit tests as a tutorial for a topic)")
+                               "6. Learning tests (Derive unit tests as a tutorial for a topic)"
+                               "7. Acceptance tests (Verify feature requirements)")
                          nil t))
            (stage-num (string-to-number (substring cycle-stage 0 1))))
       (cond
@@ -1131,7 +1258,10 @@ Works with both source code and test files that have been added to ai-code."
        ;; Red + Green + Blue combined in one prompt
        ((= stage-num 5) (ai-code--tdd-red-green-blue-stage function-name))
        ;; Learning tests - derive unit tests as a tutorial for a topic
-       ((= stage-num 6) (ai-code-derive-topic-unit-tests))))))
+       ((= stage-num 6) (ai-code-derive-topic-unit-tests))
+       ((= stage-num 7)
+        (ai-code--acceptance-test-stage
+         function-name selected-requirements region-text))))))
 
 (provide 'ai-code-agile)
 

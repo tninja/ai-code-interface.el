@@ -192,6 +192,8 @@ appends the destination PNG path when invoking it:
   - A task associated with a worktree uses that checkout for backend selection, behavior settings, and project session lookup, even when the task file is shared from the main repository. Shared task storage stays in the main repository.
   - `Z` toggles the AI session dashboard in a window across the bottom of the frame, where you can inspect active sessions, refresh the list, visit a session buffer, kill a session, or open the repository's Magit status. Press `Z` again, or `q` in the dashboard, to close it. Besides repository, task file, backend and branch, each row shows the session's Status, how long it has been in that state (Since), its uncommitted changes (for example =2 files +3 −2=), and a one-line summary of the last prompt sent to it from Emacs; hover over the summary to see the prompt.
 
+    With =tab-bar-mode= enabled, =RET= returns to the tab showing the session and focuses its window, preserving existing tab layouts. If no tab shows it, a new tab opens for the session.
+
     [[file:./session_dashboard.png]]
 
   - `H` sends a session checkpoint prompt when run from an AI session buffer, asking the AI to summarize the goal, files changed, current hypothesis, tests/build result, blockers, and next action.
@@ -216,6 +218,7 @@ appends the destination PNG path when invoking it:
 - *Insert into AI Sessions*: Open the configurable `ai-code-menu` prefix (`C-c a` in the configuration examples), then press `I` to open the Insert submenu for files, Dired selections, regions, diagnostics-aware DWIM, screenshots, and clipboard images. The `I` entry always remains available. If no session is running, pressing it reports that state; if only sessions for other projects are running, it opens the submenu with just the `to...` entries for choosing one explicitly. An editor viewport associated with the destination session receives the insertion when present; otherwise AI Code inserts into that session's TUI input without submitting it. Screenshot capture may require the [[*Optional Screenshot Capture][platform-specific utility described above]].
   - Inserted TUI content is always preceded and followed by two newline characters.[fn:insert-tui-spacing] In a viewport, AI Code omits the leading two newlines when the viewport is empty, keeps them when it already contains content, and always appends two newlines. Viewport attachments follow the same spacing rule.
 - *Agile Development Workflows*: Use the refactoring navigator (`r`), the guided TDD cycle (`t`), and the pull/review diff helper (`v`) to keep AI-assisted work aligned with agile best practices. Prompt authoring is first-class through quick access to the prompt file (`p`), build/test helper (`b`), and AI-assisted shell/file execution (`!`). In prompt files, send the current block with `C-c C-c`.
+- *Acceptance Tests*: Press =C-c a t= and select =7. Acceptance tests=. Optionally provide an original requirement or issue URL; leave it blank to let the agent follow human-authored references from the current Org task or AI session. The request is editable in Compose. Prefer stable E2E coverage when practical, otherwise integration/unit tests; explain the choice and comment on the linked acceptance criteria. Only tests and necessary test fixtures may be changed; implementation defects must be reported, not silently fixed. This is an agent instruction, not a filesystem permission boundary.
 - *Productivity & Debugging Utilities*: Initialize project navigation assets (`.`), investigate exceptions (`e`), debug Emacs runtime issues (`d`), auto-fix Flycheck issues in scope (`f`), create or open task files (`k`), open prompt history (`p`), capture session notes straight into Org (`n`), search notes with AI (`/`), and dictate prompts with speech-to-text (`:`).
 - *Architecture Document Generation*: Derive practical architecture documents for the current repository with `C-c a A` (`ai-code-derive-architecture-document`). The command can generate architecture guardrails, a C4 PlantUML overview, a lightweight DDD context, or a test context document under `.ai.code.files/architecture/` so future AI coding sessions can reuse module boundaries, dependency rules, runtime flows, and validation expectations. See [[./docs/architecture/c4-overview.org][the C4 architecture overview for this repository]] for an example C4 diagram guide.
 - *Seamless Prompt Management*: Open the prompt file via `ai-code-open-prompt-file` (stored under `.ai.code.files/.ai.code.prompt.org` inside a Git repository), send regions with `ai-code-prompt-send-block`, and reuse prompt snippets via `yasnippet` to keep conversations organized. If the preferred prompt-history location is not writable, AI Code falls back to `~/.ai.code.files/.ai.code.prompt.org`; customize `ai-code-prompt-fallback-directory` to change that location or set it to nil to disable fallback. Prompt sending still proceeds with a warning when prompt history cannot be written.
@@ -238,10 +241,13 @@ appends the destination PNG path when invoking it:
   - *Discussion, not a PASS/FAIL gate*: The agent begins with a few evidence-backed findings and open questions, distinguishes demonstrated behavior from guesses, and asks *one important question at a time* when your domain knowledge, missing requirements, or a design tradeoff matter. You can challenge a finding, clarify a criterion, or ask it to run another safe check. Continue in the same AI session until you decide the evidence is sufficient; a final assessment is optional.
   - *Optional result notes in the task file*: After accepting the Verify Compose buffer, if the command originated in an Org task, the existing =Append result summary to current section?= question is offered (just like =C-c a spec=). Answer =y= to allow **one append-only Verification Notes sub-heading** in the chosen task section *after you explicitly finish the verification discussion*. The notes should capture original human source links, evidence-backed findings, unmet requirements and open questions, clearly distinguishing AI interpretations from original requirements. Answer =n= to keep the task file untouched; cancelling Compose sends nothing and does not ask. A selected ancestor headline is used as the summary destination, not an unrelated child.
   - *Strict code read-only boundary*: Verify must **never modify code** (including tests, fixtures, snapshots), configuration, documentation, Git state, task status, existing task contents, or PR metadata. It must not apply proposed fixes. The only permitted write is the explicitly opted-in, append-only Org verification note after the discussion ends; no implementation/auto-commit/follow-up suffixes are added. Read-only checks and existing CI evidence are allowed; destructive checks must be done separately. These are *agent instructions*, not filesystem or backend permission enforcement.
+  - *Which code was examined?* Local Verify includes the checkout, HEAD, full staged/unstaged diff fingerprints, Git status and unsaved-buffer notices. It observes again after Compose, so edits made while composing do not silently reuse the earlier identity. =M-x ai-code-verify-check-code-state= in the invoking buffer reports whether that observation has changed; it runs no tests and is available only while the buffer/Emacs remains open. The fingerprints cover Git-visible tracked patches, including binary changes; untracked contents, ignored files, unsaved buffer contents and submodule contents are excluded. An unchanged observation is not a verification verdict. The agent must recheck its actual examined state before concluding and preserve the identifiers, comparison base and coverage in optional Verification Notes. For remote PRs, the agent must obtain and re-fetch the actual base/head metadata; local HEAD is never a substitute. Missing identity or access remains unverified. Observations are not atomic snapshots and do not enforce a freeze on concurrent changes.
+  - *Code-state design inspiration*: Rachel Laycock, [[https://martinfowler.com/rachels-ramblings/good-devs-wary.html][Why are good developers so wary of agentic development?]] (2026-10-29), and Annie Vella, [[https://annievella.com/posts/supervisory-engineering-work/][Supervisory Engineering Work]] (2026-10-23), the latter highlighted in Martin Fowler's [[https://martinfowler.com/fragments/2026-10-28.html][October 28 Fragment]]. These motivate trustworthy feedback and observable state for human supervision. The Git fingerprints, Compose reobservation and freshness command are this project's design extension, not mechanisms prescribed or validated by those articles.
   - *Background*: Adapted from Cindy Sridharan, [[https://copyconstruct.medium.com/how-to-effectively-debug-when-you-no-longer-understand-the-code-bd3dcb2c5f7b][How to effectively debug when you no longer understand the code]] (2026), as recommended in Martin Fowler's [[https://martinfowler.com/fragments/2026-10-21.html][October 21, 2026 Fragment]]. The emphasis is independent evidence and falsifiable hypotheses, applied here to requirement-fit discussions rather than mandatory production debugging.
 - *Asking a Question*: Place your cursor within a function, press `C-c a`, then `q` (`ai-code-ask-question`), type your question, and press Enter. The question, along with context, will be sent to the AI.
 - *Discussion follow-up suggestions*: `ai-code-discussion-auto-follow-up-enabled` is enabled by default. Set `(setq ai-code-discussion-auto-follow-up-enabled nil)` to turn it off. Then ask a question with `C-c a q` or use `C-c a <SPC>` for a design discussion. When enabled, AI Code asks at send time whether to append 2-3 numbered next-step suggestions, and the transient toggle on `C-c a F` lets you turn the feature on or off from the menu.
-- *Refactoring a Function*: With the cursor in a function, press `C-c a`, then `r` (`ai-code-refactor-book-method`). Select a refactoring technique from the list, provide any required input (e.g., a new method name), and the prompt will be generated.
+- *Refactoring a Function*: With the cursor in a function, press `C-c a`, then `r` (`ai-code-refactor-book-method`). Select a refactoring technique from the list, provide any required input (e.g., a new method name), and the prompt will be generated. Source: Martin Fowler's [[https://martinfowler.com/books/refactoring.html][Refactoring]] and [[https://refactoring.com/catalog/][refactoring catalog]]; the Emacs navigation and agent prompts are package adaptations.
+- *Grow Next Step*: In an Org task headline, use =C-c a K= and choose =Grow next step= to discuss one independently useful, verifiable increment before optionally writing a child TODO. Inspiration: Steve Freeman and Nat Pryce, [[https://growing-object-oriented-software.com/][Growing Object-Oriented Software, Guided by Tests]]. The one-step discussion and value-first task workflow are this project's adaptation, not a reproduction of the book's full process.
 - *Value-driven Simplification*: Press `C-c a r` and choose the second entry to discuss either the current branch (relative to a selected base, with an explicit choice about uncommitted changes) or a repository topic. The AI investigates code and asks one question at a time; you decide what to keep and how to simplify. This entry starts a discussion and does not edit code.
   - Grow Next Step, Value-driven Simplification, Verify, task resume, handoff, and checkpoint omit automatic suffixes (including custom, test, commit, and follow-up instructions). Verify retains its optional Org notes question; the others use only their own writeback instructions. Ordinary prompts keep their configured suffixes.
 - *Automatically run tests after change*: When ai-code-auto-test-type is non-nil, AI will automatically run tests after code changes and follow up on results.
@@ -475,7 +481,7 @@ If you want to use the MCP core without an AI CLI, you can still call it directl
 
 To expose your own Emacs function as a tool, use =ai-code-mcp-make-tool=.
 
-- [[https://martinfowler.com/articles/exploring-gen-ai/context-engineering-coding-agents.html][Context Engineering for Coding Agents]], recommended by Martin Fowler.
+- Design background: Birgitta Böckeler, [[https://martinfowler.com/articles/exploring-gen-ai/context-engineering-coding-agents.html][Context Engineering for Coding Agents]] (2026-02-05), published on martinfowler.com; relevant to the context curation tools above.
 
 *** Harness Engineering Practice
 
@@ -483,11 +489,12 @@ Harness engineering is about building a reliable loop around the model, so the A
 
 Instead of manually telling the AI what to do after every code change or discussion turn, you can make follow-up part of the workflow:
 
-- `ai-code-auto-test-type`: choose how code-change prompts should continue after the edit. You can ask the AI to run tests after the change, use TDD Red+Green, use Red+Green+Blue with refactoring, turn it off, or decide case by case with `ask-me`. The =ask-me= choices also include Uncle Bob's coding agent harness and harness+; the original keeps the evidence-first gauntlet, while harness+ adds maintainability sensors and semantic modularity checks.
+- `ai-code-auto-test-type`: choose how code-change prompts should continue after the edit. You can ask the AI to run tests after the change, use TDD Red+Green, use Red+Green+Blue with refactoring, turn it off, or decide case by case with `ask-me`. The =ask-me= choices also include Uncle Bob's coding agent harness and harness+; the original keeps the evidence-first gauntlet, while harness+ adds maintainability sensors and semantic modularity checks. Source: bundled adaptations of [[https://github.com/AmazingAng/old-coder][AmazingAng/old-coder]], as recorded in [[https://github.com/tninja/ai-code-interface.el/pull/469][PR #469]]; subsequent hardening and harness+ extensions are maintained in this project.
+- *Evidence-First coding harness* (also in =ask-me=): constrains outcomes and reproducible evidence while allowing implementation strategies beyond strict TDD. Design sources, documented in [[https://github.com/tninja/ai-code-interface.el/pull/497][PR #497]]: Birgitta Böckeler, [[https://martinfowler.com/articles/exploring-gen-ai/tdd-in-the-agent-loop.html][TDD inside the agent loop - theater or actual value?]]; Giles Edwards-Alexander, [[https://martinfowler.com/articles/exploring-gen-ai/refactoring-economic-benefit.html][The Economic Benefit of Refactoring]]; Rahul Garg, [[https://martinfowler.com/articles/orchestrator-tax.html][The Orchestrator's Tax]]; Unmesh Joshi, [[https://martinfowler.com/articles/llm-and-dsls.html][DSLs Enable Reliable Use of LLMs]]. The bundled loop combines those influences with this project's prior harness work; it is not an author-supplied or experimentally validated workflow.
 - `ai-code-discussion-auto-follow-up-enabled`: when non-nil, discussion-style prompts can offer a send-time choice to append 2-3 numbered candidate next steps. You can customize this variable directly or toggle it from the transient menu with `C-c a F`.
 - `ai-code-next-step-suggestion-suffix`: customize the exact instruction appended for those numbered next-step suggestions.
 - `ai-code-use-gptel-classify-prompt`: when paired with the settings above, GPTel can classify prompts so code-change prompts skip discussion follow-up suggestions and discussion prompts skip test follow-up.
-- `ai-code-tdd-cycle`: run a guided TDD flow from the menu, including separate Red, Green, Blue stages or the combined one-prompt flows.
+- `ai-code-tdd-cycle`: run a guided TDD flow from the menu, including separate Red, Green, Blue stages or the combined one-prompt flows. Source: Kent Beck's [[https://newsletter.kentbeck.com/p/canon-tdd][Canon TDD]] and the Red-Green-Refactor cycle; the staged agent commands and Blue label are this package's presentation.
 - `ai-code-build-or-test-project`: run build, test, lint, or scoped Flycheck fixes from `C-c a b` when you want a direct verification or diagnostics step in the middle of the loop.
 - `ai-code-prompt-suffix`: add persistent project rules when needed, so repeated instructions such as response language, coding constraints, or test expectations do not have to be retyped in every prompt.
 - `ai-code-grill-me-enabled`: when non-nil, offer a one-shot clarification step (/"Grill me before acting?"/) immediately before the completed prompt is sent for `ai-code-code-change`, `ai-code-ask-question`, `ai-code-implement-todo`, and `ai-code-send-command`.  When accepted, the AI reads the bundled =prompt/grilling.v1.md= harness and asks targeted clarifying questions before acting, reducing ambiguity in the request.  The harness is adapted from [[https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md][mattpocock/skills – grilling]].  Disabled by default; enable it with:
@@ -527,7 +534,7 @@ Nit: During using auto test feature, I prefer to turn off the approval request f
 (setq ai-code-codex-cli-program-switches '("-a" "never"))
 #+end_src
 
-- Relevant article: [[https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html][Harness Engineering]]
+- Design background: Birgitta Böckeler, [[https://martinfowler.com/articles/harness-engineering.html][Harness engineering for coding agent users]] (2026-04-02): feedback, deterministic checks and human steering. The package's diagnostics baseline and suffix routing are local implementations of those ideas.
 
 *** Desktop Notifications (Experimental)
 
@@ -600,6 +607,37 @@ agent-generated note is not itself proof that a source was verified.
 
 This borrows ThinkRail's [[https://github.com/JetBrains/thinkrail/tree/main/packages/spec-graph][Spec Graph]] emphasis on traceable relationships,
 but keeps Org task files as the single source of historical context.
+
+*** Automatic Code Artifacts in Opt-in Org Summaries
+
+When working from an Org task, answer =y= to the existing =Append result
+summary to current section?= question. No separate artifact menu or
+manual registration is needed. The prompt asks the coding agent to append
+a concise result summary after finishing the work, including relevant
+artifacts it can confirm from the current task and actual Git state:
+
+- Modified files and the reason for each change (with file references).
+- Observed branch and HEAD commit SHA; task-specific commit hashes or PR
+  links, if independently confirmed. Staged/unstaged edits are labeled
+  separately from committed code.
+- Actual verification/test commands, results, CI or deployment evidence,
+  environment and date when known; outstanding checks and uncertainty.
+
+The agent must not assume that all repository changes belong to this
+task, invent hashes or tests, or present a dirty working tree as a
+reproducible revision. It adds artifacts **inside the same result-summary
+subheading** instead of creating a parallel metadata catalog. For tasks
+with no relevant code artifacts, it omits them. The summary remains
+prompt-directed, not a transactional writeback guarantee, and no Git
+mutations are performed by Emacs to gather artifacts.
+
+This also applies to Verify's opt-in notes, but never authorizes code
+changes or writing notes before the verification discussion is complete.
+Choosing =n= leaves the existing behavior and task contents unchanged.
+
+Inspired by ThinkRail's [[https://github.com/JetBrains/thinkrail/blob/main/packages/pi-todos/SPEC.md][pi-todos artifact model]] and
+[[https://github.com/JetBrains/thinkrail/blob/main/packages/server/src/todos/artifacts.ts][artifact tracking]], adapted to the already available Org result-summary
+workflow rather than adding a separate task-artifact interface.
 
 *** Portable Agent Handoff via Task Files
 

@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Fix: Fix Claude prompt truncation, small CJK glyphs, and frozen output in Ghostel sessions
+- Fix: session dashboard navigation to preserve tab layouts
 - Feat: Resume interrupted Org tasks with a referenced briefing saved in the task
   file for later Verify input, current Git facts and explicit unknowns; enrich
   handoffs with Git baselines, validation commands and the next concrete action

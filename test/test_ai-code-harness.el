@@ -28,6 +28,19 @@
 
 ;;;; Grill Harness
 
+(ert-deftest ai-code-test-grill-bundled-prompt-keeps-safety-and-rounds ()
+  "Bundled Grill prompt supports rounds and independent fact-finding."
+  (with-temp-buffer
+    (insert-file-contents (ai-code--grill-me-harness-file))
+    (let ((prompt (buffer-string)))
+      (dolist (phrase '("design tree" "frontier" "❓" "➡️"
+                        "replying \"yes\"" "fresh context windows"
+                        "Do not delay independent frontier questions"
+                        "important branches" "Do not modify code"
+                        "explicitly confirms"))
+        (should (string-match-p (regexp-quote phrase) prompt))))))
+
+
 (defun ai-code-harness-test--clean-emacs-result (form)
   "Run FORM in a clean batch Emacs and return its exit code and output."
   (let* ((emacs (expand-file-name invocation-name invocation-directory))

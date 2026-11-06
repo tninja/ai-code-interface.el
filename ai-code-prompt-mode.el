@@ -115,6 +115,32 @@ This controls prompt additions, not agent permissions or filesystem access."
    "before a read-only verification discussion has been concluded.")
   "Provenance instructions appended only for opted-in Org summaries.")
 
+(defconst ai-code--org-summary-artifacts-instruction
+  (concat
+   "\n\nWhen writing that same result-summary subheading, automatically "
+   "collect relevant artifacts after the work or verification discussion "
+   "has actually finished, rather than taking a snapshot at prompt-send "
+   "time. Keep the summary concise; include only artifacts you can "
+   "substantiate from this task and the actual workspace. When relevant, "
+   "include: (1) changed files with precise file references and their "
+   "purpose; (2) the observed worktree/branch and HEAD commit SHA, plus "
+   "task-specific commits or PR URLs only if verified, distinguishing "
+   "committed code from current staged/unstaged edits; for a remote PR, "
+   "record its fetched head SHA, not local HEAD; (3) verification "
+   "commands, actual results, CI or deployment evidence, and date/environment "
+   "when known; (4) missing tests, uncertainties or unfinished work. "
+   "If this task changed code, read Git and existing records after the "
+   "work is complete to establish these facts. Do not invent hashes, PR links, "
+   "test results, or claim passing checks that were not run. Do not "
+   "attribute repository-wide changes from other tasks or sessions to "
+   "this task. If there are no relevant code artifacts, simply omit "
+   "those fields. Record artifacts within the same result-summary "
+   "subheading in the current Org task; do not create another catalog "
+   "or change human-authored requirements. This is a writeback formatting "
+   "instruction only: it does not authorize extra tests, code edits, "
+   "Git mutations, or early notes in a read-only Verify discussion.")
+  "Artifact guidance appended only when the user accepts an Org summary.")
+
 (defvar ai-code--prompt-already-edited nil
   "Non-nil when the complete prompt has already been edited for this send.")
 
@@ -519,21 +545,23 @@ Return a session buffer, or nil for default backend dispatch."
           (cdr (assoc selection choice-alist))))))))
 
 (defun ai-code--send-prompt-to-session-buffer (prompt buffer)
-  "Send PROMPT directly to session BUFFER and display it."
+  "Send PROMPT directly to session BUFFER and display it.  Return t."
   (ai-code-backends-infra--submit-prompt buffer prompt (current-buffer))
   (if-let ((window (get-buffer-window buffer)))
       (select-window window)
-    (ai-code-backends-infra--display-buffer-in-side-window buffer)))
+    (ai-code-backends-infra--display-buffer-in-side-window buffer))
+  t)
 
 (defun ai-code--send-prompt (full-prompt)
   "Send FULL-PROMPT to AI.
 When a visible AI session buffer is detected in the current frame,
 send the prompt directly to it instead of going through the default
-backend dispatch."
+backend dispatch.  Return t when sent, nil when the user cancelled."
   (if-let ((target (ai-code--prompt-choose-target-session)))
       (ai-code--send-prompt-to-session-buffer full-prompt target)
     (when (ai-code-cli-send-command full-prompt)
-      (ai-code-cli-switch-to-buffer))))
+      (ai-code-cli-switch-to-buffer)
+      t)))
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text &optional send-function)
   "Record PROMPT-TEXT in prompt history and send it to the AI.
@@ -822,7 +850,8 @@ use the command path when no alternate transport is supplied."
                                         (plist-get anchor :end-line))
                               (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
                                       buffer-file-name (line-number-at-pos)))
-                            ai-code--org-summary-evidence-instruction)
+                            ai-code--org-summary-evidence-instruction
+                            ai-code--org-summary-artifacts-instruction)
                   processed-prompt)))
           (if send-function
               (ai-code--write-prompt-to-file-and-send final-prompt send-function)

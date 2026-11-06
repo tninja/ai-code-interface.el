@@ -322,6 +322,8 @@ evaluates BODY, and ensures everything is cleaned up afterward."
            ;; Execute test body with mocks
            (cl-letf (((symbol-function 'magit-toplevel) (lambda (&optional dir) git-root))
                      ((symbol-function 'ai-code--git-root) (lambda (&optional dir) git-root))
+                     ;; Keep the fake repo isolated when tests run inside a git worktree.
+                     ((symbol-function 'ai-code--worktree-main-repo-root) #'ignore)
                      ((symbol-function 'magit-git-lines)
                       (lambda (&rest _args)
                         (let ((default-directory git-root))
@@ -1519,7 +1521,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
                    (lambda () nil))
                   ((symbol-function 'sit-for)
                    (lambda (_secs) nil)))
-          (ai-code--send-prompt "test prompt")
+          (should (eq t (ai-code--send-prompt "test prompt")))
           (should (string= sent-string "test prompt"))
           (should return-sent)
           (should (eq displayed-buffer session-buf))
@@ -1535,8 +1537,8 @@ evaluates BODY, and ensures everything is cleaned up afterward."
               ((symbol-function 'ai-code-cli-send-command)
                (lambda (cmd) (setq cli-send-called cmd)))
               ((symbol-function 'ai-code-cli-switch-to-buffer)
-               (lambda () (setq switch-called t))))
-      (ai-code--send-prompt "test prompt")
+               (lambda () (setq switch-called t) nil)))
+      (should (eq t (ai-code--send-prompt "test prompt")))
       (should (string= cli-send-called "test prompt"))
       (should switch-called))))
 
@@ -1549,7 +1551,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
                (lambda (_command) nil))
               ((symbol-function 'ai-code-cli-switch-to-buffer)
                (lambda () (setq switch-called t))))
-      (ai-code--send-prompt "test prompt")
+      (should-not (ai-code--send-prompt "test prompt"))
       (should-not switch-called))))
 
 (ert-deftest test-prompt-mode--suppress-summary-for-explicit-output-location ()
