@@ -22,7 +22,6 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
     (goto-char (point-min))
     (set-buffer-modified-p nil)
     (let ((ai-code--prompt-already-edited t)
-          (ai-code-use-compose-buffer nil)
           (ai-code-prompt-preprocess-filepaths nil)
           (ai-code--suppress-org-summary-prompt nil)
           (ai-code--org-summary-anchor anchor)
