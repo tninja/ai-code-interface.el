@@ -89,6 +89,32 @@ This controls prompt additions, not agent permissions or filesystem access."
           (or ai-code--suppress-org-summary-prompt (not ,org-summary))))
      ,@body))
 
+(defconst ai-code--org-summary-artifacts-instruction
+  (concat
+   "\n\nWhen writing that same result-summary subheading, automatically "
+   "collect relevant artifacts after the work or verification discussion "
+   "has actually finished, rather than taking a snapshot at prompt-send "
+   "time. Keep the summary concise; include only artifacts you can "
+   "substantiate from this task and the actual workspace. When relevant, "
+   "include: (1) changed files with precise file references and their "
+   "purpose; (2) the observed worktree/branch and HEAD commit SHA, plus "
+   "task-specific commits or PR URLs only if verified, distinguishing "
+   "committed code from current staged/unstaged edits; for a remote PR, "
+   "record its fetched head SHA, not local HEAD; (3) verification "
+   "commands, actual results, CI or deployment evidence, and date/environment "
+   "when known; (4) missing tests, uncertainties or unfinished work. "
+   "If this task changed code, read Git and existing records after the "
+   "work is complete to establish these facts. Do not invent hashes, PR links, "
+   "test results, or claim passing checks that were not run. Do not "
+   "attribute repository-wide changes from other tasks or sessions to "
+   "this task. If there are no relevant code artifacts, simply omit "
+   "those fields. Record artifacts within the same result-summary "
+   "subheading in the current Org task; do not create another catalog "
+   "or change human-authored requirements. This is a writeback formatting "
+   "instruction only: it does not authorize extra tests, code edits, "
+   "Git mutations, or early notes in a read-only Verify discussion.")
+  "Artifact guidance appended only when the user accepts an Org summary.")
+
 (defvar ai-code--prompt-already-edited nil
   "Non-nil when the complete prompt has already been edited for this send.")
 
@@ -797,7 +823,8 @@ use the command path when no alternate transport is supplied."
                                         buffer-file-name
                                         (plist-get anchor :end-line))
                               (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
-                                      buffer-file-name (line-number-at-pos))))
+                                      buffer-file-name (line-number-at-pos)))
+                            ai-code--org-summary-artifacts-instruction)
                   processed-prompt)))
           (if send-function
               (ai-code--write-prompt-to-file-and-send final-prompt send-function)
