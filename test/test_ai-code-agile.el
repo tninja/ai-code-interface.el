@@ -258,6 +258,19 @@
       (should (string-match-p "section begins at line 1" result))
       (should (string-match-p "Unsaved Org edits" result)))))
 
+(ert-deftest ai-code-test-acceptance-task-reference-uses-absolute-line-when-narrowed ()
+  "The @file reference must point at the real heading line under narrowing."
+  (with-temp-buffer
+    (org-mode)
+    (setq-local buffer-file-name "/tmp/current-task.org")
+    (insert "* Unrelated\nOther notes\n* TODO Original acceptance notes\nSource: radar://42\n")
+    (goto-char (point-max))
+    (org-back-to-heading t)
+    (org-narrow-to-subtree)
+    (goto-char (point-max))
+    (let ((result (ai-code--acceptance-test-task-references)))
+      (should (string-match-p "section begins at line 3" result)))))
+
 (ert-deftest ai-code-test-acceptance-task-reference-is-worktree-scoped ()
   "Do not pick the active task file from a different worktree."
   (let* ((root (make-temp-file "acceptance-root-" t))
@@ -318,9 +331,14 @@
                  (lambda (_label text &rest args)
                    (setq prompt text options args)
                    (should-not ai-code-use-prompt-suffix)
-                   (should ai-code--suppress-org-summary-prompt))))
+                   (should ai-code--suppress-org-summary-prompt)
+                   ;; Reviewed text must reach the agent's own project unchanged.
+                   (should-not ai-code-prompt-preprocess-filepaths)
+                   (should ai-code--prompt-project-only))))
         (let ((ai-code-use-prompt-suffix t)
-              (ai-code--suppress-org-summary-prompt nil))
+              (ai-code--suppress-org-summary-prompt nil)
+              (ai-code-prompt-preprocess-filepaths t)
+              (ai-code--prompt-project-only nil))
           (ai-code--acceptance-test-stage "feature-fn"))
         (should (equal prompt "Review raw requirements"))
         (should (plist-get options :force-compose))

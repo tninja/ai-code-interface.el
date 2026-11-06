@@ -974,7 +974,7 @@ Prefer the current Org file, then task files attached to matching sessions."
          (format "Current Org file: @%s" org-file)
          (when-let ((line (save-excursion
                             (when (ignore-errors (org-back-to-heading t))
-                              (line-number-at-pos)))))
+                              (line-number-at-pos nil t)))))
            (format " (section begins at line %d)" line))
          (when (buffer-modified-p)
            "\nWARNING: Unsaved Org edits may be absent from @file. Ask the user to save or provide the original text."))
@@ -1073,7 +1073,10 @@ SELECTED-REQUIREMENTS and SOURCE-REGION are captured before menu input."
   (let* ((requirements (ai-code-read-string
                         "Acceptance requirements or URL (RET to infer): " ""))
          (prompt (ai-code--acceptance-test-prompt
-                  requirements function-name selected-requirements source-region)))
+                  requirements function-name selected-requirements source-region))
+         ;; Send the reviewed text unchanged, and only to this project's session.
+         (ai-code-prompt-preprocess-filepaths nil)
+         (ai-code--prompt-project-only t))
     (ai-code-with-prompt-policy ()
       (ai-code--confirm-and-send
        "Edit acceptance-test request: " prompt :force-compose t
