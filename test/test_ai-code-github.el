@@ -74,6 +74,57 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
         (ai-code-pull-or-review-diff-file)))
     (list captured-prompt (nreverse grill-questions))))
 
+(ert-deftest ai-code-test-pr-review-prompt-demands-evidence-for-both-sources ()
+  "Both review backends should ask for verifiable, actionable findings."
+  (dolist (source '(github-mcp gh-cli))
+    (let ((prompt (ai-code--build-pr-review-init-prompt
+                   source "https://github.com/acme/demo/pull/123")))
+      (dolist (required '("Evidence-backed PR review"
+                          "original human"
+                          "base/head"
+                          "failure scenario"
+                          "file:line"
+                          "confidence"
+                          "Pre-existing"
+                          "needs confirmation"
+                          "no actionable findings"))
+        (should (string-match-p (regexp-quote required) prompt)))
+      (should (string-match-p
+               (regexp-quote "https://github.com/acme/demo/pull/123")
+               prompt))
+      (should (string-match-p
+               (regexp-quote (if (eq source 'github-mcp)
+                                 "Use GitHub MCP server"
+                               "Use gh CLI tool"))
+               prompt))
+      (should (string-match-p "no need to make code change"
+                              (downcase prompt))))))
+
+(ert-deftest ai-code-test-pr-review-prompt-prioritizes-real-regressions ()
+  "Review should screen noisy reports and separate introduced from old bugs."
+  (let ((prompt (ai-code--build-pr-review-init-prompt
+                 'github-mcp "https://github.com/acme/demo/pull/123")))
+    (dolist (required '("root cause" "actual control flow" "style-only"
+                        "speculative" "introduced" "duplicate"
+                        "Unknown" "not inspected" "existing CI"))
+      (should (string-match-p (regexp-quote required) prompt)))))
+
+(ert-deftest ai-code-test-pr-review-evidence-rules-only-affect-pr-review ()
+  "Other GitHub analysis actions should retain their own prompts."
+  (let ((review (ai-code--build-pr-init-prompt
+                 'gh-cli "https://github.com/acme/demo/pull/123" 'review-pr))
+        (feedback (ai-code--build-pr-init-prompt
+                   'gh-cli "https://github.com/acme/demo/pull/123"
+                   'check-feedback))
+        (ci (ai-code--build-pr-init-prompt
+             'gh-cli "https://github.com/acme/demo/pull/123"
+             'review-ci-checks)))
+    (should (string-match-p "Evidence-backed PR review" review))
+    (should-not (string-match-p "Evidence-backed PR review" feedback))
+    (should-not (string-match-p "Evidence-backed PR review" ci))
+    (should (string-match-p "unresolved feedback" feedback))
+    (should (string-match-p "CI checks" ci))))
+
 (ert-deftest ai-code-test-pull-or-review-diff-file-grills-only-selected-review-modes ()
   "Only selected GitHub review modes should offer the Grill harness."
   (dolist (review-mode-choice '("Investigate issue"
