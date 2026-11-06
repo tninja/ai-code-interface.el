@@ -322,6 +322,8 @@ evaluates BODY, and ensures everything is cleaned up afterward."
            ;; Execute test body with mocks
            (cl-letf (((symbol-function 'magit-toplevel) (lambda (&optional dir) git-root))
                      ((symbol-function 'ai-code--git-root) (lambda (&optional dir) git-root))
+                     ;; Keep the fake repo isolated when tests run inside a git worktree.
+                     ((symbol-function 'ai-code--worktree-main-repo-root) #'ignore)
                      ((symbol-function 'magit-git-lines)
                       (lambda (&rest _args)
                         (let ((default-directory git-root))
