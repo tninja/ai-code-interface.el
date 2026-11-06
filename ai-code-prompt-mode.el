@@ -89,6 +89,32 @@ This controls prompt additions, not agent permissions or filesystem access."
           (or ai-code--suppress-org-summary-prompt (not ,org-summary))))
      ,@body))
 
+(defconst ai-code--org-summary-evidence-instruction
+  (concat
+   "\n\nWhen writing that same result-summary subheading, automatically "
+   "preserve useful original-source references gathered during the work "
+   "so the task can be resumed or verified later. This is an incremental "
+   "record of actual discoveries, not a separate evidence-entry workflow. "
+   "For each material human requirement, decision, diagnostic observation, "
+   "or verification claim touched in this task, include concise context "
+   "and a direct raw reference when available (for example a Slack thread, "
+   "Radar issue, GitHub discussion, source file/line, Splunk query with "
+   "time range, or exact test/log artifact). Distinguish original human "
+   "instructions and decisions from observed logs, AI-generated "
+   "interpretations, and unverified assumptions. Preserve the original "
+   "URL, ID, or file location; do not replace it with an AI-generated "
+   "resume note, a derived design, or a PR summary. If an original is "
+   "unavailable or its provenance is uncertain, say so explicitly "
+   "instead of treating the derived description as authoritative. "
+   "Do not invent, fabricate, or silently strengthen evidence. Avoid "
+   "copying references already recorded in this task unless new "
+   "observations materially change their relevance. Append this "
+   "context within the same result-summary subheading, leaving earlier "
+   "human-authored notes unchanged. This guidance adds no new permission "
+   "to read restricted sources, modify code or Git, or write to task files "
+   "before a read-only verification discussion has been concluded.")
+  "Provenance instructions appended only for opted-in Org summaries.")
+
 (defconst ai-code--org-summary-artifacts-instruction
   (concat
    "\n\nWhen writing that same result-summary subheading, automatically "
@@ -824,6 +850,7 @@ use the command path when no alternate transport is supplied."
                                         (plist-get anchor :end-line))
                               (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
                                       buffer-file-name (line-number-at-pos)))
+                            ai-code--org-summary-evidence-instruction
                             ai-code--org-summary-artifacts-instruction)
                   processed-prompt)))
           (if send-function

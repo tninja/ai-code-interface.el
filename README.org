@@ -581,6 +581,33 @@ When several AI sessions run in parallel, `ai-code-session-attention-mode` badge
 - The session dashboard (`C-c a Z`) shows the same states in its Status column, plus =stopped= when the process has exited.
 - "Working" and "done" use the terminal output and idle check (`ai-code-backends-infra-idle-delay`), so typing in a session briefly shows =◐=. "Needs input" needs a terminal that reports program status, currently the Ghostel backend.
 
+*** Automatic Source Evidence in Opt-in Org Summaries
+
+When working from an Org task, answer =y= to the existing =Append result
+summary to current section?= question. The agent is instructed to carry
+useful references discovered during the work into that result-summary
+subheading automatically, so task history accumulates without another
+menu, manual evidence registration, or a separate SPEC.md graph.
+
+Evidence from original requirements (Slack threads, Radar tickets,
+GitHub discussions, meeting notes), operational observations (Splunk
+queries, time ranges, logs), code/file locations and verification
+results is recorded with a concise explanation and original URL/ID/path.
+Human-authored decisions, raw observations and AI-generated inferences
+are clearly distinguished. Missing, unreadable or uncertain sources
+remain marked as such; an AI-generated summary is a navigation aid,
+not a replacement for the original human-authored source.
+
+The writeback guidance asks to add new material rather than duplicate
+references already present, preserving all original notes and prior
+summaries. No separate evidence UI, ID database, or automatic browsing
+of restricted sources is introduced. The behavior is opt-in and
+prompt-directed: choosing =n= makes no writeback request, and an
+agent-generated note is not itself proof that a source was verified.
+
+This borrows ThinkRail's [[https://github.com/JetBrains/thinkrail/tree/main/packages/spec-graph][Spec Graph]] emphasis on traceable relationships,
+but keeps Org task files as the single source of historical context.
+
 *** Automatic Code Artifacts in Opt-in Org Summaries
 
 When working from an Org task, answer =y= to the existing =Append result
