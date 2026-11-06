@@ -105,7 +105,7 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
   (let ((prompt (ai-code--build-pr-review-init-prompt
                  'github-mcp "https://github.com/acme/demo/pull/123")))
     (dolist (required '("root cause" "actual control flow" "style-only"
-                        "speculative" "introduced" "duplicate"
+                        "speculative" "Introduced by PR" "duplicate"
                         "Unknown" "not inspected" "existing CI"))
       (should (string-match-p (regexp-quote required) prompt)))))
 
