@@ -112,6 +112,9 @@ ordinary pixel-scroll command."
 (defvar-local ai-code-ghostel-image-preview--transaction-active nil
   "Non-nil while this buffer is reconciling an image-preview transaction.")
 
+(defconst ai-code-ghostel-image-preview--start-row-text-limit 200
+  "Maximum characters compared to recognize a window's first row.")
+
 (defvar-local ai-code-ghostel-image-preview--captured-sources nil
   "Recent temporary image source plists captured from process output.")
 
@@ -689,6 +692,37 @@ treating it as following would snap it to the bottom on every redraw."
               (max (point-min) (min (point-max) cursor)))
            (pos-visible-in-window-p (point-max) window t)))))
 
+(defun ai-code-ghostel-image-preview--start-row-text (position)
+  "Return the row text from POSITION used to recognize a window start."
+  (save-excursion
+    (goto-char position)
+    (buffer-substring-no-properties
+     position
+     (min (line-end-position)
+          (+ position ai-code-ghostel-image-preview--start-row-text-limit)))))
+
+(defun ai-code-ghostel-image-preview--start-row-at-p (position text)
+  "Return non-nil when the row starting at POSITION still reads TEXT."
+  (and (<= (point-min) position (point-max))
+       (string= (ai-code-ghostel-image-preview--start-row-text position)
+                text)))
+
+(defun ai-code-ghostel-image-preview--saved-window-start (state)
+  "Return the window start saved in STATE, in the current buffer.
+The start marker follows edits before it, such as evicted scrollback.
+Ghostel's renderer instead erases and rebuilds the whole buffer on a
+scrollback clear, resize, or screen switch, which collapses the marker to
+`point-min'.  When the marker no longer starts on the saved row, prefer
+the saved position, which still does after an identical rebuild."
+  (let ((marker (marker-position (plist-get state :start)))
+        (position (plist-get state :start-position))
+        (text (plist-get state :start-text)))
+    (cond
+     ((or (null marker) (eql marker position)) marker)
+     ((ai-code-ghostel-image-preview--start-row-at-p position text) position)
+     ((ai-code-ghostel-image-preview--start-row-at-p marker text) marker)
+     (t (min position (point-max))))))
+
 (defun ai-code-ghostel-image-preview--capture-window-state (window)
   "Capture semantic and pixel state for WINDOW."
   (let ((intent
@@ -698,9 +732,12 @@ treating it as following would snap it to the bottom on every redraw."
           ((ai-code-ghostel-image-preview--window-at-live-cursor-p window)
            'following)
           (t
-           (ai-code-ghostel-image-preview--window-pixel-anchor-state window)))))
+           (ai-code-ghostel-image-preview--window-pixel-anchor-state window))))
+        (start (window-start window)))
     (list :window window
-          :start (copy-marker (window-start window))
+          :start (copy-marker start)
+          :start-position start
+          :start-text (ai-code-ghostel-image-preview--start-row-text start)
           :point (copy-marker (window-point window))
           :vscroll (window-vscroll window t)
           ;; Only following windows use this extent check.  Avoid traversing
@@ -744,9 +781,14 @@ treating it as following would snap it to the bottom on every redraw."
         (ai-code-ghostel-image-preview--set-window-vscroll window 0)))))
 
 (defun ai-code-ghostel-image-preview--restore-exact-window-state (state)
-  "Restore the exact viewport captured in window STATE."
+  "Restore the exact viewport captured in window STATE.
+Leave an unchanged start alone: `set-window-start' forces it on the next
+redisplay, and a start captured before redisplay caught up with a jump
+such as evil `G' would pull point back into the old view."
   (let ((window (plist-get state :window)))
-    (when-let* ((start (marker-position (plist-get state :start))))
+    (when-let* ((start
+                 (ai-code-ghostel-image-preview--saved-window-start state))
+                ((/= start (window-start window))))
       (set-window-start window start))
     (ai-code-ghostel-image-preview--set-window-vscroll
      window (or (plist-get state :vscroll) 0))))
@@ -763,7 +805,8 @@ LAYOUT-CHANGED is non-nil when preview geometry changed semantically."
          (if (or layout-changed
                  (/= (plist-get state :tail-lines)
                      (count-lines
-                      (or (marker-position (plist-get state :start))
+                      (or (ai-code-ghostel-image-preview--saved-window-start
+                           state)
                           (point-min))
                       (point-max))))
              (ai-code-ghostel-image-preview--anchor-window window)
@@ -958,11 +1001,13 @@ Optional DELAYS overrides the default scan delays."
          window delays)))))
 
 (defun ai-code-ghostel-image-preview--window-scroll (window _display-start)
-  "Record wheel intent and schedule image-layout recovery for WINDOW."
-  (when (ai-code-ghostel-image-preview--wheel-event-p last-command-event)
-    (if (ai-code-ghostel-image-preview--window-has-image-p window)
-        (ai-code-ghostel-image-preview--note-user-scroll window)
-      (ai-code-ghostel-image-preview--clear-user-scroll-at-live-end window)))
+  "Record wheel intent and schedule image-layout recovery for WINDOW.
+Any other scroll that reaches live output, such as evil `G', resumes
+following it."
+  (if (and (ai-code-ghostel-image-preview--wheel-event-p last-command-event)
+           (ai-code-ghostel-image-preview--window-has-image-p window))
+      (ai-code-ghostel-image-preview--note-user-scroll window)
+    (ai-code-ghostel-image-preview--clear-user-scroll-at-live-end window))
   (ai-code-ghostel-image-preview-schedule-visible-linkify
    window (list ai-code-ghostel-image-preview-scroll-linkify-delay)))
 
