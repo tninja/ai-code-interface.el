@@ -3662,6 +3662,29 @@ switch, which used to drop `C-<escape>' and the multiline bindings."
                     #'ai-code-backends-infra--terminal-send-multiline-input))
         (should (eq (lookup-key shared-map (kbd "C-<escape>")) #'ignore))))))
 
+(ert-deftest test-ai-code-backends-infra-input-shortcuts-stay-buffer-local ()
+  "`@' and `#' should not leak into the shared mode map.
+They must survive a local map swap and yield to the terminal in
+navigation mode."
+  (require 'ai-code-input)
+  (let ((shared-map (make-sparse-keymap))
+        (navigation nil))
+    (with-temp-buffer
+      (cl-letf (((symbol-function
+                  'ai-code-backends-infra--terminal-navigation-mode-p)
+                 (lambda () navigation)))
+        (use-local-map shared-map)
+        (ai-code-backends-infra--configure-session-input-shortcuts)
+        (should-not (lookup-key shared-map (kbd "@")))
+        (should-not (lookup-key shared-map (kbd "#")))
+        (use-local-map shared-map)
+        (should (eq (key-binding (kbd "@"))
+                    #'ai-code--session-handle-at-input))
+        (should (eq (key-binding (kbd "#"))
+                    #'ai-code--session-handle-hash-input))
+        (setq navigation t)
+        (should (eq (key-binding (kbd "@")) #'self-insert-command))))))
+
 (ert-deftest test-ai-code-backends-infra--configure-session-buffer-installs-editor-submit ()
   "Configured terminal sessions should submit completed editor input."
   (with-temp-buffer

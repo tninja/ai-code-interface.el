@@ -439,12 +439,21 @@ The timer is reset only after meaningful output is observed."
   (ai-code-session-attention-set-working (current-buffer) t)
   (ai-code-backends-infra--schedule-idle-check))
 
+(defun ai-code-backends-infra--live-input-binding (command)
+  "Return COMMAND unless the session terminal is in navigation mode.
+Used as a keymap `:filter' so prompt shortcuts yield to the backend's
+copy-mode bindings."
+  (unless (ai-code-backends-infra--terminal-navigation-mode-p)
+    command))
+
 (defun ai-code-backends-infra--configure-session-input-shortcuts ()
   "Install session-local shortcuts for prompt-oriented terminal input."
-  (when (fboundp 'ai-code--session-handle-at-input)
-    (local-set-key (kbd "@") #'ai-code--session-handle-at-input))
-  (when (fboundp 'ai-code--session-handle-hash-input)
-    (local-set-key (kbd "#") #'ai-code--session-handle-hash-input)))
+  (dolist (binding '(("@" . ai-code--session-handle-at-input)
+                     ("#" . ai-code--session-handle-hash-input)))
+    (when (fboundp (cdr binding))
+      (define-key (ai-code-backends-infra--session-keymap) (kbd (car binding))
+                  `(menu-item "" ,(cdr binding)
+                              :filter ai-code-backends-infra--live-input-binding)))))
 
 ;;; Terminal Backend Abstraction
 

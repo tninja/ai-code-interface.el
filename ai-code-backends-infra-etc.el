@@ -18,6 +18,8 @@
                   "ai-code-backends-infra" (buffer &optional escape-fn multiline-input-sequence))
 (declare-function ai-code-backends-infra--session-buffer-p
                   "ai-code-backends-infra" (buffer))
+(declare-function ai-code-backends-infra--session-keymap
+                  "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--sync-terminal-dimensions
                   "ai-code-backends-infra" (buffer window))
 
@@ -90,9 +92,10 @@
    (- ai-code-backends-infra-etc-resize-step)))
 
 (defun ai-code-backends-infra-etc--bind-panel-resize-keys ()
-  "Install local resize keybindings in the current AI session buffer."
-  (local-set-key (kbd "C-.") #'ai-code-backends-infra-etc-grow-panel)
-  (local-set-key (kbd "C-,") #'ai-code-backends-infra-etc-shrink-panel))
+  "Install resize keybindings in the current AI session buffer."
+  (let ((map (ai-code-backends-infra--session-keymap)))
+    (define-key map (kbd "C-.") #'ai-code-backends-infra-etc-grow-panel)
+    (define-key map (kbd "C-,") #'ai-code-backends-infra-etc-shrink-panel)))
 
 (defun ai-code-backends-infra-etc--configure-session-buffer-advice (buffer &rest _args)
   "Bind resize keys after shared session setup for BUFFER."
