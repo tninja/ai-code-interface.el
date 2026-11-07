@@ -2,6 +2,8 @@
 * Release history
 
 ** Main branch change
+- Fix: Stop Ghostel sessions with image previews from jumping to the top while
+  scrolled back, and keep evil =gg= / =G= working
 - Fix: Fix Claude prompt truncation, small CJK glyphs, and frozen output in Ghostel sessions
 - Fix: session dashboard navigation to preserve tab layouts
 - Feat: Resume interrupted Org tasks with a referenced briefing saved in the task

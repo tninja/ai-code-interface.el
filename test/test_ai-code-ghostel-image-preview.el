@@ -1093,5 +1093,99 @@ START and VSCROLL variables, and the line height is 18 pixels."
       (advice-remove 'ghostel--redraw-now
                      #'ai-code-ghostel-image-preview--redraw-now-around))))
 
+(defun test-ai-code-ghostel-image-preview--redraw-scrolled-window
+    (rewrite-buffer)
+  "Redraw a window scrolled back to row 150 with REWRITE-BUFFER.
+REWRITE-BUFFER runs in the session buffer as Ghostel's renderer.  Return
+the window start after the transaction and the start of row 150."
+  (let ((buffer (generate-new-buffer " *ghostel rewrite test*"))
+        start)
+    (unwind-protect
+        (save-window-excursion
+          (set-window-buffer (selected-window) buffer)
+          (with-current-buffer buffer
+            (dotimes (index 300)
+              (insert (format "terminal row %03d\n" index)))
+            (goto-char (point-min))
+            (forward-line 150)
+            (setq start (point)))
+          (set-window-start (selected-window) start)
+          (cl-letf (((symbol-function
+                      'ai-code-ghostel-image-preview--window-pixel-anchor-state)
+                     (lambda (_window) 'preserve)))
+            (ai-code-ghostel-image-preview--call-atomic
+             buffer
+             (lambda ()
+               (with-current-buffer buffer
+                 (funcall rewrite-buffer))
+               ;; Ghostel's own anchoring may move the window during redraw.
+               (set-window-start (selected-window) (point-max))))
+            (list (window-start (selected-window))
+                  (with-current-buffer buffer
+                    (goto-char (point-min))
+                    (search-forward "terminal row 150")
+                    (line-beginning-position)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--rebuilt-redraw-keeps-scrollback-start ()
+  "A redraw that erases and rebuilds the buffer must not jump to the top.
+Ghostel's renderer erases the whole buffer on a scrollback clear, resize,
+or screen switch, which collapses every marker to `point-min'."
+  (pcase-let ((`(,window-start ,row-start)
+               (test-ai-code-ghostel-image-preview--redraw-scrolled-window
+                (lambda ()
+                  (let ((text (buffer-string)))
+                    (erase-buffer)
+                    (insert text))))))
+    (should (= window-start row-start))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--evicted-redraw-follows-start-text ()
+  "A redraw that evicts earlier scrollback should keep the same rows in view."
+  (pcase-let ((`(,window-start ,row-start)
+               (test-ai-code-ghostel-image-preview--redraw-scrolled-window
+                (lambda ()
+                  (goto-char (point-min))
+                  (forward-line 40)
+                  (delete-region (point-min) (point))))))
+    (should (= window-start row-start))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--keyboard-scroll-clears-scrollback-at-live-end ()
+  "Non-wheel scrolls such as evil `G' should resume following at live output."
+  (let (cleared)
+    (cl-letf (((symbol-function
+                'ai-code-ghostel-image-preview--clear-user-scroll-at-live-end)
+               (lambda (window) (push window cleared)))
+              ((symbol-function
+                'ai-code-ghostel-image-preview-schedule-visible-linkify)
+               #'ignore))
+      (let ((last-command-event ?G))
+        (ai-code-ghostel-image-preview--window-scroll (selected-window) 1))
+      (should (equal cleared (list (selected-window)))))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--unchanged-redraw-does-not-force-start ()
+  "A redraw that leaves the window alone must not force its start.
+Timers can run after a jump such as evil `G' or `gg' but before redisplay
+recomputes the window start.  Forcing that stale start makes redisplay
+pull point back into the old view, undoing the jump."
+  (let ((buffer (generate-new-buffer " *ghostel unchanged redraw test*"))
+        forced)
+    (unwind-protect
+        (save-window-excursion
+          (set-window-buffer (selected-window) buffer)
+          (with-current-buffer buffer
+            (dotimes (index 300)
+              (insert (format "terminal row %03d\n" index))))
+          (set-window-start (selected-window) 2000)
+          (cl-letf (((symbol-function
+                      'ai-code-ghostel-image-preview--window-pixel-anchor-state)
+                     (lambda (_window) 'preserve))
+                    ((symbol-function 'set-window-start)
+                     (lambda (&rest args) (push args forced))))
+            (ai-code-ghostel-image-preview--call-atomic buffer #'ignore))
+          (should-not forced))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (provide 'test-ai-code-ghostel-image-preview)
 ;;; test_ai-code-ghostel-image-preview.el ends here
