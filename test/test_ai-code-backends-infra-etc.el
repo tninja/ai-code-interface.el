@@ -21,16 +21,19 @@
              "^(require 'ai-code-backends-infra-etc)" nil t))))
 
 (ert-deftest test-ai-code-backends-infra-etc-configure-session-buffer-binds-resize-keys ()
-  "Session buffer configuration should bind C-.  and C-, for panel resizing."
-  (let ((buffer (generate-new-buffer "*ai-code-etc-bindings*")))
+  "Session buffer configuration should bind C-.  and C-, for panel resizing.
+The bindings must survive a backend replacing the local map."
+  (let ((buffer (generate-new-buffer "*ai-code-etc-bindings*"))
+        (shared-map (make-sparse-keymap)))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-session-link--linkify-session-region)
                    (lambda (&rest _args) nil)))
           (ai-code-backends-infra--configure-session-buffer buffer)
           (with-current-buffer buffer
-            (should (eq (local-key-binding (kbd "C-."))
+            (use-local-map shared-map)
+            (should (eq (key-binding (kbd "C-."))
                         #'ai-code-backends-infra-etc-grow-panel))
-            (should (eq (local-key-binding (kbd "C-,"))
+            (should (eq (key-binding (kbd "C-,"))
                         #'ai-code-backends-infra-etc-shrink-panel))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
