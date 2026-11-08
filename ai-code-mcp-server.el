@@ -1864,6 +1864,7 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   (format "Notified user: %s" message-text))
 
 (require 'ai-code-mcp-debug-tools nil t)
+(require 'ai-code-mcp-org-tools nil t)
 
 (provide 'ai-code-mcp-server)
 
