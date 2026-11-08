@@ -2,6 +2,7 @@
 * Release history
 
 ** Main branch change
+- Fix: session keybindings lost after Ghostel input-mode switches
 - Fix: Stop Ghostel sessions with image previews from jumping to the top while scrolled back, and keep evil =gg= / =G= working
 - Fix: Fix Claude prompt truncation, small CJK glyphs, and frozen output in Ghostel sessions
 - Fix: session dashboard navigation to preserve tab layouts
