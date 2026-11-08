@@ -38,6 +38,7 @@
     "get_function_info"
     "get_last_error_backtrace"
     "get_recent_messages"
+    "get_buffer_runtime_state"
     "get_variable_binding_info"
     "get_variable_value")
   "Expected MCP debug tool names.")
@@ -112,6 +113,41 @@
            :type 'ai-code-mcp-protocol-error))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-reports-modes-and-local-hook ()
+  "Runtime state should report live local state without executing hooks."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (abbrev-mode 1)
+    (setq-local before-save-hook '(ignore))
+    (let* ((json-object-type 'alist)
+           (json-array-type 'vector)
+           (json-key-type 'symbol)
+           (payload (json-read-from-string
+                     (ai-code-mcp-get-buffer-runtime-state
+                      (buffer-name) "before-save-hook")))
+           (minor (append (alist-get 'active_minor_modes payload) nil))
+           (functions (append (alist-get 'hook_functions payload) nil)))
+      (should (equal "emacs-lisp-mode" (alist-get 'major_mode payload)))
+      (should (member "abbrev-mode" minor))
+      (should (eq t (alist-get 'hook_bound payload)))
+      (should (eq t (alist-get 'hook_buffer_local payload)))
+      (should (member "ignore" functions)))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-validates-hook-and-buffer ()
+  "Reject arbitrary variable inspection and missing named buffers."
+  (should-error (ai-code-mcp-get-buffer-runtime-state
+                 nil "user-mail-address")
+                :type 'user-error)
+  (should-error (ai-code-mcp-get-buffer-runtime-state
+                 " *ai-code-missing-runtime*" "before-save-hook")
+                :type 'user-error))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-honors-debug-disable ()
+  "Global disable also protects the new runtime inspection tool."
+  (let ((ai-code-mcp-debug-tools-enabled nil))
+    (should-error (ai-code-mcp-get-buffer-runtime-state))))
 
 (ert-deftest ai-code-test-mcp-debug-tools-do-not-register-eval-elisp-by-default ()
   "Eval should remain opt-in even when debug tools are enabled."

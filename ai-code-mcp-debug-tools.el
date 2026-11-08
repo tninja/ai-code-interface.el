@@ -69,6 +69,17 @@
      :args ((:name "feature_name"
              :type string
              :description "Emacs feature name to inspect.")))
+    (:function ai-code-mcp-get-buffer-runtime-state
+     :name "get_buffer_runtime_state"
+     :description "Read buffer-local Emacs mode, diagnostics, language-server and optional hook state without evaluating code."
+     :args ((:name "buffer_name"
+             :type string
+             :description "Optional live buffer; defaults to MCP prompt origin."
+             :optional t)
+            (:name "hook_name"
+             :type string
+             :description "Optional name of a specific -hook variable to inspect."
+             :optional t)))
     (:function ai-code-mcp-get-recent-messages
      :name "get_recent_messages"
      :description "Get recent entries from the Emacs *Messages* buffer."
@@ -585,6 +596,74 @@ existing bound variable."
          (provided_by_files . ,(vconcat providers))
          (load_path_matches
           . ,(vconcat (ai-code-mcp--feature-library-matches feature-name))))))))
+
+
+(defun ai-code-mcp-debug-tools--hook-function-names (value)
+  "Return human-readable function names from hook VALUE, without closures."
+  (let ((entries (if (and (listp value) (not (functionp value)))
+                     value
+                   (and value (list value)))))
+    (vconcat
+     (mapcar (lambda (entry)
+               (cond
+                ((eq entry t) "<inherit-global-hook>")
+                ((symbolp entry) (symbol-name entry))
+                ((functionp entry) "<anonymous-function>")
+                (t "<unknown-hook-entry>")))
+             entries))))
+
+(defun ai-code-mcp-get-buffer-runtime-state (&optional buffer-name hook-name)
+  "Report live buffer-local modes and an optional named HOOK-NAME.
+Use BUFFER-NAME or the MCP prompt-origin buffer.  Never invoke hooks,
+load language servers, or print closure contents."
+  (ai-code-mcp-debug-tools--require-enabled)
+  (when (and hook-name
+             (not (and (stringp hook-name)
+                       (string-suffix-p "-hook" hook-name))))
+    (user-error "hook_name must end in -hook"))
+  (let* ((source (plist-get (ai-code-mcp-get-session-context) :source-buffer))
+         (buffer (if buffer-name
+                     (or (get-buffer buffer-name)
+                         (user-error "No such buffer: %s" buffer-name))
+                   (if (buffer-live-p source) source
+                     (current-buffer)))))
+    (with-current-buffer buffer
+      (let* ((modes (delq nil
+                         (mapcar (lambda (mode)
+                                   (and (boundp mode)
+                                        (symbol-value mode)
+                                        (symbol-name mode)))
+                                 minor-mode-list)))
+             (hook (and hook-name (intern-soft hook-name)))
+             (hook-bound (and hook (boundp hook)))
+             (hook-value (and hook-bound (symbol-value hook)))
+             (parsers (when (and (fboundp 'treesit-parser-list)
+                                 (fboundp 'treesit-parser-language))
+                        (mapcar (lambda (parser)
+                                  (symbol-name (treesit-parser-language parser)))
+                                (treesit-parser-list))))
+             (server (cond
+                      ((bound-and-true-p eglot--managed-mode) "eglot")
+                      ((bound-and-true-p lsp-mode) "lsp-mode")
+                      (t nil))))
+        (json-encode
+         `((ok . t)
+           (buffer_name . ,(buffer-name buffer))
+           (file_path . ,(buffer-file-name buffer))
+           (major_mode . ,(symbol-name major-mode))
+           (active_minor_modes . ,(vconcat modes))
+           (language_server . ,server)
+           (tree_sitter_languages . ,(vconcat parsers))
+           (flycheck_enabled . ,(ai-code-mcp--json-bool
+                                 (bound-and-true-p flycheck-mode)))
+           (flymake_enabled . ,(ai-code-mcp--json-bool
+                                (bound-and-true-p flymake-mode)))
+           (hook_name . ,hook-name)
+           (hook_bound . ,(ai-code-mcp--json-bool hook-bound))
+           (hook_buffer_local . ,(ai-code-mcp--json-bool
+                                  (and hook (local-variable-p hook))))
+           (hook_functions . ,(ai-code-mcp-debug-tools--hook-function-names
+                               hook-value))))))))
 
 (defun ai-code-mcp-get-recent-messages (&optional limit)
   "Return a JSON payload for recent messages using LIMIT."
