@@ -155,6 +155,16 @@ baseline in the model context itself.")
              :type integer
              :description "Number of lines to read from start_line."
              :optional t)))
+    (:function ai-code-mcp-get-key-binding-info
+     :name "get_key_binding_info"
+     :description "Inspect the effective Emacs key binding in a live buffer, including the active map that supplies it."
+     :args ((:name "key_sequence"
+             :type string
+             :description "Emacs kbd notation, for example C-c a v.")
+            (:name "buffer_name"
+             :type string
+             :description "Optional live buffer; defaults to the MCP source buffer."
+             :optional t)))
     (:function ai-code-mcp-get-diagnostics
      :name "get_diagnostics"
      :description "Get language diagnostics as an observation envelope (status, summary, files, next_actions, artifacts) for a file or the active project.  Pass since=\"baseline\" to report only diagnostics that are new since diagnostics_baseline was called."
@@ -242,6 +252,7 @@ baseline in the model context itself.")
 The default tool list includes:
 - `project_info'
 - `editor_state'
+- `get_key_binding_info'
 - `visible_buffers'
 - `buffer_query'
 - `get_diagnostics'
@@ -604,6 +615,60 @@ When START-LINE and NUM-LINES are non-nil, return only that line range."
               (forward-line num-lines)
               (ai-code-mcp--drop-trailing-newline
                (buffer-substring-no-properties start-pos (point))))))))))
+
+
+(defun ai-code-mcp--key-binding-map-source (map)
+  "Describe the active key MAP as a global, major, or minor mode map."
+  (cond
+   ((eq map (current-global-map))
+    '((kind . "global") (mode . nil)))
+   ((eq map (current-local-map))
+    `((kind . "major-mode") (mode . ,(symbol-name major-mode))))
+   (t
+    (let ((minor-mode
+           (cl-loop for entry in (append minor-mode-overriding-map-alist
+                                         minor-mode-map-alist)
+                    for mode = (car entry)
+                    when (and (symbolp mode)
+                              (boundp mode)
+                              (symbol-value mode)
+                              (eq map (cdr entry)))
+                    return mode)))
+      `((kind . ,(if minor-mode "minor-mode" "other"))
+        (mode . ,(and minor-mode (symbol-name minor-mode))))))))
+
+(defun ai-code-mcp-get-key-binding-info (key-sequence &optional buffer-name)
+  "Inspect KEY-SEQUENCE as it is bound in BUFFER-NAME.
+Use the MCP prompt source buffer by default.  This is a read-only lookup;
+it never invokes the resolved command."
+  (unless (and (stringp key-sequence)
+               (not (string-empty-p key-sequence)))
+    (user-error "key_sequence must be nonempty Emacs kbd notation"))
+  (let* ((source (plist-get (ai-code-mcp-get-session-context) :source-buffer))
+         (buffer (if buffer-name
+                     (or (get-buffer buffer-name)
+                         (user-error "No such buffer: %s" buffer-name))
+                   (if (buffer-live-p source) source (current-buffer))))
+         (keys (kbd key-sequence)))
+    (with-current-buffer buffer
+      (let* ((binding (key-binding keys t))
+             (map (seq-find
+                   (lambda (candidate)
+                     (let ((entry (lookup-key candidate keys)))
+                       (and entry (not (numberp entry)))))
+                   (current-active-maps t)))
+             (raw (and map (lookup-key map keys)))
+             (source-info (and map (ai-code-mcp--key-binding-map-source map))))
+        (json-encode
+         `((ok . t)
+           (buffer_name . ,(buffer-name buffer))
+           (key_sequence . ,(key-description keys))
+           (bound . ,(ai-code-mcp--json-bool (not (null binding))))
+           (binding . ,(and raw (format "%S" raw)))
+           (effective_command . ,(and binding (format "%S" binding)))
+           (interactive . ,(ai-code-mcp--json-bool
+                            (and binding (commandp binding))))
+           (source . ,source-info)))))))
 
 (defun ai-code-mcp-get-diagnostics (&optional uri since)
   "Return a JSON diagnostics observation envelope for URI or the project.
