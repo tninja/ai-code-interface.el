@@ -1692,14 +1692,11 @@ the full diagnostics list is intentionally omitted from the response."
       (delete-directory project-dir t)
       (delete-directory external-dir t))))
 
-(provide 'test_ai-code-mcp-server)
-
-;;; test_ai-code-mcp-server.el ends here
-
 (ert-deftest ai-code-test-mcp-key-binding-uses-live-major-map ()
   "Key lookup reports the effective local binding without executing it."
   (with-temp-buffer
     (emacs-lisp-mode)
+    (use-local-map (copy-keymap (current-local-map)))
     (local-set-key (kbd "C-c C-z") #'ignore)
     (let* ((payload (ai-code-test-mcp--read-json
                      (ai-code-mcp-get-key-binding-info
@@ -1726,6 +1723,7 @@ the full diagnostics list is intentionally omitted from the response."
         (progn
           (with-current-buffer source
             (emacs-lisp-mode)
+            (use-local-map (copy-keymap (current-local-map)))
             (local-set-key (kbd "C-c C-z") #'ignore))
           (ai-code-mcp-register-session "key-inspection" default-directory source)
           (with-temp-buffer
@@ -1737,3 +1735,37 @@ the full diagnostics list is intentionally omitted from the response."
                              (alist-get 'effective_command payload))))))
       (ai-code-mcp-unregister-session "key-inspection")
       (when (buffer-live-p source) (kill-buffer source)))))
+
+(ert-deftest ai-code-test-mcp-key-binding-honors-default-binding-source ()
+  "A default [t] binding is reported from the map that supplies it."
+  (with-temp-buffer
+    (let* ((map (make-sparse-keymap))
+           (_ (define-key map [t] #'ignore))
+           (overriding-local-map map)
+           (payload (ai-code-test-mcp--read-json
+                     (ai-code-mcp-get-key-binding-info "C-f" (buffer-name))))
+           (source (alist-get 'source payload)))
+      (should (equal "ignore" (alist-get 'effective_command payload)))
+      (should (equal "ignore" (alist-get 'binding payload)))
+      (should-not (equal "global" (alist-get 'kind source))))))
+
+(ert-deftest ai-code-test-mcp-key-binding-dead-session-source-is-unavailable ()
+  "A killed prompt source must not fall back to an unrelated buffer."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (source (generate-new-buffer " *ai-code-key-dead-source*"))
+        (ai-code-mcp--current-session-id "key-inspection-dead"))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-register-session
+           "key-inspection-dead" default-directory source)
+          (kill-buffer source)
+          (let ((payload (ai-code-test-mcp--read-json
+                          (ai-code-mcp-get-key-binding-info "C-f"))))
+            (should (eq :json-false (alist-get 'ok payload)))
+            (should (equal "unavailable" (alist-get 'status payload)))))
+      (ai-code-mcp-unregister-session "key-inspection-dead")
+      (when (buffer-live-p source) (kill-buffer source)))))
+
+(provide 'test_ai-code-mcp-server)
+
+;;; test_ai-code-mcp-server.el ends here

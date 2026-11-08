@@ -644,31 +644,41 @@ it never invokes the resolved command."
   (unless (and (stringp key-sequence)
                (not (string-empty-p key-sequence)))
     (user-error "key_sequence must be nonempty Emacs kbd notation"))
-  (let* ((source (plist-get (ai-code-mcp-get-session-context) :source-buffer))
-         (buffer (if buffer-name
-                     (or (get-buffer buffer-name)
-                         (user-error "No such buffer: %s" buffer-name))
-                   (if (buffer-live-p source) source (current-buffer))))
+  (let* ((context (ai-code-mcp-get-session-context))
+         (source (plist-get context :source-buffer))
+         (buffer (cond
+                  (buffer-name
+                   (or (get-buffer buffer-name)
+                       (user-error "No such buffer: %s" buffer-name)))
+                  ((buffer-live-p source) source)
+                  ((not context) (current-buffer))))
          (keys (kbd key-sequence)))
-    (with-current-buffer buffer
-      (let* ((binding (key-binding keys t))
-             (map (seq-find
-                   (lambda (candidate)
-                     (let ((entry (lookup-key candidate keys)))
-                       (and entry (not (numberp entry)))))
-                   (current-active-maps t)))
-             (raw (and map (lookup-key map keys)))
-             (source-info (and map (ai-code-mcp--key-binding-map-source map))))
+    (if (not buffer)
         (json-encode
-         `((ok . t)
-           (buffer_name . ,(buffer-name buffer))
-           (key_sequence . ,(key-description keys))
-           (bound . ,(ai-code-mcp--json-bool (not (null binding))))
-           (binding . ,(and raw (format "%S" raw)))
-           (effective_command . ,(and binding (format "%S" binding)))
-           (interactive . ,(ai-code-mcp--json-bool
-                            (and binding (commandp binding))))
-           (source . ,source-info)))))))
+         '((ok . :json-false)
+           (status . "unavailable")
+           (reason . "Prompt source buffer is no longer live")))
+      (with-current-buffer buffer
+        ;; Accept default [t] bindings everywhere so the reported map and
+        ;; raw binding agree with `key-binding'.
+        (let* ((binding (key-binding keys t))
+               (map (seq-find
+                     (lambda (candidate)
+                       (let ((entry (lookup-key candidate keys t)))
+                         (and entry (not (numberp entry)))))
+                     (current-active-maps t)))
+               (raw (and map (lookup-key map keys t)))
+               (source-info (and map (ai-code-mcp--key-binding-map-source map))))
+          (json-encode
+           `((ok . t)
+             (buffer_name . ,(buffer-name buffer))
+             (key_sequence . ,(key-description keys))
+             (bound . ,(ai-code-mcp--json-bool (not (null binding))))
+             (binding . ,(and raw (format "%S" raw)))
+             (effective_command . ,(and binding (format "%S" binding)))
+             (interactive . ,(ai-code-mcp--json-bool
+                              (and binding (commandp binding))))
+             (source . ,source-info))))))))
 
 (defun ai-code-mcp-get-diagnostics (&optional uri since)
   "Return a JSON diagnostics observation envelope for URI or the project.
