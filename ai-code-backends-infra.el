@@ -439,12 +439,21 @@ The timer is reset only after meaningful output is observed."
   (ai-code-session-attention-set-working (current-buffer) t)
   (ai-code-backends-infra--schedule-idle-check))
 
+(defun ai-code-backends-infra--live-input-binding (command)
+  "Return COMMAND unless the session terminal is in navigation mode.
+Used as a keymap `:filter' so prompt shortcuts yield to the backend's
+copy-mode bindings."
+  (unless (ai-code-backends-infra--terminal-navigation-mode-p)
+    command))
+
 (defun ai-code-backends-infra--configure-session-input-shortcuts ()
   "Install session-local shortcuts for prompt-oriented terminal input."
-  (when (fboundp 'ai-code--session-handle-at-input)
-    (local-set-key (kbd "@") #'ai-code--session-handle-at-input))
-  (when (fboundp 'ai-code--session-handle-hash-input)
-    (local-set-key (kbd "#") #'ai-code--session-handle-hash-input)))
+  (dolist (binding '(("@" . ai-code--session-handle-at-input)
+                     ("#" . ai-code--session-handle-hash-input)))
+    (when (fboundp (cdr binding))
+      (define-key (ai-code-backends-infra--session-keymap) (kbd (car binding))
+                  `(menu-item "" ,(cdr binding)
+                              :filter ai-code-backends-infra--live-input-binding)))))
 
 ;;; Terminal Backend Abstraction
 
@@ -529,21 +538,31 @@ If PASTE is non-nil, send it as a pasted string."
                                   (make-sparse-keymap))))
   (current-local-map))
 
+(defvar-local ai-code-backends-infra--session-keys-active nil
+  "Non-nil activates this buffer's entry in `minor-mode-overriding-map-alist'.")
+
+(defun ai-code-backends-infra--session-keymap ()
+  "Return the current buffer's session keymap, installing it when needed.
+Bindings live in `minor-mode-overriding-map-alist' rather than the local
+map because terminal backends such as Ghostel replace the local map with
+a shared mode map whenever their input mode changes."
+  (or (cdr (assq 'ai-code-backends-infra--session-keys-active
+                 minor-mode-overriding-map-alist))
+      (let ((map (make-sparse-keymap)))
+        (setq-local ai-code-backends-infra--session-keys-active t)
+        (setq-local minor-mode-overriding-map-alist
+                    (cons (cons 'ai-code-backends-infra--session-keys-active map)
+                          minor-mode-overriding-map-alist))
+        map)))
+
 (defun ai-code-backends-infra--configure-multiline-input (sequence)
   "Configure multiline input keybindings in the current session buffer.
 SEQUENCE is the terminal sequence sent for `S-<return>' and `C-<return>'."
-  (if sequence
-      (progn
-        (setq-local ai-code-backends-infra--multiline-input-sequence sequence)
-        (define-key (current-local-map) (kbd "S-<return>")
-                    #'ai-code-backends-infra--terminal-send-multiline-input)
-        (define-key (current-local-map) (kbd "C-<return>")
-                    #'ai-code-backends-infra--terminal-send-multiline-input))
-    (setq-local ai-code-backends-infra--multiline-input-sequence nil)
+  (let ((command (and sequence
+                      #'ai-code-backends-infra--terminal-send-multiline-input)))
+    (setq-local ai-code-backends-infra--multiline-input-sequence sequence)
     (dolist (key (list (kbd "S-<return>") (kbd "C-<return>")))
-      (when (eq (lookup-key (current-local-map) key)
-                #'ai-code-backends-infra--terminal-send-multiline-input)
-        (define-key (current-local-map) key nil)))))
+      (define-key (ai-code-backends-infra--session-keymap) key command))))
 
 (defun ai-code-backends-infra--configure-session-buffer (buffer
                                                          &optional escape-fn
@@ -556,7 +575,8 @@ MULTILINE-INPUT-SEQUENCE configures `S-<return>' and `C-<return>' when non-nil."
     (setq-local ai-code-editor-viewport--submit-function
                 #'ai-code-backends-infra--terminal-send-return)
     (when escape-fn
-      (define-key (current-local-map) (kbd "C-<escape>") escape-fn))
+      (define-key (ai-code-backends-infra--session-keymap)
+                  (kbd "C-<escape>") escape-fn))
     (ai-code-backends-infra--configure-multiline-input
      multiline-input-sequence)
     (ai-code-session-link--linkify-session-region (point-min) (point-max))))
