@@ -1361,6 +1361,59 @@ the full diagnostics list is intentionally omitted from the response."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+
+(ert-deftest ai-code-test-mcp-buffer-query-exact-unsaved-region ()
+  "Return a precise multi-line slice from the live, unsaved buffer."
+  (with-temp-buffer
+    (insert "alpha\nbeta\ngamma\n")
+    (should (equal "eta\nga"
+                   (ai-code-mcp-buffer-query
+                    (buffer-name) 2 nil 1 3 2)))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-exact-range-rejects-invalid ()
+  "Reject incomplete and out-of-range coordinates without modifying text."
+  (with-temp-buffer
+    (insert "abc\ndef\n")
+    (should-error
+     (ai-code-mcp-buffer-query (buffer-name) 1 nil 0 4 0)
+     :type 'user-error)
+    (should-error
+     (ai-code-mcp-buffer-query (buffer-name) 1 nil 0 1 99)
+     :type 'user-error)
+    (should-error
+     (ai-code-mcp-buffer-query (buffer-name) 1 2 0 2 1)
+     :type 'user-error)))
+
+(ert-deftest ai-code-test-mcp-buffer-query-explicit-truncation ()
+  "Respect an optional character budget and label incomplete output."
+  (with-temp-buffer
+    (insert "abcdefgh")
+    (should (equal "abc\n[truncated; request a smaller buffer range]"
+                   (ai-code-mcp-buffer-query
+                    (buffer-name) nil nil nil nil nil 3)))))
+
+(ert-deftest ai-code-test-mcp-editor-state-identifies-stale-snapshot ()
+  "Report a changed buffer without changing its original prompt position."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--current-session-id "stale-snapshot"))
+    (with-temp-buffer
+      (insert "first\n")
+      (ai-code-mcp-register-session "stale-snapshot" default-directory
+                                    (current-buffer))
+      (let* ((before (ai-code-test-mcp--read-json
+                      (ai-code-mcp-editor-state))))
+        (should (eq :json-false (alist-get 'snapshot_stale before)))
+        (should (numberp (alist-get 'snapshot_captured_at before)))
+        (insert "second\n")
+        (let ((after (ai-code-test-mcp--read-json
+                      (ai-code-mcp-editor-state))))
+          (should (eq t (alist-get 'snapshot_stale after)))
+          (should (= (alist-get 'snapshot_modification_tick before)
+                     (alist-get 'snapshot_modification_tick after)))
+          (should (> (alist-get 'current_modification_tick after)
+                     (alist-get 'snapshot_modification_tick after)))))
+      (ai-code-mcp-unregister-session "stale-snapshot"))))
+
 (ert-deftest ai-code-test-mcp-get-project-files-returns-relative-project-paths ()
   "Project files should list regular files relative to the session project root."
   (let* ((project-dir (make-temp-file "ai-code-mcp-project-files-" t))
