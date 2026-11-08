@@ -358,6 +358,7 @@ AI Code includes an Emacs MCP server with these built-in tools:
 - =editor_state=: inspect the prompt source buffer, point, mode, region, flags, and snapshot freshness (capture time, modification ticks, stale flag)
 - =visible_buffers=: list the buffers visible in the selected frame windows
 - =buffer_query=: read live buffer contents, optionally by line range or exact start/end line-and-display-column coordinates; optional =max_chars= truncates with a marker (old line-range calls remain supported)
+- =get_key_binding_info=: resolve a key sequence against active Emacs keymaps in a live buffer; report the effective binding and its map source without executing it
 - =get_diagnostics=: return Flycheck or Flymake diagnostics for one file or open project buffers
 - =get_project_files=: list regular files in the current project
 - =get_project_buffers=: list open buffers that belong to the current project
