@@ -504,12 +504,15 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
       (frame-root-window)))
 
 (defun ai-code-mcp--point-line-column (buffer point)
-  "Return line and column for POINT in BUFFER."
+  "Return line and column for POINT in BUFFER.
+Coordinates ignore narrowing so they match `buffer_query' exact ranges."
   (with-current-buffer buffer
     (save-excursion
-      (goto-char point)
-      `((line . ,(line-number-at-pos))
-        (column . ,(current-column))))))
+      (save-restriction
+        (widen)
+        (goto-char point)
+        `((line . ,(line-number-at-pos))
+          (column . ,(current-column)))))))
 
 (defun ai-code-mcp--region-state (buffer point)
   "Return region metadata for BUFFER at POINT."

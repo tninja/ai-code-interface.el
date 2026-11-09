@@ -1416,6 +1416,33 @@ the full diagnostics list is intentionally omitted from the response."
                      (alist-get 'snapshot_modification_tick after)))))
       (ai-code-mcp-unregister-session "stale-snapshot"))))
 
+(ert-deftest ai-code-test-mcp-editor-state-narrowed-region-round-trips ()
+  "Selection coordinates from a narrowed buffer must read back the selection."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--current-session-id "narrowed-region"))
+    (with-temp-buffer
+      (insert "one\ntwo\nthree\nfour\n")
+      (goto-char (point-min))
+      (forward-line 2)
+      (narrow-to-region (point) (point-max))
+      (forward-char 1)
+      (set-mark (point))
+      (forward-line 1)
+      (forward-char 2)
+      (ai-code-mcp-register-session "narrowed-region" default-directory
+                                    (current-buffer))
+      (let* ((payload (ai-code-test-mcp--read-json (ai-code-mcp-editor-state)))
+             (region (alist-get 'region payload))
+             (start (alist-get 'start region))
+             (end (alist-get 'end region)))
+        (should (= 4 (alist-get 'line payload)))
+        (should (equal "hree\nfo"
+                       (ai-code-mcp-buffer-query
+                        (buffer-name)
+                        (alist-get 'line start) nil (alist-get 'column start)
+                        (alist-get 'line end) (alist-get 'column end)))))
+      (ai-code-mcp-unregister-session "narrowed-region"))))
+
 (ert-deftest ai-code-test-mcp-get-project-files-returns-relative-project-paths ()
   "Project files should list regular files relative to the session project root."
   (let* ((project-dir (make-temp-file "ai-code-mcp-project-files-" t))
