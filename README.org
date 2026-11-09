@@ -601,6 +601,24 @@ threads. Unverified times and links must not be fabricated. These are
 prompt instructions to the coding agent, not an Emacs-enforced writeback
 guarantee.
 
+The new result heading also identifies its AI author. The agent is asked
+to prefix its result title with its actual name (or =AI= if unknown), add
+the =:AI_GENERATED:= Org tag, and store the =:AI_AGENT:= property. For example:
+
+#+begin_example
+** CODEX Result Summary [2026-11-09 Mon 14:30] :AI_GENERATED:
+:PROPERTIES:
+:AI_AGENT: Codex
+:END:
+#+end_example
+
+If =CODEX= is already among the file's configured Org TODO keywords, Org
+recognizes it as the headline's TODO keyword; otherwise it remains a
+visible title prefix. To make agent names real TODO keywords, add them
+to your existing =org-todo-keywords= configuration. AI Code does not
+rewrite TODO keyword settings, prior task statuses, or human-authored
+sections. Attribution is prompt-directed, just like summary writeback.
+
 Evidence from original requirements (Slack threads, Radar tickets,
 GitHub discussions, meeting notes), operational observations (Splunk
 queries, time ranges, logs), code/file locations and verification
