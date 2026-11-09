@@ -96,6 +96,29 @@ be a non-negative integer."
   :type '(choice (const :tag "No limit" nil) natnum)
   :group 'ai-code-mcp-server)
 
+(defcustom ai-code-mcp-tool-call-log-enabled t
+  "When non-nil, record every MCP tool call in the audit log.
+The log records the tool name, argument names (never argument values),
+the session id, the result size, the duration, and any error message.
+Inspect it with `ai-code-mcp-show-tool-call-log' and clear it with
+`ai-code-mcp-clear-tool-call-log'."
+  :type 'boolean
+  :group 'ai-code-mcp-server)
+
+(defcustom ai-code-mcp-tool-call-log-max-entries 500
+  "Maximum number of entries kept in the MCP tool-call audit log.
+Older entries are dropped once the log grows past this many calls."
+  :type 'natnum
+  :group 'ai-code-mcp-server)
+
+(defvar ai-code-mcp--tool-call-log nil
+  "MCP tool-call audit log entries, newest first.
+Each entry is a plist with `:time', `:session', `:tool', `:args',
+`:status', `:result-chars', `:error', and `:duration-ms'.")
+
+(defconst ai-code-mcp--tool-call-log-buffer-name "*AI Code MCP Log*"
+  "Buffer name used to display the MCP tool-call audit log.")
+
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to session metadata.")
 
@@ -1721,14 +1744,122 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
                  (unless (stringp tool-name)
                    (ai-code-mcp-signal-protocol-error
                     -32602 "Tool name must be a string"))
-                 (ai-code-mcp--find-tool tool-name))))
+                 (ai-code-mcp--find-tool tool-name)))
+         (started (float-time)))
     (condition-case err
-        (ai-code-mcp--tool-success-result
-         (ai-code-mcp--call-tool tool arguments))
+        (let ((value (ai-code-mcp--call-tool tool arguments)))
+          (ai-code-mcp--record-tool-call
+           tool-name arguments value nil started)
+          (ai-code-mcp--tool-success-result value))
       (ai-code-mcp-protocol-error
+       (ai-code-mcp--record-tool-call
+        tool-name arguments nil err started)
        (signal (car err) (cdr err)))
       (error
+       (ai-code-mcp--record-tool-call
+        tool-name arguments nil err started)
        (ai-code-mcp--tool-error-result err)))))
+
+(defun ai-code-mcp--truncate-log-text (text limit)
+  "Return TEXT cut to at most LIMIT characters, marking any truncation."
+  (if (<= (length text) limit)
+      text
+    (concat (substring text 0 limit) "...[truncated]")))
+
+(defun ai-code-mcp--record-tool-call (tool-name arguments value err started)
+  "Record one MCP tool call in the audit log.
+TOOL-NAME and ARGUMENTS describe the call; only argument names are
+recorded, never their values, so the log cannot leak buffer contents,
+code, or secrets passed to a tool.  VALUE is the tool result (nil on
+failure), ERR the signaled error (nil on success), and STARTED the
+`float-time' at which the call began.  Recording never signals: a
+logging failure must not break the tool call itself."
+  (when ai-code-mcp-tool-call-log-enabled
+    (condition-case nil
+        (let ((entry
+               (list :time (current-time)
+                     :session (or ai-code-mcp--current-session-id
+                                  "default")
+                     :tool tool-name
+                     :args (sort
+                            (mapcar
+                             (lambda (entry)
+                               (if (symbolp (car entry))
+                                   (symbol-name (car entry))
+                                 (format "%s" (car entry))))
+                             (and (listp arguments) arguments))
+                            #'string<)
+                     :status (if err 'error 'ok)
+                     :result-chars
+                     (and (not err)
+                          (length (ai-code-mcp--format-result value)))
+                     :error
+                     (and err
+                          (ai-code-mcp--truncate-log-text
+                           (error-message-string err) 200))
+                     :duration-ms
+                     (and started
+                          (round (* 1000 (- (float-time) started)))))))
+          (push entry ai-code-mcp--tool-call-log)
+          (when (> (length ai-code-mcp--tool-call-log)
+                   ai-code-mcp-tool-call-log-max-entries)
+            (setq ai-code-mcp--tool-call-log
+                  (seq-take ai-code-mcp--tool-call-log
+                            ai-code-mcp-tool-call-log-max-entries)))
+          (when-let ((buffer (get-buffer
+                              ai-code-mcp--tool-call-log-buffer-name)))
+            (when (buffer-live-p buffer)
+              (ai-code-mcp--render-tool-call-log buffer))))
+      (error nil))))
+
+(defun ai-code-mcp--format-tool-call-log-entry (entry)
+  "Return one display line for audit log ENTRY."
+  (let ((error-text (plist-get entry :error)))
+    (concat
+     (format-time-string "%Y-%m-%dT%H:%M:%S%z" (plist-get entry :time))
+     (format "  %-5s %s  session=%s args=(%s)"
+             (plist-get entry :status)
+             (plist-get entry :tool)
+             (plist-get entry :session)
+             (mapconcat #'identity (plist-get entry :args) " "))
+     (if error-text
+         (format "  error=%s" error-text)
+       (format "  result=%s chars"
+               (or (plist-get entry :result-chars) 0)))
+     (format "  %sms\n" (or (plist-get entry :duration-ms) 0)))))
+
+(defun ai-code-mcp--render-tool-call-log (buffer)
+  "Render the MCP tool-call audit log into BUFFER, newest first."
+  (with-current-buffer buffer
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (insert "AI Code MCP tool-call audit log (newest first)\n")
+      (insert "Argument values are never recorded; only argument names.\n\n")
+      (if (null ai-code-mcp--tool-call-log)
+          (insert "No MCP tool calls recorded yet.\n")
+        (dolist (entry ai-code-mcp--tool-call-log)
+          (insert (ai-code-mcp--format-tool-call-log-entry entry)))))
+    (setq buffer-read-only t)))
+
+;;;###autoload
+(defun ai-code-mcp-show-tool-call-log ()
+  "Display the MCP tool-call audit log.
+The log shows which tools connected agents called, with which
+argument names, for which session, and how large each result was."
+  (interactive)
+  (let ((buffer (get-buffer-create
+                 ai-code-mcp--tool-call-log-buffer-name)))
+    (ai-code-mcp--render-tool-call-log buffer)
+    (pop-to-buffer buffer)))
+
+;;;###autoload
+(defun ai-code-mcp-clear-tool-call-log ()
+  "Clear the MCP tool-call audit log."
+  (interactive)
+  (setq ai-code-mcp--tool-call-log nil)
+  (when-let ((buffer (get-buffer ai-code-mcp--tool-call-log-buffer-name)))
+    (when (buffer-live-p buffer)
+      (ai-code-mcp--render-tool-call-log buffer))))
 
 (defun ai-code-mcp--find-tool (tool-name)
   "Return the tool spec matching TOOL-NAME."

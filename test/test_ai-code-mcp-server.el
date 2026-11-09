@@ -1848,6 +1848,93 @@ the full diagnostics list is intentionally omitted from the response."
       (ai-code-mcp-unregister-session "key-inspection-dead")
       (when (buffer-live-p source) (kill-buffer source)))))
 
+(ert-deftest ai-code-test-mcp-tool-call-log-records-success-without-values ()
+  "Tool calls should be audited with argument names, never values."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--tool-call-log nil)
+        (ai-code-mcp-tool-call-log-enabled t)
+        (ai-code-mcp--current-session-id "audit-session"))
+    (ai-code-mcp-make-tool
+     :function (lambda (name) (concat "Hello, " name))
+     :name "audit_echo"
+     :description "Echo a name."
+     :args '((:name "name" :type string :description "Name to echo.")))
+    (ai-code-mcp-dispatch
+     "tools/call"
+     '((name . "audit_echo")
+       (arguments . ((name . "secret-value-123")))))
+    (should (= 1 (length ai-code-mcp--tool-call-log)))
+    (let ((entry (car ai-code-mcp--tool-call-log)))
+      (should (equal "audit_echo" (plist-get entry :tool)))
+      (should (equal "audit-session" (plist-get entry :session)))
+      (should (eq 'ok (plist-get entry :status)))
+      (should (equal '("name") (plist-get entry :args)))
+      (should (= (length "Hello, secret-value-123")
+                 (plist-get entry :result-chars)))
+      (should (integerp (plist-get entry :duration-ms))))
+    (should-not
+     (string-match-p
+      "secret-value-123"
+      (ai-code-mcp--format-tool-call-log-entry
+       (car ai-code-mcp--tool-call-log))))))
+
+(ert-deftest ai-code-test-mcp-tool-call-log-records-errors ()
+  "Failed tool calls should be audited with their error message."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--tool-call-log nil)
+        (ai-code-mcp-tool-call-log-enabled t))
+    (ai-code-mcp-make-tool
+     :function (lambda () (error "Audit boom"))
+     :name "audit_fail"
+     :description "Fail on purpose."
+     :args nil)
+    (ai-code-mcp-dispatch
+     "tools/call"
+     '((name . "audit_fail") (arguments . ())))
+    (should (= 1 (length ai-code-mcp--tool-call-log)))
+    (let ((entry (car ai-code-mcp--tool-call-log)))
+      (should (eq 'error (plist-get entry :status)))
+      (should (string-match-p "Audit boom" (plist-get entry :error))))))
+
+(ert-deftest ai-code-test-mcp-tool-call-log-respects-disable-and-clear ()
+  "A disabled audit log records nothing, and clearing empties it."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--tool-call-log nil)
+        (ai-code-mcp-tool-call-log-enabled nil))
+    (ai-code-mcp-make-tool
+     :function (lambda () "ok")
+     :name "audit_quiet"
+     :description "Return a fixed string."
+     :args nil)
+    (ai-code-mcp-dispatch
+     "tools/call"
+     '((name . "audit_quiet") (arguments . ())))
+    (should (null ai-code-mcp--tool-call-log))
+    (setq ai-code-mcp-tool-call-log-enabled t)
+    (ai-code-mcp-dispatch
+     "tools/call"
+     '((name . "audit_quiet") (arguments . ())))
+    (should (= 1 (length ai-code-mcp--tool-call-log)))
+    (ai-code-mcp-clear-tool-call-log)
+    (should (null ai-code-mcp--tool-call-log))))
+
+(ert-deftest ai-code-test-mcp-tool-call-log-trims-to-max-entries ()
+  "The audit log should drop the oldest entries past its cap."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--tool-call-log nil)
+        (ai-code-mcp-tool-call-log-enabled t)
+        (ai-code-mcp-tool-call-log-max-entries 2))
+    (ai-code-mcp-make-tool
+     :function (lambda () "ok")
+     :name "audit_trim"
+     :description "Return a fixed string."
+     :args nil)
+    (dotimes (_ 3)
+      (ai-code-mcp-dispatch
+       "tools/call"
+       '((name . "audit_trim") (arguments . ()))))
+    (should (= 2 (length ai-code-mcp--tool-call-log)))))
+
 (provide 'test_ai-code-mcp-server)
 
 ;;; test_ai-code-mcp-server.el ends here
