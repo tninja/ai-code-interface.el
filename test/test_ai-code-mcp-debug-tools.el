@@ -38,6 +38,7 @@
     "get_function_info"
     "get_last_error_backtrace"
     "get_recent_messages"
+    "get_buffer_runtime_state"
     "get_variable_binding_info"
     "get_variable_value")
   "Expected MCP debug tool names.")
@@ -112,6 +113,145 @@
            :type 'ai-code-mcp-protocol-error))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
+
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-reports-modes-and-local-hook ()
+  "Runtime state should report live local state without executing hooks."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (abbrev-mode 1)
+    (setq-local before-save-hook '(ignore))
+    (let* ((json-object-type 'alist)
+           (json-array-type 'vector)
+           (json-key-type 'symbol)
+           (payload (json-read-from-string
+                     (ai-code-mcp-get-buffer-runtime-state
+                      (buffer-name) "before-save-hook")))
+           (minor (append (alist-get 'active_minor_modes payload) nil))
+           (functions (append (alist-get 'hook_functions payload) nil)))
+      (should (equal "emacs-lisp-mode" (alist-get 'major_mode payload)))
+      (should (member "abbrev-mode" minor))
+      (should (eq t (alist-get 'hook_bound payload)))
+      (should (eq t (alist-get 'hook_buffer_local payload)))
+      (should (member "ignore" functions)))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-validates-hook-and-buffer ()
+  "Reject arbitrary variable inspection and missing named buffers."
+  (should-error (ai-code-mcp-get-buffer-runtime-state
+                 nil "user-mail-address")
+                :type 'user-error)
+  (should-error (ai-code-mcp-get-buffer-runtime-state
+                 " *ai-code-missing-runtime*" "before-save-hook")
+                :type 'user-error))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-honors-debug-disable ()
+  "Global disable also protects the new runtime inspection tool."
+  (let ((ai-code-mcp-debug-tools-enabled nil))
+    (should-error (ai-code-mcp-get-buffer-runtime-state))))
+
+(defun ai-code-test-mcp-buffer-runtime--payload (&rest args)
+  "Return the decoded runtime state for ARGS."
+  (let ((json-object-type 'alist)
+        (json-array-type 'list)
+        (json-key-type 'symbol))
+    (json-read-from-string
+     (apply #'ai-code-mcp-get-buffer-runtime-state args))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-separates-local-and-global-modes ()
+  "Report modes by name even when their variable differs, split by scope."
+  (with-temp-buffer
+    (text-mode)
+    (auto-fill-mode 1)
+    (let* ((payload (ai-code-test-mcp-buffer-runtime--payload (buffer-name)))
+           (local (alist-get 'active_minor_modes payload))
+           (global (alist-get 'global_minor_modes payload)))
+      (should (member "auto-fill-mode" local))
+      (should-not (member "auto-fill-function" local))
+      (should (equal (mapcar #'symbol-name global-minor-modes) global))
+      (dolist (mode global)
+        (should-not (member mode local))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-expands-inherited-global-hook ()
+  "A local hook that inherits the global value must list global functions."
+  (let ((before-save-hook '(ai-code-test-global-hook-fn)))
+    (with-temp-buffer
+      (add-hook 'before-save-hook #'ai-code-test-local-hook-fn nil t)
+      (let ((payload (ai-code-test-mcp-buffer-runtime--payload
+                      (buffer-name) "before-save-hook")))
+        (should (member "ai-code-test-local-hook-fn"
+                        (alist-get 'hook_functions payload)))
+        (should (equal '("ai-code-test-global-hook-fn")
+                       (alist-get 'hook_global_functions payload)))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-dead-source-is-unavailable ()
+  "A killed prompt source must not fall back to an unrelated buffer."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--current-session-id "runtime-dead-source")
+        (source (generate-new-buffer " *ai-code-runtime-dead-source*")))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-register-session "runtime-dead-source"
+                                        default-directory source)
+          (kill-buffer source)
+          (with-temp-buffer
+            (let ((payload (ai-code-test-mcp-buffer-runtime--payload)))
+              (should (eq :json-false (alist-get 'ok payload)))
+              (should (equal "unavailable" (alist-get 'status payload))))))
+      (ai-code-mcp-unregister-session "runtime-dead-source")
+      (when (buffer-live-p source) (kill-buffer source)))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-accepts-functions-hooks ()
+  "Abnormal -functions hooks are inspectable like -hook variables."
+  (with-temp-buffer
+    (add-hook 'after-change-functions #'ai-code-test-change-fn nil t)
+    (let ((payload (ai-code-test-mcp-buffer-runtime--payload
+                    (buffer-name) "after-change-functions")))
+      (should (member "ai-code-test-change-fn"
+                      (alist-get 'hook_functions payload))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-omits-hook-fields-without-hook ()
+  "Without hook_name, hook fields are null rather than a missing hook."
+  (with-temp-buffer
+    (let ((payload (ai-code-test-mcp-buffer-runtime--payload (buffer-name))))
+      (should (assq 'hook_bound payload))
+      (should (null (alist-get 'hook_bound payload)))
+      (should (null (alist-get 'hook_buffer_local payload)))
+      (should (null (alist-get 'hook_functions payload)))
+      (should (null (alist-get 'hook_global_functions payload))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-detects-eglot-via-public-api ()
+  "Eglot management is detected through `eglot-managed-p'."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'eglot-managed-p) (lambda () t)))
+      (should (equal "eglot"
+                     (alist-get 'language_server
+                                (ai-code-test-mcp-buffer-runtime--payload
+                                 (buffer-name))))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-lists-all-parser-languages ()
+  "Tagged parsers are included and languages are reported once."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'treesit-parser-list)
+               (lambda (&rest args)
+                 (if (equal args '(nil nil t)) '(p1 p2 p3) '(p1))))
+              ((symbol-function 'treesit-parser-language)
+               (lambda (parser) (if (eq parser 'p3) 'sql 'python))))
+      (should (equal '("python" "sql")
+                     (alist-get 'tree_sitter_languages
+                                (ai-code-test-mcp-buffer-runtime--payload
+                                 (buffer-name))))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-parser-list-falls-back-on-emacs-29 ()
+  "A one-argument `treesit-parser-list' (Emacs 29) still reports languages."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'treesit-parser-list)
+               (lambda (&optional _buffer) '(p1)))
+              ((symbol-function 'treesit-parser-language)
+               (lambda (_parser) 'python)))
+      (should (equal '("python")
+                     (alist-get 'tree_sitter_languages
+                                (ai-code-test-mcp-buffer-runtime--payload
+                                 (buffer-name))))))))
 
 (ert-deftest ai-code-test-mcp-debug-tools-do-not-register-eval-elisp-by-default ()
   "Eval should remain opt-in even when debug tools are enabled."
