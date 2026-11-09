@@ -592,6 +592,15 @@ useful references discovered during the work into that result-summary
 subheading automatically, so task history accumulates without another
 menu, manual evidence registration, or a separate SPEC.md graph.
 
+A new summary subheading is also requested to carry one inactive Org
+timestamp, such as =[YYYY-MM-DD Day HH:MM]=, using the local clock at
+the moment the agent actually writes its answer (not the time the prompt
+was sent). Available original URLs should be formatted as clickable Org
+links, =[[URL][description]]=, for example to GitHub PRs or Slack
+threads. Unverified times and links must not be fabricated. These are
+prompt instructions to the coding agent, not an Emacs-enforced writeback
+guarantee.
+
 Evidence from original requirements (Slack threads, Radar tickets,
 GitHub discussions, meeting notes), operational observations (Splunk
 queries, time ranges, logs), code/file locations and verification
