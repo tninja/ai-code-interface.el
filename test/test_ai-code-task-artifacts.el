@@ -104,7 +104,8 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
     (should (string-search "org-todo-keywords" prompt))
     (should (string-search "visible heading prefix" prompt))
     (should (string-search ":AI_GENERATED:" prompt))
-    (should (string-search ":AI_AGENT:" prompt))
+    (should (string-search "without a property drawer" prompt))
+    (should-not (string-search ":AI_AGENT:" prompt))
     (should (string-search "parent headings" prompt))
     (should (string-search "rather than guessing" prompt))))
 
@@ -114,7 +115,8 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
                  t '(:name "Investigate regression" :end-line 9))))
     (should (string-search "Investigate regression" prompt))
     (should (string-search ":AI_GENERATED:" prompt))
-    (should (string-search ":AI_AGENT:" prompt))))
+    (should-not (string-search ":AI_AGENT:" prompt))
+    (should (string-search "without a property drawer" prompt))))
 
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here
