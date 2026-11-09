@@ -96,5 +96,25 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
     (should (string-search "Fix config merge" prompt))
     (should (string-search "inactive Org timestamp" prompt))))
 
+(ert-deftest ai-code-test-summary-artifacts-ai-authorship-is-marked ()
+  "Opted-in result notes visibly identify their AI author."
+  (let ((prompt (ai-code-test-summary-artifacts--send t)))
+    (should (string-search "actual writing agent name" prompt))
+    (should (string-search "CODEX, CLAUDE or GEMINI" prompt))
+    (should (string-search "org-todo-keywords" prompt))
+    (should (string-search "visible heading prefix" prompt))
+    (should (string-search ":AI_GENERATED:" prompt))
+    (should (string-search ":AI_AGENT:" prompt))
+    (should (string-search "parent headings" prompt))
+    (should (string-search "rather than guessing" prompt))))
+
+(ert-deftest ai-code-test-summary-artifacts-anchored-notes-mark-ai-authorship ()
+  "Explicit section anchors must not bypass AI authorship guidance."
+  (let ((prompt (ai-code-test-summary-artifacts--send
+                 t '(:name "Investigate regression" :end-line 9))))
+    (should (string-search "Investigate regression" prompt))
+    (should (string-search ":AI_GENERATED:" prompt))
+    (should (string-search ":AI_AGENT:" prompt))))
+
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here
