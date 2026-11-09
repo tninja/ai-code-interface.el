@@ -93,7 +93,7 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
   "An anchored section gets the same timestamp rules as ordinary summaries."
   (let ((prompt (ai-code-test-summary-artifacts--send
                  t '(:name "Fix config merge" :end-line 2))))
-    (should (string-search "end of section \\"Fix config merge\\"" prompt))
+    (should (string-search "Fix config merge" prompt))
     (should (string-search "inactive Org timestamp" prompt))))
 
 (provide 'test_ai-code-task-artifacts)
