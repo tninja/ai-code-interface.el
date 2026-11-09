@@ -59,6 +59,7 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
     "diagnostics_baseline"
     "editor_state"
     "get_diagnostics"
+    "get_key_binding_info"
     "get_org_heading_context"
     "get_project_buffers"
     "get_project_files"
@@ -219,6 +220,7 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
                         "diagnostics_baseline"
                         "editor_state"
                         "get_diagnostics"
+                        "get_key_binding_info"
                         "get_org_heading_context"
                         "get_project_buffers"
                         "get_project_files"
@@ -1363,6 +1365,86 @@ the full diagnostics list is intentionally omitted from the response."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+
+(ert-deftest ai-code-test-mcp-buffer-query-exact-unsaved-region ()
+  "Return a precise multi-line slice from the live, unsaved buffer."
+  (with-temp-buffer
+    (insert "alpha\nbeta\ngamma\n")
+    (should (equal "eta\nga"
+                   (ai-code-mcp-buffer-query
+                    (buffer-name) 2 nil 1 3 2)))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-exact-range-rejects-invalid ()
+  "Reject incomplete and out-of-range coordinates without modifying text."
+  (with-temp-buffer
+    (insert "abc\ndef\n")
+    (should-error
+     (ai-code-mcp-buffer-query (buffer-name) 1 nil 0 4 0)
+     :type 'user-error)
+    (should-error
+     (ai-code-mcp-buffer-query (buffer-name) 1 nil 0 1 99)
+     :type 'user-error)
+    (should-error
+     (ai-code-mcp-buffer-query (buffer-name) 1 2 0 2 1)
+     :type 'user-error)))
+
+(ert-deftest ai-code-test-mcp-buffer-query-explicit-truncation ()
+  "Respect an optional character budget and label incomplete output."
+  (with-temp-buffer
+    (insert "abcdefgh")
+    (should (equal "abc\n[truncated; request a smaller buffer range]"
+                   (ai-code-mcp-buffer-query
+                    (buffer-name) nil nil nil nil nil 3)))))
+
+(ert-deftest ai-code-test-mcp-editor-state-identifies-stale-snapshot ()
+  "Report a changed buffer without changing its original prompt position."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--current-session-id "stale-snapshot"))
+    (with-temp-buffer
+      (insert "first\n")
+      (ai-code-mcp-register-session "stale-snapshot" default-directory
+                                    (current-buffer))
+      (let* ((before (ai-code-test-mcp--read-json
+                      (ai-code-mcp-editor-state))))
+        (should (eq :json-false (alist-get 'snapshot_stale before)))
+        (should (numberp (alist-get 'snapshot_captured_at before)))
+        (insert "second\n")
+        (let ((after (ai-code-test-mcp--read-json
+                      (ai-code-mcp-editor-state))))
+          (should (eq t (alist-get 'snapshot_stale after)))
+          (should (= (alist-get 'snapshot_modification_tick before)
+                     (alist-get 'snapshot_modification_tick after)))
+          (should (> (alist-get 'current_modification_tick after)
+                     (alist-get 'snapshot_modification_tick after)))))
+      (ai-code-mcp-unregister-session "stale-snapshot"))))
+
+(ert-deftest ai-code-test-mcp-editor-state-narrowed-region-round-trips ()
+  "Selection coordinates from a narrowed buffer must read back the selection."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--current-session-id "narrowed-region"))
+    (with-temp-buffer
+      (insert "one\ntwo\nthree\nfour\n")
+      (goto-char (point-min))
+      (forward-line 2)
+      (narrow-to-region (point) (point-max))
+      (forward-char 1)
+      (set-mark (point))
+      (forward-line 1)
+      (forward-char 2)
+      (ai-code-mcp-register-session "narrowed-region" default-directory
+                                    (current-buffer))
+      (let* ((payload (ai-code-test-mcp--read-json (ai-code-mcp-editor-state)))
+             (region (alist-get 'region payload))
+             (start (alist-get 'start region))
+             (end (alist-get 'end region)))
+        (should (= 4 (alist-get 'line payload)))
+        (should (equal "hree\nfo"
+                       (ai-code-mcp-buffer-query
+                        (buffer-name)
+                        (alist-get 'line start) nil (alist-get 'column start)
+                        (alist-get 'line end) (alist-get 'column end)))))
+      (ai-code-mcp-unregister-session "narrowed-region"))))
+
 (ert-deftest ai-code-test-mcp-get-project-files-returns-relative-project-paths ()
   "Project files should list regular files relative to the session project root."
   (let* ((project-dir (make-temp-file "ai-code-mcp-project-files-" t))
@@ -1691,6 +1773,80 @@ the full diagnostics list is intentionally omitted from the response."
           (kill-buffer visited-buffer)))
       (delete-directory project-dir t)
       (delete-directory external-dir t))))
+
+(ert-deftest ai-code-test-mcp-key-binding-uses-live-major-map ()
+  "Key lookup reports the effective local binding without executing it."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (use-local-map (copy-keymap (current-local-map)))
+    (local-set-key (kbd "C-c C-z") #'ignore)
+    (let* ((payload (ai-code-test-mcp--read-json
+                     (ai-code-mcp-get-key-binding-info
+                      "C-c C-z" (buffer-name))))
+           (source (alist-get 'source payload)))
+      (should (eq t (alist-get 'bound payload)))
+      (should (equal "ignore" (alist-get 'effective_command payload)))
+      (should (equal "major-mode" (alist-get 'kind source)))
+      (should (equal "emacs-lisp-mode" (alist-get 'mode source))))))
+
+(ert-deftest ai-code-test-mcp-key-binding-unknown-buffer-is-an-error ()
+  "An explicitly named missing buffer must not silently fall back."
+  (should-error
+   (ai-code-mcp-get-key-binding-info
+    "C-c C-z" " *ai-code-nonexistent-binding-buffer*")
+   :type 'user-error))
+
+(ert-deftest ai-code-test-mcp-key-binding-uses-session-source ()
+  "An agent-focused window must not change the default lookup buffer."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (source (generate-new-buffer " *ai-code-key-source*"))
+        (ai-code-mcp--current-session-id "key-inspection"))
+    (unwind-protect
+        (progn
+          (with-current-buffer source
+            (emacs-lisp-mode)
+            (use-local-map (copy-keymap (current-local-map)))
+            (local-set-key (kbd "C-c C-z") #'ignore))
+          (ai-code-mcp-register-session "key-inspection" default-directory source)
+          (with-temp-buffer
+            (let* ((payload (ai-code-test-mcp--read-json
+                             (ai-code-mcp-get-key-binding-info "C-c C-z"))))
+              (should (equal (buffer-name source)
+                             (alist-get 'buffer_name payload)))
+              (should (equal "ignore"
+                             (alist-get 'effective_command payload))))))
+      (ai-code-mcp-unregister-session "key-inspection")
+      (when (buffer-live-p source) (kill-buffer source)))))
+
+(ert-deftest ai-code-test-mcp-key-binding-honors-default-binding-source ()
+  "A default [t] binding is reported from the map that supplies it."
+  (with-temp-buffer
+    (let* ((map (make-sparse-keymap))
+           (_ (define-key map [t] #'ignore))
+           (overriding-local-map map)
+           (payload (ai-code-test-mcp--read-json
+                     (ai-code-mcp-get-key-binding-info "C-f" (buffer-name))))
+           (source (alist-get 'source payload)))
+      (should (equal "ignore" (alist-get 'effective_command payload)))
+      (should (equal "ignore" (alist-get 'binding payload)))
+      (should-not (equal "global" (alist-get 'kind source))))))
+
+(ert-deftest ai-code-test-mcp-key-binding-dead-session-source-is-unavailable ()
+  "A killed prompt source must not fall back to an unrelated buffer."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (source (generate-new-buffer " *ai-code-key-dead-source*"))
+        (ai-code-mcp--current-session-id "key-inspection-dead"))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-register-session
+           "key-inspection-dead" default-directory source)
+          (kill-buffer source)
+          (let ((payload (ai-code-test-mcp--read-json
+                          (ai-code-mcp-get-key-binding-info "C-f"))))
+            (should (eq :json-false (alist-get 'ok payload)))
+            (should (equal "unavailable" (alist-get 'status payload)))))
+      (ai-code-mcp-unregister-session "key-inspection-dead")
+      (when (buffer-live-p source) (kill-buffer source)))))
 
 (provide 'test_ai-code-mcp-server)
 
