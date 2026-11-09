@@ -149,6 +149,57 @@
   (let ((ai-code-mcp-debug-tools-enabled nil))
     (should-error (ai-code-mcp-get-buffer-runtime-state))))
 
+(defun ai-code-test-mcp-buffer-runtime--payload (&rest args)
+  "Return the decoded runtime state for ARGS."
+  (let ((json-object-type 'alist)
+        (json-array-type 'list)
+        (json-key-type 'symbol))
+    (json-read-from-string
+     (apply #'ai-code-mcp-get-buffer-runtime-state args))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-separates-local-and-global-modes ()
+  "Report modes by name even when their variable differs, split by scope."
+  (with-temp-buffer
+    (text-mode)
+    (auto-fill-mode 1)
+    (let* ((payload (ai-code-test-mcp-buffer-runtime--payload (buffer-name)))
+           (local (alist-get 'active_minor_modes payload))
+           (global (alist-get 'global_minor_modes payload)))
+      (should (member "auto-fill-mode" local))
+      (should-not (member "auto-fill-function" local))
+      (should (equal (mapcar #'symbol-name global-minor-modes) global))
+      (dolist (mode global)
+        (should-not (member mode local))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-expands-inherited-global-hook ()
+  "A local hook that inherits the global value must list global functions."
+  (let ((before-save-hook '(ai-code-test-global-hook-fn)))
+    (with-temp-buffer
+      (add-hook 'before-save-hook #'ai-code-test-local-hook-fn nil t)
+      (let ((payload (ai-code-test-mcp-buffer-runtime--payload
+                      (buffer-name) "before-save-hook")))
+        (should (member "ai-code-test-local-hook-fn"
+                        (alist-get 'hook_functions payload)))
+        (should (equal '("ai-code-test-global-hook-fn")
+                       (alist-get 'hook_global_functions payload)))))))
+
+(ert-deftest ai-code-test-mcp-buffer-runtime-dead-source-is-unavailable ()
+  "A killed prompt source must not fall back to an unrelated buffer."
+  (let ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ai-code-mcp--current-session-id "runtime-dead-source")
+        (source (generate-new-buffer " *ai-code-runtime-dead-source*")))
+    (unwind-protect
+        (progn
+          (ai-code-mcp-register-session "runtime-dead-source"
+                                        default-directory source)
+          (kill-buffer source)
+          (with-temp-buffer
+            (let ((payload (ai-code-test-mcp-buffer-runtime--payload)))
+              (should (eq :json-false (alist-get 'ok payload)))
+              (should (equal "unavailable" (alist-get 'status payload))))))
+      (ai-code-mcp-unregister-session "runtime-dead-source")
+      (when (buffer-live-p source) (kill-buffer source)))))
+
 (ert-deftest ai-code-test-mcp-debug-tools-do-not-register-eval-elisp-by-default ()
   "Eval should remain opt-in even when debug tools are enabled."
   (let ((ai-code-mcp-server-tools nil)

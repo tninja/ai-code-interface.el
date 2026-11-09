@@ -14,6 +14,7 @@
 (require 'subr-x)
 
 (declare-function ai-code-mcp-make-tool "ai-code-mcp-server")
+(declare-function ai-code-mcp-get-session-context "ai-code-mcp-server")
 
 (defgroup ai-code-mcp-debug-tools nil
   "Optional MCP debugging tools."
@@ -621,49 +622,61 @@ load language servers, or print closure contents."
              (not (and (stringp hook-name)
                        (string-suffix-p "-hook" hook-name))))
     (user-error "hook_name must end in -hook"))
-  (let* ((source (plist-get (ai-code-mcp-get-session-context) :source-buffer))
-         (buffer (if buffer-name
-                     (or (get-buffer buffer-name)
-                         (user-error "No such buffer: %s" buffer-name))
-                   (if (buffer-live-p source) source
-                     (current-buffer)))))
-    (with-current-buffer buffer
-      (let* ((modes (delq nil
-                         (mapcar (lambda (mode)
-                                   (and (boundp mode)
-                                        (symbol-value mode)
-                                        (symbol-name mode)))
-                                 minor-mode-list)))
-             (hook (and hook-name (intern-soft hook-name)))
-             (hook-bound (and hook (boundp hook)))
-             (hook-value (and hook-bound (symbol-value hook)))
-             (parsers (when (and (fboundp 'treesit-parser-list)
-                                 (fboundp 'treesit-parser-language))
-                        (mapcar (lambda (parser)
-                                  (symbol-name (treesit-parser-language parser)))
-                                (treesit-parser-list))))
-             (server (cond
-                      ((bound-and-true-p eglot--managed-mode) "eglot")
-                      ((bound-and-true-p lsp-mode) "lsp-mode")
-                      (t nil))))
+  (let* ((context (ai-code-mcp-get-session-context))
+         (source (plist-get context :source-buffer))
+         (buffer (cond
+                  (buffer-name
+                   (or (get-buffer buffer-name)
+                       (user-error "No such buffer: %s" buffer-name)))
+                  ((buffer-live-p source) source)
+                  ((not context) (current-buffer)))))
+    (if (not buffer)
         (json-encode
-         `((ok . t)
-           (buffer_name . ,(buffer-name buffer))
-           (file_path . ,(buffer-file-name buffer))
-           (major_mode . ,(symbol-name major-mode))
-           (active_minor_modes . ,(vconcat modes))
-           (language_server . ,server)
-           (tree_sitter_languages . ,(vconcat parsers))
-           (flycheck_enabled . ,(ai-code-mcp--json-bool
-                                 (bound-and-true-p flycheck-mode)))
-           (flymake_enabled . ,(ai-code-mcp--json-bool
-                                (bound-and-true-p flymake-mode)))
-           (hook_name . ,hook-name)
-           (hook_bound . ,(ai-code-mcp--json-bool hook-bound))
-           (hook_buffer_local . ,(ai-code-mcp--json-bool
-                                  (and hook (local-variable-p hook))))
-           (hook_functions . ,(ai-code-mcp-debug-tools--hook-function-names
-                               hook-value))))))))
+         '((ok . :json-false)
+           (status . "unavailable")
+           (reason . "Prompt source buffer is no longer live")))
+      (with-current-buffer buffer
+        (let* ((hook (and hook-name (intern-soft hook-name)))
+               (hook-bound (and hook (boundp hook)))
+               (hook-value (and hook-bound (symbol-value hook)))
+               (hook-local (and hook (local-variable-p hook)))
+               (inherits-global (and hook-local
+                                     (listp hook-value)
+                                     (memq t hook-value)))
+               (parsers (when (and (fboundp 'treesit-parser-list)
+                                   (fboundp 'treesit-parser-language))
+                          (mapcar (lambda (parser)
+                                    (symbol-name (treesit-parser-language parser)))
+                                  (treesit-parser-list))))
+               (server (cond
+                        ((bound-and-true-p eglot--managed-mode) "eglot")
+                        ((bound-and-true-p lsp-mode) "lsp-mode")
+                        (t nil))))
+          (json-encode
+           `((ok . t)
+             (buffer_name . ,(buffer-name buffer))
+             (file_path . ,(buffer-file-name buffer))
+             (major_mode . ,(symbol-name major-mode))
+             (active_minor_modes . ,(vconcat (mapcar #'symbol-name
+                                                     local-minor-modes)))
+             (global_minor_modes . ,(vconcat (mapcar #'symbol-name
+                                                     global-minor-modes)))
+             (language_server . ,server)
+             (tree_sitter_languages . ,(vconcat parsers))
+             (flycheck_enabled . ,(ai-code-mcp--json-bool
+                                   (bound-and-true-p flycheck-mode)))
+             (flymake_enabled . ,(ai-code-mcp--json-bool
+                                  (bound-and-true-p flymake-mode)))
+             (hook_name . ,hook-name)
+             (hook_bound . ,(ai-code-mcp--json-bool hook-bound))
+             (hook_buffer_local . ,(ai-code-mcp--json-bool hook-local))
+             (hook_functions . ,(ai-code-mcp-debug-tools--hook-function-names
+                                 hook-value))
+             ;; A local `t' entry runs the global value too; list it so
+             ;; agents see every function the hook actually calls.
+             (hook_global_functions
+              . ,(ai-code-mcp-debug-tools--hook-function-names
+                  (and inherits-global (default-value hook)))))))))))
 
 (defun ai-code-mcp-get-recent-messages (&optional limit)
   "Return a JSON payload for recent messages using LIMIT."

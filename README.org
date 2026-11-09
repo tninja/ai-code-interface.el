@@ -381,7 +381,7 @@ These tools add:
 - =get_function_info=: inspect function metadata such as kind, aliasing, and advice state
 - =get_feature_load_state=: inspect whether an Emacs feature is loaded and where it comes from
 - =get_recent_messages=: return the latest lines from =*Messages*=
-- =get_buffer_runtime_state=: inspect a live buffer's major/minor modes, Flymake/Flycheck activity, Eglot/LSP and tree-sitter status, plus an optional named hook's function names (no hook execution)
+- =get_buffer_runtime_state=: inspect a live buffer's major mode, buffer-local and global minor modes, Flymake/Flycheck activity, Eglot/LSP and tree-sitter status, plus an optional named hook's function names including inherited global entries (no hook execution)
 - =get_last_error_backtrace=: return the most recently recorded Emacs command error snapshot
 - =eval_elisp=: evaluate arbitrary Emacs Lisp with possible side effects in a chosen buffer context when explicitly enabled (no restrictions once enabled)
 
