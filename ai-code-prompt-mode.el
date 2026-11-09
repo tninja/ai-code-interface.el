@@ -89,6 +89,25 @@ This controls prompt additions, not agent permissions or filesystem access."
           (or ai-code--suppress-org-summary-prompt (not ,org-summary))))
      ,@body))
 
+(defconst ai-code--org-summary-traceability-instruction
+  (concat
+   "\n\nOn the newly appended Org result-summary subheading, include "
+   "one inactive Org timestamp in the heading, formatted as "
+   "[YYYY-MM-DD Day HH:MM] (with actual values, not placeholders). "
+   "Read the local system clock when you write the summary, not when "
+   "this prompt is sent, so it records the result's writeback time. "
+   "Do not guess the time; if the clock is unavailable, explicitly "
+   "state that the timestamp is unavailable rather than inventing one. "
+   "Include clickable Org links for material original-source URLs, "
+   "using [[URL][short description]] with real URLs (for example "
+   "GitHub PRs, Slack threads, and linked logs), alongside concise "
+   "context. Preserve original URLs and IDs without converting "
+   "unverified identifiers into invented links. Do not invent source "
+   "links or duplicate references already recorded in the task. "
+   "Keep all of this within the same result-summary subheading; "
+   "do not create a separate metadata section or change prior notes.")
+  "Timestamp and source-link guidance for opted-in Org summaries.")
+
 (defconst ai-code--org-summary-evidence-instruction
   (concat
    "\n\nWhen writing that same result-summary subheading, automatically "
@@ -850,6 +869,7 @@ use the command path when no alternate transport is supplied."
                                         (plist-get anchor :end-line))
                               (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
                                       buffer-file-name (line-number-at-pos)))
+                            ai-code--org-summary-traceability-instruction
                             ai-code--org-summary-evidence-instruction
                             ai-code--org-summary-artifacts-instruction)
                   processed-prompt)))
