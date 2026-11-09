@@ -96,6 +96,24 @@ be a non-negative integer."
   :type '(choice (const :tag "No limit" nil) natnum)
   :group 'ai-code-mcp-server)
 
+(defcustom ai-code-mcp-buffer-query-default-max-chars 16000
+  "Default output cap for `buffer_query' when the caller sets no limit.
+A whole-buffer read with no `max_chars' is capped at this many
+characters and explicitly marked truncated, so one call on a large
+buffer (a log, *Messages*, a data file) cannot overflow the model
+context.  Set to nil to restore uncapped whole-buffer reads."
+  :type '(choice (const :tag "No default limit" nil) natnum)
+  :group 'ai-code-mcp-server)
+
+(defcustom ai-code-mcp-project-files-max-report 1000
+  "Maximum number of files listed by the `get_project_files' tool.
+When a project has more files, the report is truncated to this many
+entries and a final marker entry records the true total.  Set to nil
+to disable truncation; otherwise the value must be a non-negative
+integer."
+  :type '(choice (const :tag "No limit" nil) natnum)
+  :group 'ai-code-mcp-server)
+
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to session metadata.")
 
@@ -672,6 +690,8 @@ exclusive end position.  MAX-CHARS optionally caps the returned text."
     (when (and max-chars
                (not (and (integerp max-chars) (> max-chars 0))))
       (user-error "max_chars must be a positive integer"))
+    (setq max-chars (or max-chars
+                        ai-code-mcp-buffer-query-default-max-chars))
     (with-current-buffer buffer
       (let* ((exact (or start-column end-line end-column))
              (text
@@ -1479,12 +1499,22 @@ Accepts local file URIs with no authority or with localhost authority."
           (collect-files project-root)))))
 
 (defun ai-code-mcp-get-project-files ()
-  "Return regular files in the current project as relative paths."
+  "Return regular files in the current project as relative paths.
+The report is capped at `ai-code-mcp-project-files-max-report'
+entries; a final marker entry records the true total when the
+project has more files than the cap."
   (let ((project-dir (ai-code-mcp--project-directory)))
     (if (not (and project-dir (file-directory-p project-dir)))
         nil
-      (mapcar #'ai-code-mcp--display-path
-              (ai-code-mcp--project-files project-dir)))))
+      (let* ((files (mapcar #'ai-code-mcp--display-path
+                            (ai-code-mcp--project-files project-dir)))
+             (limit ai-code-mcp-project-files-max-report)
+             (total (length files)))
+        (if (and limit (> total limit))
+            (append (seq-take files limit)
+                    (list (format "[truncated: showing %d of %d project files]"
+                                  limit total)))
+          files)))))
 
 (defun ai-code-mcp-get-project-buffers ()
   "Return open buffers that belong to the current project."
@@ -1828,15 +1858,34 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   "Return an MCP semantic error result for ERR."
   (let* ((message (error-message-string err))
          (structured
-          `((error . ((type . "tool_execution_error")
+          `((ok . :json-false)
+            (error . ((type . "tool_execution_error")
                       (message . ,message))))))
     (ai-code-mcp--complete-result
      `((content . (((type . "text") (text . ,message))))
        (structuredContent . ,structured)
        (isError . t)))))
 
+(defun ai-code-mcp--json-object-alist-p (value)
+  "Return non-nil when VALUE is an alist shaped like a JSON object.
+Every element must be a cons whose key is a symbol or a string.  A
+list of per-item alists (for example one entry per open buffer) is
+not a JSON object and returns nil, so callers can wrap it as items
+instead of emitting an array where MCP requires an object."
+  (and (consp value)
+       (seq-every-p
+        (lambda (element)
+          (and (consp element)
+               (or (symbolp (car element)) (stringp (car element)))))
+        value)))
+
 (defun ai-code-mcp--structured-content (value)
-  "Return object-shaped structured content for tool VALUE."
+  "Return object-shaped structured content for tool VALUE.
+Every tool result is normalized to the same envelope: a JSON object
+that always carries an `ok' field.  Tool results that are already
+JSON objects keep their own fields (including their own `ok'); JSON
+arrays and lists of records become `items'; plain text becomes
+`text'; any other scalar becomes `value'."
   (cond
    ((stringp value)
     (condition-case nil
@@ -1847,16 +1896,31 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
                        :null-object :null
                        :false-object :json-false)))
           (cond
-           ((and (listp parsed) (seq-every-p #'consp parsed)) parsed)
+           ((ai-code-mcp--json-object-alist-p parsed) parsed)
            ((and (null parsed)
                  (string-match-p "\\`[[:space:]]*{" value))
             (ai-code-mcp--empty-object))
-           (t `((value . ,parsed)))))
-      (json-parse-error `((text . ,value)))))
+           ((vectorp parsed) `((ok . t) (items . ,parsed)))
+           (t `((ok . t) (value . ,parsed)))))
+      ;; Truncated or malformed JSON-looking text (for example a cut
+      ;; printed string) signals `json-end-of-file', not
+      ;; `json-parse-error'; both just mean "treat it as plain text".
+      ((json-parse-error json-end-of-file)
+       `((ok . t) (text . ,value)))))
    ((hash-table-p value) value)
-   ((and (listp value) (seq-every-p #'consp value)) value)
-   ((listp value) `((items . ,(vconcat value))))
-   (t `((value . ,value)))))
+   ((null value) `((ok . t) (value . :null)))
+   ((ai-code-mcp--json-object-alist-p value) value)
+   ((listp value) `((ok . t) (items . ,(vconcat value))))
+   ((vectorp value) `((ok . t) (items . ,value)))
+   (t `((ok . t) (value . ,value)))))
+
+(defconst ai-code-mcp--envelope-output-schema
+  '((type . "object")
+    (properties . ((ok . ((type . "boolean")))))
+    (additionalProperties . t))
+  "Output schema every tool result satisfies after envelope normalization.
+Structured content is always a JSON object; `ok' is present unless
+the tool supplies its own richer object schema and result shape.")
 
 (defun ai-code-mcp--tool-to-mcp (tool)
   "Convert TOOL spec into MCP tool metadata."
@@ -1872,8 +1936,8 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
                     (required . ,(vconcat
                                   (ai-code-mcp--required-args
                                    (plist-get tool :args))))))
-    ,@(when-let ((output-schema (plist-get tool :output-schema)))
-        `((outputSchema . ,output-schema)))))
+    (outputSchema . ,(or (plist-get tool :output-schema)
+                         ai-code-mcp--envelope-output-schema))))
 
 (defun ai-code-mcp--empty-object ()
   "Return an empty JSON object placeholder."
@@ -1943,10 +2007,12 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
       default-directory))
 
 (defun ai-code-mcp--count-project-files (project-dir)
-  "Count regular files inside PROJECT-DIR."
+  "Count regular files inside PROJECT-DIR.
+Reuse `ai-code-mcp--project-files' so the count matches what
+`get_project_files' reports (project ignores applied, no `.git'
+internals) instead of walking the whole directory tree again."
   (if (and project-dir (file-directory-p project-dir))
-      (length (seq-filter #'file-regular-p
-                          (directory-files-recursively project-dir ".*" t)))
+      (length (ai-code-mcp--project-files project-dir))
     0))
 
 (defun ai-code-mcp--display-path (file-path)

@@ -1848,6 +1848,75 @@ the full diagnostics list is intentionally omitted from the response."
       (ai-code-mcp-unregister-session "key-inspection-dead")
       (when (buffer-live-p source) (kill-buffer source)))))
 
+(ert-deftest ai-code-test-mcp-envelope-wraps-record-lists-as-items ()
+  "A list of record alists is not a JSON object; wrap it as items."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-make-tool
+     :function (lambda () '(((name . "a.el") (modified . :json-false))
+                            ((name . "b.el") (modified . t))))
+     :name "envelope_records"
+     :description "Return a list of records."
+     :args nil)
+    (let* ((result (ai-code-mcp-dispatch
+                    "tools/call"
+                    '((name . "envelope_records") (arguments . ()))))
+           (structured (alist-get 'structuredContent result)))
+      (should (eq t (alist-get 'ok structured)))
+      (should (= 2 (length (alist-get 'items structured))))
+      (should (equal "a.el"
+                     (alist-get 'name
+                                (aref (alist-get 'items structured) 0)))))))
+
+(ert-deftest ai-code-test-mcp-envelope-wraps-plain-text-and-advertises-schema ()
+  "Plain text results become an object envelope with a declared schema."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-builtins-setup)
+    (let* ((tools (alist-get 'tools (ai-code-mcp-dispatch "tools/list")))
+           (project-tool (seq-find
+                          (lambda (tool)
+                            (equal "project_info" (alist-get 'name tool)))
+                          tools))
+           (schema (alist-get 'outputSchema project-tool)))
+      (should (equal "object" (alist-get 'type schema)))
+      (should (alist-get 'ok (alist-get 'properties schema))))
+    (let* ((result (ai-code-mcp-dispatch
+                    "tools/call"
+                    '((name . "project_info") (arguments . ()))))
+           (structured (alist-get 'structuredContent result)))
+      (should (eq t (alist-get 'ok structured)))
+      (should (stringp (alist-get 'text structured))))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-default-cap-truncates ()
+  "Whole-buffer reads without max_chars use the default cap."
+  (let ((ai-code-mcp-buffer-query-default-max-chars 10))
+    (with-temp-buffer
+      (insert "0123456789ABCDEF")
+      (should (equal "0123456789\n[truncated; request a smaller buffer range]"
+                     (ai-code-mcp-buffer-query (buffer-name)))))))
+
+(ert-deftest ai-code-test-mcp-get-project-files-truncates-with-marker ()
+  "Project file reports are capped with a marker naming the true total."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-project-files-cap-" t))
+         (buffer (generate-new-buffer " *ai-code-mcp-project-files-cap*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-project-files-cap")
+         (ai-code-mcp-project-files-max-report 2))
+    (unwind-protect
+        (progn
+          (dolist (name '("a.el" "b.el" "c.el"))
+            (with-temp-file (expand-file-name name project-dir)
+              (insert "(message \"x\")\n")))
+          (ai-code-mcp-register-session
+           "session-project-files-cap" project-dir buffer)
+          (let ((files (ai-code-mcp-get-project-files)))
+            (should (= 3 (length files)))
+            (should (string-match-p
+                     "\\[truncated: showing 2 of 3 project files\\]"
+                     (car (last files))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory project-dir t))))
+
 (provide 'test_ai-code-mcp-server)
 
 ;;; test_ai-code-mcp-server.el ends here

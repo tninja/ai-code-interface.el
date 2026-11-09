@@ -753,6 +753,48 @@
       (goto-char (point-min))
       (should (search-forward option nil t)))))
 
+(defvar ai-code-test-mcp--long-value nil
+  "Fixture variable holding a long value for truncation tests.")
+
+(defvar ai-code-test-mcp--circular-value nil
+  "Fixture variable holding a circular value for printer tests.")
+
+(ert-deftest ai-code-test-mcp-get-variable-value-truncates-long-values ()
+  "Variable values are capped so a huge value cannot flood the agent."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (ai-code-test-mcp--long-value (make-string 3000 ?x)))
+    (let ((result (ai-code-mcp-dispatch
+                   "tools/call"
+                   '((name . "get_variable_value")
+                     (arguments
+                      . ((variable_name
+                          . "ai-code-test-mcp--long-value")))))))
+      (let ((text (ai-code-test-mcp-debug-tools--content-text result)))
+        (should (<= (length text)
+                    (+ ai-code-mcp-debug-tools-max-value-chars
+                       (length "...[truncated]"))))
+        (should (string-suffix-p "...[truncated]" text))))))
+
+(ert-deftest ai-code-test-mcp-get-variable-value-handles-circular-values ()
+  "Circular values print with shared-structure notation, not forever."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t)
+        (cycle (list 1 2)))
+    (setcdr (cdr cycle) cycle)
+    (setq ai-code-test-mcp--circular-value cycle)
+    (unwind-protect
+        (let ((result (ai-code-mcp-dispatch
+                       "tools/call"
+                       '((name . "get_variable_value")
+                         (arguments
+                          . ((variable_name
+                              . "ai-code-test-mcp--circular-value")))))))
+          (should (string-match-p
+                   "#1#"
+                   (ai-code-test-mcp-debug-tools--content-text result))))
+      (setq ai-code-test-mcp--circular-value nil))))
+
 (provide 'test_ai-code-mcp-debug-tools)
 
 ;;; test_ai-code-mcp-debug-tools.el ends here
