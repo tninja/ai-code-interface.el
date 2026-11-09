@@ -80,5 +80,21 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
         (ai-code--insert-prompt "Review this function."))
       (should (equal sent "Review this function.")))))
 
+(ert-deftest ai-code-test-summary-artifacts-timestamp-records-writeback-time ()
+  "Opted-in results request a visible Org timestamp from the writeback time."
+  (let ((prompt (ai-code-test-summary-artifacts--send t)))
+    (should (string-search "inactive Org timestamp" prompt))
+    (should (string-search "[YYYY-MM-DD Day HH:MM]" prompt))
+    (should (string-search "when you write the summary" prompt))
+    (should (string-search "not when this prompt is sent" prompt))
+    (should (string-search "timestamp is unavailable" prompt))))
+
+(ert-deftest ai-code-test-summary-artifacts-timestamp-with-anchored-section ()
+  "An anchored section gets the same timestamp rules as ordinary summaries."
+  (let ((prompt (ai-code-test-summary-artifacts--send
+                 t '(:name "Fix config merge" :end-line 2))))
+    (should (string-search "end of section \\"Fix config merge\\"" prompt))
+    (should (string-search "inactive Org timestamp" prompt))))
+
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here
