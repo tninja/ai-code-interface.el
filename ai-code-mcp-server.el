@@ -143,7 +143,7 @@ baseline in the model context itself.")
      :args nil)
     (:function ai-code-mcp-buffer-query
      :name "buffer_query"
-     :description "Read contents from an Emacs buffer by line range."
+     :description "Read live buffer text: whole buffer, a line range, or an exact line/column range."
      :args ((:name "buffer_name"
              :type string
              :description "Name of the buffer to read.")
@@ -153,7 +153,23 @@ baseline in the model context itself.")
              :optional t)
             (:name "num_lines"
              :type integer
-             :description "Number of lines to read from start_line."
+             :description "Number of lines to read from start_line (not used for exact ranges)."
+             :optional t)
+            (:name "start_column"
+             :type integer
+             :description "Optional 0-based display column for an exact range; requires start_line, end_line, end_column."
+             :optional t)
+            (:name "end_line"
+             :type integer
+             :description "Optional 1-based exclusive end line for an exact range."
+             :optional t)
+            (:name "end_column"
+             :type integer
+             :description "Optional 0-based exclusive end column for an exact range."
+             :optional t)
+            (:name "max_chars"
+             :type integer
+             :description "Optional positive output character limit; truncated responses are explicitly marked."
              :optional t)))
     (:function ai-code-mcp-get-key-binding-info
      :name "get_key_binding_info"
@@ -488,12 +504,15 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
       (frame-root-window)))
 
 (defun ai-code-mcp--point-line-column (buffer point)
-  "Return line and column for POINT in BUFFER."
+  "Return line and column for POINT in BUFFER.
+Coordinates ignore narrowing so they match `buffer_query' exact ranges."
   (with-current-buffer buffer
     (save-excursion
-      (goto-char point)
-      `((line . ,(line-number-at-pos))
-        (column . ,(current-column))))))
+      (save-restriction
+        (widen)
+        (goto-char point)
+        `((line . ,(line-number-at-pos))
+          (column . ,(current-column)))))))
 
 (defun ai-code-mcp--region-state (buffer point)
   "Return region metadata for BUFFER at POINT."
@@ -548,7 +567,22 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
             (column . ,(alist-get 'column position))
             (region_active . ,(alist-get 'region_active region-state))
             (region . ,(alist-get 'region region-state))
-            (default_directory . ,default-directory)))))))
+            (default_directory . ,default-directory)
+            (snapshot_captured_at
+             . ,(and (eq buffer source-buffer)
+                     source-snapshot
+                     (float-time (plist-get source-snapshot :captured-at))))
+            (snapshot_modification_tick
+             . ,(and (eq buffer source-buffer)
+                     source-snapshot
+                     (plist-get source-snapshot :modification-tick)))
+            (current_modification_tick . ,(buffer-chars-modified-tick))
+            (snapshot_stale
+             . ,(ai-code-mcp--json-bool
+                 (and (eq buffer source-buffer)
+                      source-snapshot
+                      (/= (plist-get source-snapshot :modification-tick)
+                          (buffer-chars-modified-tick)))))))))))
 
 (defun ai-code-mcp-editor-state ()
   "Return a JSON payload for the current editor state."
@@ -582,15 +616,41 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
        (selected_index . ,selected-index)
        (items . ,(vconcat entries))))))
 
-(defun ai-code-mcp--validate-buffer-query-range (start-line num-lines)
-  "Validate optional buffer query range arguments START-LINE and NUM-LINES."
-  (when (or (and start-line (not num-lines))
-            (and num-lines (not start-line)))
-    (error "Arguments start_line and num_lines must both be provided or both be omitted"))
-  (when (and start-line
-             (or (< start-line 1)
-                 (< num-lines 1)))
-    (error "Arguments start_line and num_lines must be positive integers")))
+(defun ai-code-mcp--validate-buffer-query-range
+    (start-line num-lines &optional start-column end-line end-column)
+  "Validate legacy line range or exact coordinates for a buffer query."
+  (let ((exact (or start-column end-line end-column)))
+    (if exact
+        (unless (and (null num-lines)
+                     (integerp start-line) (> start-line 0)
+                     (integerp start-column) (>= start-column 0)
+                     (integerp end-line) (> end-line 0)
+                     (integerp end-column) (>= end-column 0)
+                     (or (> end-line start-line)
+                         (and (= end-line start-line)
+                              (>= end-column start-column))))
+          (user-error "Exact range needs start_line, start_column, end_line and end_column (no num_lines)"))
+      (when (or (and start-line (not num-lines))
+                (and num-lines (not start-line)))
+        (user-error "start_line and num_lines must both be provided or omitted"))
+      (when (and start-line
+                 (or (not (integerp start-line)) (not (integerp num-lines))
+                     (< start-line 1) (< num-lines 1)))
+        (user-error "start_line and num_lines must be positive integers")))))
+
+(defun ai-code-mcp--strict-buffer-position (line column)
+  "Return the buffer position at LINE and display COLUMN, or reject it.
+The caller widens the buffer so coordinates match the file's line numbers."
+  (save-excursion
+    (goto-char (point-min))
+    (unless (zerop (forward-line (1- line)))
+      (user-error "Line %d is outside the buffer" line))
+    (let ((end (line-end-position)))
+      (move-to-column column)
+      (unless (and (= (current-column) column)
+                   (<= (point) end))
+        (user-error "Column %d is outside line %d" column line)))
+    (point)))
 
 (defun ai-code-mcp--drop-trailing-newline (text)
   "Return TEXT without a single trailing newline."
@@ -598,23 +658,44 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
       (substring text 0 -1)
     text))
 
-(defun ai-code-mcp-buffer-query (buffer-name &optional start-line num-lines)
-  "Return contents from BUFFER-NAME.
-When START-LINE and NUM-LINES are non-nil, return only that line range."
+(defun ai-code-mcp-buffer-query
+    (buffer-name &optional start-line num-lines start-column end-line end-column
+                 max-chars)
+  "Return live BUFFER-NAME text, supporting legacy lines or exact ranges.
+Exact ranges use 1-based lines and 0-based display columns, with an
+exclusive end position.  MAX-CHARS optionally caps the returned text."
   (let ((buffer (get-buffer buffer-name)))
-    (if (not buffer)
-        (format "Error: Buffer not found: %s" buffer-name)
-      (ai-code-mcp--validate-buffer-query-range start-line num-lines)
-      (with-current-buffer buffer
-        (save-excursion
-          (if (not start-line)
-              (buffer-substring-no-properties (point-min) (point-max))
-            (goto-char (point-min))
-            (forward-line (1- start-line))
-            (let ((start-pos (point)))
-              (forward-line num-lines)
-              (ai-code-mcp--drop-trailing-newline
-               (buffer-substring-no-properties start-pos (point))))))))))
+    (unless buffer
+      (user-error "Buffer not found: %s" buffer-name))
+    (ai-code-mcp--validate-buffer-query-range
+     start-line num-lines start-column end-line end-column)
+    (when (and max-chars
+               (not (and (integerp max-chars) (> max-chars 0))))
+      (user-error "max_chars must be a positive integer"))
+    (with-current-buffer buffer
+      (let* ((exact (or start-column end-line end-column))
+             (text
+              (save-excursion
+                (if exact
+                    (save-restriction
+                      (widen)
+                      (let ((start (ai-code-mcp--strict-buffer-position
+                                    start-line start-column))
+                            (end (ai-code-mcp--strict-buffer-position
+                                  end-line end-column)))
+                        (buffer-substring-no-properties start end)))
+                  (if (not start-line)
+                      (buffer-substring-no-properties (point-min) (point-max))
+                    (goto-char (point-min))
+                    (forward-line (1- start-line))
+                    (let ((start (point)))
+                      (forward-line num-lines)
+                      (ai-code-mcp--drop-trailing-newline
+                       (buffer-substring-no-properties start (point)))))))))
+        (if (and max-chars (> (length text) max-chars))
+            (concat (substring text 0 max-chars)
+                    "\n[truncated; request a smaller buffer range]")
+          text)))))
 
 
 (defun ai-code-mcp--key-binding-map-source (map)
