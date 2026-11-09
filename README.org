@@ -363,6 +363,7 @@ AI Code includes an Emacs MCP server with these built-in tools:
 - =get_project_files=: list regular files in the current project
 - =get_project_buffers=: list open buffers that belong to the current project
 - =imenu_list_symbols=: list useful symbols from a file via imenu
+- =get_org_heading_context=: read the current Org heading, TODO/properties/parents, raw original text and URLs (including Radar/Slack/GitHub/Splunk links), defaulting to the captured prompt origin (with a =snapshot_stale= flag after later edits); optional child headings and bounded output, with references taken from the full section
 - =xref_find_references=: find references to an identifier in project context
 - =xref_find_definitions_at_point=: find definitions at a file location
 - =treesit_info=: inspect tree-sitter node information for a file location
