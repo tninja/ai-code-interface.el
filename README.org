@@ -603,13 +603,10 @@ guarantee.
 
 The new result heading also identifies its AI author. The agent is asked
 to prefix its result title with its actual name (or =AI= if unknown), add
-the =:AI_GENERATED:= Org tag, and store the =:AI_AGENT:= property. For example:
+the =:AI_GENERATED:= Org tag. No property drawer is added:
 
 #+begin_example
 ** CODEX Result Summary [2026-11-09 Mon 14:30] :AI_GENERATED:
-:PROPERTIES:
-:AI_AGENT: Codex
-:END:
 #+end_example
 
 If =CODEX= is already among the file's configured Org TODO keywords, Org
