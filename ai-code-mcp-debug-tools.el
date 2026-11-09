@@ -15,6 +15,9 @@
 
 (declare-function ai-code-mcp-make-tool "ai-code-mcp-server")
 (declare-function ai-code-mcp-get-session-context "ai-code-mcp-server")
+(declare-function eglot-managed-p "eglot")
+(declare-function treesit-parser-list "treesit")
+(declare-function treesit-parser-language "treesit")
 
 (defgroup ai-code-mcp-debug-tools nil
   "Optional MCP debugging tools."
@@ -79,7 +82,7 @@
              :optional t)
             (:name "hook_name"
              :type string
-             :description "Optional name of a specific -hook variable to inspect."
+             :description "Optional hook variable ending in -hook, -hooks or -functions."
              :optional t)))
     (:function ai-code-mcp-get-recent-messages
      :name "get_recent_messages"
@@ -613,6 +616,19 @@ existing bound variable."
                 (t "<unknown-hook-entry>")))
              entries))))
 
+(defun ai-code-mcp-debug-tools--treesit-languages ()
+  "Return the unique language names of every tree-sitter parser here."
+  (when (and (fboundp 'treesit-parser-list)
+             (fboundp 'treesit-parser-language))
+    (delete-dups
+     (mapcar (lambda (parser)
+               (symbol-name (treesit-parser-language parser)))
+             ;; Emacs 30+ hides tagged parsers unless TAG is t; Emacs 29
+             ;; only accepts BUFFER.  `apply' avoids an arity warning there.
+             (condition-case nil
+                 (apply #'treesit-parser-list '(nil nil t))
+               (wrong-number-of-arguments (treesit-parser-list)))))))
+
 (defun ai-code-mcp-get-buffer-runtime-state (&optional buffer-name hook-name)
   "Report live buffer-local modes and an optional named HOOK-NAME.
 Use BUFFER-NAME or the MCP prompt-origin buffer.  Never invoke hooks,
@@ -620,8 +636,9 @@ load language servers, or print closure contents."
   (ai-code-mcp-debug-tools--require-enabled)
   (when (and hook-name
              (not (and (stringp hook-name)
-                       (string-suffix-p "-hook" hook-name))))
-    (user-error "hook_name must end in -hook"))
+                       (string-match-p "-\\(?:hooks?\\|functions\\)\\'"
+                                       hook-name))))
+    (user-error "hook_name must end in -hook, -hooks or -functions"))
   (let* ((context (ai-code-mcp-get-session-context))
          (source (plist-get context :source-buffer))
          (buffer (cond
@@ -643,13 +660,9 @@ load language servers, or print closure contents."
                (inherits-global (and hook-local
                                      (listp hook-value)
                                      (memq t hook-value)))
-               (parsers (when (and (fboundp 'treesit-parser-list)
-                                   (fboundp 'treesit-parser-language))
-                          (mapcar (lambda (parser)
-                                    (symbol-name (treesit-parser-language parser)))
-                                  (treesit-parser-list))))
                (server (cond
-                        ((bound-and-true-p eglot--managed-mode) "eglot")
+                        ((and (fboundp 'eglot-managed-p) (eglot-managed-p))
+                         "eglot")
                         ((bound-and-true-p lsp-mode) "lsp-mode")
                         (t nil))))
           (json-encode
@@ -662,21 +675,28 @@ load language servers, or print closure contents."
              (global_minor_modes . ,(vconcat (mapcar #'symbol-name
                                                      global-minor-modes)))
              (language_server . ,server)
-             (tree_sitter_languages . ,(vconcat parsers))
+             (tree_sitter_languages
+              . ,(vconcat (ai-code-mcp-debug-tools--treesit-languages)))
              (flycheck_enabled . ,(ai-code-mcp--json-bool
                                    (bound-and-true-p flycheck-mode)))
              (flymake_enabled . ,(ai-code-mcp--json-bool
                                   (bound-and-true-p flymake-mode)))
+             ;; Hook fields are null when no hook was requested.
              (hook_name . ,hook-name)
-             (hook_bound . ,(ai-code-mcp--json-bool hook-bound))
-             (hook_buffer_local . ,(ai-code-mcp--json-bool hook-local))
-             (hook_functions . ,(ai-code-mcp-debug-tools--hook-function-names
-                                 hook-value))
+             (hook_bound . ,(and hook-name
+                                 (ai-code-mcp--json-bool hook-bound)))
+             (hook_buffer_local . ,(and hook-name
+                                        (ai-code-mcp--json-bool hook-local)))
+             (hook_functions
+              . ,(and hook-name
+                      (ai-code-mcp-debug-tools--hook-function-names
+                       hook-value)))
              ;; A local `t' entry runs the global value too; list it so
              ;; agents see every function the hook actually calls.
              (hook_global_functions
-              . ,(ai-code-mcp-debug-tools--hook-function-names
-                  (and inherits-global (default-value hook)))))))))))
+              . ,(and hook-name
+                      (ai-code-mcp-debug-tools--hook-function-names
+                       (and inherits-global (default-value hook))))))))))))
 
 (defun ai-code-mcp-get-recent-messages (&optional limit)
   "Return a JSON payload for recent messages using LIMIT."
