@@ -125,6 +125,24 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
     (should (string-match-p "unresolved feedback" feedback))
     (should (string-match-p "CI checks" ci))))
 
+(ert-deftest ai-code-test-pr-review-prompt-has-single-numbered-step-list ()
+  "The review prompt should number its steps once, ending with the analysis note.
+Two overlapping lists would give the agent conflicting reporting rules."
+  (let ((prompt (ai-code--build-pr-review-init-prompt
+                 'gh-cli "https://github.com/acme/demo/pull/123"))
+        (numbers nil)
+        (start 0))
+    (while (string-match "^\\([0-9]+\\)\\. " prompt start)
+      (push (string-to-number (match-string 1 prompt)) numbers)
+      (setq start (match-end 0)))
+    (setq numbers (nreverse numbers))
+    (should (equal numbers (number-sequence 1 (length numbers))))
+    (should (string-match-p
+             (concat "^" (number-to-string (length numbers)) "\\. "
+                     (regexp-quote ai-code-github--analysis-only-note) "$")
+             prompt))
+    (should (string-match-p "overall assessment" prompt))))
+
 (ert-deftest ai-code-test-pull-or-review-diff-file-grills-only-selected-review-modes ()
   "Only selected GitHub review modes should offer the Grill harness."
   (dolist (review-mode-choice '("Investigate issue"

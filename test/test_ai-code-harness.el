@@ -769,8 +769,9 @@ This guards against drift when a new review mode is added."
           (ai-code--build-pr-review-init-prompt 'gh-cli "https://example.test/pull/1"))
          (edited
           (replace-regexp-in-string
-           (concat "^4\\. " (regexp-quote ai-code-github--analysis-only-note) "\n")
-           "4. Fix every issue you find and add unit tests for it.\n"
+           (concat "^\\([0-9]+\\)\\. "
+                   (regexp-quote ai-code-github--analysis-only-note) "$")
+           "\\1. Fix every issue you find and add unit tests for it."
            generated)))
     (should-not (string-equal generated edited))
     ;; The workflow variable stays bound, as it does during `ai-code--confirm-and-send'.
