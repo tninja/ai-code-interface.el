@@ -619,6 +619,13 @@ TODO states, or human-authored notes. The format is prompt-directed,
 not guaranteed by Emacs. Original source references still use the
 existing evidence instruction described below.
 
+The detailed headline, evidence and artifact rules live in
+=prompt/org-result-summary.v1.md=. When the summary is accepted, the
+prompt references that bundled file via =@path= instead of expanding
+the full guidance inline. The AI CLI must be able to read the installed
+package's =prompt/= directory; if the file is missing or unreadable,
+AI Code reports an error rather than quietly dropping these rules.
+
 Evidence from original requirements (Slack threads, Radar tickets,
 GitHub discussions, meeting notes), operational observations (Splunk
 queries, time ranges, logs), code/file locations and verification

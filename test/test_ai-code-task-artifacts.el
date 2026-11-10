@@ -38,28 +38,39 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
       (should-not (buffer-modified-p))
       sent)))
 
+(defun ai-code-test-summary-artifacts--guidance ()
+  "Read the bundled Org result-summary guidance used by the prompt."
+  (with-temp-buffer
+    (insert-file-contents (ai-code--org-summary-guidance-path))
+    (buffer-string)))
+
 (ert-deftest ai-code-test-summary-artifacts-automatic-when-accepted ()
   "Append artifact collection instructions as part of the same summary."
   (let ((prompt (ai-code-test-summary-artifacts--send t)))
     (should (string-match-p "After completing, append a concise result summary" prompt))
-    (should (string-suffix-p ai-code--org-summary-artifacts-instruction prompt))))
+    (should (string-suffix-p (ai-code--org-summary-reference-instruction) prompt))
+    (should (string-match-p "org-result-summary\\.v1\\.md" prompt))
+    (should-not (string-search "When writing that same result-summary" prompt))
+    (should (< (- (length prompt)
+                  (length (ai-code-test-summary-artifacts--send nil)))
+               900))))
 
 (ert-deftest ai-code-test-summary-artifacts-guards-git-and-pr-head ()
   "Git reads are conditional and a remote PR head is never local HEAD."
   (let ((case-fold-search nil))
     (should (string-match-p "If this task changed code, read Git"
-                            ai-code--org-summary-artifacts-instruction))
+                            (ai-code-test-summary-artifacts--guidance)))
     (should (string-match-p "not local HEAD"
-                            ai-code--org-summary-artifacts-instruction))
+                            (ai-code-test-summary-artifacts--guidance)))
     (should-not (string-match-p "completing the implementation"
-                                ai-code--org-summary-artifacts-instruction))))
+                                (ai-code-test-summary-artifacts--guidance)))))
 
 (ert-deftest ai-code-test-summary-artifacts-with-section-anchor ()
   "An anchored summary, as used by Verify, also gets artifact guidance."
   (let ((prompt (ai-code-test-summary-artifacts--send
                  t '(:name "Fix config merge" :end-line 2))))
     (should (string-match-p "end of section \"Fix config merge\"" prompt))
-    (should (string-suffix-p ai-code--org-summary-artifacts-instruction prompt))))
+    (should (string-suffix-p (ai-code--org-summary-reference-instruction) prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-not-requested ()
   "Declining summary means no artifact writeback and no extra menu."
@@ -82,45 +93,49 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
 
 (ert-deftest ai-code-test-summary-artifacts-timestamp-records-writeback-time ()
   "Opted-in results request a timestamp below a specific Org headline."
-  (let ((prompt (ai-code-test-summary-artifacts--send t)))
+  (let ((prompt (ai-code-test-summary-artifacts--send t))
+        (guidance (ai-code-test-summary-artifacts--guidance)))
+    (should (string-match-p "org-result-summary\\.v1\\.md" prompt))
     (should (string-search
              (concat "** AI Fixed config merge precedence :CODEX:\n"
-                     "[YYYY-MM-DD Day HH:MM]") prompt))
-    (should (string-search "first content line directly" prompt))
-    (should (string-search "at summary writeback time" prompt))
-    (should (string-search "not at prompt-send time" prompt))
-    (should (string-search "timestamp is unavailable" prompt))))
+                     "[YYYY-MM-DD Day HH:MM]") guidance))
+    (should (string-search "first content line directly" guidance))
+    (should (string-match-p "at summary[[:space:]]+writeback time" guidance))
+    (should (string-search "not at prompt-send time" guidance))
+    (should (string-search "timestamp is unavailable" guidance))))
 
 (ert-deftest ai-code-test-summary-artifacts-timestamp-with-anchored-section ()
   "An anchored summary gets the same headline and timestamp guidance."
   (let ((prompt (ai-code-test-summary-artifacts--send
-                 t '(:name "Fix config merge" :end-line 2))))
+                 t '(:name "Fix config merge" :end-line 2)))
+        (guidance (ai-code-test-summary-artifacts--guidance)))
     (should (string-search "end of section \"Fix config merge\"" prompt))
     (should (string-search
              (concat "** AI Fixed config merge precedence :CODEX:\n"
-                     "[YYYY-MM-DD Day HH:MM]") prompt))))
+                     "[YYYY-MM-DD Day HH:MM]") guidance))))
 
 (ert-deftest ai-code-test-summary-artifacts-ai-authorship-is-marked ()
   "Result subheadings use AI as keyword, agent as tag, and specific titles."
-  (let ((prompt (ai-code-test-summary-artifacts--send t)))
-    (should (string-search "task-specific title" prompt))
-    (should (string-search "actual outcome" prompt))
-    (should (string-search "Do not use generic" prompt))
-    (should (string-search "do not claim a fix" prompt))
-    (should (string-search "org-todo-keywords" prompt))
-    (should (string-search ":CLAUDE_CODE:" prompt))
-    (should (string-search ":GEMINI:" prompt))
-    (should (string-search ":UNKNOWN:" prompt))
-    (should-not (string-search ":AI_AGENT:" prompt))
-    (should (string-search "Do not add a property drawer" prompt))))
+  (let ((guidance (ai-code-test-summary-artifacts--guidance)))
+    (should (string-search "task-specific title" guidance))
+    (should (string-search "actual outcome" guidance))
+    (should (string-search "Do not use generic" guidance))
+    (should (string-search "do not claim a fix" guidance))
+    (should (string-search "org-todo-keywords" guidance))
+    (should (string-search ":CLAUDE_CODE:" guidance))
+    (should (string-search ":GEMINI:" guidance))
+    (should (string-search ":UNKNOWN:" guidance))
+    (should-not (string-search ":AI_AGENT:" guidance))
+    (should (string-match-p "Do not add a property[[:space:]]+drawer" guidance))))
 
 (ert-deftest ai-code-test-summary-artifacts-anchored-notes-mark-ai-authorship ()
   "Explicit section anchors retain agent tags and informative headings."
   (let ((prompt (ai-code-test-summary-artifacts--send
-                 t '(:name "Investigate regression" :end-line 9))))
+                 t '(:name "Investigate regression" :end-line 9)))
+        (guidance (ai-code-test-summary-artifacts--guidance)))
     (should (string-search "Investigate regression" prompt))
-    (should (string-search "task-specific title" prompt))
-    (should (string-search ":CODEX:" prompt))))
+    (should (string-search "task-specific title" guidance))
+    (should (string-search ":CODEX:" guidance))))
 
 (ert-deftest ai-code-test-summary-artifacts-org-parses-ai-keyword-and-agent-tag ()
   "Org recognizes the AI keyword and CODEX tag with timestamp below."
@@ -137,6 +152,20 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
       (should (member "CODEX" (org-get-tags)))
       (forward-line 1)
       (should (looking-at-p "^\\[2026-11-10 Tue 06:41\\]$")))))
+
+(ert-deftest ai-code-test-summary-artifacts-unreadable-guidance-fails-closed ()
+  "Do not silently send a partial summary prompt if guidance is missing."
+  (cl-letf (((symbol-function 'locate-library)
+             (lambda (&rest _) "/nonexistent-ai-code-package/ai-code-prompt-mode.el")))
+    (should-error (ai-code-test-summary-artifacts--send t)
+                  :type 'user-error)))
+
+(ert-deftest ai-code-test-summary-artifacts-decline-does-not-load-guidance ()
+  "Declining the opt-in must not depend on the bundled guidance file."
+  (cl-letf (((symbol-function 'ai-code--org-summary-guidance-path)
+             (lambda () (ert-fail "No file read when summary declined"))))
+    (should (equal (ai-code-test-summary-artifacts--send nil)
+                   "Implement the requested fix."))))
 
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here
