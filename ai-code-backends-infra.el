@@ -1481,7 +1481,7 @@ behavior."
         process-table
         resolved-instance
         prefix
-        event)
+        (ai-code-backends-infra-ghostel-child-exit-event proc event))
        (when cleanup-fn
          (funcall cleanup-fn)))))
   (ai-code-backends-infra--configure-session-buffer
