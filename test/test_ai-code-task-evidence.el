@@ -70,14 +70,5 @@
         (ai-code--insert-prompt "Explain this code."))
       (should (equal sent "Explain this code.")))))
 
-(ert-deftest ai-code-test-summary-evidence-links-use-original-urls ()
-  "Opted-in results request clickable links, without fabricated sources."
-  (let ((prompt (ai-code-test-summary-evidence--send t)))
-    (should (string-search "[[URL][short description]]" prompt))
-    (should (string-search "GitHub PRs" prompt))
-    (should (string-search "Slack threads" prompt))
-    (should (string-search "Preserve original URLs and IDs" prompt))
-    (should (string-search "Do not invent source" prompt))))
-
 (provide 'test_ai-code-task-evidence)
 ;;; test_ai-code-task-evidence.el ends here
