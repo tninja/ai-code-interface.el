@@ -100,7 +100,7 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
              (concat "** AI Fixed config merge precedence :CODEX:\n"
                      "[YYYY-MM-DD Day HH:MM]") guidance))
     (should (string-search "first content line directly" guidance))
-    (should (string-match-p "at summary[[:space:]]+writeback time" guidance))
+    (should (string-match-p "at summary[[:space:]]+writeback[[:space:]]+time" guidance))
     (should (string-search "not at prompt-send time" guidance))
     (should (string-search "timestamp is unavailable" guidance))))
 
