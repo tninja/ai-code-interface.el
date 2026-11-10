@@ -123,5 +123,15 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
     (should (string-search "Never use the agent name" prompt))
     (should (string-search "Do not add a property" prompt))))
 
+(ert-deftest ai-code-test-summary-artifacts-org-parses-ai-keyword-and-agent-tag ()
+  "With AI configured, Org recognizes AI and CODEX in the heading."
+  (let ((org-todo-keywords '((sequence "TODO" "AI" "|" "DONE"))))
+    (with-temp-buffer
+      (org-mode)
+      (insert "** AI Result Summary [2026-11-10 Tue 06:41] :CODEX:\n")
+      (goto-char (point-min))
+      (should (equal (org-get-todo-state) "AI"))
+      (should (member "CODEX" (org-get-tags))))))
+
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here
