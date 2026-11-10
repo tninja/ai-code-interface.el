@@ -97,26 +97,31 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
     (should (string-search "inactive Org timestamp" prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-ai-authorship-is-marked ()
-  "Opted-in result notes visibly identify their AI author."
+  "Opted-in result headings use AI as keyword and agent as tag."
   (let ((prompt (ai-code-test-summary-artifacts--send t)))
+    (should (string-search
+             "** AI Result Summary [YYYY-MM-DD Day HH:MM] :CODEX:"
+             prompt))
+    (should (string-search ":CLAUDE_CODE:" prompt))
+    (should (string-search ":GEMINI:" prompt))
+    (should (string-search ":UNKNOWN:" prompt))
+    (should (string-search "literal Org TODO keyword AI" prompt))
     (should (string-search "actual writing agent name" prompt))
-    (should (string-search "CODEX, CLAUDE or GEMINI" prompt))
     (should (string-search "org-todo-keywords" prompt))
-    (should (string-search "visible heading prefix" prompt))
-    (should (string-search ":AI_GENERATED:" prompt))
-    (should (string-search "without a property drawer" prompt))
-    (should-not (string-search ":AI_AGENT:" prompt))
-    (should (string-search "parent headings" prompt))
-    (should (string-search "rather than guessing" prompt))))
+    (should (string-search "not edit the file's #+TODO:" prompt))
+    (should (string-search "Do not add a property" prompt))
+    (should-not (string-search ":AI_AGENT:" prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-anchored-notes-mark-ai-authorship ()
-  "Explicit section anchors must not bypass AI authorship guidance."
+  "Explicit section anchors retain AI keyword and agent-tag guidance."
   (let ((prompt (ai-code-test-summary-artifacts--send
                  t '(:name "Investigate regression" :end-line 9))))
     (should (string-search "Investigate regression" prompt))
-    (should (string-search ":AI_GENERATED:" prompt))
-    (should-not (string-search ":AI_AGENT:" prompt))
-    (should (string-search "without a property drawer" prompt))))
+    (should (string-search
+             "** AI Result Summary [YYYY-MM-DD Day HH:MM] :CODEX:"
+             prompt))
+    (should (string-search "Never use the agent name" prompt))
+    (should (string-search "Do not add a property" prompt))))
 
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here
