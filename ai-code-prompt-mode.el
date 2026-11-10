@@ -110,15 +110,11 @@ This controls prompt additions, not agent permissions or filesystem access."
    "metadata lines. Do not change the file's #+TODO: "
    "configuration, existing TODO states, "
    "parent headings, or earlier human-authored notes. "
-   "Include clickable Org links for material original-source URLs, "
-   "using [[URL][short description]] with real URLs (for example "
-   "GitHub PRs, Slack threads, and linked logs), alongside concise "
-   "context. Preserve original URLs and IDs without converting "
-   "unverified identifiers into invented links. Do not invent source "
-   "links or duplicate references already recorded in the task. "
-   "Keep all of this within the same result-summary subheading; "
-   "do not create a separate metadata section or change prior notes.")
-  "Timestamp and source-link guidance for opted-in Org summaries.")
+   "Keep attribution and the timestamp within the same result-summary "
+   "subheading; do not create separate metadata sections or change "
+   "prior notes. Follow the existing source-evidence instruction for "
+   "references rather than repeating its rules.")
+  "Timestamp and AI attribution for opted-in Org summaries.")
 
 (defconst ai-code--org-summary-evidence-instruction
   (concat
