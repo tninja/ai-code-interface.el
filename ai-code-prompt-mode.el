@@ -89,6 +89,41 @@ This controls prompt additions, not agent permissions or filesystem access."
           (or ai-code--suppress-org-summary-prompt (not ,org-summary))))
      ,@body))
 
+(defconst ai-code--org-summary-traceability-instruction
+  (concat
+   "\n\nFor the newly appended Org result subheading, use the literal "
+   "Org TODO keyword AI immediately after the stars, followed by "
+   "a concise, task-specific title describing the actual outcome or "
+   "finding. Prefer a concrete subject and action (for example: "
+   "Fixed config merge precedence, Investigated cache misses, or "
+   "Verified PR #537 against acceptance criteria). Do not use generic "
+   "headings such as Result Summary, AI Summary, or Verification Notes; "
+   "do not claim a fix, test pass, or verification that did not occur. "
+   "Choose the title based on the completed work, not just the original "
+   "request. Keep the new heading one Org level below the selected "
+   "parent; the two stars in the example are illustrative only. "
+   "Put the actual writing agent name in an uppercase Org "
+   "headline tag at the end. For example:\n"
+   "** AI Fixed config merge precedence :CODEX:\n"
+   "[YYYY-MM-DD Day HH:MM]\n"
+   "The inactive Org timestamp is the first content line directly "
+   "below the heading, never part of the headline. Use actual values "
+   "from the local system clock at summary writeback time, not at "
+   "prompt-send time. Do not invent a time: if the clock is unavailable, "
+   "state that the timestamp is unavailable instead of using a "
+   "made-up date. Alternative agent tags include :CLAUDE_CODE: and "
+   ":GEMINI:. Normalize multiword names with underscores. Use "
+   ":UNKNOWN: when the agent identity cannot be verified. Never use "
+   "the agent name as the TODO keyword or a generic :AI_GENERATED: tag. "
+   "Org recognizes AI as a TODO keyword when configured in "
+   "org-todo-keywords; do not edit #+TODO: declarations or the user's "
+   "TODO configuration, existing states, parent headings, or human "
+   "notes. Do not add a property drawer or unrelated metadata lines. "
+   "Keep the title, timestamp and attribution in the same newly "
+   "appended subheading. Follow the existing source-evidence instruction "
+   "for references rather than repeating its rules.")
+  "Specific heading, timestamp and agent attribution for Org results.")
+
 (defconst ai-code--org-summary-evidence-instruction
   (concat
    "\n\nWhen writing that same result-summary subheading, automatically "
@@ -850,6 +885,7 @@ use the command path when no alternate transport is supplied."
                                         (plist-get anchor :end-line))
                               (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
                                       buffer-file-name (line-number-at-pos)))
+                            ai-code--org-summary-traceability-instruction
                             ai-code--org-summary-evidence-instruction
                             ai-code--org-summary-artifacts-instruction)
                   processed-prompt)))
