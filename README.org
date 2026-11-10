@@ -599,20 +599,22 @@ was sent). This is prompt guidance to the coding agent, not an
 Emacs-enforced writeback guarantee. Source references continue to be
 handled by the existing evidence guidance below.
 
-The new result heading also identifies its AI author. The agent is asked
-to prefix its result title with its actual name (or =AI= if unknown), add
-the =:AI_GENERATED:= Org tag. No property drawer is added:
+The new result heading uses =AI= as the Org TODO keyword and the actual
+writing agent as its headline tag (for example =:CODEX:= or
+=:CLAUDE_CODE:=). No property drawer or additional AI-generated tag is
+added:
 
 #+begin_example
-** CODEX Result Summary [2026-11-09 Mon 14:30] :AI_GENERATED:
+** AI Result Summary [2026-11-10 Tue 06:41] :CODEX:
 #+end_example
 
-If =CODEX= is already among the file's configured Org TODO keywords, Org
-recognizes it as the headline's TODO keyword; otherwise it remains a
-visible title prefix. To make agent names real TODO keywords, add them
-to your existing =org-todo-keywords= configuration. AI Code does not
-rewrite TODO keyword settings, prior task statuses, or human-authored
-sections. Attribution is prompt-directed, just like summary writeback.
+To have Org recognize =AI= as a true TODO keyword, include it in your
+existing =org-todo-keywords= configuration (for example, add =AI= to
+your TODO sequence). Without that configuration it is still visible
+as plain headline text. Unknown agent identity uses =:UNKNOWN:=.
+AI Code does not rewrite =#+TODO:= declarations, TODO settings, prior
+task statuses, or human-authored sections. Attribution remains
+prompt-directed, just like summary writeback.
 
 Evidence from original requirements (Slack threads, Radar tickets,
 GitHub discussions, meeting notes), operational observations (Splunk
