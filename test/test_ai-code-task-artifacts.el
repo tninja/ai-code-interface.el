@@ -81,57 +81,62 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
       (should (equal sent "Review this function.")))))
 
 (ert-deftest ai-code-test-summary-artifacts-timestamp-records-writeback-time ()
-  "Opted-in results request a visible Org timestamp from the writeback time."
+  "Opted-in results request a timestamp below a specific Org headline."
   (let ((prompt (ai-code-test-summary-artifacts--send t)))
-    (should (string-search "inactive Org timestamp" prompt))
-    (should (string-search "[YYYY-MM-DD Day HH:MM]" prompt))
-    (should (string-search "when you write the summary" prompt))
-    (should (string-search "not when this prompt is sent" prompt))
+    (should (string-search
+             (concat "** AI Fixed config merge precedence :CODEX:\n"
+                     "[YYYY-MM-DD Day HH:MM]") prompt))
+    (should (string-search "first content line directly" prompt))
+    (should (string-search "at summary writeback time" prompt))
+    (should (string-search "not at prompt-send time" prompt))
     (should (string-search "timestamp is unavailable" prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-timestamp-with-anchored-section ()
-  "An anchored section gets the same timestamp rules as ordinary summaries."
+  "An anchored summary gets the same headline and timestamp guidance."
   (let ((prompt (ai-code-test-summary-artifacts--send
                  t '(:name "Fix config merge" :end-line 2))))
-    (should (string-search "Fix config merge" prompt))
-    (should (string-search "inactive Org timestamp" prompt))))
+    (should (string-search "end of section \"Fix config merge\"" prompt))
+    (should (string-search
+             (concat "** AI Fixed config merge precedence :CODEX:\n"
+                     "[YYYY-MM-DD Day HH:MM]") prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-ai-authorship-is-marked ()
-  "Opted-in result headings use AI as keyword and agent as tag."
+  "Result subheadings use AI as keyword, agent as tag, and specific titles."
   (let ((prompt (ai-code-test-summary-artifacts--send t)))
-    (should (string-search
-             "** AI Result Summary [YYYY-MM-DD Day HH:MM] :CODEX:"
-             prompt))
+    (should (string-search "task-specific title" prompt))
+    (should (string-search "actual outcome" prompt))
+    (should (string-search "Do not use generic" prompt))
+    (should (string-search "do not claim a fix" prompt))
+    (should (string-search "org-todo-keywords" prompt))
     (should (string-search ":CLAUDE_CODE:" prompt))
     (should (string-search ":GEMINI:" prompt))
     (should (string-search ":UNKNOWN:" prompt))
-    (should (string-search "literal Org TODO keyword AI" prompt))
-    (should (string-search "actual writing agent name" prompt))
-    (should (string-search "org-todo-keywords" prompt))
-    (should (string-search "not edit the file's #+TODO:" prompt))
-    (should (string-search "Do not add a property" prompt))
-    (should-not (string-search ":AI_AGENT:" prompt))))
+    (should-not (string-search ":AI_AGENT:" prompt))
+    (should (string-search "Do not add a property drawer" prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-anchored-notes-mark-ai-authorship ()
-  "Explicit section anchors retain AI keyword and agent-tag guidance."
+  "Explicit section anchors retain agent tags and informative headings."
   (let ((prompt (ai-code-test-summary-artifacts--send
                  t '(:name "Investigate regression" :end-line 9))))
     (should (string-search "Investigate regression" prompt))
-    (should (string-search
-             "** AI Result Summary [YYYY-MM-DD Day HH:MM] :CODEX:"
-             prompt))
-    (should (string-search "Never use the agent name" prompt))
-    (should (string-search "Do not add a property" prompt))))
+    (should (string-search "task-specific title" prompt))
+    (should (string-search ":CODEX:" prompt))))
 
 (ert-deftest ai-code-test-summary-artifacts-org-parses-ai-keyword-and-agent-tag ()
-  "With AI configured, Org recognizes AI and CODEX in the heading."
+  "Org recognizes the AI keyword and CODEX tag with timestamp below."
   (let ((org-todo-keywords '((sequence "TODO" "AI" "|" "DONE"))))
     (with-temp-buffer
       (org-mode)
-      (insert "** AI Result Summary [2026-11-10 Tue 06:41] :CODEX:\n")
+      (insert "** AI Fixed config merge precedence :CODEX:\n"
+              "[2026-11-10 Tue 06:41]\n"
+              "Investigated and fixed ordering.\n")
       (goto-char (point-min))
       (should (equal (org-get-todo-state) "AI"))
-      (should (member "CODEX" (org-get-tags))))))
+      (should (equal (org-get-heading t t t t)
+                     "Fixed config merge precedence"))
+      (should (member "CODEX" (org-get-tags)))
+      (forward-line 1)
+      (should (looking-at-p "^\\[2026-11-10 Tue 06:41\\]$")))))
 
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here
