@@ -1879,22 +1879,87 @@ the full diagnostics list is intentionally omitted from the response."
        (car ai-code-mcp--tool-call-log))))))
 
 (ert-deftest ai-code-test-mcp-tool-call-log-records-errors ()
-  "Failed tool calls should be audited with their error message."
+  "Failed tool calls should be audited by error type, never message.
+Error messages often embed argument values."
   (let ((ai-code-mcp-server-tools nil)
         (ai-code-mcp--tool-call-log nil)
         (ai-code-mcp-tool-call-log-enabled t))
     (ai-code-mcp-make-tool
-     :function (lambda () (error "Audit boom"))
+     :function (lambda (buffer-name)
+                 (error "Buffer not found: %s" buffer-name))
      :name "audit_fail"
      :description "Fail on purpose."
-     :args nil)
+     :args '((:name "buffer_name" :type string :description "Buffer.")))
     (ai-code-mcp-dispatch
      "tools/call"
-     '((name . "audit_fail") (arguments . ())))
+     '((name . "audit_fail")
+       (arguments . ((buffer_name . "secret-buffer-42")))))
     (should (= 1 (length ai-code-mcp--tool-call-log)))
     (let ((entry (car ai-code-mcp--tool-call-log)))
       (should (eq 'error (plist-get entry :status)))
-      (should (string-match-p "Audit boom" (plist-get entry :error))))))
+      (should (equal "error" (plist-get entry :error)))
+      (should-not
+       (string-match-p "secret-buffer-42"
+                       (ai-code-mcp--format-tool-call-log-entry entry))))))
+
+(ert-deftest ai-code-test-mcp-tool-call-log-records-soft-failures ()
+  "A tool result with ok: false should be audited as an error."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--tool-call-log nil)
+        (ai-code-mcp-tool-call-log-enabled t))
+    (ai-code-mcp-make-tool
+     :function (lambda () "{\"ok\": false, \"reason\": \"gone\"}")
+     :name "audit_soft_fail"
+     :description "Report failure without signaling."
+     :args nil)
+    (let ((response (ai-code-mcp-dispatch
+                     "tools/call"
+                     '((name . "audit_soft_fail") (arguments . ())))))
+      (should (eq t (alist-get 'isError response))))
+    (should (eq 'error
+                (plist-get (car ai-code-mcp--tool-call-log) :status)))))
+
+(ert-deftest ai-code-test-mcp-tool-call-log-records-protocol-errors ()
+  "Rejected calls should be audited and still signal protocol errors."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--tool-call-log nil)
+        (ai-code-mcp-tool-call-log-enabled t))
+    (ai-code-mcp-make-tool
+     :function (lambda () "ok")
+     :name "audit_strict"
+     :description "Accept no arguments."
+     :args nil)
+    (should-error
+     (ai-code-mcp-dispatch
+      "tools/call"
+      '((name . "audit_strict") (arguments . ((extra . "secret")))))
+     :type 'ai-code-mcp-protocol-error)
+    (let ((entry (car ai-code-mcp--tool-call-log)))
+      (should (eq 'error (plist-get entry :status)))
+      (should (equal "protocol-error -32602" (plist-get entry :error)))
+      (should (equal '("extra") (plist-get entry :args))))
+    (should-error
+     (ai-code-mcp-dispatch
+      "tools/call"
+      '((name . "audit_strict") (arguments . (1))))
+     :type 'ai-code-mcp-protocol-error)
+    (should (= 2 (length ai-code-mcp--tool-call-log)))
+    (should-not (plist-get (car ai-code-mcp--tool-call-log) :args))))
+
+(ert-deftest ai-code-test-mcp-tool-call-log-records-unknown-tools ()
+  "Calls to unknown or unexposed tools should be audited."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp--tool-call-log nil)
+        (ai-code-mcp-tool-call-log-enabled t))
+    (should-error
+     (ai-code-mcp-dispatch
+      "tools/call"
+      '((name . "audit_missing") (arguments . ())))
+     :type 'ai-code-mcp-protocol-error)
+    (should (= 1 (length ai-code-mcp--tool-call-log)))
+    (let ((entry (car ai-code-mcp--tool-call-log)))
+      (should (equal "audit_missing" (plist-get entry :tool)))
+      (should (eq 'error (plist-get entry :status))))))
 
 (ert-deftest ai-code-test-mcp-tool-call-log-respects-disable-and-clear ()
   "A disabled audit log records nothing, and clearing empties it."

@@ -99,7 +99,8 @@ be a non-negative integer."
 (defcustom ai-code-mcp-tool-call-log-enabled t
   "When non-nil, record every MCP tool call in the audit log.
 The log records the tool name, argument names (never argument values),
-the session id, the result size, the duration, and any error message.
+the session id, the result size, the duration, and the error type
+\(never the error message, which may embed argument values).
 Inspect it with `ai-code-mcp-show-tool-call-log' and clear it with
 `ai-code-mcp-clear-tool-call-log'."
   :type 'boolean
@@ -1740,17 +1741,18 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   (let* ((tool-name (alist-get 'name params))
          (arguments-entry (assq 'arguments params))
          (arguments (if arguments-entry (cdr arguments-entry) '()))
-         (tool (progn
-                 (unless (stringp tool-name)
-                   (ai-code-mcp-signal-protocol-error
-                    -32602 "Tool name must be a string"))
-                 (ai-code-mcp--find-tool tool-name)))
          (started (float-time)))
     (condition-case err
-        (let ((value (ai-code-mcp--call-tool tool arguments)))
+        (let* ((tool (progn
+                       (unless (stringp tool-name)
+                         (ai-code-mcp-signal-protocol-error
+                          -32602 "Tool name must be a string"))
+                       (ai-code-mcp--find-tool tool-name)))
+               (response (ai-code-mcp--tool-success-result
+                          (ai-code-mcp--call-tool tool arguments))))
           (ai-code-mcp--record-tool-call
-           tool-name arguments value nil started)
-          (ai-code-mcp--tool-success-result value))
+           tool-name arguments response nil started)
+          response)
       (ai-code-mcp-protocol-error
        (ai-code-mcp--record-tool-call
         tool-name arguments nil err started)
@@ -1760,20 +1762,22 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
         tool-name arguments nil err started)
        (ai-code-mcp--tool-error-result err)))))
 
-(defun ai-code-mcp--truncate-log-text (text limit)
-  "Return TEXT cut to at most LIMIT characters, marking any truncation."
-  (if (<= (length text) limit)
-      text
-    (concat (substring text 0 limit) "...[truncated]")))
+(defun ai-code-mcp--tool-call-error-type (err)
+  "Return a value-free description of ERR for the audit log.
+Only the error symbol, plus the code for protocol errors, is kept:
+error messages often embed argument values."
+  (if (eq (car err) 'ai-code-mcp-protocol-error)
+      (format "protocol-error %s" (cadr err))
+    (symbol-name (car err))))
 
-(defun ai-code-mcp--record-tool-call (tool-name arguments value err started)
+(defun ai-code-mcp--record-tool-call (tool-name arguments response err started)
   "Record one MCP tool call in the audit log.
 TOOL-NAME and ARGUMENTS describe the call; only argument names are
 recorded, never their values, so the log cannot leak buffer contents,
-code, or secrets passed to a tool.  VALUE is the tool result (nil on
-failure), ERR the signaled error (nil on success), and STARTED the
-`float-time' at which the call began.  Recording never signals: a
-logging failure must not break the tool call itself."
+code, or secrets passed to a tool.  RESPONSE is the MCP result sent to
+the agent (nil on failure), ERR the signaled error (nil on success),
+and STARTED the `float-time' at which the call began.  Recording never
+signals: a logging failure must not break the tool call itself."
   (when ai-code-mcp-tool-call-log-enabled
     (condition-case nil
         (let ((entry
@@ -1787,16 +1791,19 @@ logging failure must not break the tool call itself."
                                (if (symbolp (car entry))
                                    (symbol-name (car entry))
                                  (format "%s" (car entry))))
-                             (and (listp arguments) arguments))
+                             (and (listp arguments)
+                                  (seq-filter #'consp arguments)))
                             #'string<)
-                     :status (if err 'error 'ok)
+                     :status (if (or err
+                                     (eq (alist-get 'isError response) t))
+                                 'error
+                               'ok)
                      :result-chars
-                     (and (not err)
-                          (length (ai-code-mcp--format-result value)))
-                     :error
-                     (and err
-                          (ai-code-mcp--truncate-log-text
-                           (error-message-string err) 200))
+                     (and response
+                          (length (alist-get
+                                   'text
+                                   (car (alist-get 'content response)))))
+                     :error (and err (ai-code-mcp--tool-call-error-type err))
                      :duration-ms
                      (and started
                           (round (* 1000 (- (float-time) started)))))))
