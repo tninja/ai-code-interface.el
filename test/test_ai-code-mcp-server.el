@@ -1917,6 +1917,68 @@ the full diagnostics list is intentionally omitted from the response."
         (kill-buffer buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-project-files-fallback-skips-directory-symlinks ()
+  "The fallback walker must not follow directory symlinks.
+A link back to an ancestor would otherwise recurse until the OS
+symlink limit (exponentially with several links, freezing Emacs),
+and a link to an external tree would count files outside the project."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-symlink-project-" t))
+         (outside-dir (make-temp-file "ai-code-mcp-symlink-outside-" t))
+         (project-find-functions nil))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "sub" project-dir))
+          (dolist (file (list (expand-file-name "a.el" project-dir)
+                              (expand-file-name "sub/b.el" project-dir)
+                              (expand-file-name "x.el" outside-dir)))
+            (with-temp-file file (insert "(message \"x\")\n")))
+          (make-symbolic-link ".." (expand-file-name "sub/up" project-dir))
+          (make-symbolic-link outside-dir
+                              (expand-file-name "ext" project-dir))
+          (should (= 2 (ai-code-mcp--count-project-files project-dir)))
+          (should (equal '("a.el" "b.el")
+                         (sort (mapcar #'file-name-nondirectory
+                                       (ai-code-mcp--project-files
+                                        project-dir))
+                               #'string<))))
+      (delete-directory project-dir t)
+      (delete-directory outside-dir t))))
+
+(ert-deftest ai-code-test-mcp-envelope-wraps-empty-list-as-empty-items ()
+  "An empty list result keeps the items shape instead of a null value."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-make-tool
+     :function (lambda () nil)
+     :name "envelope_empty"
+     :description "Return no records."
+     :args nil)
+    (let ((structured (alist-get 'structuredContent
+                                 (ai-code-mcp-dispatch
+                                  "tools/call"
+                                  '((name . "envelope_empty")
+                                    (arguments . ()))))))
+      (should (eq t (alist-get 'ok structured)))
+      (should (equal [] (alist-get 'items structured))))))
+
+(ert-deftest ai-code-test-mcp-envelope-treats-unparsable-json-as-text ()
+  "JSON-looking text that fails to parse in any way becomes plain text."
+  (let ((ai-code-mcp-server-tools nil)
+        (truncated "{\"a\": ")
+        (too-deep (concat (make-string 20000 ?\[) (make-string 20000 ?\]))))
+    (ai-code-mcp-make-tool
+     :function (lambda (text) text)
+     :name "envelope_echo"
+     :description "Echo text."
+     :args '((:name "text" :type string :description "Text to echo.")))
+    (dolist (text (list truncated too-deep))
+      (let ((result (ai-code-mcp-dispatch
+                     "tools/call"
+                     `((name . "envelope_echo")
+                       (arguments . ((text . ,text)))))))
+        (should (eq :json-false (alist-get 'isError result)))
+        (should (equal text (alist-get 'text (alist-get 'structuredContent
+                                                        result))))))))
+
 (ert-deftest ai-code-test-mcp-tool-call-log-records-success-without-values ()
   "Tool calls should be audited with argument names, never values."
   (let ((ai-code-mcp-server-tools nil)

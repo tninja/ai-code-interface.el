@@ -1514,7 +1514,11 @@ Accepts local file URIs with no authority or with localhost authority."
                     (t
                      (let ((path (expand-file-name entry dir)))
                        (cond
-                        ((file-directory-p path)
+                        ;; Like `directory-files-recursively', never
+                        ;; follow directory symlinks: a link to an
+                        ;; ancestor would recurse until the OS limit.
+                        ((and (file-directory-p path)
+                              (not (file-symlink-p path)))
                          (collect-files path))
                         ((file-regular-p path)
                          (list path))
@@ -2022,8 +2026,8 @@ instead of emitting an array where MCP requires an object."
 Every tool result is normalized to the same envelope: a JSON object
 that always carries an `ok' field.  Tool results that are already
 JSON objects keep their own fields (including their own `ok'); JSON
-arrays and lists of records become `items'; plain text becomes
-`text'; any other scalar becomes `value'."
+arrays and lists of records (including the empty list nil) become
+`items'; plain text becomes `text'; any other scalar becomes `value'."
   (cond
    ((stringp value)
     (condition-case nil
@@ -2040,13 +2044,16 @@ arrays and lists of records become `items'; plain text becomes
             (ai-code-mcp--empty-object))
            ((vectorp parsed) `((ok . t) (items . ,parsed)))
            (t `((ok . t) (value . ,parsed)))))
-      ;; Truncated or malformed JSON-looking text (for example a cut
-      ;; printed string) signals `json-end-of-file', not
-      ;; `json-parse-error'; both just mean "treat it as plain text".
-      ((json-parse-error json-end-of-file)
+      ;; Any parse failure (malformed, truncated, or too deeply nested
+      ;; text) means "treat it as plain text".  Catch the common parent
+      ;; `json-error': the child error hierarchy differs across Emacs
+      ;; builds (e.g. `json-end-of-file' is not always a
+      ;; `json-parse-error').
+      (json-error
        `((ok . t) (text . ,value)))))
    ((hash-table-p value) value)
-   ((null value) `((ok . t) (value . :null)))
+   ;; nil is the empty list: keep the `items' shape list tools use.
+   ((null value) `((ok . t) (items . [])))
    ((ai-code-mcp--json-object-alist-p value) value)
    ((listp value) `((ok . t) (items . ,(vconcat value))))
    ((vectorp value) `((ok . t) (items . ,value)))
