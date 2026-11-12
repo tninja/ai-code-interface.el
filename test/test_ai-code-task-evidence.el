@@ -37,19 +37,28 @@
       (should-not (buffer-modified-p))
       sent)))
 
+(defun ai-code-test-summary-evidence--guidance ()
+  "Read the bundled Org result-summary guidance used by the prompt."
+  (with-temp-buffer
+    (insert-file-contents (ai-code--org-summary-guidance-path))
+    (buffer-string)))
+
 (ert-deftest ai-code-test-summary-evidence-original-sources-are-automatic ()
-  "Adding a result summary includes original human sources and derived facts."
-  (let ((prompt (ai-code-test-summary-evidence--send t)))
+  "Adding a result summary references guidance on original human sources."
+  (let ((prompt (ai-code-test-summary-evidence--send t))
+        (guidance (ai-code-test-summary-evidence--guidance)))
     (should (string-match-p "After completing, append a concise result summary" prompt))
-    (should (string-match-p "original human" prompt))
-    (should (string-match-p "Slack" prompt))
-    (should (string-match-p "Radar" prompt))
-    (should (string-match-p "Splunk" prompt))
-    (should (string-match-p "AI-generated" prompt))
-    (should (string-match-p "raw" prompt))
-    (should (string-match-p "unavailable" prompt))
-    (should (string-match-p "same result-summary" prompt))
-    (should (string-match-p "do not invent" prompt))))
+    (should (string-match-p "org-result-summary\\.v1\\.md" prompt))
+    (should-not (string-match-p "original human" prompt))
+    (should (string-match-p "original human" guidance))
+    (should (string-match-p "Slack" guidance))
+    (should (string-match-p "Radar" guidance))
+    (should (string-match-p "Splunk" guidance))
+    (should (string-match-p "AI-generated" guidance))
+    (should (string-match-p "raw" guidance))
+    (should (string-match-p "unavailable" guidance))
+    (should (string-match-p "same result-summary" guidance))
+    (should (string-match-p "do not invent" guidance))))
 
 (ert-deftest ai-code-test-summary-evidence-declined-no-writeback ()
   "A declined summary never adds evidence capture instructions."

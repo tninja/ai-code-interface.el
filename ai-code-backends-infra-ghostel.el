@@ -1144,6 +1144,16 @@ normal startup error."
         (user-error
          "Ghostel backend requires a Ghostel version that provides `ghostel-exec`"))))))
 
+(defun ai-code-backends-infra-ghostel-child-exit-event (process event)
+  "Return EVENT for PROCESS with the Ghostel native child exit status applied.
+A native PTY event pipe closes with \"finished\" whatever the child returned,
+so translate it the same way Ghostel's own pipe sentinel does.  Other
+processes have no recorded status and keep EVENT unchanged."
+  (pcase (ignore-errors (process-get process 'ghostel--exit-status))
+    ('nil event)
+    (0 "finished\n")
+    (code (format "exited abnormally with code %d\n" code))))
+
 (defun ai-code-backends-infra-ghostel-create-session (buffer-name working-dir command env-vars)
   "Create a Ghostel session named BUFFER-NAME in WORKING-DIR.
 COMMAND is an argv list or a legacy shell command string.

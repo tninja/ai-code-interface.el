@@ -89,57 +89,26 @@ This controls prompt additions, not agent permissions or filesystem access."
           (or ai-code--suppress-org-summary-prompt (not ,org-summary))))
      ,@body))
 
-(defconst ai-code--org-summary-evidence-instruction
-  (concat
-   "\n\nWhen writing that same result-summary subheading, automatically "
-   "preserve useful original-source references gathered during the work "
-   "so the task can be resumed or verified later. This is an incremental "
-   "record of actual discoveries, not a separate evidence-entry workflow. "
-   "For each material human requirement, decision, diagnostic observation, "
-   "or verification claim touched in this task, include concise context "
-   "and a direct raw reference when available (for example a Slack thread, "
-   "Radar issue, GitHub discussion, source file/line, Splunk query with "
-   "time range, or exact test/log artifact). Distinguish original human "
-   "instructions and decisions from observed logs, AI-generated "
-   "interpretations, and unverified assumptions. Preserve the original "
-   "URL, ID, or file location; do not replace it with an AI-generated "
-   "resume note, a derived design, or a PR summary. If an original is "
-   "unavailable or its provenance is uncertain, say so explicitly "
-   "instead of treating the derived description as authoritative. "
-   "Do not invent, fabricate, or silently strengthen evidence. Avoid "
-   "copying references already recorded in this task unless new "
-   "observations materially change their relevance. Append this "
-   "context within the same result-summary subheading, leaving earlier "
-   "human-authored notes unchanged. This guidance adds no new permission "
-   "to read restricted sources, modify code or Git, or write to task files "
-   "before a read-only verification discussion has been concluded.")
-  "Provenance instructions appended only for opted-in Org summaries.")
+(defun ai-code--org-summary-guidance-path ()
+  "Return the installed Org summary guidance file, or signal an error."
+  (let* ((library (locate-library "ai-code-prompt-mode"))
+         (file (and library
+                    (expand-file-name
+                     "prompt/org-result-summary.v1.md"
+                     (file-name-directory (file-truename library))))))
+    (unless (and file (file-readable-p file))
+      (user-error "Org result-summary guidance is missing or unreadable: %s"
+                  (or file "ai-code-prompt-mode library unavailable")))
+    file))
 
-(defconst ai-code--org-summary-artifacts-instruction
-  (concat
-   "\n\nWhen writing that same result-summary subheading, automatically "
-   "collect relevant artifacts after the work or verification discussion "
-   "has actually finished, rather than taking a snapshot at prompt-send "
-   "time. Keep the summary concise; include only artifacts you can "
-   "substantiate from this task and the actual workspace. When relevant, "
-   "include: (1) changed files with precise file references and their "
-   "purpose; (2) the observed worktree/branch and HEAD commit SHA, plus "
-   "task-specific commits or PR URLs only if verified, distinguishing "
-   "committed code from current staged/unstaged edits; for a remote PR, "
-   "record its fetched head SHA, not local HEAD; (3) verification "
-   "commands, actual results, CI or deployment evidence, and date/environment "
-   "when known; (4) missing tests, uncertainties or unfinished work. "
-   "If this task changed code, read Git and existing records after the "
-   "work is complete to establish these facts. Do not invent hashes, PR links, "
-   "test results, or claim passing checks that were not run. Do not "
-   "attribute repository-wide changes from other tasks or sessions to "
-   "this task. If there are no relevant code artifacts, simply omit "
-   "those fields. Record artifacts within the same result-summary "
-   "subheading in the current Org task; do not create another catalog "
-   "or change human-authored requirements. This is a writeback formatting "
-   "instruction only: it does not authorize extra tests, code edits, "
-   "Git mutations, or early notes in a read-only Verify discussion.")
-  "Artifact guidance appended only when the user accepts an Org summary.")
+(defun ai-code--org-summary-reference-instruction ()
+  "Return a short reference to the bundled Org summary guidance."
+  (format
+   (concat "\n\nWhen appending the result summary after work or a "
+           "read-only verification discussion is complete, read "
+           "and follow @%s for the headline, source evidence, "
+           "and verified artifacts of that new subheading.")
+   (ai-code--org-summary-guidance-path)))
 
 (defvar ai-code--prompt-already-edited nil
   "Non-nil when the complete prompt has already been edited for this send.")
@@ -850,8 +819,7 @@ use the command path when no alternate transport is supplied."
                                         (plist-get anchor :end-line))
                               (format "\n\nAfter completing, append a concise result summary as a sub-heading at the end of the current section in file %s near line %d."
                                       buffer-file-name (line-number-at-pos)))
-                            ai-code--org-summary-evidence-instruction
-                            ai-code--org-summary-artifacts-instruction)
+                            (ai-code--org-summary-reference-instruction))
                   processed-prompt)))
           (if send-function
               (ai-code--write-prompt-to-file-and-send final-prompt send-function)
