@@ -550,6 +550,17 @@ branch as the PR base."
       (should (string-match-p "MELPA" error-message))
       (should (string-match-p "pkryger/difftastic\\.el" error-message)))))
 
+(ert-deftest ai-code-test-build-pr-review-init-prompt-assesses-value ()
+  "PR reviews should consider whether the change is worth merging."
+  (dolist (source '(github-mcp gh-cli))
+    (let ((prompt (ai-code--build-pr-review-init-prompt
+                   source "https://github.com/acme/demo/pull/123")))
+      (should (string-match-p "Value:" prompt))
+      (should (string-match-p "useful to the repository" prompt))
+      (should (string-match-p "maintenance cost" prompt))
+      (should (string-match-p "merge, simplify, or close" prompt))
+      (should (string-match-p "No need to make code change" prompt)))))
+
 (ert-deftest ai-code-test-pull-or-review-diff-file-use-github-mcp ()
   "When user chooses GitHub MCP in non-diff buffer, insert a PR review prompt."
   (pcase-let ((`(,captured-prompt ,diff-called)
