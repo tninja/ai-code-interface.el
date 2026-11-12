@@ -143,11 +143,12 @@ When `ai-code-default-review-source' is set, return it directly."
 
 Review Steps:
 1. Requirement Fit: Verify the PR implementation against requirements.
-2. Code Quality: Check code quality, security, and performance concerns.
-3. Findings: For each issue include location, issue, fix suggestion, and priority.
-4. %s
+2. Value: Is this PR genuinely useful to the repository, or redundant? Weigh its benefits against complexity and maintenance cost; consider simpler alternatives or no change.
+3. Code Quality: Check code quality, security, and performance concerns.
+4. Findings: For each issue include location, issue, fix suggestion, and priority.
+5. %s
 
-Provide an overall assessment at the end."
+Provide an overall assessment at the end, including whether to merge, simplify, or close the PR."
             pr-url source-instruction
             ai-code-github--analysis-only-note)))
 
