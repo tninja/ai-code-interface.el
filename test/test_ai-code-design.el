@@ -114,7 +114,7 @@
       (should (string-match-p "Never implement the design" sent))
       (should (string-match-p "ONLY after" sent))
       (should-not (car policies))
-      (should (cadr policies)))))
+      (should-not (cadr policies)))))
 
 (ert-deftest ai-code-design-test-summary-is-opt-in-and-delayed ()
   "Existing Org note flow is optional and requires approval to write."
