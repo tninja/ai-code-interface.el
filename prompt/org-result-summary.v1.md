@@ -8,16 +8,25 @@ headings, and task states.
 ## Outcome headline, timestamp, and agent attribution
 
 For the newly appended Org result subheading, use the literal Org TODO keyword AI
-immediately after the stars, followed by a concise, task-specific title describing the
-actual outcome or finding. Prefer a concrete subject and action (for example: Fixed
-config merge precedence, Investigated cache misses, or Verified PR #537 against
-acceptance criteria). Do not use generic headings such as Result Summary, AI Summary, or
-Verification Notes; do not claim a fix, test pass, or verification that did not occur.
-Choose the title based on the completed work, not just the original request. Keep the
-new heading one Org level below the selected parent; the two stars in the example are
-illustrative only. Put the actual writing agent name in an uppercase Org headline tag at
-the end. For example:
-** AI Fixed config merge precedence :CODEX:
+immediately after the stars, followed by a task-specific title that states the
+actual outcome a reader needs, in plain language, as a short noun phrase or statement
+(about 5-12 words, no trailing period). It should answer "what is true now?" without
+opening the entry:
+- a change: state the new behavior or effect, not the activity
+- a question or investigation: state the answer or root cause
+- a verification: state the verdict
+- incomplete work: lead with the status, for example Partial: or Blocked:
+Examples: User config now overrides project defaults; Cache misses caused by
+per-request key salt; PR #537 meets 3 of 4 acceptance criteria; Blocked: Splunk access
+needed to confirm root cause. Avoid activity-only verbs (Investigated, Reviewed,
+Checked, Looked into, Worked on) and code identifiers, file paths, or ticket IDs unless
+they are the subject itself. Do not use generic headings such as Result Summary, AI
+Summary, or Verification Notes; do not claim a fix, test pass, or verification that did
+not occur. Choose the title based on the completed work, not just the original request.
+Keep the new heading one Org level below the selected parent; the two stars in the
+example are illustrative only. Put the actual writing agent name in an uppercase Org
+headline tag at the end. For example:
+** AI User config now overrides project defaults :CODEX:
 [YYYY-MM-DD Day HH:MM]
 The inactive Org timestamp is the first content line directly below the heading, never
 part of the headline. Use actual values from the local system clock at summary writeback
