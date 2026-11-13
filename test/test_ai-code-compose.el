@@ -97,6 +97,27 @@
                      "  keep leading\nsecond line"))
       (should-not ai-code-compose--cancelled))))
 
+(ert-deftest ai-code-compose-test-read-shows-minibuffer-instructions ()
+  "Explain how to send or cancel after the compose buffer is ready."
+  (let (hint)
+    (cl-letf (((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (when format-string
+                   (let ((text (apply #'format format-string args)))
+                     (when (string-match-p "Review or edit the prompt" text)
+                       (setq hint text))))))
+              ((symbol-function 'recursive-edit)
+               (lambda ()
+                 (should (derived-mode-p 'ai-code-compose-mode))
+                 (should (equal (buffer-string) "first\nsecond\nthird"))
+                 (should (string-match-p "C-c C-c" hint))
+                 (should (string-match-p "C-c C-k" hint))
+                 (setq ai-code-compose--result "edited"
+                       ai-code-compose--cancelled nil))))
+      (should (equal (ai-code-compose-read "Review: " "first\nsecond\nthird")
+                     "edited")))
+    (should-not (get-buffer ai-code-compose-buffer-name))))
+
 (provide 'test-ai-code-compose)
 
 ;;; test_ai-code-compose.el ends here
