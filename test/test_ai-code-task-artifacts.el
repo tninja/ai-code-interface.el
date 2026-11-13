@@ -97,7 +97,7 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
         (guidance (ai-code-test-summary-artifacts--guidance)))
     (should (string-match-p "org-result-summary\\.v1\\.md" prompt))
     (should (string-search
-             (concat "** AI Fixed config merge precedence :CODEX:\n"
+             (concat "** AI User config now overrides project defaults :CODEX:\n"
                      "[YYYY-MM-DD Day HH:MM]") guidance))
     (should (string-search "first content line directly" guidance))
     (should (string-match-p "at summary[[:space:]]+writeback[[:space:]]+time" guidance))
@@ -111,7 +111,7 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
         (guidance (ai-code-test-summary-artifacts--guidance)))
     (should (string-search "end of section \"Fix config merge\"" prompt))
     (should (string-search
-             (concat "** AI Fixed config merge precedence :CODEX:\n"
+             (concat "** AI User config now overrides project defaults :CODEX:\n"
                      "[YYYY-MM-DD Day HH:MM]") guidance))))
 
 (ert-deftest ai-code-test-summary-artifacts-ai-authorship-is-marked ()

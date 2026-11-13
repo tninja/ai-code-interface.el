@@ -592,23 +592,24 @@ useful references discovered during the work into that result-summary
 subheading automatically, so task history accumulates without another
 menu, manual evidence registration, or a separate SPEC.md graph.
 
-A new result subheading uses a concise, task-specific title describing
-what was actually completed or learned, rather than a generic
-=Result Summary= heading. The literal =AI= Org TODO keyword identifies
+A new result subheading uses a short, plain-language title that states
+the conclusion (the new behavior, the answer, or the verdict), rather
+than a generic =Result Summary= heading or an activity such as
+"Investigated ...". The literal =AI= Org TODO keyword identifies
 AI-authored content, and the actual writing agent is an Org headline tag
 (such as =:CODEX:= or =:CLAUDE_CODE:=). The inactive timestamp is on the
 first line *below* the headline, using local time when the result is
 actually written, not when the prompt was sent. For example:
 
 #+begin_example
-** AI Fixed config merge precedence :CODEX:
+** AI User config now overrides project defaults :CODEX:
 [2026-11-10 Tue 06:41]
 
 - Changed merge ordering and checked regression cases
 #+end_example
 
-Other suitable titles include =Investigated cache misses= or
-=Verified PR #537 against acceptance criteria=, when those outcomes
+Other suitable titles include =Cache misses caused by per-request key salt=
+or =PR #537 meets 3 of 4 acceptance criteria=, when those outcomes
 are supported by the work. An unidentified agent uses =:UNKNOWN:=.
 No property drawer or generic =:AI_GENERATED:= tag is added.
 
