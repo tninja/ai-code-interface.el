@@ -10,6 +10,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
 
@@ -28,6 +29,19 @@
   :type '(repeat string)
   :group 'ai-code-pi)
 
+(defcustom ai-code-pi-tui-mode 'regular
+  "Pi TUI mode passed with --tui-mode on startup.
+`regular' renders on the terminal's normal screen, so the transcript
+becomes buffer scrollback that Emacs can scroll, search, and number.
+`fullscreen' uses Pi's alternate-screen viewport: the session buffer then
+holds only the visible screen, and history is reachable only through
+Pi's own scrolling.  nil passes no flag and keeps Pi's configured mode.
+An explicit --tui-mode in `ai-code-pi-program-switches' takes precedence."
+  :type '(choice (const :tag "Regular (normal screen scrollback)" regular)
+                 (const :tag "Fullscreen (alternate screen)" fullscreen)
+                 (const :tag "Use Pi's setting" nil))
+  :group 'ai-code-pi)
+
 (defcustom ai-code-pi-multiline-input-sequence "\e[13;2u"
   "Terminal sequence Pi recognizes as Shift+Enter for multiline input.
 The default uses the Kitty keyboard protocol sequence documented by Pi."
@@ -40,15 +54,29 @@ The default uses the Kitty keyboard protocol sequence documented by Pi."
 (defvar ai-code-pi--processes (make-hash-table :test 'equal)
   "Hash table mapping Pi session keys to processes.")
 
+(defun ai-code-pi--tui-mode-switch-p (switch)
+  "Return non-nil when SWITCH selects Pi's TUI mode."
+  (string-match-p "\\`--tui-mode\\(?:=\\|\\'\\)" switch))
+
+(defun ai-code-pi--startup-switches (switches)
+  "Return SWITCHES with `ai-code-pi-tui-mode' applied.
+SWITCHES that already select a TUI mode are returned unchanged."
+  (if (or (null ai-code-pi-tui-mode)
+          (cl-some #'ai-code-pi--tui-mode-switch-p switches))
+      switches
+    (append switches
+            (list "--tui-mode" (symbol-name ai-code-pi-tui-mode)))))
+
 ;;;###autoload
 (defun ai-code-pi-start (&optional arg)
   "Start Pi using `ai-code-backends-infra' logic.
 With prefix ARG, prompt for CLI args using
-`ai-code-pi-program-switches' as the default input."
+`ai-code-pi-program-switches', plus the `ai-code-pi-tui-mode' flag, as
+the default input."
   (interactive "P")
   (ai-code-backends-infra--start-cli-session
    (list :program ai-code-pi-program
-         :switches ai-code-pi-program-switches
+         :switches (ai-code-pi--startup-switches ai-code-pi-program-switches)
          :label "Pi"
          :process-table ai-code-pi--processes
          :session-prefix ai-code-pi--session-prefix

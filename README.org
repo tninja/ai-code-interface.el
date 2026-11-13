@@ -778,7 +778,12 @@ with =C-c a H=. Use its references to revisit the original evidence.
      select the backend with =C-c a s= or =(ai-code-set-backend 'pi)=.  Customize
      =ai-code-pi-program= or =ai-code-pi-program-switches= to change the
      executable or startup flags.  Once selected, =C-c a a= starts Pi and
-     =C-c a R= resumes a session.  In Pi session buffers, Shift+Enter and
+     =C-c a R= resumes a session.  Pi starts with =--tui-mode regular= so its
+     transcript stays in the terminal's normal scrollback, where Emacs can
+     scroll, search, and number it; Pi's default fullscreen mode draws on the
+     alternate screen, leaving only the visible rows in the session buffer.
+     Customize =ai-code-pi-tui-mode= to =fullscreen=, or to =nil= to keep Pi's
+     own setting.  In Pi session buffers, Shift+Enter and
      Ctrl+Enter insert a newline, and Ctrl+Escape sends Escape to cancel the
      current operation.
 

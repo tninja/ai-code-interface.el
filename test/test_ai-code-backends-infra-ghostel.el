@@ -32,6 +32,7 @@
 (defvar ai-code-backends-infra--session-directory)
 (defvar ghostel--fake-cursor-overlay)
 (defvar ghostel--cursor-char-pos)
+(defvar ghostel--repainted-region)
 (defvar x-preedit-overlay)
 
 (declare-function ai-code-ghostel-image-preview--cached-source
@@ -1226,6 +1227,258 @@ run before the asynchronous link restoration re-applies cached properties."
             (should (equal rendered "visible")))
         (when (processp proc)
           (delete-process proc))))))
+
+;;; Synchronized output and native PTY tracking
+
+(defmacro test-ai-code-backends-infra-ghostel--with-output-mocks
+    (rendered-var timer-var &rest body)
+  "Run BODY with Ghostel output bookkeeping mocked.
+RENDERED-VAR collects rendered chunks and TIMER-VAR records timers."
+  (declare (indent 2))
+  `(let (,rendered-var ,timer-var)
+     (cl-letf (((symbol-function 'run-at-time)
+                (lambda (&rest args)
+                  (setq ,timer-var args)
+                  'mock-timer))
+               ((symbol-function 'ai-code-backends-infra--output-meaningful-p)
+                (lambda (_output) nil))
+               ((symbol-function
+                 'ai-code-session-link--schedule-linkify-recent-output)
+                (lambda (&rest _args) nil)))
+       (cl-flet ((feed (output)
+                   (ai-code-backends-infra-ghostel--handle-process-output
+                    (current-buffer)
+                    (lambda (_process chunk) (push chunk ,rendered-var))
+                    'mock-process
+                    output)))
+         ,@body))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-renders-synchronized-frames-immediately ()
+  "DEC 2026 frames should bypass anti-flicker batching, Ghostel holds them."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let ((ai-code-backends-infra-ghostel-anti-flicker t))
+      (test-ai-code-backends-infra-ghostel--with-output-mocks rendered timer
+        (feed "\e[?2026h\e[2K\rWorking\e[?2026l")
+        (should (equal rendered '("\e[?2026h\e[2K\rWorking\e[?2026l")))
+        (should-not timer)
+        (should-not ai-code-backends-infra-ghostel--render-queue)
+        (should-not ai-code-backends-infra-ghostel--sync-output-open)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-renders-split-synchronized-frame-immediately ()
+  "Chunks inside an open synchronized frame should not be batched."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let ((ai-code-backends-infra-ghostel-anti-flicker t))
+      (test-ai-code-backends-infra-ghostel--with-output-mocks rendered timer
+        (feed "\e[?2026h\e[3A")
+        (should ai-code-backends-infra-ghostel--sync-output-open)
+        (feed "\e[2K\rline\e[1B")
+        (feed "\e[2K\rdone\e[?2026l")
+        (should (= (length rendered) 3))
+        (should-not timer)
+        (should-not ai-code-backends-infra-ghostel--sync-output-open)
+        ;; Once the frame closes, unsynchronized redraws are batched again.
+        (feed "\e[2K\rWorking")
+        (should (= (length rendered) 3))
+        (should timer)
+        (should (equal ai-code-backends-infra-ghostel--render-queue
+                       "\e[2K\rWorking"))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-queues-synchronized-frame-behind-pending-output ()
+  "A synchronized frame should queue behind pending output to keep order."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let ((ai-code-backends-infra-ghostel-anti-flicker t))
+      (test-ai-code-backends-infra-ghostel--with-output-mocks rendered timer
+        (feed "\e[2K\rWorking")
+        (feed "\e[?2026hframe\e[?2026l")
+        (should-not rendered)
+        (should (equal ai-code-backends-infra-ghostel--render-queue
+                       "\e[2K\rWorking\e[?2026hframe\e[?2026l"))
+        (should timer)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-native-event-pipe-p ()
+  "Ghostel's native PTY event pipe should be recognized."
+  (let (proc)
+    (unwind-protect
+        (progn
+          (setq proc (make-pipe-process
+                      :name "ai-code-ghostel-native-pipe-test"
+                      :noquery t
+                      :filter #'ignore))
+          (should-not
+           (ai-code-backends-infra-ghostel--native-event-pipe-p proc))
+          (process-put proc 'ghostel--native-pid 12345)
+          (should
+           (eq (ai-code-backends-infra-ghostel--native-event-pipe-p proc) t))
+          (should-not
+           (ai-code-backends-infra-ghostel--native-event-pipe-p nil)))
+      (when (processp proc)
+        (delete-process proc)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-wrap-process-filter-skips-native-event-pipe ()
+  "The native PTY event pipe carries Lisp events and must not be wrapped."
+  (let ((buffer (generate-new-buffer " *ai-code-ghostel-native-wrap*"))
+        proc)
+    (unwind-protect
+        (progn
+          (setq proc (make-pipe-process
+                      :name "ai-code-ghostel-native-wrap"
+                      :buffer buffer
+                      :noquery t
+                      :filter #'ignore))
+          (process-put proc 'ghostel--native-pid 12345)
+          (ai-code-backends-infra-ghostel--wrap-process-filter buffer proc)
+          (should (eq (process-filter proc) #'ignore))
+          (should-not
+           (process-get
+            proc
+            ai-code-backends-infra-ghostel--process-filter-wrapped-property)))
+      (when (processp proc)
+        (delete-process proc))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-create-session-marks-native-pty ()
+  "Native PTY sessions should be marked and keep Ghostel's event filter."
+  (let ((buffer-name " *ai-code-ghostel-native-session*")
+        buffer
+        proc)
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--set-session-directory)
+                   #'ignore)
+                  ((symbol-function
+                    'ai-code-backends-infra--configure-session-input-shortcuts)
+                   #'ignore)
+                  ((symbol-function
+                    'ai-code-backends-infra--install-navigation-cursor-sync)
+                   #'ignore)
+                  ((symbol-function 'ghostel-exec)
+                   (lambda (target _program _args)
+                     (setq proc (make-pipe-process
+                                 :name "ai-code-ghostel-native-session"
+                                 :buffer target
+                                 :noquery t
+                                 :filter #'ignore))
+                     (process-put proc 'ghostel--native-pid 12345)
+                     proc)))
+          (setq buffer
+                (car (ai-code-backends-infra-ghostel-create-session
+                      buffer-name default-directory "pi" nil)))
+          (with-current-buffer buffer
+            (should ai-code-backends-infra-ghostel--native-pty-session))
+          (should (eq (process-filter proc) #'ignore)))
+      (when (processp proc)
+        (delete-process proc))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(defmacro test-ai-code-backends-infra-ghostel--with-native-bookkeeping
+    (noted-var linkified-var &rest body)
+  "Run BODY with native output bookkeeping mocked.
+NOTED-VAR counts meaningful-output notes and LINKIFIED-VAR collects the
+text passed to linkification."
+  (declare (indent 2))
+  `(let ((,noted-var 0) ,linkified-var)
+     (cl-letf (((symbol-function 'ai-code-backends-infra--output-meaningful-p)
+                (lambda (output) (string-match-p "[^ \t\n]" output)))
+               ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
+                (lambda () (setq ,noted-var (1+ ,noted-var))))
+               ((symbol-function
+                 'ai-code-session-link--schedule-linkify-recent-output)
+                (lambda (_buffer output &optional _delay)
+                  (push output ,linkified-var))))
+       ,@body)))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-native-redraw-notes-repainted-output ()
+  "Native PTY redraws should drive meaningful output and linkification."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (setq-local ai-code-backends-infra-ghostel--native-pty-session t)
+    (insert "old row\nsee src/foo.el:12\nnext row\n")
+    (test-ai-code-backends-infra-ghostel--with-native-bookkeeping noted linkified
+      ;; Older Ghostel passes the repainted range as arguments.
+      (ai-code-backends-infra-ghostel--capture-native-repainted-region 9 26)
+      ;; Newer Ghostel publishes it in `ghostel--repainted-region'.
+      (let ((ghostel--repainted-region (cons 27 35)))
+        (ai-code-backends-infra-ghostel--capture-native-repainted-region))
+      (should (equal ai-code-backends-infra-ghostel--native-repainted-region
+                     '(9 . 35)))
+      (ai-code-backends-infra-ghostel--note-native-redraw-output
+       (current-buffer))
+      (should (= noted 1))
+      (should (equal linkified '("see src/foo.el:12\nnext row")))
+      (should-not ai-code-backends-infra-ghostel--native-repainted-region)
+      ;; A redraw that painted nothing does no bookkeeping.
+      (ai-code-backends-infra-ghostel--note-native-redraw-output
+       (current-buffer))
+      (should (= noted 1))
+      (should (= (length linkified) 1)))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-native-redraw-skips-status-row-linkify ()
+  "A repainted animated status row should not trigger relinkification."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (setq-local ai-code-backends-infra-ghostel--native-pty-session t)
+    (insert "answer\n⠋ Working...\n")
+    (test-ai-code-backends-infra-ghostel--with-native-bookkeeping noted linkified
+      (ai-code-backends-infra-ghostel--capture-native-repainted-region
+       8 (point-max))
+      (ai-code-backends-infra-ghostel--note-native-redraw-output
+       (current-buffer))
+      (should (= noted 1))
+      (should-not linkified))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-native-redraw-bounds-sample ()
+  "Native bookkeeping should only read the tail of a huge repaint."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (setq-local ai-code-backends-infra-ghostel--native-pty-session t)
+    (insert (make-string 100 ?a))
+    (let ((ai-code-backends-infra-ghostel--native-output-sample-limit 10))
+      (should (equal (ai-code-backends-infra-ghostel--native-output-text
+                      (cons (point-min) (point-max)))
+                     (make-string 10 ?a))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-native-tracking-ignores-other-buffers ()
+  "Capture and bookkeeping should be no-ops outside native PTY sessions."
+  (with-temp-buffer
+    (insert "plain ghostel buffer\n")
+    (test-ai-code-backends-infra-ghostel--with-native-bookkeeping noted linkified
+      (ai-code-backends-infra-ghostel--capture-native-repainted-region
+       (point-min) (point-max))
+      (should-not ai-code-backends-infra-ghostel--native-repainted-region)
+      (setq-local ai-code-backends-infra-ghostel--native-repainted-region
+                  (cons (point-min) (point-max)))
+      (ai-code-backends-infra-ghostel--note-native-redraw-output
+       (current-buffer))
+      (should (= noted 0))
+      (should-not linkified))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-installs-native-output-tracking ()
+  "Native output tracking should advise Ghostel's redraw functions once."
+  (cl-letf (((symbol-function 'ghostel--schedule-link-detection)
+             (lambda (&optional _begin _end) nil))
+            ((symbol-function 'ghostel--redraw-now)
+             (lambda (_buffer &optional _force) nil)))
+    (unwind-protect
+        (progn
+          (ai-code-backends-infra-ghostel--install-native-output-tracking)
+          (ai-code-backends-infra-ghostel--install-native-output-tracking)
+          (should
+           (advice-member-p
+            #'ai-code-backends-infra-ghostel--capture-native-repainted-region
+            'ghostel--schedule-link-detection))
+          (should
+           (advice-member-p
+            #'ai-code-backends-infra-ghostel--note-native-redraw-output
+            'ghostel--redraw-now)))
+      (ai-code-backends-infra-ghostel-unload-function)
+      (should-not
+       (advice-member-p
+        #'ai-code-backends-infra-ghostel--note-native-redraw-output
+        'ghostel--redraw-now)))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel-command-lifecycle-updates-session-metadata ()
   "OSC 133 command hooks should write structured session metadata."
