@@ -272,6 +272,7 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
     (let ((prompt (ai-code--build-send-current-branch-pr-init-prompt
                    'gh-cli "feature" "main" "My chosen title")))
       (dolist (phrase '("test commands/results"
+                        "current AI coding session"
                         "CI for the relevant commit"
                         "deployment checks"
                         "not run, not accessible, and unverified"
