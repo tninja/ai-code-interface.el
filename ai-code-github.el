@@ -134,23 +134,56 @@ When `ai-code-default-review-source' is set, return it directly."
        (_ "Review this pull request.")))))
 
 (defun ai-code--build-pr-review-init-prompt (review-source pr-url)
-  "Build PR review initial prompt for REVIEW-SOURCE with PR-URL."
+  "Build an evidence-backed, read-only PR review for REVIEW-SOURCE and PR-URL."
   (let ((source-instruction
          (ai-code--pull-or-review-source-instruction review-source)))
-    (format "Review pull request: %s
-
-%s
-
-Review Steps:
-1. Requirement Fit: Verify the PR implementation against requirements.
-2. Value: Is this PR genuinely useful to the repository, or redundant? Weigh its benefits against complexity and maintenance cost; consider simpler alternatives or no change.
-3. Code Quality: Check code quality, security, and performance concerns.
-4. Findings: For each issue include location, issue, fix suggestion, and priority.
-5. %s
-
-Provide an overall assessment at the end, including whether to merge, simplify, or close the PR."
-            pr-url source-instruction
-            ai-code-github--analysis-only-note)))
+    (format
+     (concat
+      "Review pull request: %s\n\n"
+      "%s\n\n"
+      "Evidence-backed PR review steps:\n"
+      "1. Intent and scope: Verify the implementation against requirements. "
+      "Inspect the exact PR base/head diff and relevant "
+      "surrounding code. Trace original human requirements and decisions in "
+      "linked issues or discussions where accessible; treat an AI-generated "
+      "PR description or summary as a lead, not the source of truth. "
+      "Name missing or inaccessible references.\n"
+      "2. Value: Is this PR genuinely useful to the repository, or "
+      "redundant? Weigh its benefits against complexity and maintenance "
+      "cost; consider simpler alternatives or no change.\n"
+      "3. Bug hunting: Prioritize real correctness regressions, security, "
+      "data loss, and significant performance or code quality problems. "
+      "Trace the actual "
+      "control flow, callers, safeguards, and root cause; identify a "
+      "concrete failure scenario rather than guessing from a name.\n"
+      "4. Regression check: Compare suspected failures with the PR base. "
+      "Label each finding Introduced by PR, Pre-existing, or Unknown, with "
+      "supporting reasoning. Do not attribute old behavior to this PR "
+      "without evidence.\n"
+      "5. Challenge findings: Try to disprove each hypothesis using "
+      "nearby code, existing tests, and existing CI results. Avoid duplicate "
+      "findings and do not claim to have run checks or read sources that "
+      "were not inspected.\n"
+      "6. Actionable findings only: For each credible defect, provide "
+      "priority, precise file:line in the reviewed revision, the incorrect "
+      "behavior and failure scenario, code or test evidence, regression "
+      "status, confidence with reasons, and a specific verification or "
+      "fix suggestion. Distinguish direct evidence from inference.\n"
+      "7. Noise control: Skip style-only nits, formatting, speculative "
+      "cleanup, and routine diagnostics already handled by existing CI "
+      "unless they cause a material behavioral risk. Do not inflate a "
+      "low-confidence possibility into a definite bug.\n"
+      "8. Uncertainty: Put potentially important but unproven problems "
+      "under needs confirmation with the missing evidence or next check; "
+      "do not mix them with established findings.\n"
+      "9. Result: Start with the number of actionable findings. If none "
+      "were established, say no actionable findings discovered (not a "
+      "guarantee of correctness). Summarize residual risks, checks "
+      "actually performed, and checks not performed. End with an overall "
+      "assessment, including whether to merge, simplify, or close the "
+      "PR.\n"
+      "10. %s")
+     pr-url source-instruction ai-code-github--analysis-only-note)))
 
 (defun ai-code--build-send-current-branch-pr-init-prompt
     (review-source current-branch target-branch &optional pr-title)
