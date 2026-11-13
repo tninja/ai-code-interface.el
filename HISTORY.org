@@ -2,14 +2,16 @@
 * Release history
 
 ** Main branch change
+- Feat: A couple of emacs mcp tools
+- Fix: session keybindings lost after Ghostel input-mode switches
+- Fix: Stop Ghostel sessions with image previews from jumping to the top while scrolled back, and keep evil =gg= / =G= working
 - Fix: Fix Claude prompt truncation, small CJK glyphs, and frozen output in Ghostel sessions
 - Fix: session dashboard navigation to preserve tab layouts
 - Feat: Resume interrupted Org tasks with a referenced briefing saved in the task
   file for later Verify input, current Git facts and explicit unknowns; enrich
   handoffs with Git baselines, validation commands and the next concrete action
   (=C-c a K= / =H=).
-- Fix: Sessions of two projects with the same directory name and branch no
-  longer collide; the second one starts in its own buffer.
+- Fix: Sessions of two projects with the same directory name and branch no longer collide; the second one starts in its own buffer.
 
 ** 1.99
 - Feat: Session dashboard shows time in state, uncommitted change size, and a summary of the last prompt; toggles at the bottom with C-c a Z

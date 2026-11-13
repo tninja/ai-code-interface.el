@@ -256,6 +256,7 @@ appends the destination PNG path when invoking it:
 - *Reviewing a Pull Request*: Press `C-c a`, then `v` (`ai-code-pull-or-review-diff-file`). Choose to generate a diff between two branches. The diff will be created in a new buffer, and you'll be prompted to start a review. Set `ai-code-default-review-source` to `github-mcp` or `gh-cli` to skip the review source prompt and always use that backend; leave it `nil` (the default) to be prompted each time.
   - *Evidence-backed PR findings*: The existing =Review the PR= mode (via =C-c a v=) asks the agent to ground actionable defects in exact code locations, a concrete failure scenario, and supporting code/test evidence. It compares suspected regressions with the PR base (introduced, pre-existing, or unknown), challenges potential false positives against surrounding code and available CI, and separates unconfirmed concerns from established findings. Style-only nits and speculative cleanup are not default findings. A clean report means no actionable findings *discovered*, not proof of correctness. The review remains analysis-only; these are prompt instructions rather than an independent multi-agent validation system.
     - *Inspiration*: Addy Osmani, Morgan Westlee Lunt, and Qing Wang, [[https://claude.dev/blog/solving-code-review-at-anthropic/][How the Claude Code team does code review]] (Anthropic, 2026-10-15), especially the emphasis on line-specific evidence, pre-existing vs introduced issues, and false-positive reduction. The lightweight prompt-only adaptation is specific to this project; it does not replicate Anthropic's multi-agent voting or review infrastructure.
+- *Sending a Reviewable PR*: From =C-c a v=, choose =Send out PR for current branch=. The agent is prompted to inspect the committed base/head diff, trace original human requirements when available, identify unnecessary or hard-to-review changes, and describe only real test/CI/deployment evidence. The PR description should be concise, distinguish unverified checks from passes, and highlight material risks without forcing a heavyweight template. This is prompt guidance, not an enforced verification gate; it does not add menus or modify code. Inspired by Nick Liffen and Philip Holleran, [[https://github.blog/ai-and-ml/github-copilot/beyond-code-generation-a-developers-guide-to-agentic-engineering/][Beyond code generation: A developer's guide to agentic engineering]] (GitHub Blog, 2026-11-06), especially its *Verify* discussion of focused, reviewable PRs. The evidence-first PR prompt is this project's lightweight adaptation, not a GitHub feature.
 - *Reviewing the Current Branch with Difftastic*: Press `C-c a`, then `v`, and choose `Review current branch with difftastic` to run `difftastic-magit-diff` for a structural review of the current branch. If the =difftastic= package is not installed, AI Code will tell you to install it from MELPA or from [[https://github.com/pkryger/difftastic.el][pkryger/difftastic.el]].
 - *Multiple Sessions Support*: Start more AI coding session with C-c a a after launching one. Select active session with C-c a z. Prompt with above command will be sent to the selected session.
 - *Speech to Text Input*: Press `C-c a`, then `:` (`ai-code-speech-to-text-input`). Speak your prompt, press `RET` to stop recording, then choose whether to insert the transcription into the current buffer, send it to the active AI coding session after editing it in `ai-code-read-string`, or copy it to the clipboard.
@@ -357,13 +358,15 @@ hunk questions and change requests, as it does in file buffers.
 
 AI Code includes an Emacs MCP server with these built-in tools:
 - =project_info=: summarize the current project, active buffer, and file count
-- =editor_state=: inspect the currently selected buffer, point, mode, region, and buffer flags
+- =editor_state=: inspect the prompt source buffer, point, mode, region, flags, and snapshot freshness (capture time, modification ticks, stale flag)
 - =visible_buffers=: list the buffers visible in the selected frame windows
-- =buffer_query=: read buffer contents, optionally by line range
+- =buffer_query=: read live buffer contents, optionally by line range or exact start/end line-and-display-column coordinates; optional =max_chars= truncates with a marker (old line-range calls remain supported)
+- =get_key_binding_info=: resolve a key sequence against active Emacs keymaps in a live buffer; report the effective binding and its map source without executing it
 - =get_diagnostics=: return Flycheck or Flymake diagnostics for one file or open project buffers
 - =get_project_files=: list regular files in the current project
 - =get_project_buffers=: list open buffers that belong to the current project
 - =imenu_list_symbols=: list useful symbols from a file via imenu
+- =get_org_heading_context=: read the current Org heading, TODO/properties/parents, raw original text and URLs (including Radar/Slack/GitHub/Splunk links), defaulting to the captured prompt origin (with a =snapshot_stale= flag after later edits); optional child headings and bounded output, with references taken from the full section
 - =xref_find_references=: find references to an identifier in project context
 - =xref_find_definitions_at_point=: find definitions at a file location
 - =treesit_info=: inspect tree-sitter node information for a file location
@@ -383,6 +386,7 @@ These tools add:
 - =get_function_info=: inspect function metadata such as kind, aliasing, and advice state
 - =get_feature_load_state=: inspect whether an Emacs feature is loaded and where it comes from
 - =get_recent_messages=: return the latest lines from =*Messages*=
+- =get_buffer_runtime_state=: inspect a live buffer's major mode, buffer-local and global minor modes, Flymake/Flycheck activity, Eglot/LSP and tree-sitter status, plus an optional named hook's function names including inherited global entries (no hook execution)
 - =get_last_error_backtrace=: return the most recently recorded Emacs command error snapshot
 - =eval_elisp=: evaluate arbitrary Emacs Lisp with possible side effects in a chosen buffer context when explicitly enabled (no restrictions once enabled)
 
@@ -582,6 +586,68 @@ When several AI sessions run in parallel, `ai-code-session-attention-mode` badge
 - Showing a session in a window clears =✓= and =?=. Other tabs get no badge.
 - The session dashboard (`C-c a Z`) shows the same states in its Status column, plus =stopped= when the process has exited.
 - "Working" and "done" use the terminal output and idle check (`ai-code-backends-infra-idle-delay`), so typing in a session briefly shows =◐=. "Needs input" needs a terminal that reports program status, currently the Ghostel backend.
+
+*** Automatic Source Evidence in Opt-in Org Summaries
+
+When working from an Org task, answer =y= to the existing =Append result
+summary to current section?= question. The agent is instructed to carry
+useful references discovered during the work into that result-summary
+subheading automatically, so task history accumulates without another
+menu, manual evidence registration, or a separate SPEC.md graph.
+
+A new result subheading uses a short, plain-language title that states
+the conclusion (the new behavior, the answer, or the verdict), rather
+than a generic =Result Summary= heading or an activity such as
+"Investigated ...". The literal =AI= Org TODO keyword identifies
+AI-authored content, and the actual writing agent is an Org headline tag
+(such as =:CODEX:= or =:CLAUDE_CODE:=). The inactive timestamp is on the
+first line *below* the headline, using local time when the result is
+actually written, not when the prompt was sent. For example:
+
+#+begin_example
+** AI User config now overrides project defaults :CODEX:
+[2026-11-10 Tue 06:41]
+
+- Changed merge ordering and checked regression cases
+#+end_example
+
+Other suitable titles include =Cache misses caused by per-request key salt=
+or =PR #537 meets 3 of 4 acceptance criteria=, when those outcomes
+are supported by the work. An unidentified agent uses =:UNKNOWN:=.
+No property drawer or generic =:AI_GENERATED:= tag is added.
+
+Org recognizes =AI= as a TODO keyword only if it appears in the
+user's =org-todo-keywords= configuration; otherwise it remains
+ordinary headline text. AI Code does not change =#+TODO:=, existing
+TODO states, or human-authored notes. The format is prompt-directed,
+not guaranteed by Emacs. Original source references still use the
+existing evidence instruction described below.
+
+The detailed headline, evidence and artifact rules live in
+=prompt/org-result-summary.v1.md=. When the summary is accepted, the
+prompt references that bundled file via =@path= instead of expanding
+the full guidance inline. The AI CLI must be able to read the installed
+package's =prompt/= directory; if the file is missing or unreadable,
+AI Code reports an error rather than quietly dropping these rules.
+
+Evidence from original requirements (Slack threads, Radar tickets,
+GitHub discussions, meeting notes), operational observations (Splunk
+queries, time ranges, logs), code/file locations and verification
+results is recorded with a concise explanation and original URL/ID/path.
+Human-authored decisions, raw observations and AI-generated inferences
+are clearly distinguished. Missing, unreadable or uncertain sources
+remain marked as such; an AI-generated summary is a navigation aid,
+not a replacement for the original human-authored source.
+
+The writeback guidance asks to add new material rather than duplicate
+references already present, preserving all original notes and prior
+summaries. No separate evidence UI, ID database, or automatic browsing
+of restricted sources is introduced. The behavior is opt-in and
+prompt-directed: choosing =n= makes no writeback request, and an
+agent-generated note is not itself proof that a source was verified.
+
+This borrows ThinkRail's [[https://github.com/JetBrains/thinkrail/tree/main/packages/spec-graph][Spec Graph]] emphasis on traceable relationships,
+but keeps Org task files as the single source of historical context.
 
 *** Automatic Code Artifacts in Opt-in Org Summaries
 

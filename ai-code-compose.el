@@ -104,6 +104,11 @@ callers can keep their current prompt-building and sending flow unchanged."
           (when initial-input
             (insert initial-input))
           (goto-char (point-max))
+          (message "%s"
+                   (substitute-command-keys
+                    (concat "Review or edit the prompt, then "
+                            "\\<ai-code-compose-mode-map>\\[ai-code-compose-accept] to send "
+                            "(\\[ai-code-compose-cancel] to cancel).")))
           (recursive-edit)
           (setq result ai-code-compose--result
                 cancelled ai-code-compose--cancelled))

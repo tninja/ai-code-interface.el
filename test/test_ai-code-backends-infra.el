@@ -3618,13 +3618,13 @@ The prefix argument should also force instance-name prompting."
           (ai-code-backends-infra--configure-session-buffer
            configured nil "\\\r\n")
           (with-current-buffer configured
-            (should (eq (lookup-key (current-local-map) (kbd "S-<return>"))
+            (should (eq (key-binding (kbd "S-<return>"))
                         #'ai-code-backends-infra--terminal-send-multiline-input))
             (should (equal ai-code-backends-infra--multiline-input-sequence
                            "\\\r\n")))
           (should-not (lookup-key shared-map (kbd "S-<return>")))
           (with-current-buffer unconfigured
-            (should-not (lookup-key (current-local-map) (kbd "S-<return>"))))
+            (should-not (key-binding (kbd "S-<return>"))))
           (define-key shared-map (kbd "S-<return>")
                       #'ai-code-backends-infra--terminal-send-multiline-input)
           (with-current-buffer unconfigured
@@ -3633,13 +3633,57 @@ The prefix argument should also force instance-name prompting."
            unconfigured nil nil)
           (with-current-buffer unconfigured
             (should-not ai-code-backends-infra--multiline-input-sequence)
-            (should-not (lookup-key (current-local-map) (kbd "S-<return>"))))
+            (should-not (lookup-key (ai-code-backends-infra--session-keymap)
+                                    (kbd "S-<return>"))))
           (should (eq (lookup-key shared-map (kbd "S-<return>"))
                       #'ai-code-backends-infra--terminal-send-multiline-input)))
       (when (buffer-live-p configured)
         (kill-buffer configured))
       (when (buffer-live-p unconfigured)
         (kill-buffer unconfigured)))))
+
+(ert-deftest test-ai-code-backends-infra-configure-session-buffer-keys-survive-local-map-swap ()
+  "Session keys should survive a backend replacing the local map.
+Ghostel calls `use-local-map' with its shared mode map on every input-mode
+switch, which used to drop `C-<escape>' and the multiline bindings."
+  (let ((shared-map (make-sparse-keymap)))
+    (define-key shared-map (kbd "C-<escape>") #'ignore)
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'ai-code-session-link--linkify-session-region)
+                 (lambda (&rest _args) nil)))
+        (use-local-map shared-map)
+        (ai-code-backends-infra--configure-session-buffer
+         (current-buffer) #'keyboard-quit "\\\r\n")
+        (use-local-map shared-map)
+        (should (eq (key-binding (kbd "C-<escape>")) #'keyboard-quit))
+        (should (eq (key-binding (kbd "S-<return>"))
+                    #'ai-code-backends-infra--terminal-send-multiline-input))
+        (should (eq (key-binding (kbd "C-<return>"))
+                    #'ai-code-backends-infra--terminal-send-multiline-input))
+        (should (eq (lookup-key shared-map (kbd "C-<escape>")) #'ignore))))))
+
+(ert-deftest test-ai-code-backends-infra-input-shortcuts-stay-buffer-local ()
+  "`@' and `#' should not leak into the shared mode map.
+They must survive a local map swap and yield to the terminal in
+navigation mode."
+  (require 'ai-code-input)
+  (let ((shared-map (make-sparse-keymap))
+        (navigation nil))
+    (with-temp-buffer
+      (cl-letf (((symbol-function
+                  'ai-code-backends-infra--terminal-navigation-mode-p)
+                 (lambda () navigation)))
+        (use-local-map shared-map)
+        (ai-code-backends-infra--configure-session-input-shortcuts)
+        (should-not (lookup-key shared-map (kbd "@")))
+        (should-not (lookup-key shared-map (kbd "#")))
+        (use-local-map shared-map)
+        (should (eq (key-binding (kbd "@"))
+                    #'ai-code--session-handle-at-input))
+        (should (eq (key-binding (kbd "#"))
+                    #'ai-code--session-handle-hash-input))
+        (setq navigation t)
+        (should (eq (key-binding (kbd "@")) #'self-insert-command))))))
 
 (ert-deftest test-ai-code-backends-infra--configure-session-buffer-installs-editor-submit ()
   "Configured terminal sessions should submit completed editor input."
@@ -4349,6 +4393,48 @@ line; resizing for that sends SIGWINCH and the CLI repaints its screen."
           (should (equal (nreverse calls)
                          (list (list :ghostel process "finished\n")
                                :cleanup))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-finalize-started-session-uses-ghostel-child-exit-status ()
+  "Cleanup should see the Ghostel native child exit status, not the pipe event.
+The native PTY event pipe always closes with \"finished\", so a CLI that
+exits with an error must still be reported as abnormal to keep its buffer."
+  (let* ((buffer-name "*pi[finalize-ghostel-exit-status]*")
+         (buffer (get-buffer-create buffer-name))
+         (process 'mock-process)
+         (installed-sentinel nil)
+         (cleanup-event nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'process-get)
+                   (lambda (_process prop)
+                     (and (eq prop 'ghostel--exit-status) 1)))
+                  ((symbol-function 'set-process-sentinel)
+                   (lambda (_process fn)
+                     (setq installed-sentinel fn)))
+                  ((symbol-function 'ai-code-backends-infra--cleanup-session)
+                   (lambda (&rest args)
+                     (setq cleanup-event (nth 5 args))))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--finalize-started-session
+           buffer
+           process
+           "/tmp/ai-code-finalize-ghostel-exit-status/"
+           buffer-name
+           (make-hash-table :test 'equal)
+           "default"
+           "pi"
+           nil
+           nil
+           nil
+           nil)
+          (funcall installed-sentinel process "finished\n")
+          (should (equal cleanup-event "exited abnormally with code 1\n")))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

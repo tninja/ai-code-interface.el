@@ -96,6 +96,30 @@ be a non-negative integer."
   :type '(choice (const :tag "No limit" nil) natnum)
   :group 'ai-code-mcp-server)
 
+(defcustom ai-code-mcp-tool-call-log-enabled t
+  "When non-nil, record every MCP tool call in the audit log.
+The log records the tool name, argument names (never argument values),
+the session id, the result size, the duration, and the error type
+\(never the error message, which may embed argument values).
+Inspect it with `ai-code-mcp-show-tool-call-log' and clear it with
+`ai-code-mcp-clear-tool-call-log'."
+  :type 'boolean
+  :group 'ai-code-mcp-server)
+
+(defcustom ai-code-mcp-tool-call-log-max-entries 500
+  "Maximum number of entries kept in the MCP tool-call audit log.
+Older entries are dropped once the log grows past this many calls."
+  :type 'natnum
+  :group 'ai-code-mcp-server)
+
+(defvar ai-code-mcp--tool-call-log nil
+  "MCP tool-call audit log entries, newest first.
+Each entry is a plist with `:time', `:session', `:tool', `:args',
+`:status', `:result-chars', `:error', and `:duration-ms'.")
+
+(defconst ai-code-mcp--tool-call-log-buffer-name "*AI Code MCP Log*"
+  "Buffer name used to display the MCP tool-call audit log.")
+
 (defvar ai-code-mcp--sessions (make-hash-table :test 'equal)
   "Hash table mapping MCP session ids to session metadata.")
 
@@ -143,7 +167,7 @@ baseline in the model context itself.")
      :args nil)
     (:function ai-code-mcp-buffer-query
      :name "buffer_query"
-     :description "Read contents from an Emacs buffer by line range."
+     :description "Read live buffer text: whole buffer, a line range, or an exact line/column range."
      :args ((:name "buffer_name"
              :type string
              :description "Name of the buffer to read.")
@@ -153,7 +177,33 @@ baseline in the model context itself.")
              :optional t)
             (:name "num_lines"
              :type integer
-             :description "Number of lines to read from start_line."
+             :description "Number of lines to read from start_line (not used for exact ranges)."
+             :optional t)
+            (:name "start_column"
+             :type integer
+             :description "Optional 0-based display column for an exact range; requires start_line, end_line, end_column."
+             :optional t)
+            (:name "end_line"
+             :type integer
+             :description "Optional 1-based exclusive end line for an exact range."
+             :optional t)
+            (:name "end_column"
+             :type integer
+             :description "Optional 0-based exclusive end column for an exact range."
+             :optional t)
+            (:name "max_chars"
+             :type integer
+             :description "Optional positive output character limit; truncated responses are explicitly marked."
+             :optional t)))
+    (:function ai-code-mcp-get-key-binding-info
+     :name "get_key_binding_info"
+     :description "Inspect the effective Emacs key binding in a live buffer, including the active map that supplies it."
+     :args ((:name "key_sequence"
+             :type string
+             :description "Emacs kbd notation, for example C-c a v.")
+            (:name "buffer_name"
+             :type string
+             :description "Optional live buffer; defaults to the MCP source buffer."
              :optional t)))
     (:function ai-code-mcp-get-diagnostics
      :name "get_diagnostics"
@@ -242,6 +292,7 @@ baseline in the model context itself.")
 The default tool list includes:
 - `project_info'
 - `editor_state'
+- `get_key_binding_info'
 - `visible_buffers'
 - `buffer_query'
 - `get_diagnostics'
@@ -477,12 +528,15 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
       (frame-root-window)))
 
 (defun ai-code-mcp--point-line-column (buffer point)
-  "Return line and column for POINT in BUFFER."
+  "Return line and column for POINT in BUFFER.
+Coordinates ignore narrowing so they match `buffer_query' exact ranges."
   (with-current-buffer buffer
     (save-excursion
-      (goto-char point)
-      `((line . ,(line-number-at-pos))
-        (column . ,(current-column))))))
+      (save-restriction
+        (widen)
+        (goto-char point)
+        `((line . ,(line-number-at-pos))
+          (column . ,(current-column)))))))
 
 (defun ai-code-mcp--region-state (buffer point)
   "Return region metadata for BUFFER at POINT."
@@ -537,7 +591,22 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
             (column . ,(alist-get 'column position))
             (region_active . ,(alist-get 'region_active region-state))
             (region . ,(alist-get 'region region-state))
-            (default_directory . ,default-directory)))))))
+            (default_directory . ,default-directory)
+            (snapshot_captured_at
+             . ,(and (eq buffer source-buffer)
+                     source-snapshot
+                     (float-time (plist-get source-snapshot :captured-at))))
+            (snapshot_modification_tick
+             . ,(and (eq buffer source-buffer)
+                     source-snapshot
+                     (plist-get source-snapshot :modification-tick)))
+            (current_modification_tick . ,(buffer-chars-modified-tick))
+            (snapshot_stale
+             . ,(ai-code-mcp--json-bool
+                 (and (eq buffer source-buffer)
+                      source-snapshot
+                      (/= (plist-get source-snapshot :modification-tick)
+                          (buffer-chars-modified-tick)))))))))))
 
 (defun ai-code-mcp-editor-state ()
   "Return a JSON payload for the current editor state."
@@ -571,15 +640,41 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
        (selected_index . ,selected-index)
        (items . ,(vconcat entries))))))
 
-(defun ai-code-mcp--validate-buffer-query-range (start-line num-lines)
-  "Validate optional buffer query range arguments START-LINE and NUM-LINES."
-  (when (or (and start-line (not num-lines))
-            (and num-lines (not start-line)))
-    (error "Arguments start_line and num_lines must both be provided or both be omitted"))
-  (when (and start-line
-             (or (< start-line 1)
-                 (< num-lines 1)))
-    (error "Arguments start_line and num_lines must be positive integers")))
+(defun ai-code-mcp--validate-buffer-query-range
+    (start-line num-lines &optional start-column end-line end-column)
+  "Validate legacy line range or exact coordinates for a buffer query."
+  (let ((exact (or start-column end-line end-column)))
+    (if exact
+        (unless (and (null num-lines)
+                     (integerp start-line) (> start-line 0)
+                     (integerp start-column) (>= start-column 0)
+                     (integerp end-line) (> end-line 0)
+                     (integerp end-column) (>= end-column 0)
+                     (or (> end-line start-line)
+                         (and (= end-line start-line)
+                              (>= end-column start-column))))
+          (user-error "Exact range needs start_line, start_column, end_line and end_column (no num_lines)"))
+      (when (or (and start-line (not num-lines))
+                (and num-lines (not start-line)))
+        (user-error "start_line and num_lines must both be provided or omitted"))
+      (when (and start-line
+                 (or (not (integerp start-line)) (not (integerp num-lines))
+                     (< start-line 1) (< num-lines 1)))
+        (user-error "start_line and num_lines must be positive integers")))))
+
+(defun ai-code-mcp--strict-buffer-position (line column)
+  "Return the buffer position at LINE and display COLUMN, or reject it.
+The caller widens the buffer so coordinates match the file's line numbers."
+  (save-excursion
+    (goto-char (point-min))
+    (unless (zerop (forward-line (1- line)))
+      (user-error "Line %d is outside the buffer" line))
+    (let ((end (line-end-position)))
+      (move-to-column column)
+      (unless (and (= (current-column) column)
+                   (<= (point) end))
+        (user-error "Column %d is outside line %d" column line)))
+    (point)))
 
 (defun ai-code-mcp--drop-trailing-newline (text)
   "Return TEXT without a single trailing newline."
@@ -587,23 +682,108 @@ TRANSPORT-SESSION-ID and PROTOCOL-VERSION must match the initialized session."
       (substring text 0 -1)
     text))
 
-(defun ai-code-mcp-buffer-query (buffer-name &optional start-line num-lines)
-  "Return contents from BUFFER-NAME.
-When START-LINE and NUM-LINES are non-nil, return only that line range."
+(defun ai-code-mcp-buffer-query
+    (buffer-name &optional start-line num-lines start-column end-line end-column
+                 max-chars)
+  "Return live BUFFER-NAME text, supporting legacy lines or exact ranges.
+Exact ranges use 1-based lines and 0-based display columns, with an
+exclusive end position.  MAX-CHARS optionally caps the returned text."
   (let ((buffer (get-buffer buffer-name)))
+    (unless buffer
+      (user-error "Buffer not found: %s" buffer-name))
+    (ai-code-mcp--validate-buffer-query-range
+     start-line num-lines start-column end-line end-column)
+    (when (and max-chars
+               (not (and (integerp max-chars) (> max-chars 0))))
+      (user-error "max_chars must be a positive integer"))
+    (with-current-buffer buffer
+      (let* ((exact (or start-column end-line end-column))
+             (text
+              (save-excursion
+                (if exact
+                    (save-restriction
+                      (widen)
+                      (let ((start (ai-code-mcp--strict-buffer-position
+                                    start-line start-column))
+                            (end (ai-code-mcp--strict-buffer-position
+                                  end-line end-column)))
+                        (buffer-substring-no-properties start end)))
+                  (if (not start-line)
+                      (buffer-substring-no-properties (point-min) (point-max))
+                    (goto-char (point-min))
+                    (forward-line (1- start-line))
+                    (let ((start (point)))
+                      (forward-line num-lines)
+                      (ai-code-mcp--drop-trailing-newline
+                       (buffer-substring-no-properties start (point)))))))))
+        (if (and max-chars (> (length text) max-chars))
+            (concat (substring text 0 max-chars)
+                    "\n[truncated; request a smaller buffer range]")
+          text)))))
+
+
+(defun ai-code-mcp--key-binding-map-source (map)
+  "Describe the active key MAP as a global, major, or minor mode map."
+  (cond
+   ((eq map (current-global-map))
+    '((kind . "global") (mode . nil)))
+   ((eq map (current-local-map))
+    `((kind . "major-mode") (mode . ,(symbol-name major-mode))))
+   (t
+    (let ((minor-mode
+           (cl-loop for entry in (append minor-mode-overriding-map-alist
+                                         minor-mode-map-alist)
+                    for mode = (car entry)
+                    when (and (symbolp mode)
+                              (boundp mode)
+                              (symbol-value mode)
+                              (eq map (cdr entry)))
+                    return mode)))
+      `((kind . ,(if minor-mode "minor-mode" "other"))
+        (mode . ,(and minor-mode (symbol-name minor-mode))))))))
+
+(defun ai-code-mcp-get-key-binding-info (key-sequence &optional buffer-name)
+  "Inspect KEY-SEQUENCE as it is bound in BUFFER-NAME.
+Use the MCP prompt source buffer by default.  This is a read-only lookup;
+it never invokes the resolved command."
+  (unless (and (stringp key-sequence)
+               (not (string-empty-p key-sequence)))
+    (user-error "key_sequence must be nonempty Emacs kbd notation"))
+  (let* ((context (ai-code-mcp-get-session-context))
+         (source (plist-get context :source-buffer))
+         (buffer (cond
+                  (buffer-name
+                   (or (get-buffer buffer-name)
+                       (user-error "No such buffer: %s" buffer-name)))
+                  ((buffer-live-p source) source)
+                  ((not context) (current-buffer))))
+         (keys (kbd key-sequence)))
     (if (not buffer)
-        (format "Error: Buffer not found: %s" buffer-name)
-      (ai-code-mcp--validate-buffer-query-range start-line num-lines)
+        (json-encode
+         '((ok . :json-false)
+           (status . "unavailable")
+           (reason . "Prompt source buffer is no longer live")))
       (with-current-buffer buffer
-        (save-excursion
-          (if (not start-line)
-              (buffer-substring-no-properties (point-min) (point-max))
-            (goto-char (point-min))
-            (forward-line (1- start-line))
-            (let ((start-pos (point)))
-              (forward-line num-lines)
-              (ai-code-mcp--drop-trailing-newline
-               (buffer-substring-no-properties start-pos (point))))))))))
+        ;; Accept default [t] bindings everywhere so the reported map and
+        ;; raw binding agree with `key-binding'.
+        (let* ((binding (key-binding keys t))
+               (map (seq-find
+                     (lambda (candidate)
+                       (let ((entry (lookup-key candidate keys t)))
+                         (and entry (not (numberp entry)))))
+                     (current-active-maps t)))
+               (raw (and map (lookup-key map keys t)))
+               (source-info (and map (ai-code-mcp--key-binding-map-source map))))
+          (json-encode
+           `((ok . t)
+             (buffer_name . ,(buffer-name buffer))
+             (key_sequence . ,(key-description keys))
+             (bound . ,(ai-code-mcp--json-bool (not (null binding))))
+             (binding . ,(and raw (format "%S" raw)))
+             (effective_command . ,(and binding (format "%S" binding)))
+             (interactive . ,(ai-code-mcp--json-bool
+                              (and binding (commandp binding))))
+             (source . ,source-info))))))))
 
 (defun ai-code-mcp-get-diagnostics (&optional uri since)
   "Return a JSON diagnostics observation envelope for URI or the project.
@@ -1561,18 +1741,132 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   (let* ((tool-name (alist-get 'name params))
          (arguments-entry (assq 'arguments params))
          (arguments (if arguments-entry (cdr arguments-entry) '()))
-         (tool (progn
-                 (unless (stringp tool-name)
-                   (ai-code-mcp-signal-protocol-error
-                    -32602 "Tool name must be a string"))
-                 (ai-code-mcp--find-tool tool-name))))
+         (started (float-time)))
     (condition-case err
-        (ai-code-mcp--tool-success-result
-         (ai-code-mcp--call-tool tool arguments))
+        (let* ((tool (progn
+                       (unless (stringp tool-name)
+                         (ai-code-mcp-signal-protocol-error
+                          -32602 "Tool name must be a string"))
+                       (ai-code-mcp--find-tool tool-name)))
+               (response (ai-code-mcp--tool-success-result
+                          (ai-code-mcp--call-tool tool arguments))))
+          (ai-code-mcp--record-tool-call
+           tool-name arguments response nil started)
+          response)
       (ai-code-mcp-protocol-error
+       (ai-code-mcp--record-tool-call
+        tool-name arguments nil err started)
        (signal (car err) (cdr err)))
       (error
+       (ai-code-mcp--record-tool-call
+        tool-name arguments nil err started)
        (ai-code-mcp--tool-error-result err)))))
+
+(defun ai-code-mcp--tool-call-error-type (err)
+  "Return a value-free description of ERR for the audit log.
+Only the error symbol, plus the code for protocol errors, is kept:
+error messages often embed argument values."
+  (if (eq (car err) 'ai-code-mcp-protocol-error)
+      (format "protocol-error %s" (cadr err))
+    (symbol-name (car err))))
+
+(defun ai-code-mcp--record-tool-call (tool-name arguments response err started)
+  "Record one MCP tool call in the audit log.
+TOOL-NAME and ARGUMENTS describe the call; only argument names are
+recorded, never their values, so the log cannot leak buffer contents,
+code, or secrets passed to a tool.  RESPONSE is the MCP result sent to
+the agent (nil on failure), ERR the signaled error (nil on success),
+and STARTED the `float-time' at which the call began.  Recording never
+signals: a logging failure must not break the tool call itself."
+  (when ai-code-mcp-tool-call-log-enabled
+    (condition-case nil
+        (let ((entry
+               (list :time (current-time)
+                     :session (or ai-code-mcp--current-session-id
+                                  "default")
+                     :tool tool-name
+                     :args (sort
+                            (mapcar
+                             (lambda (entry)
+                               (if (symbolp (car entry))
+                                   (symbol-name (car entry))
+                                 (format "%s" (car entry))))
+                             (and (listp arguments)
+                                  (seq-filter #'consp arguments)))
+                            #'string<)
+                     :status (if (or err
+                                     (eq (alist-get 'isError response) t))
+                                 'error
+                               'ok)
+                     :result-chars
+                     (and response
+                          (length (alist-get
+                                   'text
+                                   (car (alist-get 'content response)))))
+                     :error (and err (ai-code-mcp--tool-call-error-type err))
+                     :duration-ms
+                     (and started
+                          (round (* 1000 (- (float-time) started)))))))
+          (push entry ai-code-mcp--tool-call-log)
+          (when (> (length ai-code-mcp--tool-call-log)
+                   ai-code-mcp-tool-call-log-max-entries)
+            (setq ai-code-mcp--tool-call-log
+                  (seq-take ai-code-mcp--tool-call-log
+                            ai-code-mcp-tool-call-log-max-entries)))
+          (when-let ((buffer (get-buffer
+                              ai-code-mcp--tool-call-log-buffer-name)))
+            (when (buffer-live-p buffer)
+              (ai-code-mcp--render-tool-call-log buffer))))
+      (error nil))))
+
+(defun ai-code-mcp--format-tool-call-log-entry (entry)
+  "Return one display line for audit log ENTRY."
+  (let ((error-text (plist-get entry :error)))
+    (concat
+     (format-time-string "%Y-%m-%dT%H:%M:%S%z" (plist-get entry :time))
+     (format "  %-5s %s  session=%s args=(%s)"
+             (plist-get entry :status)
+             (plist-get entry :tool)
+             (plist-get entry :session)
+             (mapconcat #'identity (plist-get entry :args) " "))
+     (if error-text
+         (format "  error=%s" error-text)
+       (format "  result=%s chars"
+               (or (plist-get entry :result-chars) 0)))
+     (format "  %sms\n" (or (plist-get entry :duration-ms) 0)))))
+
+(defun ai-code-mcp--render-tool-call-log (buffer)
+  "Render the MCP tool-call audit log into BUFFER, newest first."
+  (with-current-buffer buffer
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (insert "AI Code MCP tool-call audit log (newest first)\n")
+      (insert "Argument values are never recorded; only argument names.\n\n")
+      (if (null ai-code-mcp--tool-call-log)
+          (insert "No MCP tool calls recorded yet.\n")
+        (dolist (entry ai-code-mcp--tool-call-log)
+          (insert (ai-code-mcp--format-tool-call-log-entry entry)))))
+    (setq buffer-read-only t)))
+
+;;;###autoload
+(defun ai-code-mcp-show-tool-call-log ()
+  "Display the MCP tool-call audit log.
+The log shows which tools connected agents called, with which
+argument names, for which session, and how large each result was."
+  (interactive)
+  (let ((buffer (get-buffer-create
+                 ai-code-mcp--tool-call-log-buffer-name)))
+    (ai-code-mcp--render-tool-call-log buffer)
+    (pop-to-buffer buffer)))
+
+;;;###autoload
+(defun ai-code-mcp-clear-tool-call-log ()
+  "Clear the MCP tool-call audit log."
+  (interactive)
+  (setq ai-code-mcp--tool-call-log nil)
+  (when-let ((buffer (get-buffer ai-code-mcp--tool-call-log-buffer-name)))
+    (when (buffer-live-p buffer)
+      (ai-code-mcp--render-tool-call-log buffer))))
 
 (defun ai-code-mcp--find-tool (tool-name)
   "Return the tool spec matching TOOL-NAME."
@@ -1864,6 +2158,7 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
   (format "Notified user: %s" message-text))
 
 (require 'ai-code-mcp-debug-tools nil t)
+(require 'ai-code-mcp-org-tools nil t)
 
 (provide 'ai-code-mcp-server)
 

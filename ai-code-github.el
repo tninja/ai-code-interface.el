@@ -148,37 +148,41 @@ When `ai-code-default-review-source' is set, return it directly."
       "linked issues or discussions where accessible; treat an AI-generated "
       "PR description or summary as a lead, not the source of truth. "
       "Name missing or inaccessible references.\n"
-      "2. Bug hunting: Prioritize real correctness regressions, security, "
+      "2. Value: Is this PR genuinely useful to the repository, or "
+      "redundant? Weigh its benefits against complexity and maintenance "
+      "cost; consider simpler alternatives or no change.\n"
+      "3. Bug hunting: Prioritize real correctness regressions, security, "
       "data loss, and significant performance or code quality problems. "
       "Trace the actual "
       "control flow, callers, safeguards, and root cause; identify a "
       "concrete failure scenario rather than guessing from a name.\n"
-      "3. Regression check: Compare suspected failures with the PR base. "
+      "4. Regression check: Compare suspected failures with the PR base. "
       "Label each finding Introduced by PR, Pre-existing, or Unknown, with "
       "supporting reasoning. Do not attribute old behavior to this PR "
       "without evidence.\n"
-      "4. Challenge findings: Try to disprove each hypothesis using "
+      "5. Challenge findings: Try to disprove each hypothesis using "
       "nearby code, existing tests, and existing CI results. Avoid duplicate "
       "findings and do not claim to have run checks or read sources that "
       "were not inspected.\n"
-      "5. Actionable findings only: For each credible defect, provide "
+      "6. Actionable findings only: For each credible defect, provide "
       "priority, precise file:line in the reviewed revision, the incorrect "
       "behavior and failure scenario, code or test evidence, regression "
       "status, confidence with reasons, and a specific verification or "
       "fix suggestion. Distinguish direct evidence from inference.\n"
-      "6. Noise control: Skip style-only nits, formatting, speculative "
+      "7. Noise control: Skip style-only nits, formatting, speculative "
       "cleanup, and routine diagnostics already handled by existing CI "
       "unless they cause a material behavioral risk. Do not inflate a "
       "low-confidence possibility into a definite bug.\n"
-      "7. Uncertainty: Put potentially important but unproven problems "
+      "8. Uncertainty: Put potentially important but unproven problems "
       "under needs confirmation with the missing evidence or next check; "
       "do not mix them with established findings.\n"
-      "8. Result: Start with the number of actionable findings. If none "
+      "9. Result: Start with the number of actionable findings. If none "
       "were established, say no actionable findings discovered (not a "
       "guarantee of correctness). Summarize residual risks, checks "
       "actually performed, and checks not performed. End with an overall "
-      "assessment.\n"
-      "9. %s")
+      "assessment, including whether to merge, simplify, or close the "
+      "PR.\n"
+      "10. %s")
      pr-url source-instruction ai-code-github--analysis-only-note)))
 
 (defun ai-code--build-send-current-branch-pr-init-prompt
@@ -204,13 +208,15 @@ define the PR request."
 %s
 
 PR Creation Steps:
-1. Inspect the current branch changes and open or send out a pull request into %s.
+1. Inspect the exact committed branch diff against %s (base/head and changed files). Keep staged, unstaged, and unrelated work separate; do not describe them as part of the PR.
    %s
-%s3. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
-4. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
-5. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
-6. Return the final PR URL, the exact PR title, and the exact description that were used.
-7. %s"
+%s3. Trace the intended behavior to original human-authored requirements when available (issue, task notes, decisions, or discussion); cite the original links. Do not treat AI summaries or an unverified PR description as the source of truth. If requirements are unavailable, say so instead of claiming coverage.
+4. Check reviewability of the actual diff: flag material unrelated changes, excessive formatting, redundant generated tests, or risk-heavy areas. Suggest a smaller/split PR only if it materially improves review; do not silently rewrite code or split branches.
+5. Gather existing verification evidence from the current AI coding session, linked task notes, actual test commands/results, CI for the relevant commit, and any completed deployment checks. Cite commands or links where useful; distinguish passed, failed, not run, not accessible, and unverified. Never invent test results, source links, or proof of correctness.
+6. Write a short, author-voiced PR description covering why, what changed, and verified evidence (with exact commands/links where useful). Call out material gaps, risks, and review hotspots without boilerplate or a large checklist for trivial changes.
+7. Create the requested PR using the chosen tool and draft/normal setting. Do not modify code, tests, Git commits, or branch contents as part of PR creation.
+8. Return the final PR URL, exact title, and exact description, plus any material reviewability concerns that could not be resolved.
+9. %s"
             current-branch
             target-branch
             source-instruction
