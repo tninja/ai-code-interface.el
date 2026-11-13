@@ -249,6 +249,40 @@ Return (CAPTURED-PROMPT DIFF-CALLED)."
       (should (string-match-p "create a normal pull request" (downcase prompt)))
       (should-not (string-match-p "draft pull request" (downcase prompt))))))
 
+(ert-deftest ai-code-test-send-pr-requires-original-intent-and-reviewable-scope ()
+  "PR creation should trace original requirements and flag oversized changes."
+  (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _args) nil)))
+    (dolist (source '(gh-cli github-mcp))
+      (let ((prompt (ai-code--build-send-current-branch-pr-init-prompt
+                     source "feature" "main")))
+        (dolist (phrase '("exact committed branch diff"
+                          "staged, unstaged"
+                          "original human-authored requirements"
+                          "AI summaries"
+                          "material unrelated changes"
+                          "smaller/split PR"))
+          (should (string-match-p (regexp-quote phrase) prompt)))
+        (should (string-match-p
+                 (regexp-quote ai-code-github--pr-creation-no-code-change-note)
+                 prompt))))))
+
+(ert-deftest ai-code-test-send-pr-evidence-cannot-be-invented ()
+  "PR creation should distinguish observed checks from unverified claims."
+  (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _args) t)))
+    (let ((prompt (ai-code--build-send-current-branch-pr-init-prompt
+                   'gh-cli "feature" "main" "My chosen title")))
+      (dolist (phrase '("test commands/results"
+                        "current AI coding session"
+                        "CI for the relevant commit"
+                        "deployment checks"
+                        "not run, not accessible, and unverified"
+                        "Never invent test results"
+                        "material gaps, risks, and review hotspots"
+                        "Do not modify code, tests, Git commits"))
+        (should (string-match-p (regexp-quote phrase) prompt)))
+      (should (string-match-p "Use this PR title exactly: My chosen title" prompt))
+      (should (string-match-p "Create a draft pull request" prompt)))))
+
 (ert-deftest ai-code-test-default-pr-target-branch-uses-origin-head-when-main-and-master-absent ()
   "Fallback target branch should use origin HEAD when available."
   (cl-letf (((symbol-function 'magit-git-string)

@@ -175,13 +175,15 @@ define the PR request."
 %s
 
 PR Creation Steps:
-1. Inspect the current branch changes and open or send out a pull request into %s.
+1. Inspect the exact committed branch diff against %s (base/head and changed files). Keep staged, unstaged, and unrelated work separate; do not describe them as part of the PR.
    %s
-%s3. Write a concise PR description that sounds like it was written by the author, but do not make it too short.
-4. Keep the description focused on the problem, the approach, and the most important verification, with enough detail for reviewers to understand the change quickly.
-5. Aim for a compact but complete description, roughly a short summary plus 2 to 3 brief supporting paragraphs or bullet points.
-6. Return the final PR URL, the exact PR title, and the exact description that were used.
-7. %s"
+%s3. Trace the intended behavior to original human-authored requirements when available (issue, task notes, decisions, or discussion); cite the original links. Do not treat AI summaries or an unverified PR description as the source of truth. If requirements are unavailable, say so instead of claiming coverage.
+4. Check reviewability of the actual diff: flag material unrelated changes, excessive formatting, redundant generated tests, or risk-heavy areas. Suggest a smaller/split PR only if it materially improves review; do not silently rewrite code or split branches.
+5. Gather existing verification evidence from the current AI coding session, linked task notes, actual test commands/results, CI for the relevant commit, and any completed deployment checks. Cite commands or links where useful; distinguish passed, failed, not run, not accessible, and unverified. Never invent test results, source links, or proof of correctness.
+6. Write a short, author-voiced PR description covering why, what changed, and verified evidence (with exact commands/links where useful). Call out material gaps, risks, and review hotspots without boilerplate or a large checklist for trivial changes.
+7. Create the requested PR using the chosen tool and draft/normal setting. Do not modify code, tests, Git commits, or branch contents as part of PR creation.
+8. Return the final PR URL, exact title, and exact description, plus any material reviewability concerns that could not be resolved.
+9. %s"
             current-branch
             target-branch
             source-instruction
