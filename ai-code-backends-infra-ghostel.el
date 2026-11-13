@@ -92,7 +92,8 @@ enabled by default because it widens the terminal's local resource access."
   (defvar ghostel--copy-mode-active)
   (defvar ghostel--fake-cursor-overlay)
   (defvar ghostel--cursor-char-pos)
-  (defvar ghostel--input-mode))
+  (defvar ghostel--input-mode)
+  (defvar ghostel--repainted-region))
 
 (defconst ai-code-backends-infra-ghostel--editor-command
   "ai-code-editor-viewport"
@@ -117,7 +118,12 @@ lets restoration win the race.")
 
 Interactive AI CLIs often repaint status rows by clearing and rewriting the
 same terminal line in several process-output chunks.  Batching redraw-like
-chunks prevents users from seeing those incomplete intermediate frames."
+chunks prevents users from seeing those incomplete intermediate frames.
+
+Output inside DEC 2026 synchronized-output frames is not batched: Ghostel
+already holds those frames until they complete, so extra batching would
+only delay rendering and keystroke echo.  Sessions on Ghostel's native PTY
+never pass output through Emacs, so this option does not apply to them."
   :type 'boolean
   :group 'ai-code-backends-infra)
 
@@ -199,6 +205,27 @@ in copy mode and hide new output until the next key.  Non-nil sets
 (defconst ai-code-backends-infra-ghostel--redraw-regexp
   "\033\\[[0-9;?]*[A-GJKMH]"
   "Regexp matching ANSI terminal redraw, clear, or cursor movement sequences.")
+
+(defconst ai-code-backends-infra-ghostel--sync-output-regexp
+  "\033\\[\\?2026\\([hl]\\)"
+  "Regexp matching DEC 2026 synchronized-output begin and end sequences.")
+
+(defconst ai-code-backends-infra-ghostel--native-output-sample-limit 16384
+  "Maximum characters of a native PTY redraw region used for bookkeeping.
+A full repaint after a resize can span the whole scrollback; only its tail
+is needed to detect meaningful output and recent links.")
+
+(defvar-local ai-code-backends-infra-ghostel--sync-output-open nil
+  "Non-nil while the subprocess holds DEC 2026 synchronized output open.")
+
+(defvar-local ai-code-backends-infra-ghostel--native-pty-session nil
+  "Non-nil when Ghostel reads this session's PTY output natively.
+Native PTY output goes straight into the terminal model without an Emacs
+process filter, so AI Code tracks output from Ghostel's redraws instead.")
+
+(defvar-local ai-code-backends-infra-ghostel--native-repainted-region nil
+  "Buffer range repainted since the last native output bookkeeping pass.
+The value is a (START . END) cons of positions, or nil.")
 
 (defvar-local ai-code-backends-infra-ghostel--render-queue nil
   "Queued Ghostel output waiting for anti-flicker rendering.")
@@ -989,33 +1016,69 @@ ORIG-FILTER is Ghostel's original process filter."
           (ai-code-backends-infra-ghostel--render-output
            buffer orig-filter process output))))))
 
+(defun ai-code-backends-infra-ghostel--track-sync-output (output)
+  "Update DEC 2026 synchronized-output state from OUTPUT.
+Return non-nil when OUTPUT belongs to a synchronized-output frame, that
+is, when a frame was already open or OUTPUT begins or ends one."
+  (let ((was-open ai-code-backends-infra-ghostel--sync-output-open)
+        (start 0)
+        (seen nil))
+    (while (string-match ai-code-backends-infra-ghostel--sync-output-regexp
+                         output start)
+      (setq seen t
+            ai-code-backends-infra-ghostel--sync-output-open
+            (string= (match-string 1 output) "h")
+            start (match-end 0)))
+    (or was-open seen)))
+
 (defun ai-code-backends-infra-ghostel--handle-process-output
     (buffer orig-filter process output)
   "Handle Ghostel PROCESS OUTPUT for BUFFER through ORIG-FILTER."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      (if (and ai-code-backends-infra-ghostel-anti-flicker
-               (or ai-code-backends-infra-ghostel--render-queue
-                   (ai-code-backends-infra-ghostel--redraw-output-p output)))
-          (progn
-            (setq ai-code-backends-infra-ghostel--render-queue
-                  (concat ai-code-backends-infra-ghostel--render-queue output))
-            (unless ai-code-backends-infra-ghostel--render-timer
-              (setq ai-code-backends-infra-ghostel--render-timer
-                    (run-at-time
-                     ai-code-backends-infra-ghostel-render-delay nil
-                     #'ai-code-backends-infra-ghostel--flush-render-queue
-                     buffer
-                     orig-filter
-                     process))))
-        (ai-code-backends-infra-ghostel--render-output
-         buffer orig-filter process output)))))
+      (let ((synchronized
+             (ai-code-backends-infra-ghostel--track-sync-output
+              (or output ""))))
+        (if (and ai-code-backends-infra-ghostel-anti-flicker
+                 (or ai-code-backends-infra-ghostel--render-queue
+                     ;; Ghostel holds synchronized frames until they end.
+                     (and (not synchronized)
+                          (ai-code-backends-infra-ghostel--redraw-output-p
+                           output))))
+            (progn
+              (setq ai-code-backends-infra-ghostel--render-queue
+                    (concat ai-code-backends-infra-ghostel--render-queue
+                            output))
+              (unless ai-code-backends-infra-ghostel--render-timer
+                (setq ai-code-backends-infra-ghostel--render-timer
+                      (run-at-time
+                       ai-code-backends-infra-ghostel-render-delay nil
+                       #'ai-code-backends-infra-ghostel--flush-render-queue
+                       buffer
+                       orig-filter
+                       process))))
+          (ai-code-backends-infra-ghostel--render-output
+           buffer orig-filter process output))))))
+
+(defun ai-code-backends-infra-ghostel--native-event-pipe-p (process)
+  "Return non-nil when PROCESS is Ghostel's native PTY event pipe.
+With Ghostel's native PTY a module thread reads the child output and feeds
+it straight into the terminal.  The Emacs process is only an event pipe
+whose filter receives Lisp event forms, not terminal output."
+  (and (processp process)
+       (or (process-get process 'ghostel--native-pid)
+           (eq (process-filter process) 'ghostel--events-filter))
+       t))
 
 (defun ai-code-backends-infra-ghostel--wrap-process-filter
     (buffer process)
-  "Wrap PROCESS output for the AI Code Ghostel session in BUFFER."
+  "Wrap PROCESS output for the AI Code Ghostel session in BUFFER.
+Ghostel's native PTY event pipe is left alone; see
+`ai-code-backends-infra-ghostel--install-native-output-tracking'."
   (when (and (buffer-live-p buffer)
              (processp process)
+             (not (ai-code-backends-infra-ghostel--native-event-pipe-p
+                   process))
              (not
               (process-get
                process
@@ -1034,6 +1097,94 @@ ORIG-FILTER is Ghostel's original process filter."
              (ai-code-backends-infra-ghostel--handle-process-output
               target orig-filter proc
               (ai-code-editor-viewport-filter-output proc output)))))))))
+
+(defun ai-code-backends-infra-ghostel--capture-native-repainted-region
+    (&optional begin end)
+  "Record rows Ghostel repainted in a native PTY session.
+Installed as `:before' advice on `ghostel--schedule-link-detection', which
+runs after each render.  Newer Ghostel publishes the range in
+`ghostel--repainted-region' and clears it there; older versions pass it
+as BEGIN and END."
+  (when ai-code-backends-infra-ghostel--native-pty-session
+    (let ((region
+           (cond
+            ((and (integer-or-marker-p begin) (integer-or-marker-p end))
+             (cons begin end))
+            ((consp (bound-and-true-p ghostel--repainted-region))
+             ghostel--repainted-region))))
+      (when (and region
+                 (integer-or-marker-p (car region))
+                 (integer-or-marker-p (cdr region)))
+        (let ((start (min (car region) (cdr region)))
+              (stop (max (car region) (cdr region)))
+              (pending
+               ai-code-backends-infra-ghostel--native-repainted-region))
+          (setq ai-code-backends-infra-ghostel--native-repainted-region
+                (if pending
+                    (cons (min (car pending) start)
+                          (max (cdr pending) stop))
+                  (cons start stop))))))))
+
+(defun ai-code-backends-infra-ghostel--native-output-text (region)
+  "Return the tail of REGION's text for native output bookkeeping.
+The text is bounded by
+`ai-code-backends-infra-ghostel--native-output-sample-limit'."
+  (let* ((stop (min (point-max) (cdr region)))
+         (start (max (point-min)
+                     (car region)
+                     (- stop
+                        ai-code-backends-infra-ghostel--native-output-sample-limit))))
+    (if (< start stop)
+        (buffer-substring-no-properties start stop)
+      "")))
+
+(defun ai-code-backends-infra-ghostel--native-status-row-p (text)
+  "Return non-nil when repainted TEXT is a single animated status row."
+  (and (not (string-match-p "\n[^\n]*[^ \t\n]" text))
+       (ai-code-backends-infra-ghostel--animated-status-key text)))
+
+(defun ai-code-backends-infra-ghostel--note-native-redraw-output
+    (buffer &rest _)
+  "Run AI Code output bookkeeping after Ghostel redraws native PTY BUFFER.
+Native PTY output never reaches an Emacs process filter, so the rows each
+redraw repainted stand in for the output chunk."
+  (when (and (buffer-live-p buffer)
+             (buffer-local-value
+              'ai-code-backends-infra-ghostel--native-pty-session buffer))
+    (with-current-buffer buffer
+      (when-let* ((region
+                   ai-code-backends-infra-ghostel--native-repainted-region))
+        (setq ai-code-backends-infra-ghostel--native-repainted-region nil)
+        (let ((text (ai-code-backends-infra-ghostel--native-output-text
+                     region)))
+          (when (ai-code-backends-infra--output-meaningful-p text)
+            (ai-code-backends-infra--note-meaningful-output))
+          (unless (ai-code-backends-infra-ghostel--native-status-row-p text)
+            (ai-code-session-link--schedule-linkify-recent-output
+             buffer
+             text
+             ai-code-backends-infra-ghostel--linkify-redraw-delay)))))))
+
+(defun ai-code-backends-infra-ghostel--install-native-output-tracking ()
+  "Track native PTY output through Ghostel's redraw path.
+Ghostel has no public post-redraw hook, so this advises its private
+redraw functions: one records the repainted rows, the other runs output
+bookkeeping once the redraw finishes.  Both advices return immediately
+outside AI Code native PTY sessions."
+  (when (and (fboundp 'ghostel--schedule-link-detection)
+             (fboundp 'ghostel--redraw-now))
+    (unless (advice-member-p
+             #'ai-code-backends-infra-ghostel--capture-native-repainted-region
+             'ghostel--schedule-link-detection)
+      (advice-add
+       'ghostel--schedule-link-detection :before
+       #'ai-code-backends-infra-ghostel--capture-native-repainted-region))
+    (unless (advice-member-p
+             #'ai-code-backends-infra-ghostel--note-native-redraw-output
+             'ghostel--redraw-now)
+      (advice-add
+       'ghostel--redraw-now :after
+       #'ai-code-backends-infra-ghostel--note-native-redraw-output))))
 
 (defun ai-code-backends-infra-ghostel--enable-ime-integration ()
   "Enable Ghostel IME integration for the current AI Code session."
@@ -1084,6 +1235,7 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
   (ai-code-backends-infra-ghostel--enable-ime-integration)
   (ai-code-backends-infra-ghostel--install-redraw-inhibition)
   (ai-code-backends-infra-ghostel--install-link-preservation)
+  (ai-code-backends-infra-ghostel--install-native-output-tracking)
   (ai-code-backends-infra-ghostel--install-lifecycle-hooks)
   (ai-code-backends-infra-ghostel--install-editor-transport)
   (when (ai-code-session-link--image-preview-enabled-p)
@@ -1179,6 +1331,8 @@ ENV-VARS are extra environment variables for the terminal process."
         (setq-local default-directory working-dir)
         (ai-code-backends-infra--set-session-directory buffer working-dir)
         (ai-code-backends-infra--configure-ghostel-buffer)
+        (setq-local ai-code-backends-infra-ghostel--native-pty-session
+                    (ai-code-backends-infra-ghostel--native-event-pipe-p proc))
         (when (processp proc)
           (ignore-errors
             (set-process-query-on-exit-flag proc nil))
@@ -1195,7 +1349,13 @@ ENV-VARS are extra environment variables for the terminal process."
 Return nil so `unload-feature' proceeds with normal unloading."
   (when (fboundp 'ghostel--redraw-now)
     (advice-remove 'ghostel--redraw-now
-                   #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now))
+                   #'ai-code-backends-infra-ghostel--restore-links-after-redraw-now)
+    (advice-remove 'ghostel--redraw-now
+                   #'ai-code-backends-infra-ghostel--note-native-redraw-output))
+  (when (fboundp 'ghostel--schedule-link-detection)
+    (advice-remove
+     'ghostel--schedule-link-detection
+     #'ai-code-backends-infra-ghostel--capture-native-repainted-region))
   nil)
 
 (provide 'ai-code-backends-infra-ghostel)
