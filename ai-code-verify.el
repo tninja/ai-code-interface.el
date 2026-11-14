@@ -47,11 +47,11 @@ This rule is not a filesystem or backend permission boundary.")
    "CODE STATE: Record the actual examined checkout and HEAD, comparison "
    "base/head SHAs and merge-base, and staged/unstaged scope. Treat an "
    "editor observation as a starting point, not evidence that a review or "
-   "test ran. Before final conclusions or Verification Notes, recheck the "
-   "examined source state; for a PR re-fetch its base/head metadata. "
+   "test ran. Before final conclusions or the optional Org result summary, "
+   "recheck the examined source state; for a PR re-fetch its base/head metadata. "
    "If it changed, label earlier evidence historical and investigate the "
    "new delta before extending conclusions. Record the actual reviewed "
-   "identifiers and evidence scope in Verification Notes. If identity or "
+   "identifiers and evidence scope in the optional Org result summary. If identity or "
    "freshness cannot be established, label it unverified. Never substitute "
    "local HEAD for a remote PR head.")
   "Original-source requirement appended after editing the Verify prompt.")
@@ -150,7 +150,7 @@ must recheck their actual source state before concluding a review."
    "(include --cached for staged; omit it for unstaged). "
    "Use M-x ai-code-verify-check-code-state in the invoking buffer to "
    "compare with this observation; preserve these identifiers and scope "
-   "alongside the actual comparison base/head in optional Verification Notes."))
+   "alongside the actual comparison base/head in the optional Org result summary."))
 
 ;;;###autoload
 (defun ai-code-verify-check-code-state ()
@@ -341,8 +341,10 @@ description, and CONTEXT is selected editor text or an Org subtree."
     "appears after this prompt, the user opted in to saving the result. "
     "Do not write any note during initial findings or while discussion "
     "is ongoing. Only after the user explicitly finishes the discussion, "
-    "append ONE sub-heading labeled Verification Notes in the indicated "
-    "Org task section. Record the branch/PR, original human reference "
+    "append ONE result-summary sub-heading in the indicated Org task "
+    "section following the appended Org result-summary guidance (state the "
+    "specific verification verdict rather than a generic title). "
+    "Record the branch/PR, original human reference "
     "links, evidence-backed findings, unmet requirements, and open "
     "questions; clearly label AI interpretation and uncertainty. "
     "Never replace or rewrite original human-authored requirements, "
