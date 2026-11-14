@@ -732,6 +732,102 @@
         (when (and config-file (file-exists-p config-file))
           (funcall real-delete-file config-file))))))
 
+;;; Pi MCP integration
+
+(defun ai-code-test-mcp-agent--pi-launch-file (launch)
+  "Return the Pi extension file path from LAUNCH argv."
+  (cadr (member "--extension" (plist-get launch :argv))))
+
+(defun ai-code-test-mcp-agent--file-string (path)
+  "Return PATH contents as a string."
+  (with-temp-buffer
+    (insert-file-contents path)
+    (buffer-string)))
+
+(ert-deftest ai-code-test-mcp-agent-pi-enabled-by-default ()
+  "Pi should receive automatic MCP integration by default."
+  (should (memq 'pi (default-value 'ai-code-mcp-agent-enabled-backends))))
+
+(ert-deftest ai-code-test-mcp-agent-pi-extension-source-reads-token-from-env ()
+  "Pi extension should read the token from the environment, not embed it."
+  (let ((source (ai-code-mcp-agent--pi-extension-source
+                 "http://127.0.0.1:8765/mcp" "AI_CODE_MCP_BEARER_TOKEN")))
+    (should (string-match-p "registerMcpServer(\"emacs_tools\"" source))
+    (should (string-match-p "url: \"http://127.0.0.1:8765/mcp\"" source))
+    (should (string-match-p
+             "process.env\\[\"AI_CODE_MCP_BEARER_TOKEN\"\\]" source))
+    (should (string-match-p "exposure: \"direct\"" source))
+    (should (string-match-p "typeof pi.registerMcpServer" source))))
+
+(ert-deftest ai-code-test-mcp-agent-pi-launch-adds-extension-and-cleans-up ()
+  "Pi launch should append a temp extension and remove it on cleanup."
+  (let ((ai-code-mcp-agent-enabled-backends '(pi))
+        launch extension-file)
+    (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda () 8765))
+              ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore))
+      (setq launch (ai-code-mcp-agent-prepare-launch
+                    'pi default-directory '("pi" "--tui-mode" "regular")))
+      (setq extension-file (ai-code-test-mcp-agent--pi-launch-file launch))
+      (unwind-protect
+          (progn
+            (should (equal (plist-get launch :argv)
+                           (list "pi" "--tui-mode" "regular"
+                                 "--extension" extension-file)))
+            (should (file-exists-p extension-file))
+            (let ((token (cadr (split-string
+                                (car (plist-get launch :env-vars)) "="))))
+              (should-not
+               (string-match-p
+                (regexp-quote token)
+                (ai-code-test-mcp-agent--file-string extension-file))))
+            (funcall (plist-get launch :cleanup-fn))
+            (should-not (file-exists-p extension-file))
+            (should-not (ai-code-mcp-get-session-context
+                         (plist-get launch :mcp-session-id))))
+        (when (file-exists-p extension-file)
+          (delete-file extension-file))))))
+
+(ert-deftest ai-code-test-mcp-agent-pi-multiple-instances-are-independent ()
+  "Concurrent Pi launches should get isolated sessions, tokens, and files."
+  (let ((ai-code-mcp-agent-enabled-backends '(pi))
+        first second)
+    (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda () 8765))
+              ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore))
+      (setq first (ai-code-mcp-agent-prepare-launch
+                   'pi default-directory '("pi"))
+            second (ai-code-mcp-agent-prepare-launch
+                    'pi default-directory '("pi")))
+      (let ((first-file (ai-code-test-mcp-agent--pi-launch-file first))
+            (second-file (ai-code-test-mcp-agent--pi-launch-file second))
+            (first-id (plist-get first :mcp-session-id))
+            (second-id (plist-get second :mcp-session-id)))
+        (unwind-protect
+            (progn
+              (should-not (equal first-id second-id))
+              (should-not (equal first-file second-file))
+              (should-not (equal (plist-get first :env-vars)
+                                 (plist-get second :env-vars)))
+              (should (ai-code-mcp-get-session-context first-id))
+              (should (ai-code-mcp-get-session-context second-id))
+              ;; Closing one instance must not affect the other.
+              (funcall (plist-get first :cleanup-fn))
+              (should-not (file-exists-p first-file))
+              (should-not (ai-code-mcp-get-session-context first-id))
+              (should (file-exists-p second-file))
+              (should (ai-code-mcp-get-session-context second-id))
+              (funcall (plist-get second :cleanup-fn))
+              (should-not (file-exists-p second-file))
+              (should-not (ai-code-mcp-get-session-context second-id)))
+          (dolist (file (list first-file second-file))
+            (when (file-exists-p file)
+              (delete-file file)))
+          (ai-code-mcp-unregister-session first-id)
+          (ai-code-mcp-unregister-session second-id))))))
+
 (provide 'test_ai-code-mcp-agent)
 
 ;;; test_ai-code-mcp-agent.el ends here

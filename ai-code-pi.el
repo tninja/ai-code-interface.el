@@ -13,6 +13,7 @@
 (require 'cl-lib)
 (require 'ai-code-backends)
 (require 'ai-code-backends-infra)
+(require 'ai-code-mcp-agent)
 
 (defgroup ai-code-pi nil
   "Pi coding agent integration via `ai-code-backends-infra'."
@@ -81,7 +82,10 @@ the default input."
          :process-table ai-code-pi--processes
          :session-prefix ai-code-pi--session-prefix
          :escape-function #'ai-code-pi-send-escape
-         :multiline-input-sequence ai-code-pi-multiline-input-sequence)
+         :multiline-input-sequence ai-code-pi-multiline-input-sequence
+         :prepare-launch
+         (lambda (working-dir argv)
+           (ai-code-mcp-agent-prepare-launch 'pi working-dir argv)))
    arg))
 
 ;;;###autoload
