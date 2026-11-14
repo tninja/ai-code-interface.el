@@ -34,6 +34,26 @@
   :type 'boolean
   :group 'ai-code-mcp-debug-tools)
 
+(defcustom ai-code-mcp-debug-tools-max-value-chars 2048
+  "Maximum characters in a printed value returned by the debug tools.
+Variable values and `eval_elisp' results are printed with bounded
+length, depth, and circular-structure sharing, then truncated to
+this many characters, so inspecting a large or circular value can
+neither overflow the model context nor hang the printer."
+  :type 'natnum
+  :group 'ai-code-mcp-debug-tools)
+
+(defun ai-code-mcp-debug-tools--value-repr (value)
+  "Return the printed representation of VALUE, bounded and cycle-safe."
+  (let* ((print-length 100)
+         (print-level 10)
+         (print-circle t)
+         (text (prin1-to-string value)))
+    (if (> (length text) ai-code-mcp-debug-tools-max-value-chars)
+        (concat (substring text 0 ai-code-mcp-debug-tools-max-value-chars)
+                "...[truncated]")
+      text)))
+
 (defvar ai-code-mcp--last-error-record nil
   "Most recent Emacs error snapshot recorded for MCP diagnostics tools.")
 
@@ -298,7 +318,8 @@ CHANGED-BUFFERS lists modified buffers, and ERROR-OBJECT or BACKTRACE
 describe failures."
   (json-encode
    `((ok . ,(ai-code-mcp--json-bool (null error-object)))
-     (value_repr . ,(and (null error-object) (prin1-to-string value)))
+     (value_repr . ,(and (null error-object)
+                         (ai-code-mcp-debug-tools--value-repr value)))
      (value_type . ,(and (null error-object)
                          (symbol-name (type-of value))))
      (messages . ,(vconcat
@@ -427,9 +448,11 @@ keeps the backtrace on failures."
              (default_bound . ,(ai-code-mcp--json-bool default-bound))
              (buffer_local . ,(ai-code-mcp--json-bool buffer-local))
              (current_value_repr . ,(and bound
-                                         (format "%S" (symbol-value symbol))))
+                                         (ai-code-mcp-debug-tools--value-repr
+                                          (symbol-value symbol))))
              (default_value_repr . ,(and default-bound
-                                         (format "%S" (default-value symbol))))
+                                         (ai-code-mcp-debug-tools--value-repr
+                                          (default-value symbol))))
              (documentation_summary
               . ,(ai-code-mcp--documentation-summary
                   (documentation-property symbol
@@ -448,7 +471,7 @@ existing bound variable."
      ((not (boundp symbol))
       (format "Variable is unbound: %s" variable-name))
      (t
-      (format "%S" (symbol-value symbol))))))
+      (ai-code-mcp-debug-tools--value-repr (symbol-value symbol))))))
 
 (defun ai-code-mcp--find-existing-function-symbol (function-name)
   "Return the interned symbol for FUNCTION-NAME, or nil when missing."
