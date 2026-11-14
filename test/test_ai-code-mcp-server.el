@@ -2000,6 +2000,197 @@ Error messages often embed argument values."
        '((name . "audit_trim") (arguments . ()))))
     (should (= 2 (length ai-code-mcp--tool-call-log)))))
 
+(ert-deftest ai-code-test-mcp-get-diagnostics-reverts-clean-stale-buffer-and-rechecks ()
+  "A clean buffer whose disk file changed must revert and recheck before reporting delta."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-disk-sync-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-disk-sync*"))
+         (ai-code-mcp-diagnostics-backend 'flymake)
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-disk-sync")
+         (rechecked 0)
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(defun valid-fn () 1)\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t))
+          (ai-code-mcp-register-session
+           "session-disk-sync" project-dir session-buffer)
+          (ai-code-test-mcp--with-flymake-diagnostics
+              (when (string-search "BROKEN" (buffer-string))
+                (list (make-ai-code-test-mcp-mock-diagnostic
+                       :beg (point-min)
+                       :end (line-end-position)
+                       :type :error
+                       :backend 'mock-elisp
+                       :text "Syntax error after disk edit")))
+            (cl-letf (((symbol-function 'flymake-running-backends)
+                       (lambda () nil))
+                      ((symbol-function 'flymake-start)
+                       (lambda (&rest _) (setq rechecked (1+ rechecked)))))
+              (let ((base (ai-code-test-mcp--read-json
+                           (ai-code-mcp-diagnostics-baseline))))
+                (should (equal "baseline_recorded" (alist-get 'status base))))
+              (with-temp-file file-path (insert "(defun BROKEN (\n"))
+              (set-file-times file-path (time-add (current-time) 5))
+              (should-not (verify-visited-file-modtime visited-buffer))
+              (let* ((envelope (ai-code-test-mcp--read-json
+                                (ai-code-mcp-get-diagnostics
+                                 file-uri "baseline")))
+                     (freshness (alist-get 'freshness envelope))
+                     (buf-meta (aref (alist-get 'buffers freshness) 0)))
+                (should (= 1 rechecked))
+                (should (verify-visited-file-modtime visited-buffer))
+                (should (equal "regression" (alist-get 'status envelope)))
+                (should (eq t (alist-get 'reverted buf-meta)))
+                (should (eq :json-false (alist-get 'disk_stale buf-meta)))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-reports-running-when-revert-starts-async-checker ()
+  "When reverting a disk-updated buffer triggers an async checker, report incomplete instead of clean."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-disk-async-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-disk-async*"))
+         (ai-code-mcp-diagnostics-backend 'flymake)
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-disk-async")
+         (checker-running nil)
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(defun valid-fn () 1)\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t))
+          (ai-code-mcp-register-session
+           "session-disk-async" project-dir session-buffer)
+          (ai-code-test-mcp--with-flymake-diagnostics nil
+            (cl-letf (((symbol-function 'flymake-running-backends)
+                       (lambda () (and checker-running '(eglot-flymake-backend))))
+                      ((symbol-function 'flymake-start)
+                       (lambda (&rest _) (setq checker-running t))))
+              (ai-code-mcp-diagnostics-baseline)
+              (with-temp-file file-path (insert "(defun pending-check () 2)\n"))
+              (set-file-times file-path (time-add (current-time) 5))
+              (let* ((envelope (ai-code-test-mcp--read-json
+                                (ai-code-mcp-get-diagnostics
+                                 file-uri "baseline")))
+                     (coverage (alist-get 'coverage envelope)))
+                (should (equal "incomplete" (alist-get 'status envelope)))
+                (should (= 1 (alist-get 'running_files coverage)))
+                (should (eq :json-false (alist-get 'complete coverage)))))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-get-diagnostics-rejects-dirty-buffer-with-disk-conflict ()
+  "A buffer with unsaved Emacs edits and newer disk content must not revert or report clean."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-disk-conflict-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-disk-conflict*"))
+         (ai-code-mcp-diagnostics-backend 'flymake)
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-disk-conflict")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(defun original () 1)\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (setq-local flymake-mode t))
+          (ai-code-mcp-register-session
+           "session-disk-conflict" project-dir session-buffer)
+          (ai-code-test-mcp--with-flymake-diagnostics nil
+            (cl-letf (((symbol-function 'flymake-running-backends)
+                       (lambda () nil)))
+              (ai-code-mcp-diagnostics-baseline)
+              (with-current-buffer visited-buffer
+                (goto-char (point-max))
+                (insert ";; unsaved user edit\n"))
+              (with-temp-file file-path (insert "(defun broken-on-disk (\n"))
+              (set-file-times file-path (time-add (current-time) 5))
+              (let* ((envelope (ai-code-test-mcp--read-json
+                                (ai-code-mcp-get-diagnostics
+                                 file-uri "baseline")))
+                     (coverage (alist-get 'coverage envelope))
+                     (unavailable (aref (alist-get 'unavailable coverage) 0))
+                     (freshness (alist-get 'freshness envelope))
+                     (buf-meta (aref (alist-get 'buffers freshness) 0))
+                     (actions (alist-get 'next_actions envelope)))
+                (should (equal "unavailable" (alist-get 'status envelope)))
+                (should (eq :json-false (alist-get 'complete coverage)))
+                (should (equal "disk_modified_buffer_dirty"
+                               (alist-get 'reason unavailable)))
+                (should (eq t (alist-get 'disk_stale buf-meta)))
+                (should (eq :json-false (alist-get 'reverted buf-meta)))
+                (should (string-match-p "unsaved" (aref actions 0)))
+                (with-current-buffer visited-buffer
+                  (should (string-search "unsaved user edit"
+                                         (buffer-string))))))))
+      (when (buffer-live-p visited-buffer)
+        (with-current-buffer visited-buffer
+          (set-buffer-modified-p nil))
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-code-intel-reverts-clean-stale-buffer-and-preserves-dirty ()
+  "Code-intelligence tools should refresh clean stale buffers from disk without clobbering dirty ones."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-intel-sync-" t))
+         (file-path (expand-file-name "symbols.el" project-dir))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-intel-sync*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-intel-sync")
+         visited-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(defun old-symbol () 1)\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (ai-code-mcp-register-session
+           "session-intel-sync" project-dir session-buffer)
+          (should (equal '("symbols.el:1: old-symbol")
+                         (ai-code-mcp-imenu-list-symbols file-path)))
+          (with-temp-file file-path
+            (insert ";; header\n(defun new-symbol () 2)\n"))
+          (set-file-times file-path (time-add (current-time) 5))
+          (should (equal '("symbols.el:2: new-symbol")
+                         (ai-code-mcp-imenu-list-symbols file-path)))
+          (with-current-buffer visited-buffer
+            (goto-char (point-max))
+            (insert "(defun unsaved-local-symbol () 3)\n"))
+          (with-temp-file file-path
+            (insert "(defun disk-symbol-ignored-while-dirty () 4)\n"))
+          (set-file-times file-path (time-add (current-time) 10))
+          (let ((symbols (ai-code-mcp-imenu-list-symbols file-path)))
+            (should (member "symbols.el:3: unsaved-local-symbol" symbols))
+            (should-not (member "symbols.el:1: disk-symbol-ignored-while-dirty"
+                                symbols))))
+      (when (buffer-live-p visited-buffer)
+        (with-current-buffer visited-buffer
+          (set-buffer-modified-p nil))
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
 (provide 'test_ai-code-mcp-server)
 
 ;;; test_ai-code-mcp-server.el ends here
