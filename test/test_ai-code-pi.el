@@ -118,6 +118,22 @@
     (should-not captured-arg)
     (should-not picker-shown)))
 
+(ert-deftest ai-code-test-pi-start-wires-mcp-prepare-launch ()
+  "Pi startup should delegate MCP launch preparation for the pi backend."
+  (let (captured-options captured-call)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--start-cli-session)
+               (lambda (options _arg) (setq captured-options options)))
+              ((symbol-function 'ai-code-mcp-agent-prepare-launch)
+               (lambda (backend working-dir argv)
+                 (setq captured-call (list backend working-dir argv))
+                 '(:argv ("pi" "--extension" "x.js")))))
+      (ai-code-pi-start)
+      (let ((prepare (plist-get captured-options :prepare-launch)))
+        (should (functionp prepare))
+        (should (equal (funcall prepare "/tmp/" '("pi"))
+                       '(:argv ("pi" "--extension" "x.js"))))
+        (should (equal captured-call '(pi "/tmp/" ("pi"))))))))
+
 (provide 'test_ai-code-pi)
 
 ;;; test_ai-code-pi.el ends here
