@@ -396,10 +396,11 @@ Required keys are `:function', `:name', and `:description'."
   "Return the number of registered MCP application sessions."
   (hash-table-count ai-code-mcp--sessions))
 
-(defun ai-code-mcp-find-session-by-token (token)
+(defun ai-code-mcp-find-session-by-token (token &optional no-renew)
   "Return the session id and context authenticated by TOKEN.
-Successful authentication renews sessions with a token renewal interval.
-Expired tokens cannot renew themselves through this entry point."
+Successful authentication renews sessions with a token renewal interval
+unless NO-RENEW is non-nil.  Expired tokens cannot renew themselves
+through this entry point."
   (when (stringp token)
     (catch 'found
       (maphash
@@ -407,8 +408,9 @@ Expired tokens cannot renew themselves through this entry point."
          (when (and (stringp (plist-get context :token))
                     (string= token (plist-get context :token))
                     (not (ai-code-mcp--session-expired-p context)))
-           (setq context (ai-code-mcp--renew-session-token context))
-           (puthash session-id context ai-code-mcp--sessions)
+           (unless no-renew
+             (setq context (ai-code-mcp--renew-session-token context))
+             (puthash session-id context ai-code-mcp--sessions))
            (throw 'found (cons session-id context))))
        ai-code-mcp--sessions)
       nil)))
@@ -428,6 +430,14 @@ Only sessions with both `:expires-at' and a positive
         (plist-put context :expires-at
                    (time-add (current-time) (seconds-to-time lifetime)))
       context)))
+
+(defun ai-code-mcp-touch-session (session-id)
+  "Extend renewable token expiry for SESSION-ID from now.
+Return the updated session context, or nil when SESSION-ID is unknown."
+  (when-let* ((context (ai-code-mcp-get-session-context session-id)))
+    (setq context (ai-code-mcp--renew-session-token context))
+    (puthash session-id context ai-code-mcp--sessions)
+    context))
 
 (defun ai-code-mcp-update-source-context (session-id source-buffer)
   "Snapshot SOURCE-BUFFER as the prompt origin for SESSION-ID.

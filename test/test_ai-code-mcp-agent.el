@@ -108,6 +108,79 @@
               (when-let ((cleanup (plist-get launch :cleanup-fn)))
                 (funcall cleanup)))))))))
 
+(ert-deftest ai-code-test-mcp-agent-terminal-interactions-renew-idle-token-preserving-origin ()
+  "Terminal and viewport Return paths should renew idle tokens without replacing origin."
+  (require 'ai-code-backends-infra)
+  (let ((ai-code-mcp-agent-enabled-backends '(codex))
+        (ai-code-mcp-agent-token-lifetime-seconds 3600)
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (now (seconds-to-time 1000000))
+        (nav-mode nil)
+        launch)
+    (with-temp-buffer
+      (let ((source-buffer (current-buffer)))
+        (with-temp-buffer
+          (let ((agent-buffer (current-buffer)))
+            (cl-letf (((symbol-function 'current-time) (lambda () now))
+                      ((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+                      ((symbol-function 'ai-code-mcp-http-server-live-p) #'ignore)
+                      ((symbol-function 'ai-code-mcp-http-server-ensure)
+                       (lambda () 8765))
+                      ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore)
+                      ((symbol-function 'ai-code-backends-infra--terminal-dispatch)
+                       #'ignore)
+                      ((symbol-function 'ai-code-backends-infra--terminal-navigation-mode-p)
+                       (lambda () nav-mode)))
+              (unwind-protect
+                  (progn
+                    (setq launch
+                          (with-current-buffer source-buffer
+                            (ai-code-mcp-agent-prepare-launch
+                             'codex default-directory '("codex"))))
+                    (funcall (plist-get launch :post-start-fn)
+                             agent-buffer nil "default")
+                    (let* ((id (plist-get launch :mcp-session-id))
+                           (token (plist-get (ai-code-mcp-get-session-context id)
+                                             :token)))
+                      ;; 1. Viewport/programmatic Return renews expired token and keeps origin.
+                      (setq now (time-add now (* 2 86400)))
+                      (should-not (ai-code-mcp-find-session-by-token token t))
+                      (with-current-buffer agent-buffer
+                        (ai-code-backends-infra--terminal-send-return))
+                      (should (equal id (car (ai-code-mcp-find-session-by-token token t))))
+                      (should (eq source-buffer
+                                  (plist-get (ai-code-mcp-get-session-context id)
+                                             :source-buffer)))
+                      ;; 2. Copy/navigation mode Return and non-Return keys do not revive.
+                      (setq now (time-add now (* 2 86400)))
+                      (should-not (ai-code-mcp-find-session-by-token token t))
+                      (setq nav-mode t)
+                      (with-current-buffer agent-buffer
+                        (cl-letf (((symbol-function 'this-command-keys-vector)
+                                   (lambda () [return])))
+                          (run-hooks 'pre-command-hook)))
+                      (should-not (ai-code-mcp-find-session-by-token token t))
+                      (setq nav-mode nil)
+                      (with-current-buffer agent-buffer
+                        (cl-letf (((symbol-function 'this-command-keys-vector)
+                                   (lambda () [?a])))
+                          (run-hooks 'pre-command-hook)))
+                      (should-not (ai-code-mcp-find-session-by-token token t))
+                      ;; 3. Live interactive Return in terminal buffer revives expired token.
+                      (with-current-buffer agent-buffer
+                        (cl-letf (((symbol-function 'this-command-keys-vector)
+                                   (lambda () [?\r])))
+                          (run-hooks 'pre-command-hook)))
+                      (should (equal id (car (ai-code-mcp-find-session-by-token token t))))
+                      ;; 4. Unregistered session is never revived by terminal Return.
+                      (funcall (plist-get launch :cleanup-fn))
+                      (with-current-buffer agent-buffer
+                        (ai-code-backends-infra--terminal-send-return))
+                      (should-not (ai-code-mcp-find-session-by-token token t))
+                      (should (zerop (ai-code-mcp-session-count)))))
+                (when-let* ((cleanup (plist-get launch :cleanup-fn)))
+                  (funcall cleanup))))))))))
+
 (ert-deftest ai-code-test-mcp-agent-prepare-launch-registers-source-before-process-start ()
   "Preparing a launch should register its source before the CLI starts."
   (let ((ai-code-mcp-agent-enabled-backends '(codex))

@@ -33,6 +33,8 @@
 (declare-function ai-code--session-project-root "ai-code-utils" (&optional project-only))
 (declare-function ai-code-mcp-agent-refresh-source-context
                   "ai-code-mcp-agent" (agent-buffer source-buffer))
+(declare-function ai-code-mcp-agent-touch-session
+                  "ai-code-mcp-agent" (agent-buffer))
 
 ;;; Customization
 
@@ -518,6 +520,8 @@ If PASTE is non-nil, send it as a pasted string."
 
 (defun ai-code-backends-infra--terminal-send-return ()
   "Send return key to the terminal in the current buffer."
+  (when (fboundp 'ai-code-mcp-agent-touch-session)
+    (ai-code-mcp-agent-touch-session (current-buffer)))
   (ai-code-backends-infra--terminal-dispatch "send-return"))
 
 (defun ai-code-backends-infra--terminal-send-backspace ()
@@ -965,6 +969,8 @@ Multiline input uses the terminal backend's paste operation so embedded
 newlines are not interpreted as Return keys."
   (unless (ai-code-backends-infra--live-terminal-session-p buffer)
     (user-error "AI session is no longer available"))
+  (when (fboundp 'ai-code-mcp-agent-touch-session)
+    (ai-code-mcp-agent-touch-session buffer))
   (with-current-buffer buffer
     (ai-code-backends-infra--terminal-send-string
      string (and (string-match-p "\n" string) t)))
@@ -1811,6 +1817,8 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
                   working-dir
                   force-prompt
                   source-buffer)))
+    (when (fboundp 'ai-code-mcp-agent-touch-session)
+      (ai-code-mcp-agent-touch-session buffer))
     (if-let* ((window (get-buffer-window buffer)))
         (progn
           (when (ai-code-backends-infra--configure-side-window-size window)

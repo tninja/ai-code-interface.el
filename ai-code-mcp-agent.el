@@ -13,6 +13,9 @@
 (require 'ai-code-mcp-http-server)
 (require 'ai-code-mcp-server)
 
+(declare-function ai-code-backends-infra--terminal-navigation-mode-p
+                  "ai-code-backends-infra" ())
+
 (defgroup ai-code-mcp-agent nil
   "Agent adapters for AI Code MCP tools."
   :group 'tools
@@ -26,9 +29,9 @@
 
 (defcustom ai-code-mcp-agent-token-lifetime-seconds (* 24 60 60)
   "Idle lifetime of a per-launch MCP bearer token in seconds.
-Successful authentication and local prompt updates renew the expiry using
+Accepted MCP requests and local session interactions renew the expiry using
 the lifetime captured when the agent was launched.  After this much idle
-time, remote requests are rejected until a local prompt update or a new
+time, remote requests are rejected until local session activity or a new
 agent launch renews access."
   :type 'positive-integer
   :group 'ai-code-mcp-agent)
@@ -197,7 +200,28 @@ The bearer token selects the registered agent session."
   (with-current-buffer buffer
     (setq-local ai-code-mcp-agent--backend backend
                 ai-code-mcp-agent--session-id session-id
-                ai-code-mcp-agent--server-url url)))
+                ai-code-mcp-agent--server-url url)
+    (add-hook 'pre-command-hook
+              #'ai-code-mcp-agent--renew-on-terminal-return nil t)))
+
+(defun ai-code-mcp-agent-touch-session (agent-buffer)
+  "Extend renewable MCP token expiry for AGENT-BUFFER without changing origin."
+  (when (buffer-live-p agent-buffer)
+    (when-let* ((session-id
+                 (buffer-local-value 'ai-code-mcp-agent--session-id
+                                     agent-buffer)))
+      (ai-code-mcp-touch-session session-id))))
+
+(defun ai-code-mcp-agent--renew-on-terminal-return ()
+  "Renew the current agent buffer's MCP token on live interactive Return."
+  (when (and ai-code-mcp-agent--session-id
+             (not (and (fboundp 'ai-code-backends-infra--terminal-navigation-mode-p)
+                       (ai-code-backends-infra--terminal-navigation-mode-p))))
+    (let* ((keys (this-command-keys-vector))
+           (key (and (> (length keys) 0)
+                     (aref keys (1- (length keys))))))
+      (when (memq key '(?\r ?\n return kp-enter))
+        (ai-code-mcp-agent-touch-session (current-buffer))))))
 
 (defun ai-code-mcp-agent-refresh-source-context (agent-buffer source-buffer)
   "Refresh AGENT-BUFFER's MCP prompt origin from SOURCE-BUFFER."
