@@ -1848,6 +1848,239 @@ the full diagnostics list is intentionally omitted from the response."
       (ai-code-mcp-unregister-session "key-inspection-dead")
       (when (buffer-live-p source) (kill-buffer source)))))
 
+(ert-deftest ai-code-test-mcp-envelope-wraps-record-lists-as-items ()
+  "A list of record alists is not a JSON object; wrap it as items."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-make-tool
+     :function (lambda () '(((name . "a.el") (modified . :json-false))
+                            ((name . "b.el") (modified . t))))
+     :name "envelope_records"
+     :description "Return a list of records."
+     :args nil)
+    (let* ((result (ai-code-mcp-dispatch
+                    "tools/call"
+                    '((name . "envelope_records") (arguments . ()))))
+           (structured (alist-get 'structuredContent result)))
+      (should (eq t (alist-get 'ok structured)))
+      (should (= 2 (length (alist-get 'items structured))))
+      (should (equal "a.el"
+                     (alist-get 'name
+                                (aref (alist-get 'items structured) 0)))))))
+
+(ert-deftest ai-code-test-mcp-envelope-wraps-plain-text-and-advertises-schema ()
+  "Plain text results become an object envelope with a declared schema."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-builtins-setup)
+    (let* ((tools (alist-get 'tools (ai-code-mcp-dispatch "tools/list")))
+           (project-tool (seq-find
+                          (lambda (tool)
+                            (equal "project_info" (alist-get 'name tool)))
+                          tools))
+           (schema (alist-get 'outputSchema project-tool)))
+      (should (equal "object" (alist-get 'type schema)))
+      (should (alist-get 'ok (alist-get 'properties schema))))
+    (let* ((result (ai-code-mcp-dispatch
+                    "tools/call"
+                    '((name . "project_info") (arguments . ()))))
+           (structured (alist-get 'structuredContent result)))
+      (should (eq t (alist-get 'ok structured)))
+      (should (stringp (alist-get 'text structured))))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-default-cap-truncates ()
+  "Whole-buffer reads without max_chars use the default cap; ranges do not."
+  (let ((ai-code-mcp-buffer-query-default-max-chars 10))
+    (with-temp-buffer
+      (insert "0123456789ABCDEF\nSECOND LINE\n")
+      (should (equal "0123456789\n[truncated; request a smaller buffer range]"
+                     (ai-code-mcp-buffer-query (buffer-name))))
+      (should (equal "0123456789ABCDEF\nSECOND LINE"
+                     (ai-code-mcp-buffer-query (buffer-name) 1 2)))
+      (should (equal "0123456789ABCDEF"
+                     (ai-code-mcp-buffer-query (buffer-name) 1 nil 0 1 16)))))
+  (let ((ai-code-mcp-buffer-query-default-max-chars 0))
+    (with-temp-buffer
+      (insert "abc")
+      (should-error (ai-code-mcp-buffer-query (buffer-name))
+                    :type 'user-error))))
+
+(ert-deftest ai-code-test-mcp-get-project-files-truncates-with-marker ()
+  "Project file reports are capped with a marker naming the true total."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-project-files-cap-" t))
+         (buffer (generate-new-buffer " *ai-code-mcp-project-files-cap*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-project-files-cap")
+         (ai-code-mcp-project-files-max-report 2))
+    (unwind-protect
+        (progn
+          (dolist (name '("a.el" "b.el" "c.el"))
+            (with-temp-file (expand-file-name name project-dir)
+              (insert "(message \"x\")\n")))
+          (ai-code-mcp-register-session
+           "session-project-files-cap" project-dir buffer)
+          (let ((files (ai-code-mcp-get-project-files)))
+            (should (= 3 (length files)))
+            (should (string-match-p
+                     "\\[truncated: showing 2 of 3 project files\\]"
+                     (car (last files))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory project-dir t))))
+
+(ert-deftest ai-code-test-mcp-project-files-fallback-skips-directory-symlinks ()
+  "The fallback walker must not follow directory symlinks.
+A link back to an ancestor would otherwise recurse until the OS
+symlink limit (exponentially with several links, freezing Emacs),
+and a link to an external tree would count files outside the project."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-symlink-project-" t))
+         (outside-dir (make-temp-file "ai-code-mcp-symlink-outside-" t))
+         (project-find-functions nil))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "sub" project-dir))
+          (dolist (file (list (expand-file-name "a.el" project-dir)
+                              (expand-file-name "sub/b.el" project-dir)
+                              (expand-file-name "x.el" outside-dir)))
+            (with-temp-file file (insert "(message \"x\")\n")))
+          (make-symbolic-link ".." (expand-file-name "sub/up" project-dir))
+          (make-symbolic-link outside-dir
+                              (expand-file-name "ext" project-dir))
+          (should (= 2 (ai-code-mcp--count-project-files project-dir)))
+          (should (equal '("a.el" "b.el")
+                         (sort (mapcar #'file-name-nondirectory
+                                       (ai-code-mcp--project-files
+                                        project-dir))
+                               #'string<))))
+      (delete-directory project-dir t)
+      (delete-directory outside-dir t))))
+
+(ert-deftest ai-code-test-mcp-envelope-wraps-empty-list-as-empty-items ()
+  "An empty list result keeps the items shape instead of a null value."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-make-tool
+     :function (lambda () nil)
+     :name "envelope_empty"
+     :description "Return no records."
+     :args nil)
+    (let ((structured (alist-get 'structuredContent
+                                 (ai-code-mcp-dispatch
+                                  "tools/call"
+                                  '((name . "envelope_empty")
+                                    (arguments . ()))))))
+      (should (eq t (alist-get 'ok structured)))
+      (should (equal [] (alist-get 'items structured))))))
+
+(ert-deftest ai-code-test-mcp-envelope-treats-unparsable-json-as-text ()
+  "JSON-looking text that fails to parse in any way becomes plain text."
+  (let ((ai-code-mcp-server-tools nil)
+        (truncated "{\"a\": ")
+        (too-deep (concat (make-string 20000 ?\[) (make-string 20000 ?\]))))
+    (ai-code-mcp-make-tool
+     :function (lambda (text) text)
+     :name "envelope_echo"
+     :description "Echo text."
+     :args '((:name "text" :type string :description "Text to echo.")))
+    (dolist (text (list truncated too-deep))
+      (let ((result (ai-code-mcp-dispatch
+                     "tools/call"
+                     `((name . "envelope_echo")
+                       (arguments . ((text . ,text)))))))
+        (should (eq :json-false (alist-get 'isError result)))
+        (should (equal text (alist-get 'text (alist-get 'structuredContent
+                                                        result))))))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-json-buffers-stay-plain-text ()
+  "Reading JSON buffers via buffer_query must not parse buffer text as envelope."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-builtins-setup)
+    (dolist (payload '("{\"ok\": 1, \"n\": 5}"
+                       "{\"ok\": false, \"error\": \"fixture\"}"))
+      (with-temp-buffer
+        (rename-buffer " *ai-code-mcp-json-fixture*" t)
+        (insert payload)
+        (let* ((result (ai-code-mcp-dispatch
+                        "tools/call"
+                        `((name . "buffer_query")
+                          (arguments . ((buffer_name . ,(buffer-name)))))))
+               (structured (alist-get 'structuredContent result)))
+          (should (eq :json-false (alist-get 'isError result)))
+          (should (eq t (alist-get 'ok structured)))
+          (should (equal payload (alist-get 'text structured))))))))
+
+(ert-deftest ai-code-test-mcp-envelope-normalizes-object-ok-field ()
+  "Object results without a custom schema always carry a boolean ok field."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-builtins-setup)
+    (ai-code-mcp-make-tool
+     :function (lambda () "{\"ok\": 1, \"n\": 5}")
+     :name "envelope_numeric_ok"
+     :description "Return an object whose ok field is numeric."
+     :args nil)
+    (ai-code-mcp-make-tool
+     :function (lambda () "{}")
+     :name "envelope_empty_object"
+     :description "Return an empty JSON object."
+     :args nil)
+    (let* ((diag-sc (alist-get 'structuredContent
+                               (ai-code-mcp-dispatch
+                                "tools/call"
+                                '((name . "get_diagnostics")
+                                  (arguments . ())))))
+           (num-sc (alist-get 'structuredContent
+                              (ai-code-mcp-dispatch
+                               "tools/call"
+                               '((name . "envelope_numeric_ok")
+                                 (arguments . ())))))
+           (empty-sc (alist-get 'structuredContent
+                                (ai-code-mcp-dispatch
+                                 "tools/call"
+                                 '((name . "envelope_empty_object")
+                                   (arguments . ()))))))
+      (should (eq t (alist-get 'ok diag-sc)))
+      (should (stringp (alist-get 'status diag-sc)))
+      (should (eq t (alist-get 'ok num-sc)))
+      (should (equal 1 (alist-get 'ok (alist-get 'value num-sc))))
+      (should (eq t (alist-get 'ok empty-sc))))))
+
+(ert-deftest ai-code-test-mcp-project-files-scopes-to-subdirectory-session ()
+  "Subdirectory sessions count and list only files inside that subdirectory."
+  (let* ((repo (make-temp-file "ai-code-mcp-mono-" t))
+         (sub (expand-file-name "pkg-a" repo))
+         (other (expand-file-name "pkg-b" repo))
+         (buffer (generate-new-buffer " *ai-code-mcp-mono*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-mono-sub"))
+    (unwind-protect
+        (progn
+          (make-directory sub t)
+          (make-directory other t)
+          (dolist (rel '("root.txt" "pkg-a/a1.el" "pkg-b/b1.el" "pkg-b/b2.el"))
+            (with-temp-file (expand-file-name rel repo)
+              (insert "x\n")))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-vc-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) repo))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional dirs)
+                       (let ((all (mapcar (lambda (f) (expand-file-name f repo))
+                                          '("root.txt"
+                                            "pkg-a/a1.el"
+                                            "pkg-b/b1.el"
+                                            "pkg-b/b2.el"))))
+                         (if dirs
+                             (seq-filter
+                              (lambda (f)
+                                (seq-some (lambda (d) (file-in-directory-p f d))
+                                          dirs))
+                              all)
+                           all)))))
+            (ai-code-mcp-register-session "session-mono-sub" sub buffer)
+            (should (= 1 (ai-code-mcp--count-project-files sub)))
+            (should (equal '("a1.el") (ai-code-mcp-get-project-files)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory repo t))))
+
 (ert-deftest ai-code-test-mcp-tool-call-log-records-success-without-values ()
   "Tool calls should be audited with argument names, never values."
   (let ((ai-code-mcp-server-tools nil)
