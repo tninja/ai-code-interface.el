@@ -605,19 +605,23 @@ Shows the current backend label to the right."
 
 
 (defun ai-code--migration-source-choices ()
-  "Return source backend choices excluding the current agent and its aliases."
+  "Return source backend choices excluding the current agent and duplicate CLIs."
   (let* ((current (ai-code--effective-backend))
-         (current-cli (plist-get (cdr (ai-code--backend-spec current)) :cli)))
-    (seq-remove
-     (lambda (choice)
-       (let* ((source (cdr choice))
-              (source-cli (plist-get (cdr (ai-code--backend-spec source))
-                                     :cli)))
-         (or (eq source current)
-             (and (stringp current-cli)
-                  (stringp source-cli)
-                  (string= current-cli source-cli)))))
-     (ai-code--ordered-backend-choices))))
+         (current-cli (plist-get (cdr (ai-code--backend-spec current)) :cli))
+         (seen-clis (make-hash-table :test #'equal))
+         result)
+    (when (and (stringp current-cli) (not (string-empty-p current-cli)))
+      (puthash current-cli t seen-clis))
+    (dolist (choice (ai-code--ordered-backend-choices) (nreverse result))
+      (let* ((source (cdr choice))
+             (source-cli (plist-get (cdr (ai-code--backend-spec source)) :cli))
+             (has-cli (and (stringp source-cli)
+                           (not (string-empty-p source-cli)))))
+        (unless (or (eq source current)
+                    (and has-cli (gethash source-cli seen-clis)))
+          (when has-cli
+            (puthash source-cli t seen-clis))
+          (push choice result))))))
 
 (defun ai-code--migration-agent-description (backend)
   "Describe BACKEND using its label and known CLI/config hints."
@@ -675,8 +679,11 @@ directly modify agent configurations."
                        (or (plist-get (cdr target-spec) :label)
                            (symbol-name target)))
                (ai-code--backend-completion-table (mapcar #'car choices))
-               nil t))
-             (source (cdr (assoc selection choices))))
+               nil t nil nil (caar choices)))
+             (source (cdr (assoc selection choices)))
+             ;; Keep config paths verbatim and never hijack an unrelated visible session.
+             (ai-code-prompt-preprocess-filepaths nil)
+             (ai-code--prompt-project-only t))
         (when source
           (ai-code-with-prompt-policy ()
             (ai-code--confirm-and-send
