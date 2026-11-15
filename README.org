@@ -319,6 +319,8 @@ The generated prompt will include the function/region scope, visible file list, 
   - [[https://github.com/crystaldba/postgres-mcp][Postgresql MCP]] / Sqlite MCP
   - [[https://github.com/docker/mcp-gateway][Docker]] / [[https://github.com/containers/kubernetes-mcp-server][Kubernetes]] MCP
 
+- Use =C-c a M= (=Migrate MCPs/plugins from agent=) to choose another AI coding agent as the source and ask the current project's agent to migrate MCP servers, plugins, and related skills. Review the editable prompt before sending; the agent checks both configurations and asks approval before making changes. Existing settings are preserved, and credentials are not copied automatically.
+
 **** Agent actions on Magit hunks
 
 Place point on a textual hunk in Magit status, diff, or revision buffers,
