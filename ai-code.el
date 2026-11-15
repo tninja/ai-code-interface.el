@@ -696,7 +696,7 @@ directly modify agent configurations."
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
   ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
   ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
-  ("M" "Migrate MCPs/plugins from agent" ai-code-migrate-agent-integrations)
+  ("P" "Migrate MCPs/plugins from agent" ai-code-migrate-agent-integrations)
   ("l" ai-code-select-terminal :description ai-code--select-terminal-description))
 
 (transient-define-group ai-code--menu-actions-with-context
