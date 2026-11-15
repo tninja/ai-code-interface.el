@@ -874,7 +874,7 @@
 
 (ert-deftest ai-code-test-menu-includes-migrate-agent-integrations ()
   "AI CLI session menu exposes migration from another agent."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "M")))
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "P")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-migrate-agent-integrations))))
