@@ -60,6 +60,54 @@
         (when-let ((cleanup-fn (plist-get launch :cleanup-fn)))
           (funcall cleanup-fn))))))
 
+(ert-deftest ai-code-test-mcp-agent-prompt-renews-idle-launch-token ()
+  "A new local prompt should restore an idle launch using its own lifetime."
+  (let ((ai-code-mcp-agent-enabled-backends '(codex))
+        (ai-code-mcp-agent-token-lifetime-seconds 3600)
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (now (seconds-to-time 1000000))
+        launch)
+    (with-temp-buffer
+      (let ((source-buffer (current-buffer)))
+        (with-temp-buffer
+          (cl-letf (((symbol-function 'current-time) (lambda () now))
+                    ((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
+                    ((symbol-function 'ai-code-mcp-http-server-live-p) #'ignore)
+                    ((symbol-function 'ai-code-mcp-http-server-ensure)
+                     (lambda () 8765))
+                    ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore))
+            (unwind-protect
+                (progn
+                  (setq launch
+                        (with-current-buffer source-buffer
+                          (ai-code-mcp-agent-prepare-launch
+                           'codex default-directory '("codex"))))
+                  (funcall (plist-get launch :post-start-fn)
+                           (current-buffer) nil "default")
+                  (let* ((id (plist-get launch :mcp-session-id))
+                         (token (plist-get (ai-code-mcp-get-session-context id)
+                                           :token)))
+                    (setq now (time-add now (* 3 86400)))
+                    (should-not (ai-code-mcp-find-session-by-token token))
+                    ;; Later customization must not change this launch's lease.
+                    (let ((ai-code-mcp-agent-token-lifetime-seconds 7200))
+                      (ai-code-mcp-agent-refresh-source-context
+                       (current-buffer) source-buffer))
+                    (should (equal id
+                                   (car (ai-code-mcp-find-session-by-token token))))
+                    (should (time-equal-p
+                             (time-add now 3600)
+                             (plist-get (ai-code-mcp-get-session-context id)
+                                        :expires-at)))
+                    (funcall (plist-get launch :cleanup-fn))
+                    (should-not (ai-code-mcp-find-session-by-token token))
+                    (should-error
+                     (ai-code-mcp-agent-refresh-source-context
+                      (current-buffer) source-buffer))
+                    (should (zerop (ai-code-mcp-session-count)))))
+              (when-let ((cleanup (plist-get launch :cleanup-fn)))
+                (funcall cleanup)))))))))
+
 (ert-deftest ai-code-test-mcp-agent-prepare-launch-registers-source-before-process-start ()
   "Preparing a launch should register its source before the CLI starts."
   (let ((ai-code-mcp-agent-enabled-backends '(codex))

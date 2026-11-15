@@ -25,7 +25,11 @@
   :group 'ai-code-mcp-agent)
 
 (defcustom ai-code-mcp-agent-token-lifetime-seconds (* 24 60 60)
-  "Lifetime of a per-launch MCP bearer token in seconds."
+  "Idle lifetime of a per-launch MCP bearer token in seconds.
+Successful authentication and local prompt updates renew the expiry using
+the lifetime captured when the agent was launched.  After this much idle
+time, remote requests are rejected until a local prompt update or a new
+agent launch renews access."
   :type 'positive-integer
   :group 'ai-code-mcp-agent)
 
@@ -110,6 +114,8 @@
                      :token token
                      :modern-protocol-enabled
                      (not (eq backend 'antigravity))
+                     :token-lifetime-seconds
+                     ai-code-mcp-agent-token-lifetime-seconds
                      :expires-at
                      (time-add (current-time)
                                (seconds-to-time
