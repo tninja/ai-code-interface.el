@@ -102,7 +102,7 @@ A whole-buffer read with no `max_chars' is capped at this many
 characters and explicitly marked truncated, so one call on a large
 buffer (a log, *Messages*, a data file) cannot overflow the model
 context.  Set to nil to restore uncapped whole-buffer reads."
-  :type '(choice (const :tag "No default limit" nil) natnum)
+  :type '(choice (const :tag "No default limit" nil) positive-integer)
   :group 'ai-code-mcp-server)
 
 (defcustom ai-code-mcp-project-files-max-report 1000
@@ -174,6 +174,7 @@ baseline in the model context itself.")
   '((:function ai-code-mcp-project-info
      :name "project_info"
      :description "Get information about the current project context."
+     :plain-text t
      :args nil)
     (:function ai-code-mcp-editor-state
      :name "editor_state"
@@ -186,6 +187,7 @@ baseline in the model context itself.")
     (:function ai-code-mcp-buffer-query
      :name "buffer_query"
      :description "Read live buffer text: whole buffer, a line range, or an exact line/column range."
+     :plain-text t
      :args ((:name "buffer_name"
              :type string
              :description "Name of the buffer to read.")
@@ -249,18 +251,21 @@ baseline in the model context itself.")
     (:function ai-code-mcp-notify-user
      :name "notify_user"
      :description "Show a notification to the Emacs user."
+     :plain-text t
      :args ((:name "message_text"
               :type string
              :description "Notification text to show in Emacs.")))
     (:function ai-code-mcp-imenu-list-symbols
      :name "imenu_list_symbols"
      :description "List useful symbols in a file via imenu."
+     :plain-text t
      :args ((:name "file_path"
              :type string
              :description "Path to the file to inspect.")))
     (:function ai-code-mcp-xref-find-references
      :name "xref_find_references"
      :description "Find references to an identifier; supply a location when ambiguous."
+     :plain-text t
      :args ((:name "identifier"
              :type string
              :description "Identifier to resolve.")
@@ -278,6 +283,7 @@ baseline in the model context itself.")
     (:function ai-code-mcp-xref-find-definitions-at-point
      :name "xref_find_definitions_at_point"
      :description "Find definitions of the identifier at a file location."
+     :plain-text t
      :args ((:name "file_path"
              :type string
              :description "Path to the file that provides backend context.")
@@ -290,6 +296,7 @@ baseline in the model context itself.")
     (:function ai-code-mcp-treesit-info
      :name "treesit_info"
      :description "Return tree-sitter node information for a file location."
+     :plain-text t
      :args ((:name "file_path"
              :type string
              :description "Path to the file to inspect.")
@@ -333,6 +340,7 @@ Required keys are `:function', `:name', and `:description'."
         (category (plist-get slots :category))
         (annotations (plist-get slots :annotations))
         (output-schema (plist-get slots :output-schema))
+        (plain-text (plist-get slots :plain-text))
         spec)
     (unless function
       (error "Tool :function is required"))
@@ -351,6 +359,8 @@ Required keys are `:function', `:name', and `:description'."
       (setq spec (plist-put spec :annotations annotations)))
     (when output-schema
       (setq spec (plist-put spec :output-schema output-schema)))
+    (when plain-text
+      (setq spec (plist-put spec :plain-text t)))
     (setq ai-code-mcp-server-tools
           (append
            (seq-remove
@@ -714,32 +724,39 @@ exclusive end position.  MAX-CHARS optionally caps the returned text."
     (when (and max-chars
                (not (and (integerp max-chars) (> max-chars 0))))
       (user-error "max_chars must be a positive integer"))
-    (setq max-chars (or max-chars
-                        ai-code-mcp-buffer-query-default-max-chars))
-    (with-current-buffer buffer
-      (let* ((exact (or start-column end-line end-column))
-             (text
-              (save-excursion
-                (if exact
-                    (save-restriction
-                      (widen)
-                      (let ((start (ai-code-mcp--strict-buffer-position
-                                    start-line start-column))
-                            (end (ai-code-mcp--strict-buffer-position
-                                  end-line end-column)))
-                        (buffer-substring-no-properties start end)))
-                  (if (not start-line)
-                      (buffer-substring-no-properties (point-min) (point-max))
-                    (goto-char (point-min))
-                    (forward-line (1- start-line))
-                    (let ((start (point)))
-                      (forward-line num-lines)
-                      (ai-code-mcp--drop-trailing-newline
-                       (buffer-substring-no-properties start (point)))))))))
-        (if (and max-chars (> (length text) max-chars))
-            (concat (substring text 0 max-chars)
-                    "\n[truncated; request a smaller buffer range]")
-          text)))))
+    (let ((exact (or start-column end-line end-column)))
+      (when (and (null max-chars)
+                 (null exact)
+                 (null start-line)
+                 ai-code-mcp-buffer-query-default-max-chars)
+        (unless (and (integerp ai-code-mcp-buffer-query-default-max-chars)
+                     (> ai-code-mcp-buffer-query-default-max-chars 0))
+          (user-error
+           "Default buffer_query max_chars must be nil or a positive integer"))
+        (setq max-chars ai-code-mcp-buffer-query-default-max-chars))
+      (with-current-buffer buffer
+        (let ((text
+               (save-excursion
+                 (if exact
+                     (save-restriction
+                       (widen)
+                       (let ((start (ai-code-mcp--strict-buffer-position
+                                     start-line start-column))
+                             (end (ai-code-mcp--strict-buffer-position
+                                   end-line end-column)))
+                         (buffer-substring-no-properties start end)))
+                   (if (not start-line)
+                       (buffer-substring-no-properties (point-min) (point-max))
+                     (goto-char (point-min))
+                     (forward-line (1- start-line))
+                     (let ((start (point)))
+                       (forward-line num-lines)
+                       (ai-code-mcp--drop-trailing-newline
+                        (buffer-substring-no-properties start (point)))))))))
+          (if (and max-chars (> (length text) max-chars))
+              (concat (substring text 0 max-chars)
+                      "\n[truncated; request a smaller buffer range]")
+            text))))))
 
 
 (defun ai-code-mcp--key-binding-map-source (map)
@@ -1495,13 +1512,16 @@ Accepts local file URIs with no authority or with localhost authority."
          (project-root default-directory))
     (or (ignore-errors
           (when (and project (fboundp 'project-files))
-            (seq-filter
-             #'file-regular-p
-             (mapcar (lambda (file)
-                       (if (file-name-absolute-p file)
-                           file
-                         (expand-file-name file project-root)))
-                     (project-files project)))))
+            (let ((vcs-root (expand-file-name (project-root project))))
+              (seq-filter
+               (lambda (file)
+                 (and (file-in-directory-p file project-root)
+                      (file-regular-p file)))
+               (mapcar (lambda (file)
+                         (if (file-name-absolute-p file)
+                             file
+                           (expand-file-name file vcs-root)))
+                       (project-files project (list project-root)))))))
         (cl-labels
             ((collect-files (dir)
                (apply
@@ -1783,7 +1803,8 @@ When WHOLE-FILE is non-nil, inspect the root node instead."
                           -32602 "Tool name must be a string"))
                        (ai-code-mcp--find-tool tool-name)))
                (response (ai-code-mcp--tool-success-result
-                          (ai-code-mcp--call-tool tool arguments))))
+                          (ai-code-mcp--call-tool tool arguments)
+                          tool)))
           (ai-code-mcp--record-tool-call
            tool-name arguments response nil started)
           response)
@@ -1984,10 +2005,29 @@ argument names, for which session, and how large each result was."
     ('object (or (hash-table-p value) (listp value)))
     (_ nil)))
 
-(defun ai-code-mcp--tool-success-result (value)
-  "Return an MCP success result for tool VALUE."
-  (let* ((structured (ai-code-mcp--structured-content value))
-         (is-error (if (eq (alist-get 'ok structured) :json-false)
+(defun ai-code-mcp--structured-ok-value (structured)
+  "Return the `ok' value from STRUCTURED, or `:missing' when absent."
+  (cond
+   ((hash-table-p structured)
+    (let* ((missing (make-symbol "missing"))
+           (str-val (gethash "ok" structured missing)))
+      (if (not (eq str-val missing))
+          str-val
+        (let ((sym-val (gethash 'ok structured missing)))
+          (if (not (eq sym-val missing))
+              sym-val
+            :missing)))))
+   ((listp structured)
+    (let ((entry (or (assq 'ok structured)
+                     (assoc "ok" structured))))
+      (if entry (cdr entry) :missing)))
+   (t :missing)))
+
+(defun ai-code-mcp--tool-success-result (value &optional tool)
+  "Return an MCP success result for tool VALUE and optional TOOL spec."
+  (let* ((structured (ai-code-mcp--structured-content value tool))
+         (is-error (if (eq (ai-code-mcp--structured-ok-value structured)
+                           :json-false)
                        t
                      :json-false)))
     (ai-code-mcp--complete-result
@@ -2021,43 +2061,72 @@ instead of emitting an array where MCP requires an object."
                (or (symbolp (car element)) (stringp (car element)))))
         value)))
 
-(defun ai-code-mcp--structured-content (value)
-  "Return object-shaped structured content for tool VALUE.
-Every tool result is normalized to the same envelope: a JSON object
-that always carries an `ok' field.  Tool results that are already
-JSON objects keep their own fields (including their own `ok'); JSON
-arrays and lists of records (including the empty list nil) become
-`items'; plain text becomes `text'; any other scalar becomes `value'."
-  (cond
-   ((stringp value)
-    (condition-case nil
-        (let ((parsed (json-parse-string
-                       value
-                       :object-type 'alist
-                       :array-type 'array
-                       :null-object :null
-                       :false-object :json-false)))
-          (cond
-           ((ai-code-mcp--json-object-alist-p parsed) parsed)
-           ((and (null parsed)
-                 (string-match-p "\\`[[:space:]]*{" value))
-            (ai-code-mcp--empty-object))
-           ((vectorp parsed) `((ok . t) (items . ,parsed)))
-           (t `((ok . t) (value . ,parsed)))))
-      ;; Any parse failure (malformed, truncated, or too deeply nested
-      ;; text) means "treat it as plain text".  Catch the common parent
-      ;; `json-error': the child error hierarchy differs across Emacs
-      ;; builds (e.g. `json-end-of-file' is not always a
-      ;; `json-parse-error').
-      (json-error
-       `((ok . t) (text . ,value)))))
-   ((hash-table-p value) value)
-   ;; nil is the empty list: keep the `items' shape list tools use.
-   ((null value) `((ok . t) (items . [])))
-   ((ai-code-mcp--json-object-alist-p value) value)
-   ((listp value) `((ok . t) (items . ,(vconcat value))))
-   ((vectorp value) `((ok . t) (items . ,value)))
-   (t `((ok . t) (value . ,value)))))
+(defun ai-code-mcp--normalize-object-envelope (object &optional preserve-shape)
+  "Ensure OBJECT satisfies the default MCP envelope unless PRESERVE-SHAPE.
+When PRESERVE-SHAPE is non-nil (for tools declaring their own `:output-schema'),
+return OBJECT unchanged.  Otherwise ensure a boolean `ok' field is present,
+wrapping objects that already use `ok' for a non-boolean value under `value'."
+  (if preserve-shape
+      object
+    (let ((ok-val (ai-code-mcp--structured-ok-value object)))
+      (cond
+       ((memq ok-val '(t :json-false)) object)
+       ((eq ok-val :missing)
+        (if (hash-table-p object)
+            (let ((copy (copy-hash-table object)))
+              (puthash "ok" t copy)
+              copy)
+          (cons '(ok . t) object)))
+       (t `((ok . t) (value . ,object)))))))
+
+(defun ai-code-mcp--structured-content (value &optional tool)
+  "Return object-shaped structured content for tool VALUE and optional TOOL.
+Every tool result without a custom `:output-schema' is normalized to the
+same envelope: a JSON object carrying a boolean `ok' field.  Tools marked
+`:plain-text' wrap string output directly as `text' so arbitrary buffer or
+Lisp text is never misparsed as JSON.  Tool results that are already JSON
+objects keep their own fields (with `ok' added when absent, or wrapped
+under `value' if `ok' holds a non-boolean); JSON arrays and lists of
+records (including the empty list nil) become `items'; plain text becomes
+`text'; any other scalar becomes `value'."
+  (let ((preserve-shape (and tool (plist-get tool :output-schema))))
+    (cond
+     ((and tool (plist-get tool :plain-text) (stringp value))
+      `((ok . t) (text . ,value)))
+     ((stringp value)
+      (condition-case nil
+          (let ((parsed (json-parse-string
+                         value
+                         :object-type 'alist
+                         :array-type 'array
+                         :null-object :null
+                         :false-object :json-false)))
+            (cond
+             ((ai-code-mcp--json-object-alist-p parsed)
+              (ai-code-mcp--normalize-object-envelope parsed preserve-shape))
+             ((and (null parsed)
+                   (string-match-p "\\`[[:space:]]*{" value))
+              (if preserve-shape
+                  (ai-code-mcp--empty-object)
+                '((ok . t))))
+             ((vectorp parsed) `((ok . t) (items . ,parsed)))
+             (t `((ok . t) (value . ,parsed)))))
+        ;; Any parse failure (malformed, truncated, or too deeply nested
+        ;; text) means "treat it as plain text".  Catch the common parent
+        ;; `json-error': the child error hierarchy differs across Emacs
+        ;; builds (e.g. `json-end-of-file' is not always a
+        ;; `json-parse-error').
+        (json-error
+         `((ok . t) (text . ,value)))))
+     ((hash-table-p value)
+      (ai-code-mcp--normalize-object-envelope value preserve-shape))
+     ;; nil is the empty list: keep the `items' shape list tools use.
+     ((null value) `((ok . t) (items . [])))
+     ((ai-code-mcp--json-object-alist-p value)
+      (ai-code-mcp--normalize-object-envelope value preserve-shape))
+     ((listp value) `((ok . t) (items . ,(vconcat value))))
+     ((vectorp value) `((ok . t) (items . ,value)))
+     (t `((ok . t) (value . ,value))))))
 
 (defconst ai-code-mcp--envelope-output-schema
   '((type . "object")

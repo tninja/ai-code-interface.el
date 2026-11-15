@@ -795,6 +795,31 @@
                    (ai-code-test-mcp-debug-tools--content-text result))))
       (setq ai-code-test-mcp--circular-value nil))))
 
+(ert-deftest ai-code-test-mcp-get-variable-value-keeps-text-envelope ()
+  "Variable reprs that happen to be valid JSON still use the text envelope."
+  (let ((ai-code-mcp-server-tools nil)
+        (ai-code-mcp-debug-tools-enabled t))
+    (dolist (val '(42 [1] "{\"ok\": false}"))
+      (let ((ai-code-test-mcp--long-value val))
+        (let* ((result (ai-code-mcp-dispatch
+                        "tools/call"
+                        '((name . "get_variable_value")
+                          (arguments
+                           . ((variable_name
+                               . "ai-code-test-mcp--long-value"))))))
+               (structured (alist-get 'structuredContent result)))
+          (should (eq :json-false (alist-get 'isError result)))
+          (should (eq t (alist-get 'ok structured)))
+          (should (stringp (alist-get 'text structured))))))
+    (let* ((binding-res (ai-code-mcp-dispatch
+                         "tools/call"
+                         '((name . "get_variable_binding_info")
+                           (arguments
+                            . ((variable_name . "emacs-version"))))))
+           (binding-sc (alist-get 'structuredContent binding-res)))
+      (should (eq t (alist-get 'ok binding-sc)))
+      (should (eq t (alist-get 'exists binding-sc))))))
+
 (provide 'test_ai-code-mcp-debug-tools)
 
 ;;; test_ai-code-mcp-debug-tools.el ends here

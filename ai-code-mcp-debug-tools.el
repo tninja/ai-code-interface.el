@@ -74,6 +74,7 @@ neither overflow the model context nor hang the printer."
     (:function ai-code-mcp-get-variable-value
      :name "get_variable_value"
      :description "Get the printed representation of an Emacs variable value by name."
+     :plain-text t
      :args ((:name "variable_name"
              :type string
              :description "Emacs variable name to inspect.")))

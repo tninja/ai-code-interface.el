@@ -1887,12 +1887,21 @@ the full diagnostics list is intentionally omitted from the response."
       (should (stringp (alist-get 'text structured))))))
 
 (ert-deftest ai-code-test-mcp-buffer-query-default-cap-truncates ()
-  "Whole-buffer reads without max_chars use the default cap."
+  "Whole-buffer reads without max_chars use the default cap; ranges do not."
   (let ((ai-code-mcp-buffer-query-default-max-chars 10))
     (with-temp-buffer
-      (insert "0123456789ABCDEF")
+      (insert "0123456789ABCDEF\nSECOND LINE\n")
       (should (equal "0123456789\n[truncated; request a smaller buffer range]"
-                     (ai-code-mcp-buffer-query (buffer-name)))))))
+                     (ai-code-mcp-buffer-query (buffer-name))))
+      (should (equal "0123456789ABCDEF\nSECOND LINE"
+                     (ai-code-mcp-buffer-query (buffer-name) 1 2)))
+      (should (equal "0123456789ABCDEF"
+                     (ai-code-mcp-buffer-query (buffer-name) 1 nil 0 1 16)))))
+  (let ((ai-code-mcp-buffer-query-default-max-chars 0))
+    (with-temp-buffer
+      (insert "abc")
+      (should-error (ai-code-mcp-buffer-query (buffer-name))
+                    :type 'user-error))))
 
 (ert-deftest ai-code-test-mcp-get-project-files-truncates-with-marker ()
   "Project file reports are capped with a marker naming the true total."
@@ -1978,6 +1987,99 @@ and a link to an external tree would count files outside the project."
         (should (eq :json-false (alist-get 'isError result)))
         (should (equal text (alist-get 'text (alist-get 'structuredContent
                                                         result))))))))
+
+(ert-deftest ai-code-test-mcp-buffer-query-json-buffers-stay-plain-text ()
+  "Reading JSON buffers via buffer_query must not parse buffer text as envelope."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-builtins-setup)
+    (dolist (payload '("{\"ok\": 1, \"n\": 5}"
+                       "{\"ok\": false, \"error\": \"fixture\"}"))
+      (with-temp-buffer
+        (rename-buffer " *ai-code-mcp-json-fixture*" t)
+        (insert payload)
+        (let* ((result (ai-code-mcp-dispatch
+                        "tools/call"
+                        `((name . "buffer_query")
+                          (arguments . ((buffer_name . ,(buffer-name)))))))
+               (structured (alist-get 'structuredContent result)))
+          (should (eq :json-false (alist-get 'isError result)))
+          (should (eq t (alist-get 'ok structured)))
+          (should (equal payload (alist-get 'text structured))))))))
+
+(ert-deftest ai-code-test-mcp-envelope-normalizes-object-ok-field ()
+  "Object results without a custom schema always carry a boolean ok field."
+  (let ((ai-code-mcp-server-tools nil))
+    (ai-code-mcp-builtins-setup)
+    (ai-code-mcp-make-tool
+     :function (lambda () "{\"ok\": 1, \"n\": 5}")
+     :name "envelope_numeric_ok"
+     :description "Return an object whose ok field is numeric."
+     :args nil)
+    (ai-code-mcp-make-tool
+     :function (lambda () "{}")
+     :name "envelope_empty_object"
+     :description "Return an empty JSON object."
+     :args nil)
+    (let* ((diag-sc (alist-get 'structuredContent
+                               (ai-code-mcp-dispatch
+                                "tools/call"
+                                '((name . "get_diagnostics")
+                                  (arguments . ())))))
+           (num-sc (alist-get 'structuredContent
+                              (ai-code-mcp-dispatch
+                               "tools/call"
+                               '((name . "envelope_numeric_ok")
+                                 (arguments . ())))))
+           (empty-sc (alist-get 'structuredContent
+                                (ai-code-mcp-dispatch
+                                 "tools/call"
+                                 '((name . "envelope_empty_object")
+                                   (arguments . ()))))))
+      (should (eq t (alist-get 'ok diag-sc)))
+      (should (stringp (alist-get 'status diag-sc)))
+      (should (eq t (alist-get 'ok num-sc)))
+      (should (equal 1 (alist-get 'ok (alist-get 'value num-sc))))
+      (should (eq t (alist-get 'ok empty-sc))))))
+
+(ert-deftest ai-code-test-mcp-project-files-scopes-to-subdirectory-session ()
+  "Subdirectory sessions count and list only files inside that subdirectory."
+  (let* ((repo (make-temp-file "ai-code-mcp-mono-" t))
+         (sub (expand-file-name "pkg-a" repo))
+         (other (expand-file-name "pkg-b" repo))
+         (buffer (generate-new-buffer " *ai-code-mcp-mono*"))
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-mono-sub"))
+    (unwind-protect
+        (progn
+          (make-directory sub t)
+          (make-directory other t)
+          (dolist (rel '("root.txt" "pkg-a/a1.el" "pkg-b/b1.el" "pkg-b/b2.el"))
+            (with-temp-file (expand-file-name rel repo)
+              (insert "x\n")))
+          (cl-letf (((symbol-function 'project-current)
+                     (lambda (&optional _maybe-prompt _dir) 'mock-vc-project))
+                    ((symbol-function 'project-root)
+                     (lambda (_project) repo))
+                    ((symbol-function 'project-files)
+                     (lambda (_project &optional dirs)
+                       (let ((all (mapcar (lambda (f) (expand-file-name f repo))
+                                          '("root.txt"
+                                            "pkg-a/a1.el"
+                                            "pkg-b/b1.el"
+                                            "pkg-b/b2.el"))))
+                         (if dirs
+                             (seq-filter
+                              (lambda (f)
+                                (seq-some (lambda (d) (file-in-directory-p f d))
+                                          dirs))
+                              all)
+                           all)))))
+            (ai-code-mcp-register-session "session-mono-sub" sub buffer)
+            (should (= 1 (ai-code-mcp--count-project-files sub)))
+            (should (equal '("a1.el") (ai-code-mcp-get-project-files)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory repo t))))
 
 (ert-deftest ai-code-test-mcp-tool-call-log-records-success-without-values ()
   "Tool calls should be audited with argument names, never values."
