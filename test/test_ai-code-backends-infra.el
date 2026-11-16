@@ -1725,10 +1725,15 @@ The prefix argument should also force instance-name prompting."
   "Ghostel startup should raise a clear error when `ghostel-exec' is unavailable."
   (let* ((buffer-name "*test-ai-code-ghostel-missing-exec*")
          (buffer (get-buffer-create buffer-name))
-         (ai-code-backends-infra-terminal-backend 'ghostel))
+         (ai-code-backends-infra-terminal-backend 'ghostel)
+         (orig-fboundp (symbol-function 'fboundp)))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
-                   (lambda () nil)))
+                   (lambda () nil))
+                  ((symbol-function 'fboundp)
+                   (lambda (symbol)
+                     (and (not (eq symbol 'ghostel-exec))
+                          (funcall orig-fboundp symbol)))))
           (should-error
            (ai-code-backends-infra--create-terminal-session
             buffer-name

@@ -834,7 +834,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
                  (progn
                    ;; Mock window-list to simulate visible windows
                    (cl-letf (((symbol-function 'window-list)
-                              (lambda (&optional frame no-minibuf)
+                              (lambda (&optional _frame _no-minibuf &rest _args)
                                 (list (selected-window))))
                             ((symbol-function 'window-buffer)
                              (lambda (win)
@@ -877,7 +877,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
              (unwind-protect
                  (progn
                    (cl-letf (((symbol-function 'buffer-list)
-                              (lambda () (list buf3 buf2 buf1))))
+                              (lambda (&rest _args) (list buf3 buf2 buf1))))
                      (let ((result
                             (ai-code--recent-buffer-paths
                              (file-truename git-root))))
@@ -912,7 +912,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
            (setq dired-buf (dired-noselect dired-dir))
            
            (cl-letf (((symbol-function 'buffer-list)
-                      (lambda () (list dired-buf))))
+                      (lambda (&rest _args) (list dired-buf))))
              (let ((result (ai-code--recent-buffer-paths (file-truename git-root))))
                ;; Should include the dired directory
                (should (member "@testdir/" result)))))
@@ -940,7 +940,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
            
            ;; Mock window-list and git-ignored check
            (cl-letf (((symbol-function 'window-list)
-                      (lambda (&optional frame no-minibuf)
+                      (lambda (&optional _frame _no-minibuf &rest _args)
                         (list 'win1 'win2)))
                      ((symbol-function 'window-buffer)
                       (lambda (win)

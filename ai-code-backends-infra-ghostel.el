@@ -82,6 +82,7 @@ enabled by default because it widens the terminal's local resource access."
 (defvar ghostel--term)
 (defvar ghostel-use-native-pty)
 (eval-when-compile
+  (defvar ghostel-buffer-name-function)
   (defvar ghostel-command-finish-functions)
   (defvar ghostel-command-start-functions)
   (defvar ghostel-kill-buffer-on-exit)
@@ -1227,12 +1228,18 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
   (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
   (setq-local ai-code-editor-viewport-source-cursor-function
               #'ghostel-cursor-point)
-  (setq-local ghostel-set-title-function nil)
+  ;; Load Ghostel IME/core integration before setting title variables so
+  ;; obsolete aliases like `ghostel-set-title-function' are registered first.
+  (ai-code-backends-infra-ghostel--enable-ime-integration)
+  (when (boundp 'ghostel-buffer-name-function)
+    (setq-local ghostel-buffer-name-function nil))
+  (when (boundp 'ghostel-set-title-function)
+    (with-no-warnings
+      (setq-local ghostel-set-title-function nil)))
   (setq-local ghostel-kill-buffer-on-exit nil)
   (ai-code-backends-infra-ghostel--configure-image-support)
   (ai-code-backends-infra-ghostel--configure-glyph-scale)
   (ai-code-backends-infra-ghostel--configure-point-leave)
-  (ai-code-backends-infra-ghostel--enable-ime-integration)
   (ai-code-backends-infra-ghostel--install-redraw-inhibition)
   (ai-code-backends-infra-ghostel--install-link-preservation)
   (ai-code-backends-infra-ghostel--install-native-output-tracking)
