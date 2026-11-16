@@ -267,50 +267,39 @@ visible lines into the scrollback buffer, then cursor home."
   "Strip alternate screen transitions from STR."
   (replace-regexp-in-string ai-code-backends-infra--alternate-screen-regexp "" str))
 
-(defun ai-code-backends-infra--maybe-inject-screen-clear-scrollback (str scroll-seq now inject-ok)
-  "Inject SCROLL-SEQ for screen-clear sequences in STR when allowed.
-NOW is the current timestamp and INJECT-OK controls throttle gating."
-  (if (and inject-ok
-           (string-match-p ai-code-backends-infra--screen-clear-regexp str))
+(defun ai-code-backends-infra--scrollback-inject-due-p (now)
+  "Return non-nil when scrollback injection is allowed at timestamp NOW."
+  (>= (- now ai-code-backends-infra--last-scrollback-inject-time)
+      ai-code-backends-infra-scrollback-inject-interval))
+
+(defun ai-code-backends-infra--maybe-inject-scrollback-regexp (str regexp replacement now)
+  "Conditionally replace REGEXP with REPLACEMENT in STR at timestamp NOW.
+Only modifies STR when the scrollback injection interval has elapsed."
+  (if (and (ai-code-backends-infra--scrollback-inject-due-p now)
+           (string-match-p regexp str))
       (progn
         (setq ai-code-backends-infra--last-scrollback-inject-time now)
-        (replace-regexp-in-string
-         ai-code-backends-infra--screen-clear-regexp
-         scroll-seq str t t))
+        (replace-regexp-in-string regexp replacement str t t))
     str))
 
 (defun ai-code-backends-infra--strip-scrollback-clear (str)
   "Strip scrollback-clear sequences from STR."
   (replace-regexp-in-string ai-code-backends-infra--scrollback-clear-regexp "" str))
 
-(defun ai-code-backends-infra--maybe-inject-home-erase-scrollback (str scroll-seq now inject-ok)
-  "Inject SCROLL-SEQ for home+erase redraws in STR when allowed.
-NOW is the current timestamp and INJECT-OK controls throttle gating."
-  (let ((home-erase-re "\033\\[H\033\\[J\\|\033\\[H\033\\[0J"))
-    (if (and inject-ok
-             (string-match-p home-erase-re str))
-        (progn
-          (setq ai-code-backends-infra--last-scrollback-inject-time now)
-          (replace-regexp-in-string
-           home-erase-re
-           (concat scroll-seq "\033[H") str t t))
-      str)))
-
 (defun ai-code-backends-infra--maybe-inject-sync-redraw-scrollback (str scroll-seq)
   "Inject SCROLL-SEQ before synchronized redraw frames in STR when allowed."
-  (if (and ai-code-backends-infra--sync-redraw-scrollback
-           (> (length str) 500)
-           (string-match ai-code-backends-infra--sync-redraw-regexp str)
-           (>= (- (float-time)
-                  ai-code-backends-infra--last-scrollback-inject-time)
-               ai-code-backends-infra-scrollback-inject-interval))
-      (progn
-        (setq ai-code-backends-infra--last-scrollback-inject-time (float-time))
-        (let ((match-start (match-beginning 0)))
-          (concat (substring str 0 match-start)
-                  scroll-seq
-                  (substring str match-start))))
-    str))
+  (let ((now (float-time)))
+    (if (and ai-code-backends-infra--sync-redraw-scrollback
+             (> (length str) 500)
+             (string-match ai-code-backends-infra--sync-redraw-regexp str)
+             (ai-code-backends-infra--scrollback-inject-due-p now))
+        (progn
+          (setq ai-code-backends-infra--last-scrollback-inject-time now)
+          (let ((match-start (match-beginning 0)))
+            (concat (substring str 0 match-start)
+                    scroll-seq
+                    (substring str match-start))))
+      str)))
 
 (defun ai-code-backends-infra--strip-alternate-screen-sequences (str)
   "Normalize terminal sequences in STR to preserve scrollback.
@@ -332,9 +321,7 @@ the current buffer is an AI session buffer, apply these transformations:
       (let* ((result str)
              (scroll-seq (ai-code-backends-infra--scroll-to-scrollback-sequence))
              (now (float-time))
-             (inject-ok (>= (- now
-                               ai-code-backends-infra--last-scrollback-inject-time)
-                            ai-code-backends-infra-scrollback-inject-interval)))
+             (home-erase-re "\033\\[H\033\\[J\\|\033\\[H\033\\[0J"))
         (ai-code-backends-infra--log-alternate-screen-debug str)
         ;; 1. Strip alternate screen transitions.
         (setq result (ai-code-backends-infra--strip-alternate-screen-transitions result))
@@ -344,17 +331,16 @@ the current buffer is an AI session buffer, apply these transformations:
         ;;    without preserving content, which is acceptable since a
         ;;    recent snapshot was already pushed.
         (setq result
-              (ai-code-backends-infra--maybe-inject-screen-clear-scrollback
-               result scroll-seq now inject-ok))
+              (ai-code-backends-infra--maybe-inject-scrollback-regexp
+               result ai-code-backends-infra--screen-clear-regexp scroll-seq now))
         ;; 3. Strip ED 3 (clear scrollback).
         (setq result (ai-code-backends-infra--strip-scrollback-clear result))
         ;; 4. Convert cursor-home + erase-to-end (\e[H\e[J) into a
-        ;;    scrollback-preserving sequence, throttled to avoid flooding
-        ;;    the scrollback ring with repeated TUI frames (e.g. the
-        ;;    Claude Code badge appearing on every redraw).
+        ;;    scrollback-preserving sequence, throttled using the live
+        ;;    timestamp so step 2 and step 4 do not double-inject in one chunk.
         (setq result
-              (ai-code-backends-infra--maybe-inject-home-erase-scrollback
-               result scroll-seq now inject-ok))
+              (ai-code-backends-infra--maybe-inject-scrollback-regexp
+               result home-erase-re (concat scroll-seq "\033[H") now))
         ;; 5. Detect synchronized-update frames (\e[?2026h followed by
         ;;    cursor to row 1) and inject scrollback preservation before
         ;;    the frame redraw, throttled to avoid flooding the scrollback
@@ -373,14 +359,8 @@ the current buffer is an AI session buffer, apply these transformations:
 
 (defun ai-code-backends-infra--output-meaningful-p (output)
   "Return non-nil if OUTPUT has meaningful printable content."
-  (let* ((str (or output ""))
-         ;; Strip OSC sequences (ESC ] ... BEL or ESC ] ... ESC \).
-         (str (replace-regexp-in-string "\x1b\\][^\x07\x1b]*\\(?:\x07\\|\x1b\\\\\\)" "" str))
-         ;; Strip ANSI escape sequences.
-         (str (replace-regexp-in-string "\x1b\\[[0-9;?]*[ -/]*[@-~]" "" str))
-         ;; Strip other control characters.
-         (str (replace-regexp-in-string "[\x00-\x1f\x7f]" "" str)))
-    (string-match-p "[^ \t\n\r]" str)))
+  (string-match-p "[^ \t\n\r]"
+                  (ai-code-session-link--recent-output-plain-text output)))
 
 (defun ai-code-backends-infra--buffer-user-visible-p (buffer)
   "Return non-nil when BUFFER is visible in any live window."
@@ -791,23 +771,19 @@ from the window where it was initially created."
         (let ((backend (ai-code-backends-infra--current-terminal-backend))
               (windows (or (get-buffer-window-list buffer nil t)
                            (list window))))
-          (if (eq backend 'ghostel)
-              (set-process-window-size proc
-                                       (window-body-height window)
-                                       (window-body-width window))
-            (pcase backend
-              ('vterm
-               (let ((result
-                      (funcall (ai-code-backends-infra--terminal-resize-handler
-                                'vterm)
-                               proc windows)))
-                 (when result
-                   (ai-code-backends-infra-vterm-flush-render-queue buffer))
-                 result))
-              (_
-               (set-process-window-size proc
-                                        (window-body-height window)
-                                        (window-body-width window))))))))))
+          (pcase backend
+            ('vterm
+             (let ((result
+                    (funcall (ai-code-backends-infra--terminal-resize-handler
+                              'vterm)
+                             proc windows)))
+               (when result
+                 (ai-code-backends-infra-vterm-flush-render-queue buffer))
+               result))
+            (_
+             (set-process-window-size proc
+                                      (window-body-height window)
+                                      (window-body-width window)))))))))
 
 ;;; Session Helpers
 
@@ -1351,6 +1327,59 @@ any error output left behind by the CLI."
                 (string-prefix-p "finished" event))
         (kill-buffer buffer)))))
 
+(defun ai-code-backends-infra--resolve-instance-name (prefix existing-buffers
+                                                             instance-name force-prompt)
+  "Resolve session instance name for PREFIX from EXISTING-BUFFERS.
+INSTANCE-NAME overrides interactive selection when non-nil.
+FORCE-PROMPT forces prompting when PREFIX is non-nil."
+  (cond
+   (instance-name
+    (ai-code-backends-infra--normalize-instance-name instance-name))
+   (prefix
+    (let ((existing-names
+           (mapcar (lambda (buf)
+                     (ai-code-backends-infra--session-instance-name
+                      (buffer-name buf)
+                      prefix))
+                   existing-buffers)))
+      (ai-code-backends-infra--prompt-for-instance-name
+       existing-names
+       force-prompt
+       (ai-code-backends-infra--default-instance-name existing-names))))
+   (t "default")))
+
+(defun ai-code-backends-infra--resolve-session-buffer-name (working-dir buffer-name prefix
+                                                                   existing-buffers
+                                                                   resolved-instance)
+  "Resolve buffer name for WORKING-DIR and RESOLVED-INSTANCE.
+Uses explicit BUFFER-NAME, matching buffer in EXISTING-BUFFERS, sibling label,
+or generates a unique name for PREFIX."
+  (let* ((own-buffer (seq-find (lambda (buf)
+                                 (equal (ai-code-backends-infra--session-instance-name
+                                         (buffer-name buf)
+                                         prefix)
+                                        resolved-instance))
+                               existing-buffers))
+         (sibling-name (when-let* ((sibling (car existing-buffers))
+                                   (label (car (ai-code-backends-infra--parse-session-buffer-name
+                                                (buffer-name sibling)
+                                                prefix))))
+                         (ai-code-backends-infra--format-session-buffer-name
+                          prefix label resolved-instance))))
+    (cond
+     (buffer-name buffer-name)
+     (own-buffer (buffer-name own-buffer))
+     ((and sibling-name
+           (not (ai-code-backends-infra--session-buffer-foreign-p
+                 (get-buffer sibling-name)
+                 working-dir)))
+      sibling-name)
+     (prefix
+      (ai-code-backends-infra--unique-session-buffer-name
+       prefix
+       working-dir
+       resolved-instance)))))
+
 (defun ai-code-backends-infra--resolve-session-target (working-dir buffer-name
                                                                    prefix instance-name
                                                                    force-prompt)
@@ -1365,46 +1394,12 @@ Return a plist with :instance-name, :buffer-name, and :session-key."
                                 (ai-code-backends-infra--find-session-buffers
                                  prefix
                                  working-dir)))
-         (existing-instance-names (mapcar (lambda (buf)
-                                            (ai-code-backends-infra--session-instance-name
-                                             (buffer-name buf)
-                                             prefix))
-                                          existing-buffers))
-         (resolved-instance (cond
-                             (instance-name
-                              (ai-code-backends-infra--normalize-instance-name instance-name))
-                             (prefix
-                              (ai-code-backends-infra--prompt-for-instance-name
-                               existing-instance-names
-                               force-prompt
-                               (ai-code-backends-infra--default-instance-name
-                                existing-instance-names)))
-                             (t "default")))
-         (own-buffer (seq-find (lambda (buf)
-                                 (equal (ai-code-backends-infra--session-instance-name
-                                         (buffer-name buf)
-                                         prefix)
-                                        resolved-instance))
-                               existing-buffers))
-         (sibling-name (when-let* ((sibling (car existing-buffers))
-                                   (label (car (ai-code-backends-infra--parse-session-buffer-name
-                                                (buffer-name sibling)
-                                                prefix))))
-                         (ai-code-backends-infra--format-session-buffer-name
-                          prefix label resolved-instance)))
-         (resolved-buffer-name (cond
-                                (buffer-name buffer-name)
-                                (own-buffer (buffer-name own-buffer))
-                                ((and sibling-name
-                                      (not (ai-code-backends-infra--session-buffer-foreign-p
-                                            (get-buffer sibling-name)
-                                            working-dir)))
-                                 sibling-name)
-                                (prefix
-                                 (ai-code-backends-infra--unique-session-buffer-name
-                                  prefix
-                                  working-dir
-                                  resolved-instance)))))
+         (resolved-instance
+          (ai-code-backends-infra--resolve-instance-name
+           prefix existing-buffers instance-name force-prompt))
+         (resolved-buffer-name
+          (ai-code-backends-infra--resolve-session-buffer-name
+           working-dir buffer-name prefix existing-buffers resolved-instance)))
     (list :instance-name resolved-instance
           :buffer-name resolved-buffer-name
           :session-key (ai-code-backends-infra--session-key
@@ -1453,18 +1448,12 @@ Otherwise refresh session-local state and display it."
      buffer working-dir prefix task-file)
     (ai-code-backends-infra--display-buffer-in-side-window buffer)))
 
-(defun ai-code-backends-infra--finalize-started-session (buffer process
-                                                                 working-dir buffer-name
+(defun ai-code-backends-infra--install-session-sentinel (process working-dir buffer-name
                                                                  process-table resolved-instance
-                                                                 prefix escape-fn cleanup-fn
-                                                                 multiline-input-sequence
-                                                                 post-start-fn
-                                                                 &optional task-file)
-  "Finalize a successfully started session BUFFER and PROCESS.
-WORKING-DIR, BUFFER-NAME, PROCESS-TABLE, RESOLVED-INSTANCE, and PREFIX
-identify the session for cleanup and reuse.  ESCAPE-FN, CLEANUP-FN,
-MULTILINE-INPUT-SEQUENCE, POST-START-FN, and TASK-FILE install session
-behavior."
+                                                                 prefix cleanup-fn)
+  "Install exit cleanup sentinel on PROCESS, preserving any Ghostel sentinel.
+WORKING-DIR, BUFFER-NAME, PROCESS-TABLE, RESOLVED-INSTANCE, PREFIX, and
+CLEANUP-FN identify the session resources to clean up when PROCESS exits."
   (let ((previous-sentinel
          (ignore-errors
            (process-get process 'ai-code-backends-infra--ghostel-sentinel))))
@@ -1482,11 +1471,14 @@ behavior."
         prefix
         (ai-code-backends-infra-ghostel-child-exit-event proc event))
        (when cleanup-fn
-         (funcall cleanup-fn)))))
-  (ai-code-backends-infra--configure-session-buffer
-   buffer escape-fn multiline-input-sequence)
-  (when post-start-fn
-    (funcall post-start-fn buffer process resolved-instance))
+         (funcall cleanup-fn))))))
+
+(defun ai-code-backends-infra--install-session-kill-hook (buffer process working-dir buffer-name
+                                                                  process-table resolved-instance
+                                                                  prefix)
+  "Install buffer-local `kill-buffer-hook' in BUFFER to clean session state.
+Removes the `process-table' entry only if it still points to PROCESS, using
+WORKING-DIR, BUFFER-NAME, PROCESS-TABLE, RESOLVED-INSTANCE, and PREFIX."
   (with-current-buffer buffer
     (add-hook 'kill-buffer-hook
               (lambda ()
@@ -1507,7 +1499,28 @@ behavior."
                  prefix
                  working-dir
                  (current-buffer)))
-              nil t))
+              nil t)))
+
+(defun ai-code-backends-infra--finalize-started-session (buffer process
+                                                                 working-dir buffer-name
+                                                                 process-table resolved-instance
+                                                                 prefix escape-fn cleanup-fn
+                                                                 multiline-input-sequence
+                                                                 post-start-fn
+                                                                 &optional task-file)
+  "Finalize a successfully started session BUFFER and PROCESS.
+WORKING-DIR, BUFFER-NAME, PROCESS-TABLE, RESOLVED-INSTANCE, and PREFIX
+identify the session for cleanup and reuse.  ESCAPE-FN, CLEANUP-FN,
+MULTILINE-INPUT-SEQUENCE, POST-START-FN, and TASK-FILE install session
+behavior."
+  (ai-code-backends-infra--install-session-sentinel
+   process working-dir buffer-name process-table resolved-instance prefix cleanup-fn)
+  (ai-code-backends-infra--configure-session-buffer
+   buffer escape-fn multiline-input-sequence)
+  (when post-start-fn
+    (funcall post-start-fn buffer process resolved-instance))
+  (ai-code-backends-infra--install-session-kill-hook
+   buffer process working-dir buffer-name process-table resolved-instance prefix)
   (ai-code-backends-infra--remember-session-buffer prefix working-dir buffer)
   (ai-code-backends-infra--sync-session-registry
    buffer working-dir prefix task-file)
@@ -1685,6 +1698,12 @@ refresh session state and preserve file-to-session binding."
   (ai-code-backends-infra--remember-file-session-buffer
    prefix source-buffer buffer))
 
+(defun ai-code-backends-infra--session-editor-environment (working-dir env-vars)
+  "Return ENV-VARS augmented with editor viewport variables for local WORKING-DIR."
+  (if (file-remote-p working-dir)
+      env-vars
+    (ai-code-editor-viewport-environment env-vars)))
+
 (defun ai-code-backends-infra--create-new-session (resolved-buffer-name
                                                    working-dir command env-vars
                                                    session-key process-table
@@ -1701,9 +1720,7 @@ RESOLVED-INSTANCE, PREFIX, ESCAPE-FN, CLEANUP-FN,
 MULTILINE-INPUT-SEQUENCE, and POST-START-FN configure startup behavior.
 TASK-FILE and SOURCE-BUFFER preserve file-to-session binding."
   (let* ((editor-environment
-          (if (file-remote-p working-dir)
-              env-vars
-            (ai-code-editor-viewport-environment env-vars)))
+          (ai-code-backends-infra--session-editor-environment working-dir env-vars))
          (buffer-and-process
           (condition-case err
               (ai-code-backends-infra--create-terminal-session

@@ -4803,6 +4803,19 @@ exits with an error must still be reported as abnormal to keep its buffer."
           (should (eq called-cmd #'ignore))
           (should-not transient-map))))))
 
+(ert-deftest test-ai-code-backends-infra-strip-alt-screen-throttles-across-passes ()
+  "Screen-clear and home-erase injections share one throttle per chunk."
+  (with-temp-buffer
+    (rename-buffer "*codex[alt-throttle]*" t)
+    (let ((ai-code-backends-infra-strip-alternate-screen t)
+          (ai-code-backends-infra-scrollback-inject-interval 5.0)
+          (ai-code-backends-infra--last-scrollback-inject-time 0.0))
+      (cl-letf (((symbol-function 'ai-code-backends-infra--scroll-to-scrollback-sequence)
+                 (lambda () "<SCROLL>")))
+        (let ((out (ai-code-backends-infra--strip-alternate-screen-sequences
+                    "\033[2Jmid\033[H\033[J")))
+          (should (equal out "<SCROLL>mid\033[H\033[J")))))))
+
 (provide 'test_ai-code-backends-infra)
 
 ;;; test_ai-code-backends-infra.el ends here
