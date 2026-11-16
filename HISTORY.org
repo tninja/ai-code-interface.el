@@ -2,16 +2,43 @@
 * Release history
 
 ** Main branch change
-- Feat: A couple of emacs mcp tools
+
+** 2.00
+- Feat: Migrate MCPs and plugins from another coding agent (#594, #596)
+- Fix: Renew idle MCP tokens on session interactions for long-running sessions (#595)
+- Feat: Auto-wire Emacs MCP tools for Pi via per-session extension file (#593)
+- Feat: Unify MCP tool result envelopes and cap unbounded outputs (#581)
+- Feat: Add MCP tool-call audit log (#580)
+- Fix: Fix Pi scrollback and native PTY output tracking in Ghostel sessions (#589)
+- Fix: Show minibuffer send/cancel guidance when Compose opens (#587, #588)
+- Feat: Make Send out PR evidence-backed and reviewable (#585)
+- Feat: Improve existing PR review with evidence-backed, low-noise findings and PR value assessment (#568, #583)
+- Fix: Add AI keyword, agent tags, timestamps, and foldable conclusion-first summaries to Org results (#543, #576, #586)
+- Fix: Keep Ghostel session buffer visible when the CLI exits with an error (#577)
+- Feat: A couple of emacs mcp tools (#571, #572, #573, #574)
 - Fix: session keybindings lost after Ghostel input-mode switches
 - Fix: Stop Ghostel sessions with image previews from jumping to the top while scrolled back, and keep evil =gg= / =G= working
 - Fix: Fix Claude prompt truncation, small CJK glyphs, and frozen output in Ghostel sessions
 - Fix: session dashboard navigation to preserve tab layouts
+- Feat: Derive evidence-first acceptance tests from original requirements (#565, #566)
+- Feat: Automatically collect code artifacts and preserve original evidence in opt-in Org task summaries (#559, #560)
+- Feat: Add deployment verification document generation to task and derive-document menus (#557)
+- Chore: Refresh Grill harness with latest upstream interaction rules (#562)
+- Feat: Discuss branch/PR requirement fit with evidence-first Verify, recording code identity and freshness (#541, #555)
+- Fix: Unify terminal prompt submission and record session state only after successful sends (#553)
+- Fix: Use a single workspace identity across worktree-bound task workflows (#552)
+- Chore: Unify complete prompt editing and the suffix/history send pipeline (#551)
+- Fix: Keep discussion and task prompts free of automatic execution instructions (#550)
+- Fix: Stop vterm sessions from flickering and jumping to the bottom (#549)
+- Fix: Unify Dired context selection and fix omitted or incorrect targets (#548)
+- Chore: Use Imenu as the @file#symbol completion source (#484)
 - Feat: Resume interrupted Org tasks with a referenced briefing saved in the task
   file for later Verify input, current Git facts and explicit unknowns; enrich
   handoffs with Git baselines, validation commands and the next concrete action
   (=C-c a K= / =H=).
+- Fix: Read the full task file via =@= reference and prioritize raw sources over generated context when resuming (#545, #546)
 - Fix: Sessions of two projects with the same directory name and branch no longer collide; the second one starts in its own buffer.
+- Feat: Add opt-in agent commit prompt toggle (#537)
 
 ** 1.99
 - Feat: Session dashboard shows time in state, uncommitted change size, and a summary of the last prompt; toggles at the bottom with C-c a Z
