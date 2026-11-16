@@ -941,6 +941,7 @@ with =C-c a H=. Use its references to revisit the original evidence.
 - Gemini CLI (`[[https://github.com/linchen2chris/gemini-cli.el][gemini-cli.el]]`)
 - [[https://github.com/xenodium/agent-shell][agent-shell]] ([[https://github.com/xenodium/acp.el][acp.el]])
 - [[https://eca.dev/][ECA (Editor Code Assistant)]]
+- [[https://github.com/dnouri/pilish][pilish (PI coding agent)]]
 - [[https://github.com/acmorrow/claude-code-ide-extras][claude-code-ide-extras.el]]
 
 ** License
