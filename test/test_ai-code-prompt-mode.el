@@ -1585,5 +1585,16 @@ evaluates BODY, and ensures everything is cleaned up afterward."
             (should (eq (ai-code--prompt-choose-target-session) visible))))
       (kill-buffer visible))))
 
+(ert-deftest test-prompt-mode--suffix-variables-are-special-without-ai-code ()
+  "Prompt suffix variables must be dynamic even before `ai-code' loads."
+  (should (special-variable-p 'ai-code-use-prompt-suffix))
+  (should (special-variable-p 'ai-code-prompt-suffix))
+  (let ((ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix "EXTRA"))
+    (ai-code-with-prompt-policy ()
+      (should-not (symbol-value 'ai-code-use-prompt-suffix))
+      (should (equal (symbol-value 'ai-code-prompt-suffix) "EXTRA")))
+    (should (eq (symbol-value 'ai-code-use-prompt-suffix) t))))
+
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here
