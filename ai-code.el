@@ -603,6 +603,93 @@ Shows the current backend label to the right."
 
 
 
+
+(defun ai-code--migration-source-choices ()
+  "Return source backend choices excluding the current agent and duplicate CLIs."
+  (let* ((current (ai-code--effective-backend))
+         (current-cli (plist-get (cdr (ai-code--backend-spec current)) :cli))
+         (seen-clis (make-hash-table :test #'equal))
+         result)
+    (when (and (stringp current-cli) (not (string-empty-p current-cli)))
+      (puthash current-cli t seen-clis))
+    (dolist (choice (ai-code--ordered-backend-choices) (nreverse result))
+      (let* ((source (cdr choice))
+             (source-cli (plist-get (cdr (ai-code--backend-spec source)) :cli))
+             (has-cli (and (stringp source-cli)
+                           (not (string-empty-p source-cli)))))
+        (unless (or (eq source current)
+                    (and has-cli (gethash source-cli seen-clis)))
+          (when has-cli
+            (puthash source-cli t seen-clis))
+          (push choice result))))))
+
+(defun ai-code--migration-agent-description (backend)
+  "Describe BACKEND using its label and known CLI/config hints."
+  (let* ((spec (cdr (ai-code--backend-spec backend)))
+         (label (or (plist-get spec :label) (symbol-name backend)))
+         (cli (plist-get spec :cli))
+         (config (plist-get spec :config)))
+    (format "%s%s%s"
+            label
+            (if (and (stringp cli) (not (string-empty-p cli)))
+                (format " (CLI: %s)" cli)
+              "")
+            (if (and (stringp config) (not (string-empty-p config)))
+                (format ", config hint: %s" config)
+              ""))))
+
+(defun ai-code--migration-prompt (source target)
+  "Build a safe MCP/plugin migration prompt from SOURCE to TARGET."
+  (format
+   (concat
+    "Migrate my MCP server configurations and plugins/extensions from %s "
+    "to %s (the current coding agent). Include related skills where supported.\n\n"
+    "1. Inspect both agents' user-level and current-project configurations, "
+    "including plugin/extension locations. Configuration paths above are "
+    "hints; verify the actual paths before using them.\n"
+    "2. Compare the integrations, check the destination's supported formats, "
+    "and identify what can be migrated, skipped, or needs manual setup.\n"
+    "3. Show a concise migration plan and ask me to approve it before "
+    "modifying files or installing anything.\n"
+    "4. Leave the source untouched. Preserve destination settings, avoid "
+    "duplicates, and back up files before editing. Do not copy, print, or "
+    "expose secrets (tokens, API keys, passwords); ask me to configure "
+    "credentials securely when required.\n"
+    "5. After approval, apply supported changes, validate the migrated "
+    "integrations, and summarize changes and manual follow-up steps.")
+   (ai-code--migration-agent-description source)
+   (ai-code--migration-agent-description target)))
+
+;;;###autoload
+(defun ai-code-migrate-agent-integrations ()
+  "Ask the current coding agent to migrate MCPs/plugins from another agent.
+The generated prompt can be edited before sending; this command does not
+directly modify agent configurations."
+  (interactive)
+  (let* ((target (ai-code--effective-backend))
+         (target-spec (ai-code--backend-spec target)))
+    (unless target-spec
+      (user-error "No current AI backend is configured"))
+    (let ((choices (ai-code--migration-source-choices)))
+      (unless choices
+        (user-error "No other AI coding agent is available as a source"))
+      (let* ((selection
+              (completing-read
+               (format "Migrate MCP/plugins to %s from: "
+                       (or (plist-get (cdr target-spec) :label)
+                           (symbol-name target)))
+               (ai-code--backend-completion-table (mapcar #'car choices))
+               nil t nil nil (caar choices)))
+             (source (cdr (assoc selection choices)))
+             ;; Keep config paths verbatim and never hijack an unrelated visible session.
+             (ai-code-prompt-preprocess-filepaths nil)
+             (ai-code--prompt-project-only t))
+        (when source
+          (ai-code-with-prompt-policy ()
+            (ai-code--confirm-and-send
+             "Review MCP/plugin migration prompt: "
+             (ai-code--migration-prompt source target))))))))
+
 ;; Mirror aider.el's reusable-section approach using `transient-define-group`.
 (transient-define-group ai-code--menu-ai-cli-session
   (ai-code--infix-toggle-suffix)
@@ -616,6 +703,7 @@ Shows the current backend label to the right."
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
   ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
   ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
+  ("P" "Migrate MCPs/plugins from agent" ai-code-migrate-agent-integrations)
   ("l" ai-code-select-terminal :description ai-code--select-terminal-description))
 
 (transient-define-group ai-code--menu-actions-with-context

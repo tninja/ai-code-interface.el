@@ -206,6 +206,95 @@ DIAGNOSTICS is an expression returning a list of mock diagnostic structs."
         (kill-buffer buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-token-renews-active-session-across-days ()
+  "Authenticated activity should keep a session usable across several days."
+  (let* ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (now (seconds-to-time 1000000))
+         (lifetime 86400)
+         (initial-expiry (time-add now lifetime)))
+    (cl-letf (((symbol-function 'current-time) (lambda () now)))
+      (with-temp-buffer
+        (dolist (id '("active" "idle"))
+          (ai-code-mcp-register-session
+           id default-directory (current-buffer)
+           (list :token id :token-lifetime-seconds lifetime
+                 :expires-at initial-expiry)))
+        (dotimes (_ 3)
+          (setq now (time-add now (* 23 3600)))
+          (should (equal "active"
+                         (car (ai-code-mcp-find-session-by-token "active"))))
+          (should (time-equal-p (time-add now lifetime)
+                         (plist-get (ai-code-mcp-get-session-context "active")
+                                    :expires-at))))
+        (should (time-equal-p initial-expiry
+                       (plist-get (ai-code-mcp-get-session-context "idle")
+                                  :expires-at)))
+        (should-not (ai-code-mcp-find-session-by-token "idle"))))))
+
+(ert-deftest ai-code-test-mcp-token-rejection-does-not-renew ()
+  "Incorrect and expired tokens must not extend authentication expiry."
+  (let* ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (now (seconds-to-time 1000000))
+         (expiry (time-add now 86400)))
+    (cl-letf (((symbol-function 'current-time) (lambda () now)))
+      (with-temp-buffer
+        (ai-code-mcp-register-session
+         "idle" default-directory (current-buffer)
+         (list :token "secret" :token-lifetime-seconds 86400
+               :expires-at expiry))
+        (setq now (time-add now 3600))
+        (should-not (ai-code-mcp-find-session-by-token "wrong-token"))
+        (should (time-equal-p expiry
+                       (plist-get (ai-code-mcp-get-session-context "idle")
+                                  :expires-at)))
+        (setq now (time-add expiry 1))
+        (should-not (ai-code-mcp-find-session-by-token "secret"))
+        (should (time-equal-p expiry
+                       (plist-get (ai-code-mcp-get-session-context "idle")
+                                  :expires-at)))))))
+
+(ert-deftest ai-code-test-mcp-token-preserves-fixed-expiry ()
+  "Sessions without a renewal interval should retain their fixed expiry."
+  (let* ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (now (seconds-to-time 1000000))
+         (expiry (time-add now 3600)))
+    (cl-letf (((symbol-function 'current-time) (lambda () now)))
+      (with-temp-buffer
+        (ai-code-mcp-register-session
+         "fixed" default-directory (current-buffer)
+         (list :token "fixed-token" :expires-at expiry))
+        (setq now (time-add now 1800))
+        (should (ai-code-mcp-find-session-by-token "fixed-token"))
+        (ai-code-mcp-update-source-context "fixed" (current-buffer))
+        (should (time-equal-p expiry
+                       (plist-get (ai-code-mcp-get-session-context "fixed")
+                                  :expires-at)))
+        (setq now (time-add expiry 1))
+        (should-not (ai-code-mcp-find-session-by-token "fixed-token"))))))
+
+(ert-deftest ai-code-test-mcp-token-prompt-refresh-renews-only-source-session ()
+  "A local prompt should renew its expired session without reviving others."
+  (let* ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (now (seconds-to-time 1000000))
+         (expiry (time-add now 86400)))
+    (cl-letf (((symbol-function 'current-time) (lambda () now)))
+      (with-temp-buffer
+        (dolist (id '("prompt" "other"))
+          (ai-code-mcp-register-session
+           id default-directory (current-buffer)
+           (list :token id :state 'ready :token-lifetime-seconds 86400
+                 :expires-at expiry)))
+        (setq now (time-add now (* 3 86400)))
+        (should-not (ai-code-mcp-find-session-by-token "prompt"))
+        (ai-code-mcp-update-source-context "prompt" (current-buffer))
+        (should (ai-code-mcp-find-session-by-token "prompt"))
+        (should (eq 'ready (plist-get (ai-code-mcp-get-session-context "prompt")
+                                     :state)))
+        (should (time-equal-p expiry
+                       (plist-get (ai-code-mcp-get-session-context "other")
+                                  :expires-at)))
+        (should-not (ai-code-mcp-find-session-by-token "other"))))))
+
 (ert-deftest ai-code-test-mcp-builtins-setup-registers-common-tools-once ()
   "Built-in setup should register the common Emacs tools without duplicates."
   (let ((ai-code-mcp-server-tools nil)

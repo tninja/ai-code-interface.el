@@ -921,6 +921,81 @@
       (when (buffer-live-p source-buffer)
         (kill-buffer source-buffer)))))
 
+(ert-deftest ai-code-test-mcp-http-server-rejected-requests-do-not-renew-token ()
+  "Rejected HTTP requests must not extend a renewable session's token expiry."
+  (let* ((ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp-http-server-rate-limit 1)
+         (ai-code-mcp-http-server-rate-window-seconds 60)
+         (now (seconds-to-time 1000000))
+         (lifetime 86400)
+         (initial-expiry (time-add now lifetime))
+         (sent nil)
+         (send-request
+          (lambda (request)
+            (setq sent nil)
+            (ai-code-mcp-http-server--handle-request 'mock-proc request)
+            (ai-code-test-mcp-http--parse-response sent))))
+    (cl-letf (((symbol-function 'current-time) (lambda () now))
+              ((symbol-function 'float-time) (lambda (&optional time)
+                                               (time-convert (or time now) 'integer)))
+              ((symbol-function 'process-send-string)
+               (lambda (_proc payload) (setq sent (concat sent payload))))
+              ((symbol-function 'delete-process) #'ignore))
+      (with-temp-buffer
+        (ai-code-mcp-register-session
+         "http-session" default-directory (current-buffer)
+         (list :token "http-secret" :state 'ready
+               :token-lifetime-seconds lifetime
+               :expires-at initial-expiry))
+        (setq now (time-add now 3600))
+        (let ((auth-headers '(("authorization" . "Bearer http-secret")
+                              ("content-type" . "application/json")
+                              ("accept" . "application/json, text/event-stream"))))
+          ;; 400, 404, 403, 405, 415, 406 must not extend expiry.
+          (should (= 400 (ai-code-test-mcp-http-response-status
+                          (funcall send-request
+                                   (list :method "POST" :path "/mcp"
+                                         :headers auth-headers :bad-request t)))))
+          (should (= 404 (ai-code-test-mcp-http-response-status
+                          (funcall send-request
+                                   (list :method "POST" :path "/other"
+                                         :headers auth-headers :body "{}")))))
+          (should (= 403 (ai-code-test-mcp-http-response-status
+                          (funcall send-request
+                                   (list :method "POST" :path "/mcp"
+                                         :headers (cons '("origin" . "https://evil.example")
+                                                        auth-headers)
+                                         :body "{}")))))
+          (should (= 405 (ai-code-test-mcp-http-response-status
+                          (funcall send-request
+                                   (list :method "GET" :path "/mcp"
+                                         :headers auth-headers :body "")))))
+          (should (time-equal-p initial-expiry
+                                (plist-get (ai-code-mcp-get-session-context "http-session")
+                                           :expires-at)))
+          ;; Reset rate window after the 405 above consumed the 1-request budget.
+          (setq now (time-add now 120))
+          ;; Valid POST /mcp renews expiry.
+          (should (= 200 (ai-code-test-mcp-http-response-status
+                          (funcall send-request
+                                   (list :method "POST" :path "/mcp"
+                                         :headers auth-headers
+                                         :body "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}")))))
+          (let ((renewed-expiry (time-add now lifetime)))
+            (should (time-equal-p renewed-expiry
+                                  (plist-get (ai-code-mcp-get-session-context "http-session")
+                                             :expires-at)))
+            ;; Subsequent rate-limited (429) request later in the same window must not renew.
+            (setq now (time-add now 10))
+            (should (= 429 (ai-code-test-mcp-http-response-status
+                            (funcall send-request
+                                     (list :method "POST" :path "/mcp"
+                                           :headers auth-headers
+                                           :body "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}")))))
+            (should (time-equal-p renewed-expiry
+                                  (plist-get (ai-code-mcp-get-session-context "http-session")
+                                             :expires-at)))))))))
+
 (provide 'test_ai-code-mcp-http-server)
 
 ;;; test_ai-code-mcp-http-server.el ends here

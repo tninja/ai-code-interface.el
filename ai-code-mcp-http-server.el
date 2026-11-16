@@ -188,42 +188,45 @@ When nil, an available port is selected automatically."
 (defun ai-code-mcp-http-server--handle-request (process request)
   "Handle REQUEST received on PROCESS."
   (condition-case err
-      (let ((session (ai-code-mcp-http-server--authenticate request)))
-        (cond
-         ((plist-get request :bad-request)
-          (ai-code-mcp-http-server--send-response
-           process 400 "text/plain" "Bad Request"))
-         ((plist-get request :too-large)
-          (ai-code-mcp-http-server--send-response
-           process 413 "text/plain" "Payload Too Large"))
-         ((not (equal (plist-get request :path) "/mcp"))
-          (ai-code-mcp-http-server--send-response
-           process 404 "text/plain" "Not Found"))
-         ((not (ai-code-mcp-http-server--origin-allowed-p request))
-          (ai-code-mcp-http-server--send-response
-           process 403 "text/plain" "Forbidden"))
-         ((not session)
-          (ai-code-mcp-http-server--send-response
-           process 401 "text/plain" ""))
-         ((ai-code-mcp-http-server--rate-limited-p (car session))
-          (ai-code-mcp-http-server--send-response
-           process 429 "text/plain" "Too Many Requests"
-           `(("Retry-After" . ,(number-to-string
-                                ai-code-mcp-http-server-rate-window-seconds)))))
-         ((and (equal (plist-get request :method) "POST")
-               (not (ai-code-mcp-http-server--json-content-type-p request)))
-          (ai-code-mcp-http-server--send-response
-           process 415 "text/plain" "Unsupported Media Type"))
-         ((and (equal (plist-get request :method) "POST")
-               (not (ai-code-mcp-http-server--accepts-mcp-responses-p request)))
-          (ai-code-mcp-http-server--send-response
-           process 406 "text/plain" "Not Acceptable"))
-         ((equal (plist-get request :method) "POST")
-          (let ((ai-code-mcp--current-session-id (car session)))
-            (ai-code-mcp-http-server--handle-post process request)))
-         (t
-          (ai-code-mcp-http-server--send-response
-           process 405 "text/plain" "Method Not Allowed"))))
+      (cond
+       ((plist-get request :bad-request)
+        (ai-code-mcp-http-server--send-response
+         process 400 "text/plain" "Bad Request"))
+       ((plist-get request :too-large)
+        (ai-code-mcp-http-server--send-response
+         process 413 "text/plain" "Payload Too Large"))
+       ((not (equal (plist-get request :path) "/mcp"))
+        (ai-code-mcp-http-server--send-response
+         process 404 "text/plain" "Not Found"))
+       ((not (ai-code-mcp-http-server--origin-allowed-p request))
+        (ai-code-mcp-http-server--send-response
+         process 403 "text/plain" "Forbidden"))
+       (t
+        (let ((session (ai-code-mcp-http-server--authenticate request t)))
+          (cond
+           ((not session)
+            (ai-code-mcp-http-server--send-response
+             process 401 "text/plain" ""))
+           ((ai-code-mcp-http-server--rate-limited-p (car session))
+            (ai-code-mcp-http-server--send-response
+             process 429 "text/plain" "Too Many Requests"
+             `(("Retry-After" . ,(number-to-string
+                                  ai-code-mcp-http-server-rate-window-seconds)))))
+           ((and (equal (plist-get request :method) "POST")
+                 (not (ai-code-mcp-http-server--json-content-type-p request)))
+            (ai-code-mcp-http-server--send-response
+             process 415 "text/plain" "Unsupported Media Type"))
+           ((and (equal (plist-get request :method) "POST")
+                 (not (ai-code-mcp-http-server--accepts-mcp-responses-p request)))
+            (ai-code-mcp-http-server--send-response
+             process 406 "text/plain" "Not Acceptable"))
+           ((equal (plist-get request :method) "POST")
+            (ai-code-mcp-touch-session (car session))
+            (let ((ai-code-mcp--current-session-id (car session)))
+              (ai-code-mcp-http-server--handle-post process request)))
+           (t
+            (ai-code-mcp-http-server--send-response
+             process 405 "text/plain" "Method Not Allowed"))))))
     (json-parse-error
      (ai-code-mcp-http-server--send-json-error
       process nil -32700 "Parse error"
@@ -296,15 +299,16 @@ When nil, an available port is selected automatically."
     (and (member "application/json" types)
          (member "text/event-stream" types))))
 
-(defun ai-code-mcp-http-server--authenticate (request)
-  "Return the MCP session authenticated by REQUEST, or nil."
+(defun ai-code-mcp-http-server--authenticate (request &optional no-renew)
+  "Return the MCP session authenticated by REQUEST, or nil.
+When NO-RENEW is non-nil, do not extend the session's token expiry yet."
   (let* ((authorization
           (cdr (assoc "authorization" (plist-get request :headers))))
          (case-fold-search t)
          (token (and authorization
                      (string-match "\\`Bearer[ 	]+\\(.+\\)\\'" authorization)
                      (match-string 1 authorization))))
-    (ai-code-mcp-find-session-by-token token)))
+    (ai-code-mcp-find-session-by-token token no-renew)))
 
 (defun ai-code-mcp-http-server--handle-post (process request)
   "Handle POST REQUEST on PROCESS."
