@@ -130,6 +130,7 @@
 (require 'ai-code-send)
 (require 'ai-code-agile)
 (require 'ai-code-grow)
+(require 'ai-code-design)
 (require 'ai-code-git)
 (require 'ai-code-github)
 (require 'ai-code-change)
@@ -310,6 +311,7 @@ which of the two commands to run."
   '(("Resume task briefing" . ai-code-task-resume)
     ("Verify branch / PR vs requirements" . ai-code-verify-current-work)
     ("Grow next step" . ai-code-grow-next-step)
+    ("Design solution" . ai-code-design-solution)
     ("Handoff / checkpoint" . ai-code-agent-handoff-or-checkpoint)
     ("Generate deployment verification document" . ai-code-verify-generate-deployment-document)
     ;; DONE: Add a sub task: Generate verification document. Example document: /Users/kangtu/feldspar/dataeng-docs/docs/knowledge_base/analysis/xedge/rdar_189661427_cors_options_support_news_edge_v1_configs/verify.org

@@ -557,6 +557,7 @@
   "Test that every task file action choice runs its command interactively."
   (dolist (case '(("Resume task briefing" . ai-code-task-resume)
                   ("Grow next step" . ai-code-grow-next-step)
+                  ("Design solution" . ai-code-design-solution)
                   ("Verify branch / PR vs requirements"
                    . ai-code-verify-current-work)
                   ("Handoff / checkpoint"
@@ -568,6 +569,8 @@
                  (lambda () (interactive) (setq called 'ai-code-task-resume)))
                 ((symbol-function 'ai-code-grow-next-step)
                  (lambda () (interactive) (setq called 'ai-code-grow-next-step)))
+                ((symbol-function 'ai-code-design-solution)
+                 (lambda () (interactive) (setq called 'ai-code-design-solution)))
                 ((symbol-function 'ai-code-verify-current-work)
                  (lambda () (interactive)
                    (setq called 'ai-code-verify-current-work)))
