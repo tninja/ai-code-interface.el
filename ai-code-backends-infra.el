@@ -602,8 +602,7 @@ When BACKEND is nil, use `ai-code-backends-infra-terminal-backend'."
 ORIGINAL-FN is the terminal resize function and ARGS are its arguments.
 Suppress reflow when terminal width is unchanged or when the session
 buffer is in scroll/copy mode, working around bug #1422."
-  (let* ((base-result (apply original-fn args))
-         (dimensions-stable t))
+  (let ((dimensions-stable t))
     (dolist (win (window-list))
       (when-let* ((buf (window-buffer win))
                   ((ai-code-backends-infra--session-buffer-p buf)))
@@ -615,18 +614,18 @@ buffer is in scroll/copy mode, working around bug #1422."
     (cond
      ;; Not in a session buffer - pass through
      ((not (ai-code-backends-infra--session-buffer-p (current-buffer)))
-      base-result)
+      (apply original-fn args))
      ;; In scroll/copy mode - suppress reflow to avoid disrupting navigation
      ((ai-code-backends-infra--terminal-navigation-mode-p)
       nil)
      ;; Width changed - allow reflow
      ((not dimensions-stable)
-      base-result)
+      (apply original-fn args))
      ;; Height-only change with reflow glitch prevention - suppress
      (ai-code-backends-infra-prevent-reflow-glitch
       nil)
      ;; Default - pass through
-     (t base-result))))
+     (t (apply original-fn args)))))
 
 (defun ai-code-backends-infra--sync-reflow-filter-advice ()
   "Add or remove terminal reflow advice according to current settings."
@@ -1491,6 +1490,18 @@ behavior."
   (with-current-buffer buffer
     (add-hook 'kill-buffer-hook
               (lambda ()
+                (when process-table
+                  (let ((key (ai-code-backends-infra--session-key
+                              working-dir
+                              (or resolved-instance
+                                  (and prefix
+                                       (ai-code-backends-infra--session-instance-name
+                                        buffer-name
+                                        prefix))
+                                  "default"))))
+                    ;; Only remove if the table still points to this buffer's process.
+                    (when (eq (gethash key process-table) process)
+                      (remhash key process-table))))
                 (ai-code-session-unregister (current-buffer))
                 (ai-code-backends-infra--forget-session-buffer
                  prefix
@@ -1908,12 +1919,16 @@ ENV-VARS is a list of environment variables."
 
 (defun ai-code-backends-infra--evil-spc-command ()
   "In AI session buffers, run `ai-code-send-command'.
-Otherwise, run the original command for SPC."
+Otherwise, run the original command or prefix keymap for SPC."
   (interactive)
   (if (ai-code-backends-infra--session-buffer-p (current-buffer))
       (call-interactively #'ai-code-send-command)
-    (when ai-code-backends-infra--evil-original-spc-command
-      (call-interactively ai-code-backends-infra--evil-original-spc-command))))
+    (let ((orig ai-code-backends-infra--evil-original-spc-command))
+      (cond
+       ((commandp orig)
+        (call-interactively orig))
+       ((keymapp orig)
+        (set-transient-map (indirect-function orig)))))))
 
 ;;;###autoload
 (defun ai-code-backends-infra-evil-setup ()
