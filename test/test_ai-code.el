@@ -801,6 +801,158 @@
     (should (equal (plist-get (cdr suffix) :description)
                    "Take notes from AI session"))))
 
+
+(ert-deftest ai-code-test-migration-source-excludes-target-cli-aliases ()
+  "Source choices exclude the target and deduplicate wrappers sharing a CLI."
+  (let ((ai-code-backends
+         '((claude-code :label "Claude Code" :cli "claude")
+           (claude-code-ide :label "claude-code-ide.el" :cli "claude")
+           (claude-code-el :label "claude-code.el" :cli "claude")
+           (eca :label "ECA" :cli nil)
+           (gptel-agent :label "GPTel Agent" :cli nil)
+           (codex :label "Codex" :cli "codex")
+           (pi :label "Pi" :cli "pi"))))
+    (cl-letf (((symbol-function 'ai-code--effective-backend)
+               (lambda () 'claude-code-ide))
+              ((symbol-function 'ai-code--load-backends-history)
+               (lambda () nil)))
+      (should (equal (mapcar #'cdr (ai-code--migration-source-choices))
+                     '(eca gptel-agent codex pi))))
+    (cl-letf (((symbol-function 'ai-code--effective-backend)
+               (lambda () 'codex))
+              ((symbol-function 'ai-code--load-backends-history)
+               (lambda () '(claude-code-ide))))
+      (should (equal (mapcar #'cdr (ai-code--migration-source-choices))
+                     '(claude-code-ide eca gptel-agent pi))))))
+
+(ert-deftest ai-code-test-migration-prompt-includes-hints-and-safeguards ()
+  "The migration prompt identifies agents and protects existing settings."
+  (let* ((ai-code-backends
+          '((codex :label "OpenAI Codex CLI" :cli "codex"
+                   :config "~/.codex/config.toml")
+            (pi :label "Pi" :cli "pi"
+                :config "~/.pi/agent/settings.json")))
+         (prompt (ai-code--migration-prompt 'pi 'codex)))
+    (should (string-match-p "from Pi (CLI: pi)" prompt))
+    (should (string-match-p "to OpenAI Codex CLI (CLI: codex)" prompt))
+    (should (string-match-p
+             (regexp-quote "~/.pi/agent/settings.json") prompt))
+    (should (string-match-p
+             (regexp-quote "~/.codex/config.toml") prompt))
+    (should (string-match-p "ask me to approve" prompt))
+    (should (string-match-p "Leave the source untouched" prompt))
+    (should (string-match-p "Do not copy, print, or expose secrets" prompt))))
+
+(ert-deftest ai-code-test-migration-uses-effective-target-and-does-not-switch ()
+  "Selecting a source sends a prompt without changing the selected backend."
+  (let ((ai-code-backends
+         '((codex :label "Codex" :cli "codex")
+           (pi :label "Pi" :cli "pi")))
+        (ai-code-selected-backend 'codex)
+        (ai-code--repo-backend-alist nil)
+        selection-prompt candidates sent-prompt)
+    (cl-letf (((symbol-function 'ai-code--effective-backend)
+               (lambda () 'codex))
+              ((symbol-function 'ai-code--load-backends-history)
+               (lambda () nil))
+              ((symbol-function 'completing-read)
+               (lambda (prompt table _predicate require-match &rest _args)
+                 (setq selection-prompt prompt
+                       candidates (all-completions "" table))
+                 (should require-match)
+                 "Pi"))
+              ((symbol-function 'ai-code--confirm-and-send)
+               (lambda (_label initial-prompt &rest _args)
+                 (should-not ai-code-prompt-preprocess-filepaths)
+                 (should ai-code--prompt-project-only)
+                 (should-not ai-code-use-prompt-suffix)
+                 (should ai-code--suppress-org-summary-prompt)
+                 (setq sent-prompt initial-prompt))))
+      (let ((ai-code-prompt-preprocess-filepaths t)
+            (ai-code--prompt-project-only nil)
+            (ai-code-use-prompt-suffix t)
+            (ai-code--suppress-org-summary-prompt nil))
+        (ai-code-migrate-agent-integrations))
+      (should (equal candidates '("Pi")))
+      (should (equal selection-prompt "Migrate MCP/plugins to Codex from: "))
+      (should (string-match-p "from Pi" sent-prompt))
+      (should (string-match-p "to Codex" sent-prompt))
+      (should (eq ai-code-selected-backend 'codex)))))
+
+(ert-deftest ai-code-test-migration-routes-to-effective-backend-despite-visible-session ()
+  "Migration must dispatch to the effective backend without @-inlining configs.
+An unrelated visible session from another project must not hijack the send."
+  (let* ((temp-home (make-temp-file "ai-code-migrate-home-" t))
+         (source-config (expand-file-name "pi-settings.json" temp-home))
+         (visible (generate-new-buffer " *unrelated-pi-session*"))
+         (ai-code-backends
+          `((codex :label "Codex" :cli "codex")
+            (pi :label "Pi" :cli "pi" :config ,source-config)))
+         (ai-code-selected-backend 'codex)
+         (ai-code--repo-backend-alist nil)
+         (ai-code-prompt-preprocess-filepaths t)
+         (ai-code--prompt-project-only nil)
+         dispatched-prompt
+         hijacked-buffer)
+    (unwind-protect
+        (progn
+          (with-temp-file source-config
+            (insert "{\"apiKey\":\"secret\"}\n"))
+          (cl-letf (((symbol-function 'ai-code--effective-backend)
+                     (lambda () 'codex))
+                    ((symbol-function 'ai-code--load-backends-history)
+                     (lambda () nil))
+                    ((symbol-function 'ai-code--git-root)
+                     (lambda (&optional _dir)
+                       (file-name-as-directory (file-truename temp-home))))
+                    ((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+                     (lambda () nil))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt _table _pred _req _init _hist def)
+                       def))
+                    ((symbol-function 'ai-code--read-prompt)
+                     (lambda (_label initial-prompt &optional _force)
+                       initial-prompt))
+                    ((symbol-function 'ai-code--find-visible-session-buffer)
+                     (lambda () visible))
+                    ((symbol-function 'ai-code--find-project-session-buffers)
+                     (lambda () nil))
+                    ((symbol-function 'ai-code--send-prompt-to-session-buffer)
+                     (lambda (_prompt buf)
+                       (setq hijacked-buffer buf)
+                       t))
+                    ((symbol-function 'ai-code-cli-send-command)
+                     (lambda (prompt)
+                       (setq dispatched-prompt prompt)
+                       t))
+                    ((symbol-function 'ai-code-cli-switch-to-buffer)
+                     #'ignore))
+            (ai-code-migrate-agent-integrations)
+            (should-not hijacked-buffer)
+            (should (stringp dispatched-prompt))
+            (should (string-match-p (regexp-quote source-config) dispatched-prompt))
+            (should-not (string-match-p "@pi-settings\.json" dispatched-prompt))))
+      (when (buffer-live-p visible)
+        (kill-buffer visible))
+      (delete-directory temp-home t))))
+
+(ert-deftest ai-code-test-migration-requires-different-source ()
+  "Do not offer migration when only the current agent is configured."
+  (let ((ai-code-backends '((codex :label "Codex" :cli "codex"))))
+    (cl-letf (((symbol-function 'ai-code--effective-backend)
+               (lambda () 'codex))
+              ((symbol-function 'ai-code--load-backends-history)
+               (lambda () nil)))
+      (should-error (ai-code-migrate-agent-integrations)
+                    :type 'user-error))))
+
+(ert-deftest ai-code-test-menu-includes-migrate-agent-integrations ()
+  "AI CLI session menu exposes migration from another agent."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "P")))
+    (should suffix)
+    (should (eq (plist-get (cdr suffix) :command)
+                'ai-code-migrate-agent-integrations))))
+
 (provide 'test_ai-code)
 
 ;;; test_ai-code.el ends here
