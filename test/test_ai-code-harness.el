@@ -113,8 +113,7 @@ in batch mode, so a case-insensitive search also matches lower-case
           "(not (featurep 'ai-code-grill)) "
           "(memq #'ai-code--grill-me-suffix-provider "
           "ai-code-prompt-suffix-functions) "
-          "(advice-member-p #'ai-code--filter-prompt-suffix-args "
-          "'ai-code--write-prompt-to-file-and-send) "
+          "(fboundp 'ai-code--apply-prompt-suffixes) "
           "(advice-member-p #'ai-code--with-grill-me-origin "
           "'ai-code-code-change)) "
           "(kill-emacs 1)))"))))

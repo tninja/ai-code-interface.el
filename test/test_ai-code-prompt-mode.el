@@ -112,7 +112,7 @@
 
 (ert-deftest ai-code-test-submit-prompt-uses-one-prepared-text ()
   "Persist and send the same prepared prompt, evaluating providers once."
-  (let ((suffix-calls 0)
+  (let* ((suffix-calls 0)
         (saved-prompt nil)
         (sent-prompt nil)
         (ai-code-prompt-suffix-functions
@@ -138,7 +138,7 @@
 
 (ert-deftest ai-code-test-submit-prompt-alternate-transport-shares-pipeline ()
   "Alternate transports still receive the prepared prompt exactly once."
-  (let ((suffix-calls 0)
+  (let* ((suffix-calls 0)
         (sent-prompt nil)
         (ai-code-prompt-suffix-functions
          (list (lambda (_context) (cl-incf suffix-calls) "REVIEW"))))
