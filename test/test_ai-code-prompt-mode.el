@@ -110,6 +110,50 @@
     (should (equal (ai-code--apply-prompt-suffixes "Prompt\nFIRST\nSECOND")
                    "Prompt\nFIRST\nSECOND"))))
 
+(ert-deftest ai-code-test-submit-prompt-uses-one-prepared-text ()
+  "Persist and send the same prepared prompt, evaluating providers once."
+  (let ((suffix-calls 0)
+        (saved-prompt nil)
+        (sent-prompt nil)
+        (ai-code-prompt-suffix-functions
+         (list (lambda (context)
+                 (cl-incf suffix-calls)
+                 (should (equal (ai-code-prompt-context-prompt-text context)
+                                "Original"))
+                 "SUFFIX"))))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+                 (lambda () "/tmp/ai-code-test-history.org"))
+                ((symbol-function 'ai-code--get-prompt-buffer)
+                 (lambda (_file) (current-buffer)))
+                ((symbol-function 'ai-code--append-prompt-to-buffer)
+                 (lambda (prompt) (setq saved-prompt prompt)))
+                ((symbol-function 'save-buffer) #'ignore)
+                ((symbol-function 'ai-code--send-prompt)
+                 (lambda (prompt) (setq sent-prompt prompt) t)))
+        (should (ai-code--write-prompt-to-file-and-send "Original"))
+        (should (= suffix-calls 1))
+        (should (equal saved-prompt "Original\nSUFFIX"))
+        (should (equal sent-prompt "Original\nSUFFIX\n"))))))
+
+(ert-deftest ai-code-test-submit-prompt-alternate-transport-shares-pipeline ()
+  "Alternate transports still receive the prepared prompt exactly once."
+  (let ((suffix-calls 0)
+        (sent-prompt nil)
+        (ai-code-prompt-suffix-functions
+         (list (lambda (_context) (cl-incf suffix-calls) "REVIEW"))))
+    (cl-letf (((symbol-function 'ai-code--get-ai-code-prompt-file-path)
+               (lambda () nil))
+              ((symbol-function 'ai-code--send-prompt)
+               (lambda (_prompt)
+                 (ert-fail "Default transport must not run"))))
+      (should
+       (ai-code--write-prompt-to-file-and-send
+        "Verify"
+        (lambda (prompt) (setq sent-prompt prompt) t)))
+      (should (= suffix-calls 1))
+      (should (equal sent-prompt "Verify\nREVIEW\n")))))
+
 (ert-deftest ai-code-test-prompt-context-memoize-caches-nil-values ()
   "Prompt context memoization should evaluate each key once."
   (let ((context (ai-code--make-prompt-context :prompt-text "Prompt"))
