@@ -536,12 +536,14 @@ backend dispatch.  Return t when sent, nil when the user cancelled."
       t)))
 
 (defun ai-code--write-prompt-to-file-and-send (prompt-text &optional send-function)
-  "Record PROMPT-TEXT in prompt history and send it to the AI.
-SEND-FUNCTION, when non-nil, receives the final text instead of the
-ordinary session transport.
-If prompt history cannot be written, report the problem and continue
-sending the prompt."
-  (let* ((full-prompt (concat prompt-text "\n"))
+  "Prepare PROMPT-TEXT, record the final text, and send it to the AI.
+Apply ordered suffix providers exactly once before either side effect.
+SEND-FUNCTION, when non-nil, receives that same final text instead of
+the ordinary session transport.
+Provider errors abort both history and sending; history write errors
+are reported but do not prevent sending."
+  (let* ((final-prompt (ai-code--apply-prompt-suffixes prompt-text))
+         (full-prompt (concat final-prompt "\n"))
          (prompt-file (ai-code--get-ai-code-prompt-file-path))
          (original-default-directory default-directory))
     (if prompt-file
@@ -549,7 +551,7 @@ sending the prompt."
             (let ((buffer (ai-code--get-prompt-buffer prompt-file)))
               (with-current-buffer buffer
                 (atomic-change-group
-                  (ai-code--append-prompt-to-buffer prompt-text)
+                  (ai-code--append-prompt-to-buffer final-prompt)
                   (save-buffer))
                 (message "Prompt added to %s" prompt-file)))
           ((buffer-read-only file-error)
@@ -558,16 +560,6 @@ sending the prompt."
       (message "No writable prompt history directory; sending without history"))
     (let ((default-directory original-default-directory))
       (funcall (or send-function #'ai-code--send-prompt) full-prompt))))
-
-(defun ai-code--filter-prompt-suffix-args (args)
-  "Return ARGS with prompt suffix providers applied to its prompt text."
-  (cons (ai-code--apply-prompt-suffixes (car args)) (cdr args)))
-
-(unless (advice-member-p #'ai-code--filter-prompt-suffix-args
-                         'ai-code--write-prompt-to-file-and-send)
-  (advice-add 'ai-code--write-prompt-to-file-and-send
-              :filter-args
-              #'ai-code--filter-prompt-suffix-args))
 
 (defun ai-code--process-word-for-filepath (word git-root-truename)
   "Process a single WORD, converting it to relative path with @ prefix.
