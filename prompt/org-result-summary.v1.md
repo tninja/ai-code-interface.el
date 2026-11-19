@@ -58,8 +58,8 @@ so Org folds them by default, for example (levels illustrative):
 *** Open issues
 Child headings are part of the same result-summary subtree; do not give them the AI
 keyword, timestamps, or agent tags. Omit empty ones. For a read-only question,
-investigation, or discussion/review request (no code changes), include `*** Analysis`
-to preserve the substantive reasoning, trade-offs, concrete critiques or examples, and
+investigation, or discussion/review request (no code changes), include an `Analysis`
+child heading to preserve the substantive reasoning, trade-offs, concrete critiques or examples, and
 recommendations from your answer (plus a one-line restatement of the question if the
 parent section does not already record it), rather than compressing the answer into a
 bare status note. In `Evidence`, `Changes`, `Verification`, and `Open issues`, keep

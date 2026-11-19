@@ -108,8 +108,9 @@ This controls prompt additions, not agent permissions or filesystem access."
   (format
    (concat "\n\nWhen appending the result summary after work or a "
            "read-only verification discussion is complete, read "
-           "and follow @%s for the headline, source evidence, "
-           "and verified artifacts of that new subheading.")
+           "and follow @%s for the headline, foldable Analysis "
+           "(for read-only questions or discussions), source "
+           "evidence, and verified artifacts of that new subheading.")
    (ai-code--org-summary-guidance-path)))
 
 (defvar ai-code--prompt-already-edited nil
@@ -795,8 +796,11 @@ When `ai-code--org-summary-anchor' is already bound, return it.
 Otherwise, when point sits inside more than one enclosing Org section,
 let the user choose the target section via `ai-code--org-select-section'."
   (or ai-code--org-summary-anchor
-      (when (and (fboundp 'ai-code--org-section-candidates)
-                 (fboundp 'ai-code--org-select-section))
+      (when (or (and (fboundp 'ai-code--org-section-candidates)
+                     (fboundp 'ai-code--org-select-section))
+                (and (require 'ai-code-change nil t)
+                     (fboundp 'ai-code--org-section-candidates)
+                     (fboundp 'ai-code--org-select-section)))
         (let ((candidates (ai-code--org-section-candidates t)))
           (when (cdr candidates)
             (when-let* ((section (ai-code--org-select-section candidates)))

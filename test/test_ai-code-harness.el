@@ -1551,30 +1551,48 @@ This guards against drift when a new review mode is added."
   (should (eq 'ask-me (ai-code--cycle-auto-test-type-value nil)))
   (should (eq nil (ai-code--cycle-auto-test-type-value 'ask-me))))
 
-(ert-deftest ai-code-test-org-summary-non-code-change-adds-analysis-suffix ()
-  "Read-only prompts opting into Org summary get explicit Analysis writeback suffix."
+(ert-deftest ai-code-test-org-summary-does-not-trigger-send-time-classification ()
+  "Org summary references do not trigger send-time classification or read-only mislabeling."
   (let ((ai-code-use-prompt-suffix t)
         (ai-code-prompt-suffix nil)
         (ai-code-auto-commit-enabled nil)
         (ai-code-grill-me-enabled nil)
         (ai-code-auto-test-type nil)
         (ai-code-discussion-auto-follow-up-enabled nil)
+        (ai-code-use-gptel-classify-prompt t)
         (summary-ref (ai-code--org-summary-reference-instruction)))
     (cl-letf (((symbol-function 'ai-code--classify-prompt-code-change)
-               (lambda (_) 'non-code-change)))
+               (lambda (_)
+                 (ert-fail "Org summary reference alone must not classify prompts"))))
       (let ((applied (ai-code--apply-prompt-suffixes
-                      (concat "What do Steven and Collin want?" summary-ref))))
-        (should (string-search "Analysis child heading" applied))))
-    (cl-letf (((symbol-function 'ai-code--classify-prompt-code-change)
-               (lambda (_) 'code-change)))
-      (let ((applied (ai-code--apply-prompt-suffixes
-                      (concat "Implement the merger." summary-ref))))
-        (should-not (string-search "Analysis child heading" applied))))
-    (cl-letf (((symbol-function 'ai-code--classify-prompt-code-change)
-               (lambda (_) 'non-code-change)))
-      (let ((applied (ai-code--apply-prompt-suffixes
-                      "What do Steven and Collin want?")))
-        (should-not (string-search "Analysis child heading" applied))))))
+                      (concat "Update README.org and setup docs." summary-ref))))
+        (should-not (string-search "Because this request is a read-only question" applied))
+        (should (string-search "foldable Analysis" applied))))))
+
+(ert-deftest ai-code-test-org-summary-anchor-lazy-loads-change-module ()
+  "Nested Org summary anchor lazy-loads `ai-code-change' when not yet loaded."
+  (pcase-let
+      ((`(,exit-code ,output)
+        (ai-code-harness-test--clean-emacs-result
+         (concat
+          "(progn "
+          "(setq load-prefer-newer t "
+          "native-comp-enable-subr-trampolines nil) "
+          "(require 'ai-code-prompt-mode) "
+          "(when (featurep 'ai-code-change) (kill-emacs 2)) "
+          "(with-temp-buffer "
+          "(setq buffer-file-name \"/tmp/lazy-nested.org\") "
+          "(insert \"* Parent section\\n** Child section\\nBody\\n\") "
+          "(org-mode) "
+          "(goto-char (point-max)) "
+          "(cl-letf (((symbol-function 'completing-read) "
+          "(lambda (_prompt collection &rest _) (nth 1 collection)))) "
+          "(let ((anchor (ai-code--resolve-org-summary-anchor))) "
+          "(unless (and (featurep 'ai-code-change) "
+          "(equal anchor '(:name \"Parent section\" :end-line 3))) "
+          "(kill-emacs 1))))))"))))
+    (should (equal exit-code 0))
+    (should-not (ai-code-harness-test--error-reported-p output))))
 
 (provide 'test_ai-code-harness)
 
