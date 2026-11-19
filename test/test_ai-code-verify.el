@@ -85,9 +85,11 @@
     (cl-letf (((symbol-function 'ai-code-compose-read) (lambda (&rest _) "Review"))
               ((symbol-function 'ai-code--insert-prompt) (lambda (p) (setq sent p))))
       (ai-code-verify--confirm-and-send "Review PR")
-      (dolist (text '("base/head" "merge-base" "re-fetch" "Verification Notes"
+      (dolist (text '("base/head" "merge-base" "re-fetch"
+                      "optional Org result summary"
                       "historical" "unverified"))
-        (should (string-match-p (regexp-quote text) sent))))))
+        (should (string-match-p (regexp-quote text) sent)))
+      (should-not (string-search "Verification Notes" sent)))))
 
 (defmacro ai-code-verify-test--with-org (content &rest body)
   "Evaluate BODY in a saved Org buffer containing CONTENT."
@@ -569,7 +571,9 @@
         (should (string-match-p "Fix retry" sent))
         (should (string-match-p "OPTIONAL ORG WRITEBACK" sent))
         (should (string-match-p "Only after the user explicitly finishes" sent))
-        (should (string-match-p "Verification Notes" sent))
+        (should (string-match-p "org-result-summary\\.v1\\.md" sent))
+        (should (string-match-p "specific verification verdict" sent))
+        (should-not (string-search "Verification Notes" sent))
         (should (string-match-p "original human reference" sent))
         (should (string-match-p "VERIFY MODE SAFETY RULE" sent))
         (should (equal ai-code-prompt-suffix-functions '(ignore)))
