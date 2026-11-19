@@ -18,8 +18,8 @@
 (defvar yas-snippet-dirs)
 
 (defvar ai-code-use-gptel-headline nil)
-(defvar ai-code-prompt-suffix)
-(defvar ai-code-use-prompt-suffix)
+(defvar ai-code-prompt-suffix nil)
+(defvar ai-code-use-prompt-suffix t)
 (defvar ai-code-selected-backend)
 (defvar ai-code-backends-infra--session-terminal-backend nil
   "Buffer-local terminal backend symbol for an AI session buffer, or nil.

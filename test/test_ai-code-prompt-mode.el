@@ -878,7 +878,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
                  (progn
                    ;; Mock window-list to simulate visible windows
                    (cl-letf (((symbol-function 'window-list)
-                              (lambda (&optional frame no-minibuf)
+                              (lambda (&optional _frame _no-minibuf &rest _args)
                                 (list (selected-window))))
                             ((symbol-function 'window-buffer)
                              (lambda (win)
@@ -921,7 +921,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
              (unwind-protect
                  (progn
                    (cl-letf (((symbol-function 'buffer-list)
-                              (lambda () (list buf3 buf2 buf1))))
+                              (lambda (&rest _args) (list buf3 buf2 buf1))))
                      (let ((result
                             (ai-code--recent-buffer-paths
                              (file-truename git-root))))
@@ -956,7 +956,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
            (setq dired-buf (dired-noselect dired-dir))
            
            (cl-letf (((symbol-function 'buffer-list)
-                      (lambda () (list dired-buf))))
+                      (lambda (&rest _args) (list dired-buf))))
              (let ((result (ai-code--recent-buffer-paths (file-truename git-root))))
                ;; Should include the dired directory
                (should (member "@testdir/" result)))))
@@ -984,7 +984,7 @@ evaluates BODY, and ensures everything is cleaned up afterward."
            
            ;; Mock window-list and git-ignored check
            (cl-letf (((symbol-function 'window-list)
-                      (lambda (&optional frame no-minibuf)
+                      (lambda (&optional _frame _no-minibuf &rest _args)
                         (list 'win1 'win2)))
                      ((symbol-function 'window-buffer)
                       (lambda (win)
@@ -1628,6 +1628,17 @@ evaluates BODY, and ensures everything is cleaned up afterward."
           (let ((ai-code--prompt-project-only nil))
             (should (eq (ai-code--prompt-choose-target-session) visible))))
       (kill-buffer visible))))
+
+(ert-deftest test-prompt-mode--suffix-variables-are-special-without-ai-code ()
+  "Prompt suffix variables must be dynamic even before `ai-code' loads."
+  (should (special-variable-p 'ai-code-use-prompt-suffix))
+  (should (special-variable-p 'ai-code-prompt-suffix))
+  (let ((ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix "EXTRA"))
+    (ai-code-with-prompt-policy ()
+      (should-not (symbol-value 'ai-code-use-prompt-suffix))
+      (should (equal (symbol-value 'ai-code-prompt-suffix) "EXTRA")))
+    (should (eq (symbol-value 'ai-code-use-prompt-suffix) t))))
 
 (provide 'test-ai-code-prompt-mode)
 ;;; test_ai-code-prompt-mode.el ends here

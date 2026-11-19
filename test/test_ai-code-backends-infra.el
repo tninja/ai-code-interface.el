@@ -1725,10 +1725,15 @@ The prefix argument should also force instance-name prompting."
   "Ghostel startup should raise a clear error when `ghostel-exec' is unavailable."
   (let* ((buffer-name "*test-ai-code-ghostel-missing-exec*")
          (buffer (get-buffer-create buffer-name))
-         (ai-code-backends-infra-terminal-backend 'ghostel))
+         (ai-code-backends-infra-terminal-backend 'ghostel)
+         (orig-fboundp (symbol-function 'fboundp)))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
-                   (lambda () nil)))
+                   (lambda () nil))
+                  ((symbol-function 'fboundp)
+                   (lambda (symbol)
+                     (and (not (eq symbol 'ghostel-exec))
+                          (funcall orig-fboundp symbol)))))
           (should-error
            (ai-code-backends-infra--create-terminal-session
             buffer-name
@@ -4702,6 +4707,215 @@ exits with an error must still be reported as abnormal to keep its buffer."
                (lambda () (setq called t))))
       (ai-code-backends-infra--terminal-dispatch "install-navigation-cursor-sync")
       (should called))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-reflow-filter-skips-original-when-suppressed ()
+  "Suppressed reflows must not invoke the wrapped resize function."
+  (with-temp-buffer
+    (rename-buffer "*codex[reflow-skip]*" t)
+    (let ((ai-code-backends-infra-prevent-reflow-glitch t)
+          (nav-mode t)
+          (win-width 80)
+          (original-calls 0))
+      (cl-letf (((symbol-function 'window-list)
+                 (lambda (&rest _args) (list 'fake-window)))
+                ((symbol-function 'window-buffer)
+                 (lambda (_window) (current-buffer)))
+                ((symbol-function 'window-width)
+                 (lambda (_window) win-width))
+                ((symbol-function 'window-parameter)
+                 (lambda (_window _param) 80))
+                ((symbol-function 'set-window-parameter)
+                 (lambda (&rest _args) nil))
+                ((symbol-function 'ai-code-backends-infra--terminal-navigation-mode-p)
+                 (lambda () nav-mode)))
+        (let ((resize-fn (lambda (&rest _args)
+                           (setq original-calls (1+ original-calls))
+                           'resized)))
+          ;; Navigation mode suppresses call to original-fn.
+          (should-not (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg))
+          (should (= original-calls 0))
+          ;; Height-only resize with glitch prevention also suppresses original-fn.
+          (setq nav-mode nil)
+          (should-not (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg))
+          (should (= original-calls 0))
+          ;; Width change allows pass-through to original-fn.
+          (setq win-width 100)
+          (should (eq (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)
+                      'resized))
+          (should (= original-calls 1)))))))
+
+(ert-deftest test-ai-code-backends-infra-terminal-reflow-filter-isolates-windows-and-nav-mode ()
+  "Reflow filter must track width per session buffer and preserve pending width across nav mode."
+  (let ((buf-eat (get-buffer-create "*eat-non-session-reflow*"))
+        (buf-a (get-buffer-create "*claude[reflow-proj-a]*"))
+        (buf-b (get-buffer-create "*claude[reflow-proj-b]*"))
+        (win-params (make-hash-table :test #'equal))
+        (widths '((win-eat . 80) (win-a . 80) (win-b . 80)))
+        (nav-a nil)
+        (ai-code-backends-infra-prevent-reflow-glitch t)
+        (resized nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-list)
+                   (lambda (&rest _args) '(win-eat win-a win-b)))
+                  ((symbol-function 'window-buffer)
+                   (lambda (win)
+                     (pcase win
+                       ('win-eat buf-eat)
+                       ('win-a buf-a)
+                       ('win-b buf-b))))
+                  ((symbol-function 'window-width)
+                   (lambda (win) (alist-get win widths)))
+                  ((symbol-function 'window-parameter)
+                   (lambda (win param) (gethash (cons win param) win-params)))
+                  ((symbol-function 'set-window-parameter)
+                   (lambda (win param val) (puthash (cons win param) val win-params)))
+                  ((symbol-function 'ai-code-backends-infra--terminal-navigation-mode-p)
+                   (lambda () (and (eq (current-buffer) buf-a) nav-a))))
+          (let ((resize-fn (lambda (&rest _args)
+                             (push (buffer-name (current-buffer)) resized)
+                             'resized)))
+            ;; Prime initial cached widths.
+            (dolist (buf (list buf-eat buf-a buf-b))
+              (with-current-buffer buf
+                (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)))
+            ;; Widen all windows: *eat* and buf-a must not steal buf-b's width update.
+            (setq resized nil
+                  widths '((win-eat . 100) (win-a . 100) (win-b . 100)))
+            (dolist (buf (list buf-eat buf-a buf-b))
+              (with-current-buffer buf
+                (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)))
+            (should (equal (nreverse resized)
+                           '("*eat-non-session-reflow*"
+                             "*claude[reflow-proj-a]*"
+                             "*claude[reflow-proj-b]*")))
+            ;; Width change during navigation mode is deferred until navigation mode ends.
+            (setq resized nil
+                  nav-a t
+                  widths '((win-eat . 100) (win-a . 120) (win-b . 100)))
+            (with-current-buffer buf-a
+              (should-not (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)))
+            (should-not resized)
+            (setq nav-a nil)
+            (with-current-buffer buf-a
+              (should (eq (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)
+                          'resized)))
+            (should (equal resized '("*claude[reflow-proj-a]*")))))
+      (dolist (buf (list buf-eat buf-a buf-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-loads-core-when-ime-disabled ()
+  "Ghostel buffer config must load `ghostel' before localizing title vars even with IME disabled."
+  (let ((saved-title-fn
+         (test-ai-code-backends-infra--capture-default-binding
+          'ghostel-set-title-function))
+        (orig-featurep (symbol-function 'featurep))
+        (orig-require (symbol-function 'require))
+        (ai-code-backends-infra-ghostel-enable-ime-integration nil)
+        (ghostel-loaded-before-localizing nil))
+    (unwind-protect
+        (progn
+          (setq-default ghostel-set-title-function #'ignore)
+          (cl-letf (((symbol-function 'featurep)
+                     (lambda (feature &rest args)
+                       (if (eq feature 'ghostel)
+                           nil
+                         (apply orig-featurep feature args))))
+                    ((symbol-function 'require)
+                     (lambda (feature &optional filename noerror)
+                       (if (eq feature 'ghostel)
+                           (progn
+                             (setq ghostel-loaded-before-localizing
+                                   (and (not (local-variable-p 'ghostel-set-title-function
+                                                               (current-buffer)))
+                                        (not (local-variable-p 'ghostel-buffer-name-function
+                                                               (current-buffer)))))
+                             'ghostel)
+                         (funcall orig-require feature filename noerror))))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'add-hook)
+                     (lambda (&rest _args) nil)))
+            (with-temp-buffer
+              (ai-code-backends-infra--configure-ghostel-buffer)
+              (should ghostel-loaded-before-localizing)
+              (should-not ghostel-set-title-function)
+              (should (eq (default-value 'ghostel-set-title-function) #'ignore)))))
+      (test-ai-code-backends-infra--restore-default-binding
+       'ghostel-set-title-function
+       saved-title-fn))))
+
+(ert-deftest test-ai-code-backends-infra-kill-buffer-cleans-process-table ()
+  "Killing a finalized session buffer should remove its entry from process-table."
+  (let* ((dir "/tmp/ai-code-kill-proc-test/")
+         (buf-name "*codex[kill-proc-test]*")
+         (buffer (get-buffer-create buf-name))
+         (process-table (make-hash-table :test #'equal))
+         (proc 'mock-proc)
+         (other-proc 'newer-proc)
+         (key (ai-code-backends-infra--session-key dir "default")))
+    (puthash key proc process-table)
+    (unwind-protect
+        (cl-letf (((symbol-function 'set-process-sentinel) (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--configure-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--sync-session-registry)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--display-buffer-in-side-window)
+                   (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-session-unregister) (lambda (&rest _args) nil))
+                  ((symbol-function 'ai-code-backends-infra--forget-session-buffer)
+                   (lambda (&rest _args) nil)))
+          (ai-code-backends-infra--finalize-started-session
+           buffer proc dir buf-name process-table "default" "codex" nil nil nil nil)
+          (kill-buffer buffer)
+          (should-not (gethash key process-table))
+          ;; A newer process already registered under the same key is preserved.
+          (let ((buffer2 (get-buffer-create buf-name)))
+            (puthash key proc process-table)
+            (ai-code-backends-infra--finalize-started-session
+             buffer2 proc dir buf-name process-table "default" "codex" nil nil nil nil)
+            (puthash key other-proc process-table)
+            (kill-buffer buffer2)
+            (should (eq (gethash key process-table) other-proc))))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (when-let* ((b2 (get-buffer buf-name)))
+        (kill-buffer b2)))))
+
+(ert-deftest test-ai-code-backends-infra-evil-spc-handles-prefix-keymap ()
+  "Evil SPC command should activate prefix keymaps without signaling commandp error."
+  (let ((keymap (make-sparse-keymap))
+        (transient-map nil)
+        (called-cmd nil))
+    (cl-letf (((symbol-function 'set-transient-map)
+               (lambda (map &rest _args) (setq transient-map map)))
+              ((symbol-function 'call-interactively)
+               (lambda (cmd &rest _args) (setq called-cmd cmd))))
+      (with-temp-buffer
+        (let ((ai-code-backends-infra--evil-original-spc-command keymap))
+          (ai-code-backends-infra--evil-spc-command)
+          (should (eq transient-map keymap))
+          (should-not called-cmd))
+        (setq transient-map nil)
+        (let ((ai-code-backends-infra--evil-original-spc-command #'ignore))
+          (ai-code-backends-infra--evil-spc-command)
+          (should (eq called-cmd #'ignore))
+          (should-not transient-map))))))
+
+(ert-deftest test-ai-code-backends-infra-strip-alt-screen-throttles-across-passes ()
+  "Screen-clear and home-erase injections share one throttle per chunk."
+  (with-temp-buffer
+    (rename-buffer "*codex[alt-throttle]*" t)
+    (let ((ai-code-backends-infra-strip-alternate-screen t)
+          (ai-code-backends-infra-scrollback-inject-interval 5.0)
+          (ai-code-backends-infra--last-scrollback-inject-time 0.0))
+      (cl-letf (((symbol-function 'ai-code-backends-infra--scroll-to-scrollback-sequence)
+                 (lambda () "<SCROLL>")))
+        (let ((out (ai-code-backends-infra--strip-alternate-screen-sequences
+                    "\033[2Jmid\033[H\033[J")))
+          (should (equal out "<SCROLL>mid\033[H\033[J")))))))
 
 (provide 'test_ai-code-backends-infra)
 
