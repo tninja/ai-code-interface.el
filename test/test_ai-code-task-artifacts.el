@@ -167,5 +167,13 @@ ANCHOR, when non-nil, is bound as `ai-code--org-summary-anchor'."
     (should (equal (ai-code-test-summary-artifacts--send nil)
                    "Implement the requested fix."))))
 
+(ert-deftest ai-code-test-summary-artifacts-discussion-guidance-preserves-analysis ()
+  "Guidance preserves substantive Analysis child heading for read-only questions."
+  (let ((guidance (ai-code-test-summary-artifacts--guidance)))
+    (should (string-search "*** Analysis" guidance))
+    (should (string-search "read-only question" guidance))
+    (should (string-search "trade-offs" guidance))
+    (should (string-search "recommendations" guidance))))
+
 (provide 'test_ai-code-task-artifacts)
 ;;; test_ai-code-task-artifacts.el ends here

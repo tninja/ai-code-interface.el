@@ -1581,6 +1581,56 @@ is between the function definition and its body."
         (should (string-match-p "TODO Parent task" captured-prompt))
         (should (string-match-p "after line 4" captured-prompt))))))
 
+(ert-deftest ai-code-test-insert-prompt-org-summary-nested-ad-hoc-selects-parent ()
+  "Ad-hoc Org prompt with no pre-set anchor lets user choose enclosing section."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* Re-visit the requirement\n"          ; 1
+             "** What I can do for this radar?\n"    ; 2
+             "*** Slack draft\n"                     ; 3
+             "Draft body line.\n"))                  ; 4
+    (goto-char (point-max))
+    (let ((ai-code--prompt-already-edited t)
+          (ai-code-prompt-preprocess-filepaths nil)
+          (ai-code--suppress-org-summary-prompt nil)
+          (ai-code--org-summary-anchor nil)
+          scope-prompted
+          captured-prompt)
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_prompt) t))
+                ((symbol-function 'completing-read)
+                 (lambda (prompt collection &rest _)
+                   (setq scope-prompted prompt)
+                   (nth 1 collection)))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (prompt &optional _transport) (setq captured-prompt prompt))))
+        (ai-code--insert-prompt "What do Steven and Collin really want?")
+        (should (stringp scope-prompted))
+        (should (string-match-p "Select Org section scope" scope-prompted))
+        (should (stringp captured-prompt))
+        (should (string-search "end of section \"What I can do for this radar?\"" captured-prompt))
+        (should (string-search "after line 4" captured-prompt))))))
+
+(ert-deftest ai-code-test-insert-prompt-org-summary-single-section-skips-scope-prompt ()
+  "Ad-hoc Org prompt inside a single section does not ask for section scope."
+  (with-temp-buffer
+    (ai-code-change-test--org-buffer-setup
+     (concat "* Re-visit the requirement\n"
+             "Body line.\n"))
+    (goto-char (point-max))
+    (let ((ai-code--prompt-already-edited t)
+          (ai-code-prompt-preprocess-filepaths nil)
+          (ai-code--suppress-org-summary-prompt nil)
+          (ai-code--org-summary-anchor nil)
+          captured-prompt)
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_prompt) t))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) (ert-fail "Should not prompt for scope with 1 section")))
+                ((symbol-function 'ai-code--write-prompt-to-file-and-send)
+                 (lambda (prompt &optional _transport) (setq captured-prompt prompt))))
+        (ai-code--insert-prompt "Check this section.")
+        (should (stringp captured-prompt))
+        (should (string-match-p "After completing, append a concise result summary" captured-prompt))))))
+
 (provide 'test_ai-code-change)
 
 ;;; test_ai-code-change.el ends here

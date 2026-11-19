@@ -1551,6 +1551,31 @@ This guards against drift when a new review mode is added."
   (should (eq 'ask-me (ai-code--cycle-auto-test-type-value nil)))
   (should (eq nil (ai-code--cycle-auto-test-type-value 'ask-me))))
 
+(ert-deftest ai-code-test-org-summary-non-code-change-adds-analysis-suffix ()
+  "Read-only prompts opting into Org summary get explicit Analysis writeback suffix."
+  (let ((ai-code-use-prompt-suffix t)
+        (ai-code-prompt-suffix nil)
+        (ai-code-auto-commit-enabled nil)
+        (ai-code-grill-me-enabled nil)
+        (ai-code-auto-test-type nil)
+        (ai-code-discussion-auto-follow-up-enabled nil)
+        (summary-ref (ai-code--org-summary-reference-instruction)))
+    (cl-letf (((symbol-function 'ai-code--classify-prompt-code-change)
+               (lambda (_) 'non-code-change)))
+      (let ((applied (ai-code--apply-prompt-suffixes
+                      (concat "What do Steven and Collin want?" summary-ref))))
+        (should (string-search "Analysis child heading" applied))))
+    (cl-letf (((symbol-function 'ai-code--classify-prompt-code-change)
+               (lambda (_) 'code-change)))
+      (let ((applied (ai-code--apply-prompt-suffixes
+                      (concat "Implement the merger." summary-ref))))
+        (should-not (string-search "Analysis child heading" applied))))
+    (cl-letf (((symbol-function 'ai-code--classify-prompt-code-change)
+               (lambda (_) 'non-code-change)))
+      (let ((applied (ai-code--apply-prompt-suffixes
+                      "What do Steven and Collin want?")))
+        (should-not (string-search "Analysis child heading" applied))))))
+
 (provide 'test_ai-code-harness)
 
 ;;; test_ai-code-harness.el ends here

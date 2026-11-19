@@ -549,11 +549,27 @@ CLASSIFICATION is the optional prompt classification result."
   (ai-code--auto-test-suffix-for-type
    (ai-code--resolve-auto-test-type-for-send prompt-text classification)))
 
+(defun ai-code--org-summary-requested-p (prompt-text)
+  "Return non-nil when PROMPT-TEXT includes the Org result-summary guidance."
+  (and (stringp prompt-text)
+       (string-search "org-result-summary.v1.md" prompt-text)))
+
+(defconst ai-code--org-discussion-summary-instruction
+  (concat
+   "Because this request is a read-only question or discussion, include a "
+   "foldable Analysis child heading in that Org result summary with your "
+   "substantive reasoning, trade-offs, and concrete recommendations (plus a "
+   "brief restatement of the question if the parent section does not already "
+   "record it), rather than compressing the answer into a bare status note.")
+  "Extra writeback guidance appended for non-code-change Org result summaries.")
+
 (defun ai-code--classify-prompt-for-send (&optional prompt-text)
   "Return prompt classification for PROMPT-TEXT when needed.
-Send-time routing uses this result for test and discussion follow-up suffixes."
+Send-time routing uses this result for test, discussion follow-up, and
+Org discussion summary suffixes."
   (when (or ai-code-auto-test-type
-            ai-code-discussion-auto-follow-up-enabled)
+            ai-code-discussion-auto-follow-up-enabled
+            (ai-code--org-summary-requested-p prompt-text))
     (ai-code--classify-prompt-code-change prompt-text)))
 
 ;;;; Send-Time Routing: Providers and Setters
@@ -588,10 +604,21 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
     (ai-code--resolve-suffix-for-context
      context #'ai-code--resolve-auto-follow-up-suffix-for-send)))
 
+(defun ai-code--org-discussion-summary-suffix-provider (context)
+  "Return extra Org writeback guidance for non-code-change prompt CONTEXT."
+  (let ((prompt-text (ai-code-prompt-context-prompt-text context)))
+    (when (and (bound-and-true-p ai-code-use-prompt-suffix)
+               (ai-code--org-summary-requested-p prompt-text)
+               (eq (ai-code--prompt-context-classification context)
+                   'non-code-change))
+      ai-code--org-discussion-summary-instruction)))
+
 (add-hook 'ai-code-prompt-suffix-functions
           #'ai-code--auto-test-suffix-provider 30)
 (add-hook 'ai-code-prompt-suffix-functions
           #'ai-code--discussion-follow-up-suffix-provider 40)
+(add-hook 'ai-code-prompt-suffix-functions
+          #'ai-code--org-discussion-summary-suffix-provider 45)
 
 ;; Remove the send-time advice installed by pre-provider releases.
 (when (advice-member-p 'ai-code--with-auto-test-suffix-for-send
