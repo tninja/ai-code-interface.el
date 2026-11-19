@@ -1228,8 +1228,11 @@ Ghostel owns terminal-model resizing through its mode-local window hooks."
   (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
   (setq-local ai-code-editor-viewport-source-cursor-function
               #'ghostel-cursor-point)
-  ;; Load Ghostel IME/core integration before setting title variables so
-  ;; obsolete aliases like `ghostel-set-title-function' are registered first.
+  ;; Ensure Ghostel core is loaded before localizing title variables so
+  ;; obsolete aliases like `ghostel-set-title-function' are registered first,
+  ;; even when IME integration is disabled.
+  (unless (featurep 'ghostel)
+    (require 'ghostel nil t))
   (ai-code-backends-infra-ghostel--enable-ime-integration)
   (when (boundp 'ghostel-buffer-name-function)
     (setq-local ghostel-buffer-name-function nil))

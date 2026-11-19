@@ -4744,6 +4744,107 @@ exits with an error must still be reported as abnormal to keep its buffer."
                       'resized))
           (should (= original-calls 1)))))))
 
+(ert-deftest test-ai-code-backends-infra-terminal-reflow-filter-isolates-windows-and-nav-mode ()
+  "Reflow filter must track width per session buffer and preserve pending width across nav mode."
+  (let ((buf-eat (get-buffer-create "*eat-non-session-reflow*"))
+        (buf-a (get-buffer-create "*claude[reflow-proj-a]*"))
+        (buf-b (get-buffer-create "*claude[reflow-proj-b]*"))
+        (win-params (make-hash-table :test #'equal))
+        (widths '((win-eat . 80) (win-a . 80) (win-b . 80)))
+        (nav-a nil)
+        (ai-code-backends-infra-prevent-reflow-glitch t)
+        (resized nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-list)
+                   (lambda (&rest _args) '(win-eat win-a win-b)))
+                  ((symbol-function 'window-buffer)
+                   (lambda (win)
+                     (pcase win
+                       ('win-eat buf-eat)
+                       ('win-a buf-a)
+                       ('win-b buf-b))))
+                  ((symbol-function 'window-width)
+                   (lambda (win) (alist-get win widths)))
+                  ((symbol-function 'window-parameter)
+                   (lambda (win param) (gethash (cons win param) win-params)))
+                  ((symbol-function 'set-window-parameter)
+                   (lambda (win param val) (puthash (cons win param) val win-params)))
+                  ((symbol-function 'ai-code-backends-infra--terminal-navigation-mode-p)
+                   (lambda () (and (eq (current-buffer) buf-a) nav-a))))
+          (let ((resize-fn (lambda (&rest _args)
+                             (push (buffer-name (current-buffer)) resized)
+                             'resized)))
+            ;; Prime initial cached widths.
+            (dolist (buf (list buf-eat buf-a buf-b))
+              (with-current-buffer buf
+                (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)))
+            ;; Widen all windows: *eat* and buf-a must not steal buf-b's width update.
+            (setq resized nil
+                  widths '((win-eat . 100) (win-a . 100) (win-b . 100)))
+            (dolist (buf (list buf-eat buf-a buf-b))
+              (with-current-buffer buf
+                (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)))
+            (should (equal (nreverse resized)
+                           '("*eat-non-session-reflow*"
+                             "*claude[reflow-proj-a]*"
+                             "*claude[reflow-proj-b]*")))
+            ;; Width change during navigation mode is deferred until navigation mode ends.
+            (setq resized nil
+                  nav-a t
+                  widths '((win-eat . 100) (win-a . 120) (win-b . 100)))
+            (with-current-buffer buf-a
+              (should-not (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)))
+            (should-not resized)
+            (setq nav-a nil)
+            (with-current-buffer buf-a
+              (should (eq (ai-code-backends-infra--terminal-reflow-filter resize-fn 'arg)
+                          'resized)))
+            (should (equal resized '("*claude[reflow-proj-a]*")))))
+      (dolist (buf (list buf-eat buf-a buf-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest test-ai-code-backends-infra-configure-ghostel-buffer-loads-core-when-ime-disabled ()
+  "Ghostel buffer config must load `ghostel' before localizing title vars even with IME disabled."
+  (let ((saved-title-fn
+         (test-ai-code-backends-infra--capture-default-binding
+          'ghostel-set-title-function))
+        (orig-featurep (symbol-function 'featurep))
+        (orig-require (symbol-function 'require))
+        (ai-code-backends-infra-ghostel-enable-ime-integration nil)
+        (ghostel-loaded-before-localizing nil))
+    (unwind-protect
+        (progn
+          (setq-default ghostel-set-title-function #'ignore)
+          (cl-letf (((symbol-function 'featurep)
+                     (lambda (feature &rest args)
+                       (if (eq feature 'ghostel)
+                           nil
+                         (apply orig-featurep feature args))))
+                    ((symbol-function 'require)
+                     (lambda (feature &optional filename noerror)
+                       (if (eq feature 'ghostel)
+                           (progn
+                             (setq ghostel-loaded-before-localizing
+                                   (and (not (local-variable-p 'ghostel-set-title-function
+                                                               (current-buffer)))
+                                        (not (local-variable-p 'ghostel-buffer-name-function
+                                                               (current-buffer)))))
+                             'ghostel)
+                         (funcall orig-require feature filename noerror))))
+                    ((symbol-function 'get-buffer-window)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'add-hook)
+                     (lambda (&rest _args) nil)))
+            (with-temp-buffer
+              (ai-code-backends-infra--configure-ghostel-buffer)
+              (should ghostel-loaded-before-localizing)
+              (should-not ghostel-set-title-function)
+              (should (eq (default-value 'ghostel-set-title-function) #'ignore)))))
+      (test-ai-code-backends-infra--restore-default-binding
+       'ghostel-set-title-function
+       saved-title-fn))))
+
 (ert-deftest test-ai-code-backends-infra-kill-buffer-cleans-process-table ()
   "Killing a finalized session buffer should remove its entry from process-table."
   (let* ((dir "/tmp/ai-code-kill-proc-test/")

@@ -582,30 +582,27 @@ When BACKEND is nil, use `ai-code-backends-infra-terminal-backend'."
 ORIGINAL-FN is the terminal resize function and ARGS are its arguments.
 Suppress reflow when terminal width is unchanged or when the session
 buffer is in scroll/copy mode, working around bug #1422."
-  (let ((dimensions-stable t))
-    (dolist (win (window-list))
-      (when-let* ((buf (window-buffer win))
-                  ((ai-code-backends-infra--session-buffer-p buf)))
-        (let* ((new-width (window-width win))
-               (cached-width (window-parameter win 'ai-code-backends-infra-cached-width)))
-          (unless (eql new-width cached-width)
-            (setq dimensions-stable nil)
-            (set-window-parameter win 'ai-code-backends-infra-cached-width new-width)))))
-    (cond
-     ;; Not in a session buffer - pass through
-     ((not (ai-code-backends-infra--session-buffer-p (current-buffer)))
-      (apply original-fn args))
-     ;; In scroll/copy mode - suppress reflow to avoid disrupting navigation
-     ((ai-code-backends-infra--terminal-navigation-mode-p)
-      nil)
-     ;; Width changed - allow reflow
-     ((not dimensions-stable)
-      (apply original-fn args))
-     ;; Height-only change with reflow glitch prevention - suppress
-     (ai-code-backends-infra-prevent-reflow-glitch
-      nil)
-     ;; Default - pass through
-     (t (apply original-fn args)))))
+  (cond
+   ;; Not in a session buffer - pass through without touching session caches
+   ((not (ai-code-backends-infra--session-buffer-p (current-buffer)))
+    (apply original-fn args))
+   ;; In scroll/copy mode - suppress without consuming pending width changes
+   ((ai-code-backends-infra--terminal-navigation-mode-p)
+    nil)
+   (t
+    (let ((dimensions-stable t)
+          (target-buffer (current-buffer)))
+      (dolist (win (window-list))
+        (when (eq (window-buffer win) target-buffer)
+          (let* ((new-width (window-width win))
+                 (cached-width (window-parameter win 'ai-code-backends-infra-cached-width)))
+            (unless (eql new-width cached-width)
+              (setq dimensions-stable nil)
+              (set-window-parameter win 'ai-code-backends-infra-cached-width new-width)))))
+      (if (or (not dimensions-stable)
+              (not ai-code-backends-infra-prevent-reflow-glitch))
+          (apply original-fn args)
+        nil)))))
 
 (defun ai-code-backends-infra--sync-reflow-filter-advice ()
   "Add or remove terminal reflow advice according to current settings."
