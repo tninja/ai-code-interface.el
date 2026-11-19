@@ -51,14 +51,27 @@ expands the details must still understand the outcome.
 
 Put all supporting detail in child headings one level below the result subheading,
 so Org folds them by default, for example (levels illustrative):
+*** Analysis
 *** Evidence
 *** Changes
 *** Verification
 *** Open issues
 Child headings are part of the same result-summary subtree; do not give them the AI
-keyword, timestamps, or agent tags. Omit empty ones. Keep items to one line, include
-only facts needed to resume or verify the task, and avoid repeating the summary. The
-sections below define what may appear in these child headings, not a quota to fill.
+keyword, timestamps, or agent tags. Omit empty ones. For a read-only question,
+investigation, or discussion/review request (no code changes), include an `Analysis`
+child heading to preserve the substantive reasoning, trade-offs, concrete critiques or examples, and
+recommendations from your answer (plus a one-line restatement of the question if the
+parent section does not already record it), rather than compressing the answer into a
+bare status note. In `Evidence`, `Changes`, `Verification`, and `Open issues`, keep
+items to one line, include only facts needed to resume or verify the task, and avoid
+repeating the summary. The sections below define what may appear in these child
+headings, not a quota to fill.
+
+Only real headings may start with `*`. Any body line that starts with `*` followed by a
+space is parsed by Org as a heading; a single `* ` line becomes a level-1 heading that
+ends the enclosing tree and breaks datetree capture. Use `-` for list items. When copying
+text that contains such lines (for example a quoted policy block), put it inside
+`#+begin_example` ... `#+end_example` and prefix each `*` line with a comma (`,*`).
 
 ## Original-source evidence and provenance
 

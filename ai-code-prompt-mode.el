@@ -30,6 +30,8 @@ the terminal backend infrastructure.")
 (declare-function yas-load-directory "yasnippet" (dir))
 (declare-function yas-minor-mode "yasnippet")
 (declare-function ai-code-implement-todo "ai-code-change" (arg &optional default-action))
+(declare-function ai-code--org-section-candidates "ai-code-change" (&optional include-done))
+(declare-function ai-code--org-select-section "ai-code-change" (candidates))
 (declare-function ai-code-cli-send-command "ai-code-backends" (command))
 (declare-function ai-code-cli-switch-to-buffer "ai-code-backends" ())
 (declare-function gptel-request "gptel" (prompt &rest args))
@@ -106,8 +108,9 @@ This controls prompt additions, not agent permissions or filesystem access."
   (format
    (concat "\n\nWhen appending the result summary after work or a "
            "read-only verification discussion is complete, read "
-           "and follow @%s for the headline, source evidence, "
-           "and verified artifacts of that new subheading.")
+           "and follow @%s for the headline, foldable Analysis "
+           "(for read-only questions or discussions), source "
+           "evidence, and verified artifacts of that new subheading.")
    (ai-code--org-summary-guidance-path)))
 
 (defvar ai-code--prompt-already-edited nil
@@ -787,6 +790,25 @@ When non-nil, a plist with `:name' and `:end-line' describing the section
 chosen for the prompt being built.  `ai-code--insert-prompt' anchors the
 summary there instead of at the line under point.")
 
+(defun ai-code--resolve-org-summary-anchor ()
+  "Return the Org summary anchor plist for point, prompting when nested.
+When `ai-code--org-summary-anchor' is already bound, return it.
+Otherwise, when point sits inside more than one enclosing Org section,
+let the user choose the target section via `ai-code--org-select-section'."
+  (or ai-code--org-summary-anchor
+      (when (or (and (fboundp 'ai-code--org-section-candidates)
+                     (fboundp 'ai-code--org-select-section))
+                (and (require 'ai-code-change nil t)
+                     (fboundp 'ai-code--org-section-candidates)
+                     (fboundp 'ai-code--org-select-section)))
+        (let ((candidates (ai-code--org-section-candidates t)))
+          (when (cdr candidates)
+            (when-let* ((section (ai-code--org-select-section candidates)))
+              (list :name (replace-regexp-in-string
+                           "\\`\\*+[[:space:]]*" ""
+                           (plist-get section :heading-line))
+                    :end-line (plist-get section :end-line))))))))
+
 (defun ai-code--insert-prompt (prompt-text &optional send-function)
   "Preprocess and insert PROMPT-TEXT into the AI prompt file.
 With compose enabled, edit the complete generated prompt before adding
@@ -804,11 +826,13 @@ use the command path when no alternate transport is supplied."
                               prompt-text)))
       (if (and (not send-function) (ai-code--direct-command-p processed-prompt))
           (ai-code--execute-command processed-prompt)
-        (let* ((anchor ai-code--org-summary-anchor)
-               (append-summary-p (and (not ai-code--suppress-org-summary-prompt)
+        (let* ((append-summary-p (and (not ai-code--suppress-org-summary-prompt)
                                       (derived-mode-p 'org-mode)
                                       (ignore-errors (save-excursion (org-back-to-heading t) t))
                                       (y-or-n-p "Append result summary to current section? ")))
+               (anchor (if append-summary-p
+                           (ai-code--resolve-org-summary-anchor)
+                         ai-code--org-summary-anchor))
                (final-prompt
                 (if append-summary-p
                     (concat processed-prompt
