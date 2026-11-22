@@ -982,9 +982,21 @@ The directory is `ai-code-git-worktree-root/REPO-NAME'."
         (dired repo-worktree-dir)
       (user-error "Worktree directory does not exist: %s" repo-worktree-dir))))
 
+;;;###autoload
+(defun ai-code-git-worktree-open-main-repo-dir ()
+  "Open Dired on the main repository directory for the current Git checkout.
+From a linked worktree, visit its main checkout instead of the worktree.
+This does not require `ai-code-git-worktree-root' to be configured."
+  (interactive)
+  (let* ((git-root (ai-code--validate-git-repository))
+         (main-root (or (ai-code--worktree-main-repo-root git-root)
+                        git-root)))
+    (dired main-root)))
+
 (defconst ai-code--worktree-action-choices
   '(("New branch and worktree"         . ai-code-git-worktree-branch)
     ("Open worktree directory (Dired)" . ai-code-git-worktree-open-dir)
+    ("Open main repository (Dired)"    . ai-code-git-worktree-open-main-repo-dir)
     ("Visit existing worktree"         . magit-worktree-status)
     ("Delete worktree"                 . magit-worktree-delete))
   "Worktree actions offered by `ai-code-git-worktree-action'.
