@@ -390,6 +390,12 @@ value is the symbol handed to `call-interactively'."
                     "Open worktree directory (Dired)"))
               #'ai-code-git-worktree-open-dir)))
 
+(ert-deftest ai-code-test-git-worktree-action-dispatches-open-main-repo ()
+  "Selecting the main repository entry dispatches to its Dired command."
+  (should (eq (car (ai-code-test--run-worktree-action
+                    "Open main repository (Dired)"))
+              #'ai-code-git-worktree-open-main-repo-dir)))
+
 (ert-deftest ai-code-test-git-worktree-action-dispatches-visit ()
   "Selecting the visit entry dispatches to `magit-worktree-status'."
   (should (eq (car (ai-code-test--run-worktree-action "Visit existing worktree"))
@@ -407,6 +413,48 @@ value is the symbol handed to `call-interactively'."
                 #'magit-worktree-delete))
     (should (eq (car (ai-code-test--run-worktree-action "Visit existing worktree"))
                 #'magit-worktree-status))))
+
+(ert-deftest ai-code-test-git-worktree-open-main-repo-from-main ()
+  "From the main checkout, open Dired at that repository root."
+  (let ((ai-code-git-worktree-root nil)
+        (git-root "/tmp/fake/main-repo/")
+        opened-dir)
+    (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+               (lambda () git-root))
+              ((symbol-function 'ai-code--worktree-main-repo-root)
+               (lambda (dir)
+                 (should (equal dir git-root))
+                 nil))
+              ((symbol-function 'dired)
+               (lambda (dir) (setq opened-dir dir))))
+      (ai-code-git-worktree-open-main-repo-dir)
+      (should (equal opened-dir git-root)))))
+
+(ert-deftest ai-code-test-git-worktree-open-main-repo-from-linked-worktree ()
+  "From a linked worktree, open Dired at the main checkout, not the worktree."
+  (let ((ai-code-git-worktree-root nil)
+        (worktree-root "/tmp/fake/worktrees/topic/")
+        (main-root "/tmp/fake/main-repo/")
+        opened-dir)
+    (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+               (lambda () worktree-root))
+              ((symbol-function 'ai-code--worktree-main-repo-root)
+               (lambda (dir)
+                 (should (equal dir worktree-root))
+                 main-root))
+              ((symbol-function 'dired)
+               (lambda (dir) (setq opened-dir dir))))
+      (ai-code-git-worktree-open-main-repo-dir)
+      (should (equal opened-dir main-root)))))
+
+(ert-deftest ai-code-test-git-worktree-open-main-repo-requires-git ()
+  "Outside a repository, report a user error without opening Dired."
+  (cl-letf (((symbol-function 'ai-code--validate-git-repository)
+             (lambda () (user-error "Not in a git repository")))
+            ((symbol-function 'dired)
+             (lambda (&rest _) (ert-fail "Must not open Dired"))))
+    (should-error (ai-code-git-worktree-open-main-repo-dir)
+                  :type 'user-error)))
 
 (ert-deftest ai-code-test-git-worktree-open-dir-opens-dired ()
   "`ai-code-git-worktree-open-dir' opens Dired on the repo worktree directory."
