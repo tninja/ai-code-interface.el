@@ -492,11 +492,11 @@ ARG is the optional prefix argument to force including context."
                        (region-url (ai-code--extract-url-from-region))
                        (target-url (ai-code-read-string url-prompt region-url))
                        (has-context (or buffer-file-name (use-region-p)))
-                       (include-context (and (memq review-mode
-                                                       '(investigate-issue review-pr))
-                                             has-context
-                                             (or arg
-                                                 (y-or-n-p "Include active buffer and editor context? ")))))
+                       (include-context
+                        (and (memq review-mode '(investigate-issue review-pr))
+                             has-context
+                             (or arg
+                                 (y-or-n-p "Include active buffer and editor context? ")))))
                   (ai-code--build-pr-init-prompt review-source target-url review-mode include-context))))
              (prompt-label (if (eq review-mode 'send-current-branch-pr)
                                "Enter PR creation prompt: "
