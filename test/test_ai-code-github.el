@@ -857,6 +857,34 @@ branch as the PR base."
         (should-not (string-match-p "Local Context:" without-context))
         (should-not (string-match-p "Current task file:" without-context))))))
 
+(ert-deftest ai-code-test-pr-review-includes-selected-original-context ()
+  "Opted-in review carries selected human evidence and stored references."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/review-requirements.txt")
+    (insert "Human acceptance criterion: no data loss.")
+    (let ((transient-mark-mode t))
+      (goto-char (point-max))
+      (set-mark (point-min))
+      (setq mark-active t)
+      (cl-letf (((symbol-function 'ai-code--get-region-location-info)
+                 (lambda (&rest _args) "Lines: 1-1"))
+                ((symbol-function 'ai-code--scope-context-for-region)
+                 (lambda (&rest _args) nil))
+                ((symbol-function 'ai-code--format-scope-context)
+                 (lambda (_scope) ""))
+                ((symbol-function 'ai-code--get-context-files-string)
+                 (lambda () "Files:\n/other/visible.el"))
+                ((symbol-function 'ai-code--format-repo-context-info)
+                 (lambda () "Stored repository context:\nhttps://example.com/issue")))
+        (let ((prompt (ai-code--build-pr-init-prompt
+                       'gh-cli "https://github.com/acme/demo/pull/123"
+                       'review-pr t)))
+          (should (string-match-p "Selected region:" prompt))
+          (should (string-match-p "Human acceptance criterion: no data loss" prompt))
+          (should (string-match-p "Lines: 1-1" prompt))
+          (should (string-match-p "/other/visible.el" prompt))
+          (should (string-match-p "https://example.com/issue" prompt)))))))
+
 (ert-deftest ai-code-test-pr-review-editor-context-respects-user-choice ()
   "Ask whether to attach editor context, preserving no as the default behavior."
   (dolist (include '(t nil))
