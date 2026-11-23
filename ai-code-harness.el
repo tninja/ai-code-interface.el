@@ -249,9 +249,6 @@ tells the AI backend to read the bundled grilling harness before acting."
 (defvar ai-code--grill-me-workflow nil
   "Current non-command workflow considered by the Grill provider.")
 
-(defconst ai-code--grill-me-context-cache-key 'ai-code-grill-me-accepted
-  "Prompt context cache key for the current Grill decision.")
-
 (defun ai-code--grill-me-harness-file ()
   "Return the bundled grill-me harness file path."
   (expand-file-name "grilling.v1.md"
@@ -272,11 +269,6 @@ tells the AI backend to read the bundled grilling harness before acting."
          (or ai-code--prompt-origin-command this-command)))
     (apply orig-fun args)))
 
-(defun ai-code--grill-me-accepted-p (context)
-  "Return non-nil when Grill was accepted for prompt CONTEXT."
-  (gethash ai-code--grill-me-context-cache-key
-           (ai-code-prompt-context-cache context)))
-
 (defun ai-code--grill-me-eligible-p (context)
   "Return non-nil when prompt CONTEXT should offer the Grill harness."
   (or (memq (ai-code-prompt-context-origin-command context)
@@ -285,14 +277,10 @@ tells the AI backend to read the bundled grilling harness before acting."
 
 (defun ai-code--grill-me-suffix-provider (context)
   "Return the optional Grill suffix for prompt CONTEXT."
-  (let ((accepted
-         (and ai-code-grill-me-enabled
-              (ai-code--grill-me-eligible-p context)
-              (y-or-n-p "Grill me before acting? "))))
-    (puthash ai-code--grill-me-context-cache-key accepted
-             (ai-code-prompt-context-cache context))
-    (when accepted
-      (ai-code--grill-me-reference-suffix))))
+  (when (and ai-code-grill-me-enabled
+             (ai-code--grill-me-eligible-p context)
+             (y-or-n-p "Grill me before acting? "))
+    (ai-code--grill-me-reference-suffix)))
 
 (add-hook 'ai-code-prompt-suffix-functions
           #'ai-code--grill-me-suffix-provider 20)
@@ -583,8 +571,7 @@ Send-time routing uses this result for test and discussion follow-up suffixes."
 (defun ai-code--discussion-follow-up-suffix-provider (context)
   "Return the send-time discussion follow-up suffix for prompt CONTEXT."
   (when (and (bound-and-true-p ai-code-use-prompt-suffix)
-             ai-code-discussion-auto-follow-up-enabled
-             (not (ai-code--grill-me-accepted-p context)))
+             ai-code-discussion-auto-follow-up-enabled)
     (ai-code--resolve-suffix-for-context
      context #'ai-code--resolve-auto-follow-up-suffix-for-send)))
 
