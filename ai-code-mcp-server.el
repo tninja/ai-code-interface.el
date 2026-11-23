@@ -43,6 +43,7 @@
 (declare-function flycheck-error-level "flycheck" (err))
 (declare-function flycheck-error-checker "flycheck" (err))
 (declare-function flycheck-error-message "flycheck" (err))
+(declare-function flycheck-buffer "flycheck")
 (declare-function flycheck-running-p "flycheck")
 (declare-function flymake-diagnostics "flymake" (&optional beg end))
 (declare-function flymake-diagnostic-beg "flymake" (diag))
@@ -50,7 +51,9 @@
 (declare-function flymake-diagnostic-type "flymake" (diag))
 (declare-function flymake-diagnostic-backend "flymake" (diag))
 (declare-function flymake-diagnostic-text "flymake" (diag))
+(declare-function flymake-reporting-backends "flymake")
 (declare-function flymake-running-backends "flymake")
+(declare-function flymake-start "flymake" (&optional deferred force))
 (declare-function url-filename "url-parse" (urlobj))
 (declare-function url-generic-parse-url "url-parse" (url))
 (declare-function url-host "url-parse" (urlobj))
@@ -1034,12 +1037,16 @@ entries directly and is therefore treated as complete."
           (mapcar
            (lambda (target)
              `((uri . ,(plist-get target :uri))
-               (backend . ,(if-let ((backend (plist-get target :backend)))
+               (backend . ,(if-let* ((backend (plist-get target :backend)))
                                (symbol-name backend)
                              :null))
                (state . ,(symbol-name (plist-get target :state)))
                (modified . ,(ai-code-mcp--json-bool
                               (plist-get target :modified)))
+               (disk_stale . ,(ai-code-mcp--json-bool
+                                (plist-get target :disk-stale)))
+               (reverted . ,(ai-code-mcp--json-bool
+                              (plist-get target :reverted)))
                (modification_tick
                 . ,(or (plist-get target :modification-tick) :null))))
            targets)))
@@ -1047,6 +1054,12 @@ entries directly and is therefore treated as complete."
                           (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))
       (modified_files . ,modified)
       (buffers . ,(vconcat buffers)))))
+
+(defun ai-code-mcp--diagnostics-disk-conflict-target-p (target)
+  "Return non-nil when TARGET could not sync with disk changes."
+  (and (member (plist-get target :reason)
+               '("disk_modified_buffer_dirty" "file_missing_on_disk"))
+       t))
 
 (defun ai-code-mcp--diagnostics-coverage-summary (observation)
   "Return a concise coverage warning for OBSERVATION, or nil."
@@ -1056,6 +1069,9 @@ entries directly and is therefore treated as complete."
            (checked (ai-code-mcp--diagnostics-observation-count
                      observation
                      (lambda (target) (plist-get target :backend))))
+           (disk-conflicts (ai-code-mcp--diagnostics-observation-count
+                            observation
+                            #'ai-code-mcp--diagnostics-disk-conflict-target-p))
            (running (ai-code-mcp--diagnostics-observation-count
                      observation
                      (lambda (target)
@@ -1063,6 +1079,8 @@ entries directly and is therefore treated as complete."
       (cond
        ((zerop requested)
         " Diagnostics unavailable: no open project buffers were in scope.")
+       ((and (zerop checked) (> disk-conflicts 0) (= disk-conflicts requested))
+        " Diagnostics unavailable: open buffer differs from disk due to unsaved Emacs edits or a missing file.")
        ((zerop checked)
         (format " Diagnostics unavailable: no active checker covered the %d requested file%s."
                 requested (if (= requested 1) "" "s")))
@@ -1081,13 +1099,21 @@ entries directly and is therefore treated as complete."
                     observation
                     (lambda (target)
                       (eq (plist-get target :state) 'running))))
-          (unavailable (ai-code-mcp--diagnostics-observation-count
-                        observation
-                        (lambda (target)
-                          (eq (plist-get target :state) 'unavailable)))))
+          (disk-conflicts (ai-code-mcp--diagnostics-observation-count
+                           observation
+                           #'ai-code-mcp--diagnostics-disk-conflict-target-p))
+          (checker-unavailable
+           (ai-code-mcp--diagnostics-observation-count
+            observation
+            (lambda (target)
+              (and (eq (plist-get target :state) 'unavailable)
+                   (not (ai-code-mcp--diagnostics-disk-conflict-target-p
+                         target)))))))
       (delq nil
             (list
-             (when (> unavailable 0)
+             (when (> disk-conflicts 0)
+               "Save or revert buffers with unsaved Emacs edits that conflict with disk changes, then run get_diagnostics again.")
+             (when (> checker-unavailable 0)
                "Enable Flymake or Flycheck for each unavailable buffer, then run get_diagnostics again.")
              (when (> running 0)
                "Wait for running diagnostics backends to finish, then run get_diagnostics again.")
@@ -1366,22 +1392,79 @@ REASON explains why a scope has no targets."
           :reason reason
           :observed-at (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t))))
 
+(defvar-local ai-code-mcp--diagnostics-recheck-needed nil
+  "Non-nil when BUFFER was reverted by MCP without restarting diagnostics.")
+
+(defun ai-code-mcp--restart-buffer-diagnostics (buffer)
+  "Start an immediate diagnostics check in BUFFER when a backend is active."
+  (pcase (ai-code-mcp--diagnostics-backend-for-buffer buffer)
+    ('flymake
+     (with-current-buffer buffer
+       (setq-local ai-code-mcp--diagnostics-recheck-needed nil)
+       (when (fboundp 'flymake-start)
+         (ignore-errors (flymake-start)))))
+    ('flycheck
+     (with-current-buffer buffer
+       (setq-local ai-code-mcp--diagnostics-recheck-needed nil)
+       (when (fboundp 'flycheck-buffer)
+         (ignore-errors (flycheck-buffer)))))))
+
+(defun ai-code-mcp--sync-file-buffer (buffer &optional restart-diagnostics)
+  "Synchronize BUFFER with its visited file on disk when safe.
+Return `:in-sync' when BUFFER already matches disk, `:reverted' when a
+clean stale buffer was refreshed from disk, `:conflict' when BUFFER has
+unsaved edits or could not revert over newer disk contents, or
+`:missing-on-disk' when the visited file is no longer readable on disk.
+When RESTART-DIAGNOSTICS is non-nil and BUFFER is reverted, immediately
+trigger its active diagnostics backend."
+  (if (verify-visited-file-modtime buffer)
+      :in-sync
+    (with-current-buffer buffer
+      (let ((file (buffer-file-name buffer)))
+        (cond
+         ((not (and file (file-readable-p file)))
+          :missing-on-disk)
+         ((buffer-modified-p buffer)
+          :conflict)
+         ((condition-case nil
+              (progn
+                (revert-buffer t t t)
+                (verify-visited-file-modtime buffer))
+            (error nil))
+          (setq-local ai-code-mcp--diagnostics-recheck-needed t)
+          (when restart-diagnostics
+            (ai-code-mcp--restart-buffer-diagnostics buffer))
+          :reverted)
+         (t :conflict))))))
+
 (defun ai-code-mcp--diagnostics-observe-buffer (buffer)
   "Return diagnostics and coverage metadata observed from BUFFER."
-  (let* ((backend (ai-code-mcp--diagnostics-backend-for-buffer buffer))
+  (let* ((sync (ai-code-mcp--sync-file-buffer buffer t))
+         (disk-stale (memq sync '(:conflict :missing-on-disk)))
+         (backend (and (not disk-stale)
+                       (ai-code-mcp--diagnostics-backend-for-buffer buffer)))
+         (_recheck (when (and backend
+                              (buffer-local-value
+                               'ai-code-mcp--diagnostics-recheck-needed buffer))
+                     (ai-code-mcp--restart-buffer-diagnostics buffer)))
          (running (and backend
                        (ai-code-mcp--diagnostics-backend-running-p
                         buffer backend)))
-         (state (cond ((null backend) 'unavailable)
+         (state (cond (disk-stale 'unavailable)
+                      ((null backend) 'unavailable)
                       (running 'running)
                       (t 'ready))))
     (with-current-buffer buffer
       (list :uri (ai-code-mcp--file-path-to-uri (buffer-file-name buffer))
             :backend backend
             :state state
-            :reason (cond ((null backend) "no_active_backend")
+            :reason (cond ((eq sync :conflict) "disk_modified_buffer_dirty")
+                          ((eq sync :missing-on-disk) "file_missing_on_disk")
+                          ((null backend) "no_active_backend")
                           (running "diagnostics_running"))
             :modified (buffer-modified-p)
+            :disk-stale disk-stale
+            :reverted (eq sync :reverted)
             :modification-tick (buffer-chars-modified-tick)
             :diagnostics (if backend
                              (ai-code-mcp--buffer-diagnostics buffer backend)
@@ -1428,8 +1511,11 @@ REASON explains why a scope has no targets."
            (and (boundp 'flycheck-last-status-change)
                 (eq flycheck-last-status-change 'running))))
       ('flymake
-       (and (fboundp 'flymake-running-backends)
-            (ignore-errors (flymake-running-backends))))
+       (when-let* ((running (and (fboundp 'flymake-running-backends)
+                                 (ignore-errors (flymake-running-backends)))))
+         (let ((reporting (and (fboundp 'flymake-reporting-backends)
+                               (ignore-errors (flymake-reporting-backends)))))
+           (cl-set-difference running reporting))))
       (_ nil))))
 
 (defun ai-code-mcp--flycheck-diagnostics (buffer)
@@ -1606,8 +1692,9 @@ project has more files than the cap."
   (let* ((resolved-file (ai-code-mcp--require-file-path file-path))
          (buffer (ai-code-mcp--file-buffer resolved-file)))
     (with-current-buffer buffer
-      (let ((imenu-auto-rescan t)
-            (index (imenu--make-index-alist t)))
+      (setq imenu--index-alist nil)
+      (let* ((imenu-auto-rescan t)
+             (index (imenu--make-index-alist t)))
         (ai-code-mcp--imenu-entries index resolved-file)))))
 
 (defconst ai-code-mcp--point-only-reference-backends '(eglot)
@@ -2277,8 +2364,10 @@ internals) instead of walking the whole directory tree again."
   (expand-file-name file-path))
 
 (defun ai-code-mcp--file-buffer (file-path)
-  "Return a live buffer visiting FILE-PATH."
-  (find-file-noselect file-path t))
+  "Return a live buffer visiting FILE-PATH, refreshing clean stale buffers."
+  (let ((buffer (find-file-noselect file-path t)))
+    (ai-code-mcp--sync-file-buffer buffer t)
+    buffer))
 
 (defun ai-code-mcp--imenu-entries (index file-path)
   "Return flattened imenu INDEX entries for FILE-PATH."
