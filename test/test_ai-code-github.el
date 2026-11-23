@@ -970,7 +970,7 @@ branch as the PR base."
         (should-not (string-match-p "Local Context:" captured-prompt))))))
 
 (ert-deftest ai-code-test-diff-review-prefix-adds-editor-context ()
-  "The direct .diff review path accepts context via a prefix without a prompt."
+  "The direct .diff review path inserts context before the trailing requirement."
   (with-temp-buffer
     (setq buffer-file-name "/tmp/feature-change.diff")
     (let (captured-prompt)
@@ -978,7 +978,7 @@ branch as the PR base."
                  (lambda (&rest _)
                    (ert-fail "Diff-file review should not ask an extra question")))
                 ((symbol-function 'ai-code--get-context-files-string)
-                 (lambda () ""))
+                 (lambda () "\nFiles:\n/tmp/feature-change.diff\n/tmp/task.org"))
                 ((symbol-function 'ai-code--format-repo-context-info)
                  (lambda () nil))
                 ((symbol-function 'ai-code--current-line-scope-context)
@@ -991,7 +991,15 @@ branch as the PR base."
         (should (string-match-p
                  (regexp-quote "Current file: /tmp/feature-change.diff")
                  captured-prompt))
-        (should (string-match-p "Local Context:" captured-prompt))))))
+        (should (string-match-p (regexp-quote "/tmp/task.org") captured-prompt))
+        (should (< (string-match-p "Local Context:" captured-prompt)
+                   (string-match-p (regexp-quote "**Requirement**: ")
+                                   captured-prompt)))
+        (should (string-suffix-p "\n\n**Requirement**: " captured-prompt))
+        (setq captured-prompt nil)
+        (ai-code-pull-or-review-diff-file)
+        (should-not (string-match-p "Local Context:" captured-prompt))
+        (should (string-suffix-p "\n\n**Requirement**: " captured-prompt))))))
 
 (provide 'test_ai-code-github)
 

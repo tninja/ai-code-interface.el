@@ -292,7 +292,7 @@ original requirements without copying the entire task into the prompt."
 
 (defun ai-code--github-append-editor-context (prompt include-context)
   "Append current editor context to PROMPT when INCLUDE-CONTEXT is non-nil."
-  (if-let ((context (and include-context (ai-code--github-editor-context))))
+  (if-let* ((context (and include-context (ai-code--github-editor-context))))
       (concat prompt "\n\n" context)
     prompt))
 
@@ -561,7 +561,7 @@ ARG is the optional prefix argument to force including context."
   (interactive "P")
   (if (and buffer-file-name (string-match-p "\\.diff$" buffer-file-name))
       (let* ((file-name (file-name-nondirectory buffer-file-name))
-             (init-prompt (format "Code review for %s. Use relevant file in repository as context.
+             (base-prompt (format "Code review for %s. Use relevant file in repository as context.
 
 **Review Steps**:
 1. **Requirement Fit** (Top Priority): Verify if the code change fulfills the requirement below. Identify gaps or missing implementations.
@@ -569,13 +569,13 @@ ARG is the optional prefix argument to force including context."
 3. **Issues Found**: For each issue: Location, Issue, Solution, Priority (High/Medium/Low)
 4. %s
 
-Provide overall assessment.
-
-**Requirement**: " file-name
-                                  ai-code-github--analysis-only-note)))
+Provide overall assessment." file-name
+                                  ai-code-github--analysis-only-note))
+             (init-prompt (concat (ai-code--github-append-editor-context base-prompt arg)
+                                  "\n\n**Requirement**: ")))
         (ai-code--confirm-and-send
          "Enter review prompt (type requirement at end): "
-         (ai-code--github-append-editor-context init-prompt arg)))
+         init-prompt))
     ;; For non-diff files, let user choose PR review via MCP/gh CLI.
     (unless ai-code-default-review-source
       (ai-code--message-review-source-config-hint))
