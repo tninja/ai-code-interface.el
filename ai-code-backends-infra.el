@@ -443,7 +443,13 @@ response; an idle report without a busy one before it does nothing."
   "Reply to an OSC 7501 support query: the protocol is supported.")
 
 (defconst ai-code-backends-infra--program-status-max-length 4096
-  "Longest OSC 7501 sequence kept while waiting for its end.")
+  "Maximum length of an OSC 7501 sequence accepted or buffered.")
+
+(defconst ai-code-backends-infra--program-status-max-records 256
+  "Maximum number of OSC 7501 records retained per session.")
+
+(defconst ai-code-backends-infra--program-status-id-max-length 128
+  "Maximum length of an OSC 7501 record id.")
 
 (defconst ai-code-backends-infra--program-status-id-regexp
   "\\`[A-Za-z0-9_.+-]\\{1,32\\}\\(?:/[A-Za-z0-9_.+-]\\{1,32\\}\\)\\{0,7\\}\\'"
@@ -456,35 +462,55 @@ response; an idle report without a busy one before it does nothing."
   "OSC 7501 records the program reported, most recent first.
 Each entry is (ID . STATE), ID being \"\" for the root record.")
 
+(defun ai-code-backends-infra--reset-program-status-state ()
+  "Reset response-tracking and OSC 7501 state in the current buffer."
+  (when ai-code-backends-infra--idle-timer
+    (cancel-timer ai-code-backends-infra--idle-timer)
+    (setq ai-code-backends-infra--idle-timer nil))
+  (setq ai-code-backends-infra--response-seen nil
+        ai-code-backends-infra--last-meaningful-output-time nil
+        ai-code-backends-infra--busy-signal nil
+        ai-code-backends-infra--program-status-pending ""
+        ai-code-backends-infra--program-status-records nil))
+
 (defun ai-code-backends-infra--program-status-parse (body)
   "Return the report in OSC 7501 BODY as (ID . STATE), or nil.
 STATE is `clear' or a program state.  A report with an unknown state or
 an invalid id is ignored, as the protocol requires."
   (let (state id)
     (dolist (pair (split-string body ":"))
-      (when (string-match "\\`[ \t]*\\([a-z]+\\)[ \t]*=[ \t]*\\(.*?\\)[ \t]*\\'" pair)
+      (when (string-match
+             "\\`[ \t]*\\([a-z]+\\)[ \t]*=[ \t]*\\(\\(?:.\\|\n\\)*?\\)[ \t]*\\'"
+             pair)
         (pcase (match-string 1 pair)
           ("state" (setq state (match-string 2 pair)))
           ("id" (setq id (match-string 2 pair))))))
     (when (and (member state '("idle" "working" "done" "blocked" "error" "clear"))
                (or (null id)
-                   (string-match-p ai-code-backends-infra--program-status-id-regexp
-                                   id)))
+                   (and (<= (length id)
+                            ai-code-backends-infra--program-status-id-max-length)
+                        (string-match-p ai-code-backends-infra--program-status-id-regexp
+                                        id))))
       (cons (or id "") (intern state)))))
 
 (defun ai-code-backends-infra--program-status-apply (id state)
   "Apply the OSC 7501 report of STATE for record ID to the current session.
 `clear' removes the record and the records below it; for the root record
-that is every record."
-  (let ((records (cl-remove-if
-                  (lambda (entry)
-                    (or (string= (car entry) id)
-                        (and (eq state 'clear)
-                             (or (string= id "")
-                                 (string-prefix-p (concat id "/") (car entry))))))
-                  ai-code-backends-infra--program-status-records)))
+that is every record.  Retain at most
+`ai-code-backends-infra--program-status-max-records' records, dropping
+the least recently updated entries first."
+  (let* ((records (cl-remove-if
+                   (lambda (entry)
+                     (or (string= (car entry) id)
+                         (and (eq state 'clear)
+                              (or (string= id "")
+                                  (string-prefix-p (concat id "/") (car entry))))))
+                   ai-code-backends-infra--program-status-records))
+         (updated (if (eq state 'clear) records (cons (cons id state) records))))
     (setq ai-code-backends-infra--program-status-records
-          (if (eq state 'clear) records (cons (cons id state) records)))))
+          (if (> (length updated) ai-code-backends-infra--program-status-max-records)
+              (seq-take updated ai-code-backends-infra--program-status-max-records)
+            updated))))
 
 (defun ai-code-backends-infra--program-status-state ()
   "Return the program state the current session shows, or nil.
@@ -527,22 +553,24 @@ a short turn reported as working then done still completes."
          ((and (eq (aref output end) ?\e) (= (1+ end) (length output)))
           (setq pending (substring output start)))
          ((or (eq (aref output end) ?\a) (eq (aref output (1+ end)) ?\\))
-          (let ((body (substring output body-start end)))
-            (if (string-prefix-p "?" body)
-                (when (process-live-p process)
-                  (process-send-string
-                   process ai-code-backends-infra--program-status-reply))
-              (when-let* ((report (ai-code-backends-infra--program-status-parse body)))
-                (ai-code-backends-infra--program-status-apply
-                 (car report) (cdr report))
-                (let ((state (ai-code-backends-infra--program-status-state)))
-                  (unless (eq state shown)
-                    (setq shown state)
-                    (ai-code-session-attention-note-program-state
-                     (current-buffer) state)
-                    (ai-code-backends-infra-note-busy-state
-                     (current-buffer) (eq state 'working)))))))
-          (setq start (if (eq (aref output end) ?\a) (1+ end) (+ end 2))))
+          (let ((seq-end (if (eq (aref output end) ?\a) (1+ end) (+ end 2))))
+            (when (<= (- seq-end start) ai-code-backends-infra--program-status-max-length)
+              (let ((body (substring output body-start end)))
+                (if (string= (string-trim body) "?")
+                    (when (process-live-p process)
+                      (process-send-string
+                       process ai-code-backends-infra--program-status-reply))
+                  (when-let* ((report (ai-code-backends-infra--program-status-parse body)))
+                    (ai-code-backends-infra--program-status-apply
+                     (car report) (cdr report))
+                    (let ((state (ai-code-backends-infra--program-status-state)))
+                      (unless (eq state shown)
+                        (setq shown state)
+                        (ai-code-session-attention-note-program-state
+                         (current-buffer) state)
+                        (ai-code-backends-infra-note-busy-state
+                         (current-buffer) (eq state 'working))))))))
+            (setq start seq-end)))
          ;; Another escape sequence cuts this one short.
          (t (setq start end)))))
     (setq ai-code-backends-infra--program-status-pending
