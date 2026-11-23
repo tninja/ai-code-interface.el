@@ -51,6 +51,7 @@
 (declare-function flymake-diagnostic-type "flymake" (diag))
 (declare-function flymake-diagnostic-backend "flymake" (diag))
 (declare-function flymake-diagnostic-text "flymake" (diag))
+(declare-function flymake-reporting-backends "flymake")
 (declare-function flymake-running-backends "flymake")
 (declare-function flymake-start "flymake" (&optional deferred force))
 (declare-function url-filename "url-parse" (urlobj))
@@ -1326,16 +1327,21 @@ REASON explains why a scope has no targets."
           :reason reason
           :observed-at (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t))))
 
+(defvar-local ai-code-mcp--diagnostics-recheck-needed nil
+  "Non-nil when BUFFER was reverted by MCP without restarting diagnostics.")
+
 (defun ai-code-mcp--restart-buffer-diagnostics (buffer)
   "Start an immediate diagnostics check in BUFFER when a backend is active."
   (pcase (ai-code-mcp--diagnostics-backend-for-buffer buffer)
     ('flymake
-     (when (fboundp 'flymake-start)
-       (with-current-buffer buffer
+     (with-current-buffer buffer
+       (setq-local ai-code-mcp--diagnostics-recheck-needed nil)
+       (when (fboundp 'flymake-start)
          (ignore-errors (flymake-start)))))
     ('flycheck
-     (when (fboundp 'flycheck-buffer)
-       (with-current-buffer buffer
+     (with-current-buffer buffer
+       (setq-local ai-code-mcp--diagnostics-recheck-needed nil)
+       (when (fboundp 'flycheck-buffer)
          (ignore-errors (flycheck-buffer)))))))
 
 (defun ai-code-mcp--sync-file-buffer (buffer &optional restart-diagnostics)
@@ -1360,6 +1366,7 @@ trigger its active diagnostics backend."
                 (revert-buffer t t t)
                 (verify-visited-file-modtime buffer))
             (error nil))
+          (setq-local ai-code-mcp--diagnostics-recheck-needed t)
           (when restart-diagnostics
             (ai-code-mcp--restart-buffer-diagnostics buffer))
           :reverted)
@@ -1371,6 +1378,10 @@ trigger its active diagnostics backend."
          (disk-stale (memq sync '(:conflict :missing-on-disk)))
          (backend (and (not disk-stale)
                        (ai-code-mcp--diagnostics-backend-for-buffer buffer)))
+         (_recheck (when (and backend
+                              (buffer-local-value
+                               'ai-code-mcp--diagnostics-recheck-needed buffer))
+                     (ai-code-mcp--restart-buffer-diagnostics buffer)))
          (running (and backend
                        (ai-code-mcp--diagnostics-backend-running-p
                         buffer backend)))
@@ -1435,8 +1446,11 @@ trigger its active diagnostics backend."
            (and (boundp 'flycheck-last-status-change)
                 (eq flycheck-last-status-change 'running))))
       ('flymake
-       (and (fboundp 'flymake-running-backends)
-            (ignore-errors (flymake-running-backends))))
+       (when-let* ((running (and (fboundp 'flymake-running-backends)
+                                 (ignore-errors (flymake-running-backends)))))
+         (let ((reporting (and (fboundp 'flymake-reporting-backends)
+                               (ignore-errors (flymake-reporting-backends)))))
+           (cl-set-difference running reporting))))
       (_ nil))))
 
 (defun ai-code-mcp--flycheck-diagnostics (buffer)
@@ -2182,7 +2196,7 @@ argument names, for which session, and how large each result was."
 (defun ai-code-mcp--file-buffer (file-path)
   "Return a live buffer visiting FILE-PATH, refreshing clean stale buffers."
   (let ((buffer (find-file-noselect file-path t)))
-    (ai-code-mcp--sync-file-buffer buffer)
+    (ai-code-mcp--sync-file-buffer buffer t)
     buffer))
 
 (defun ai-code-mcp--imenu-entries (index file-path)

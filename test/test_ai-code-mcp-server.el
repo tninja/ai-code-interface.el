@@ -2191,6 +2191,89 @@ Error messages often embed argument values."
         (kill-buffer session-buffer))
       (delete-directory project-dir t))))
 
+(ert-deftest ai-code-test-mcp-real-flymake-cycle-across-code-intel-and-async-report ()
+  "Real Flymake buffers recheck when reverted by code-intel tools and settle to clean after reporting."
+  (let* ((project-dir (make-temp-file "ai-code-mcp-real-flymake-" t))
+         (file-path (expand-file-name "sample.el" project-dir))
+         (file-uri (concat "file://" file-path))
+         (session-buffer (generate-new-buffer " *ai-code-mcp-real-flymake*"))
+         (ai-code-mcp-diagnostics-backend 'flymake)
+         (ai-code-mcp-server-tools nil)
+         (ai-code-mcp--sessions (make-hash-table :test 'equal))
+         (ai-code-mcp--diagnostics-baselines (make-hash-table :test 'equal))
+         (ai-code-mcp--current-session-id "session-real-flymake")
+         (pending-report nil)
+         (backend-fn nil)
+         visited-buffer)
+    (setq backend-fn
+          (lambda (report-fn &rest _args)
+            (let ((buf (current-buffer)))
+              (setq pending-report
+                    (lambda ()
+                      (with-current-buffer buf
+                        (funcall report-fn
+                                 (if (string-search "BROKEN" (buffer-string))
+                                     (list (flymake-make-diagnostic
+                                            buf (point-min)
+                                            (min (point-max) 10)
+                                            :error "Syntax error after edit"))
+                                   '()))))))))
+    (unwind-protect
+        (progn
+          (with-temp-file file-path (insert "(defun valid-fn () 1)\n"))
+          (setq visited-buffer (find-file-noselect file-path t))
+          (with-current-buffer visited-buffer
+            (emacs-lisp-mode)
+            (setq-local flymake-diagnostic-functions (list backend-fn))
+            (let ((flymake-start-on-flymake-mode nil))
+              (flymake-mode 1))
+            (flymake-start)
+            (funcall pending-report)
+            (setq pending-report nil)
+            (should (flymake-running-backends))
+            (should (flymake-reporting-backends)))
+          (ai-code-mcp-register-session
+           "session-real-flymake" project-dir session-buffer)
+          (let ((base (ai-code-test-mcp--read-json
+                       (ai-code-mcp-diagnostics-baseline))))
+            (should (equal "baseline_recorded" (alist-get 'status base))))
+          ;; Disk edit introduces an error, followed by imenu BEFORE get_diagnostics.
+          (with-temp-file file-path (insert "(defun BROKEN (\n"))
+          (set-file-times file-path (time-add (current-time) 5))
+          (ignore-errors (ai-code-mcp-imenu-list-symbols file-path))
+          (should pending-report)
+          (let* ((in-flight (ai-code-test-mcp--read-json
+                             (ai-code-mcp-get-diagnostics file-uri "baseline")))
+                 (coverage (alist-get 'coverage in-flight)))
+            (should (equal "incomplete" (alist-get 'status in-flight)))
+            (should (= 1 (alist-get 'running_files coverage))))
+          (funcall pending-report)
+          (setq pending-report nil)
+          (let ((after-report (ai-code-test-mcp--read-json
+                               (ai-code-mcp-get-diagnostics file-uri "baseline"))))
+            (should (equal "regression" (alist-get 'status after-report))))
+          ;; Disk fix restores valid code; once reported, status must settle to clean.
+          (with-temp-file file-path (insert "(defun fixed-fn () 2)\n"))
+          (set-file-times file-path (time-add (current-time) 10))
+          (should (equal '("sample.el:1: fixed-fn")
+                         (ai-code-mcp-imenu-list-symbols file-path)))
+          (should pending-report)
+          (funcall pending-report)
+          (setq pending-report nil)
+          (with-current-buffer visited-buffer
+            (should (flymake-running-backends)))
+          (let* ((settled (ai-code-test-mcp--read-json
+                           (ai-code-mcp-get-diagnostics file-uri "baseline")))
+                 (coverage (alist-get 'coverage settled)))
+            (should (equal "clean" (alist-get 'status settled)))
+            (should (= 0 (alist-get 'running_files coverage)))
+            (should (eq t (alist-get 'complete coverage)))))
+      (when (buffer-live-p visited-buffer)
+        (kill-buffer visited-buffer))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer))
+      (delete-directory project-dir t))))
+
 (provide 'test_ai-code-mcp-server)
 
 ;;; test_ai-code-mcp-server.el ends here
