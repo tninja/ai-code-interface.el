@@ -24,6 +24,8 @@ a more stable viewing experience when working with multiple windows."
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output
                   "ai-code-backends-infra" ())
+(declare-function ai-code-backends-infra--note-program-status-output
+                  "ai-code-backends-infra" (process output))
 (declare-function ai-code-backends-infra--output-meaningful-p
                   "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--set-session-directory
@@ -160,6 +162,9 @@ ENV-VARS are extra environment variables for the terminal process."
                         (ai-code-backends-infra--strip-alternate-screen-sequences
                          (ai-code-editor-viewport-filter-output
                           process output)))))
+                 (with-current-buffer buffer
+                   (ai-code-backends-infra--note-program-status-output
+                    process filtered-output))
                  (when orig-filter
                    (funcall orig-filter process filtered-output))
                  (when (buffer-live-p buffer)

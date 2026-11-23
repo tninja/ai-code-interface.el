@@ -11,6 +11,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'ai-code-backends-infra-ghostel)
+(require 'ai-code-session-attention)
 
 (defvar ghostel-command-finish-functions)
 (defvar ghostel-command-start-functions)

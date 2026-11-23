@@ -800,6 +800,123 @@ Claude Code reports idle at startup; its startup screen is no response."
             (should-not (memq timer timer-list))
             (should (equal working '(t t)))))))))
 
+(defmacro test-ai-code-backends-infra--with-program-status-session (&rest body)
+  "Run BODY in a temporary buffer reading OSC 7501 output.
+Bind `states' to the program states noted for the session, `replies' to
+the strings sent to the process, and `feed' to a function sending its
+argument as output, all lists most recent first."
+  (declare (indent 0))
+  `(let ((states nil)
+         (replies nil))
+     (cl-letf (((symbol-function 'process-live-p) (lambda (_process) t))
+               ((symbol-function 'process-send-string)
+                (lambda (_process string) (push string replies)))
+               ((symbol-function 'ai-code-session-attention-note-program-state)
+                (lambda (buffer state)
+                  (should (eq buffer (current-buffer)))
+                  (push (list 'attention state) states)))
+               ((symbol-function 'ai-code-backends-infra-note-busy-state)
+                (lambda (buffer busy)
+                  (should (eq buffer (current-buffer)))
+                  (push (list 'busy busy) states))))
+       (with-temp-buffer
+         (let ((feed (lambda (output)
+                       (ai-code-backends-infra--note-program-status-output
+                        'fake-process output))))
+           ,@body)))))
+
+(ert-deftest test-ai-code-backends-infra-program-status-working-then-idle ()
+  "OSC 7501 working, then idle, reaches attention and busy state.
+BEL and ST both end a report; a repeated state is noted once."
+  (test-ai-code-backends-infra--with-program-status-session
+    (funcall feed "text\e]7501;state=working\aredraw")
+    (funcall feed "\e]7501;state=working:progress=40\e\\")
+    (funcall feed "\e]7501;state=done:app=codex\e\\\e]7501;state=idle\a")
+    (should (equal (nreverse states)
+                   '((attention working) (busy t)
+                     (attention done) (busy nil)
+                     (attention idle) (busy nil))))
+    (should-not replies)))
+
+(ert-deftest test-ai-code-backends-infra-program-status-one-chunk-turn ()
+  "A turn reported as working then done in one chunk still completes."
+  (test-ai-code-backends-infra--with-program-status-session
+    (funcall feed "\e]7501;state=working\a...\e]7501;state=done\a")
+    (should (equal (nreverse states)
+                   '((attention working) (busy t)
+                     (attention done) (busy nil))))))
+
+(ert-deftest test-ai-code-backends-infra-program-status-split-sequence ()
+  "A report split across output chunks is read once complete."
+  (test-ai-code-backends-infra--with-program-status-session
+    (funcall feed "output\e]75")
+    (should-not states)
+    (funcall feed "01;state=wor")
+    (should-not states)
+    (funcall feed "king\e")
+    (should-not states)
+    (funcall feed "\\more")
+    (should (equal states '((busy t) (attention working))))
+    (should (equal ai-code-backends-infra--program-status-pending ""))))
+
+(ert-deftest test-ai-code-backends-infra-program-status-answers-query ()
+  "The support query gets one reply, even when split across chunks."
+  (test-ai-code-backends-infra--with-program-status-session
+    (funcall feed "\e]7501;?\e\\\e[c")
+    (should (equal replies '("\e]7501;?\e\\")))
+    (funcall feed "\e]7501;")
+    (funcall feed "?\a")
+    (should (equal replies '("\e]7501;?\e\\" "\e]7501;?\e\\")))
+    (should-not states)))
+
+(ert-deftest test-ai-code-backends-infra-program-status-blocked-child-wins ()
+  "A blocked child record wins over a working root, and clear removes it."
+  (test-ai-code-backends-infra--with-program-status-session
+    (funcall feed "\e]7501;state=working\a")
+    (funcall feed "\e]7501;state=blocked:id=tool/1:kind=permission\a")
+    (funcall feed "\e]7501;state=clear:id=tool\a")
+    (funcall feed "\e]7501;state=clear\a")
+    (should (equal (nreverse states)
+                   '((attention working) (busy t)
+                     (attention blocked) (busy nil)
+                     (attention working) (busy t)
+                     (attention nil) (busy nil))))
+    (should-not ai-code-backends-infra--program-status-records)))
+
+(ert-deftest test-ai-code-backends-infra-program-status-ignores-invalid ()
+  "Unknown states, invalid ids and cut-off sequences change nothing."
+  (test-ai-code-backends-infra--with-program-status-session
+    (funcall feed "\e]7501;state=thinking\a")
+    (funcall feed "\e]7501;state=working:id=bad id\a")
+    (funcall feed "\e]7501;state=working\e[0m\a")
+    (should-not states)
+    (funcall feed (concat "\e]7501;msg=" (make-string 5000 ?A)))
+    (should (equal ai-code-backends-infra--program-status-pending ""))
+    (should-not states)))
+
+(ert-deftest test-ai-code-backends-infra-vterm-notification-tracker-reads-program-status ()
+  "Vterm session output is read for OSC 7501 before vterm renders it."
+  (with-temp-buffer
+    (rename-buffer (generate-new-buffer-name "*codex[program-status]*"))
+    (let ((buffer (current-buffer))
+          events)
+      (cl-letf (((symbol-function 'process-buffer) (lambda (_process) buffer))
+                ((symbol-function 'ai-code-backends-infra--note-program-status-output)
+                 (lambda (process output)
+                   (should (eq (current-buffer) buffer))
+                   (push (list 'status process output) events)))
+                ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
+                 #'ignore)
+                ((symbol-function 'ai-code-session-link--schedule-linkify-recent-output)
+                 #'ignore))
+        (ai-code-backends-infra--vterm-notification-tracker
+         (lambda (_process input) (push (list 'render input) events))
+         'fake-process
+         "\e]7501;?\a\e[c")
+        (should (equal (nreverse events)
+                       '((status fake-process "\e]7501;?\a\e[c")
+                         (render "\e]7501;?\a\e[c"))))))))
+
 (ert-deftest test-ai-code-backends-infra-response-hidden-marks-attention-done ()
   "A response that completes while hidden marks the session as done."
   (let (marked)
@@ -1367,6 +1484,42 @@ Claude Code reports idle at startup; its startup screen is no response."
           (should-not strip-called)
           (should-not note-called)
           (should-not linkify-called))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-create-terminal-session-eat-filter-reads-program-status ()
+  "Eat filter wrapper reads OSC 7501 before eat renders the output."
+  (let* ((buffer-name "*test-ai-code-eat-program-status*")
+         (buffer (get-buffer-create buffer-name))
+         (ai-code-backends-infra-terminal-backend 'eat)
+         (wrapped-filter nil)
+         (events nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'ai-code-backends-infra--terminal-ensure-backend)
+                   #'ignore)
+                  ((symbol-function 'eat-mode) #'ignore)
+                  ((symbol-function 'eat-exec) #'ignore)
+                  ((symbol-function 'get-buffer-process)
+                   (lambda (_buffer) 'eat-proc))
+                  ((symbol-function 'process-filter)
+                   (lambda (_process)
+                     (lambda (_process output) (push (list 'render output) events))))
+                  ((symbol-function 'set-process-filter)
+                   (lambda (_process filter) (setq wrapped-filter filter)))
+                  ((symbol-function 'ai-code-backends-infra--note-program-status-output)
+                   (lambda (process output)
+                     (should (eq (current-buffer) buffer))
+                     (push (list 'status process output) events)))
+                  ((symbol-function 'ai-code-backends-infra--note-meaningful-output)
+                   #'ignore)
+                  ((symbol-function 'ai-code-session-link--linkify-recent-output)
+                   #'ignore))
+          (ai-code-backends-infra--create-terminal-session
+           buffer-name default-directory "echo hi" nil)
+          (funcall wrapped-filter 'eat-proc "\e]7501;?\a\e[c")
+          (should (equal (nreverse events)
+                         '((status eat-proc "\e]7501;?\a\e[c")
+                           (render "\e]7501;?\a\e[c")))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

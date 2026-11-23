@@ -27,6 +27,8 @@
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output
                   "ai-code-backends-infra" ())
+(declare-function ai-code-backends-infra--note-program-status-output
+                  "ai-code-backends-infra" (process output))
 (declare-function ai-code-backends-infra--output-meaningful-p
                   "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--session-buffer-p
@@ -255,6 +257,8 @@ applications write to the normal screen buffer (preserving scrollback)."
            editor-filtered-input)))
     (when session-p
       (with-current-buffer (process-buffer process)
+        (ai-code-backends-infra--note-program-status-output
+         process filtered-input)
         (when (ai-code-backends-infra--output-meaningful-p filtered-input)
           (ai-code-backends-infra--note-meaningful-output))))
     (prog1
