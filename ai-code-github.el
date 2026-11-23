@@ -241,6 +241,61 @@ Feedback Check Steps:
             pr-url source-instruction
             ai-code-github--analysis-only-note)))
 
+(defun ai-code--github-editor-context ()
+  "Return a local editor context block, or nil when none is available.
+Use a file reference for an Org task so another agent can inspect the
+original requirements without copying the entire task into the prompt."
+  (when (or buffer-file-name (use-region-p))
+    (let* ((region-text (when (use-region-p)
+                          (buffer-substring-no-properties
+                           (region-beginning) (region-end))))
+           (region-location-info (when region-text
+                                   (ai-code--get-region-location-info
+                                    (region-beginning) (region-end))))
+           (semantic-scope
+            (ai-code--format-scope-context
+             (if region-text
+                 (ai-code--scope-context-for-region
+                  (region-beginning) (region-end))
+               (ai-code--current-line-scope-context))))
+           (files-context-string (ai-code--get-context-files-string))
+           (repo-context-string (ai-code--format-repo-context-info))
+           (context-blocks nil))
+      (push (if buffer-file-name
+                (format "Current file: %s" buffer-file-name)
+              (format "Current buffer: %s" (buffer-name)))
+            context-blocks)
+      (when (and buffer-file-name (derived-mode-p 'org-mode))
+        (push (format
+               (concat "Current task file: @%s\n"
+                       "Read original human-authored requirements and "
+                       "decisions here; distinguish them from AI-generated "
+                       "intermediate summaries.")
+               buffer-file-name)
+              context-blocks))
+      (unless (string-empty-p semantic-scope)
+        (push semantic-scope context-blocks))
+      (when region-text
+        (push (concat "Selected region:\n"
+                      (when region-location-info
+                        (concat region-location-info "\n"))
+                      region-text)
+              context-blocks))
+      (when (and files-context-string
+                 (not (string-empty-p files-context-string)))
+        (push files-context-string context-blocks))
+      (when (and repo-context-string
+                 (not (string-empty-p repo-context-string)))
+        (push repo-context-string context-blocks))
+      (concat "Local Context:\n"
+              (mapconcat #'identity (nreverse context-blocks) "\n\n")))))
+
+(defun ai-code--github-append-editor-context (prompt include-context)
+  "Append current editor context to PROMPT when INCLUDE-CONTEXT is non-nil."
+  (if-let* ((context (and include-context (ai-code--github-editor-context))))
+      (concat prompt "\n\n" context)
+    prompt))
+
 (defun ai-code--build-issue-investigation-init-prompt (review-source issue-url &optional include-context)
   "Build issue investigation prompt for REVIEW-SOURCE with ISSUE-URL.
 If INCLUDE-CONTEXT is non-nil, append current editor context to the prompt."
@@ -258,41 +313,7 @@ Issue Investigation Steps:
 4. %s"
                   issue-url source-instruction
                   ai-code-github--analysis-only-note)))
-    (if (and include-context (or buffer-file-name (use-region-p)))
-        (let* ((region-text (when (use-region-p)
-                              (buffer-substring-no-properties (region-beginning) (region-end))))
-               (region-location-info (when region-text
-                                       (ai-code--get-region-location-info
-                                        (region-beginning)
-                                        (region-end))))
-               (semantic-scope
-                (ai-code--format-scope-context
-                 (if region-text
-                     (ai-code--scope-context-for-region
-                      (region-beginning) (region-end))
-                   (ai-code--current-line-scope-context))))
-               (files-context-string (ai-code--get-context-files-string))
-               (repo-context-string (ai-code--format-repo-context-info))
-               (context-blocks nil))
-          (push (if buffer-file-name
-                    (format "Current file: %s" buffer-file-name)
-                  (format "Current buffer: %s" (buffer-name)))
-                context-blocks)
-          (unless (string-empty-p semantic-scope)
-            (push semantic-scope context-blocks))
-          (when region-text
-            (push (concat "Selected region:\n"
-                          (when region-location-info
-                            (concat region-location-info "\n"))
-                          region-text)
-                  context-blocks))
-          (when (and files-context-string (not (string-empty-p files-context-string)))
-            (push files-context-string context-blocks))
-          (when (and repo-context-string (not (string-empty-p repo-context-string)))
-            (push repo-context-string context-blocks))
-          (concat prompt "\n\nLocal Context:\n"
-                  (mapconcat #'identity (nreverse context-blocks) "\n\n")))
-      prompt)))
+    (ai-code--github-append-editor-context prompt include-context)))
 
 (defun ai-code--build-pr-description-init-prompt (review-source pr-url)
   "Build PR description prompt for REVIEW-SOURCE with PR-URL."
@@ -415,6 +436,10 @@ If INCLUDE-CONTEXT is non-nil, append current editor context to the prompt."
   (pcase review-mode
     ('investigate-issue
      (ai-code--build-issue-investigation-init-prompt review-source target-url include-context))
+    ('review-pr
+     (ai-code--github-append-editor-context
+      (ai-code--build-pr-review-init-prompt review-source target-url)
+      include-context))
     ('check-feedback
      (ai-code--build-pr-feedback-check-init-prompt review-source target-url))
     ('review-ci-checks
@@ -467,10 +492,11 @@ ARG is the optional prefix argument to force including context."
                        (region-url (ai-code--extract-url-from-region))
                        (target-url (ai-code-read-string url-prompt region-url))
                        (has-context (or buffer-file-name (use-region-p)))
-                       (include-context (and (eq review-mode 'investigate-issue)
-                                             has-context
-                                             (or arg
-                                                 (y-or-n-p "Include active buffer and editor context? ")))))
+                       (include-context
+                        (and (memq review-mode '(investigate-issue review-pr))
+                             has-context
+                             (or arg
+                                 (y-or-n-p "Include active buffer and editor context? ")))))
                   (ai-code--build-pr-init-prompt review-source target-url review-mode include-context))))
              (prompt-label (if (eq review-mode 'send-current-branch-pr)
                                "Enter PR creation prompt: "
@@ -535,7 +561,7 @@ ARG is the optional prefix argument to force including context."
   (interactive "P")
   (if (and buffer-file-name (string-match-p "\\.diff$" buffer-file-name))
       (let* ((file-name (file-name-nondirectory buffer-file-name))
-             (init-prompt (format "Code review for %s. Use relevant file in repository as context.
+             (base-prompt (format "Code review for %s. Use relevant file in repository as context.
 
 **Review Steps**:
 1. **Requirement Fit** (Top Priority): Verify if the code change fulfills the requirement below. Identify gaps or missing implementations.
@@ -543,11 +569,13 @@ ARG is the optional prefix argument to force including context."
 3. **Issues Found**: For each issue: Location, Issue, Solution, Priority (High/Medium/Low)
 4. %s
 
-Provide overall assessment.
-
-**Requirement**: " file-name
-                                  ai-code-github--analysis-only-note)))
-        (ai-code--confirm-and-send "Enter review prompt (type requirement at end): " init-prompt))
+Provide overall assessment." file-name
+                                  ai-code-github--analysis-only-note))
+             (init-prompt (concat (ai-code--github-append-editor-context base-prompt arg)
+                                  "\n\n**Requirement**: ")))
+        (ai-code--confirm-and-send
+         "Enter review prompt (type requirement at end): "
+         init-prompt))
     ;; For non-diff files, let user choose PR review via MCP/gh CLI.
     (unless ai-code-default-review-source
       (ai-code--message-review-source-config-hint))
