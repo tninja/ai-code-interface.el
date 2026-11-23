@@ -118,6 +118,19 @@ The tab bar is redrawn only when the state changes."
                   (if working :working-since :quiet-since) (float-time)))
     (ai-code-session-attention--redraw)))
 
+(defun ai-code-session-attention-note-program-state (buffer state)
+  "Update the session in BUFFER from the program's reported STATE.
+STATE is `working', `blocked', `error', `done' or `idle', as the program
+reports it through the terminal, or nil once the report is cleared.  A
+blocked or failed program waits for the user and working ends that wait.
+Any other state ends it too, even though the agent never went back to
+working: the question was answered or dismissed."
+  (ai-code-session-attention-set-working buffer (eq state 'working))
+  (pcase state
+    ((or 'blocked 'error) (ai-code-session-attention-mark buffer 'waiting))
+    ('working (ai-code-session-attention-clear buffer 'waiting))
+    (_ (ai-code-session-attention-resolve-waiting buffer))))
+
 (defun ai-code-session-attention--clear-visible (&optional _frame)
   "Clear attention for sessions now shown in a live window."
   (dolist (session (ai-code-session-list))

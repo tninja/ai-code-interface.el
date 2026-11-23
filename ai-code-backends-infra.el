@@ -155,6 +155,12 @@ being sent for the response completion.")
 (defvar-local ai-code-backends-infra--last-meaningful-output-time nil
   "Float timestamp of the most recent meaningful output.")
 
+(defvar-local ai-code-backends-infra--busy-signal nil
+  "Busy state the terminal reported for the session, or nil.
+nil means no report has arrived, so response completion falls back to
+output idleness.  Otherwise it is `busy' or `idle', as last reported
+through `ai-code-backends-infra-note-busy-state'.")
+
 (defvar-local ai-code-backends-infra--session-directory nil
   "Normalized working directory associated with the current session buffer.")
 
@@ -368,33 +374,186 @@ the current buffer is an AI session buffer, apply these transformations:
   "Return non-nil when BUFFER is visible in any live window."
   (and (get-buffer-window-list buffer nil t) t))
 
+(defun ai-code-backends-infra--response-complete (buffer)
+  "Handle a completed response in BUFFER.
+A visible BUFFER only marks the response as seen.  A hidden one is marked
+`done' and notifies once per response."
+  (with-current-buffer buffer
+    (if (ai-code-backends-infra--buffer-user-visible-p buffer)
+        (setq ai-code-backends-infra--response-seen t)
+      (when (not ai-code-backends-infra--response-seen)
+        (setq ai-code-backends-infra--response-seen t)
+        (ai-code-session-attention-mark buffer 'done)
+        (when (require 'ai-code-notifications nil t)
+          (when (fboundp 'ai-code-notifications-response-ready)
+            (let ((buffer-name (buffer-name buffer)))
+              ;; Extract backend name from buffer name format: *<backend>[<dir>]*
+              ;; Example: "*codex[my-project]*" extracts "codex"
+              ;; Regex breakdown:
+              ;;   \\*       - matches literal asterisk
+              ;;   \\(       - start capture group 1
+              ;;   [^[]+     - one or more chars that are not '['
+              ;;   \\)       - end capture group 1 (this is the backend name)
+              ;;   \\[       - matches literal '['
+              (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
+                (let ((backend-name (match-string 1 buffer-name)))
+                  (ai-code-notifications-response-ready backend-name))))))))))
+
 (defun ai-code-backends-infra--check-response-complete (buffer)
   "Check if AI response is complete in BUFFER and notify if enabled."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (if (ai-code-backends-infra--idle-delay-elapsed-p)
-          (let ((visible (ai-code-backends-infra--buffer-user-visible-p buffer)))
+          (progn
             (ai-code-session-attention-set-working buffer nil)
-            (if visible
-                (setq ai-code-backends-infra--response-seen t)
-              (when (not ai-code-backends-infra--response-seen)
-                (setq ai-code-backends-infra--response-seen t)
-                (ai-code-session-attention-mark buffer 'done)
-                (when (require 'ai-code-notifications nil t)
-                  (when (fboundp 'ai-code-notifications-response-ready)
-                    (let ((buffer-name (buffer-name buffer)))
-                      ;; Extract backend name from buffer name format: *<backend>[<dir>]*
-                      ;; Example: "*codex[my-project]*" extracts "codex"
-                      ;; Regex breakdown:
-                      ;;   \\*       - matches literal asterisk
-                      ;;   \\(       - start capture group 1
-                      ;;   [^[]+     - one or more chars that are not '['
-                      ;;   \\)       - end capture group 1 (this is the backend name)
-                      ;;   \\[       - matches literal '['
-                      (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
-                        (let ((backend-name (match-string 1 buffer-name)))
-                          (ai-code-notifications-response-ready backend-name)))))))))
+            (ai-code-backends-infra--response-complete buffer))
         (ai-code-backends-infra--schedule-idle-check)))))
+
+(defun ai-code-backends-infra-note-busy-state (buffer busy)
+  "Record that the session in BUFFER reported itself BUSY or idle.
+Terminal adapters call this when the program reports its own state, for
+example through OSC 9;4 progress or OSC 7501 program status.  From the
+first report on, response completion follows these reports and output
+idleness no longer counts: a repaint, such as the one after a focus
+event, is not a response.  A change from busy to idle completes the
+response; an idle report without a busy one before it does nothing."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when ai-code-backends-infra--idle-timer
+        (cancel-timer ai-code-backends-infra--idle-timer)
+        (setq ai-code-backends-infra--idle-timer nil))
+      (if busy
+          (progn
+            (setq ai-code-backends-infra--busy-signal 'busy
+                  ai-code-backends-infra--response-seen nil)
+            (ai-code-session-attention-clear buffer 'done)
+            (ai-code-session-attention-set-working buffer t))
+        (let ((was-busy (eq ai-code-backends-infra--busy-signal 'busy)))
+          (setq ai-code-backends-infra--busy-signal 'idle)
+          (ai-code-session-attention-set-working buffer nil)
+          (when was-busy
+            (ai-code-backends-infra--response-complete buffer)))))))
+
+;;; OSC 7501 program status, for terminals that do not read it themselves
+
+(defconst ai-code-backends-infra--program-status-prefix "\e]7501;"
+  "Start of an OSC 7501 program status sequence.")
+
+(defconst ai-code-backends-infra--program-status-reply "\e]7501;?\e\\"
+  "Reply to an OSC 7501 support query: the protocol is supported.")
+
+(defconst ai-code-backends-infra--program-status-max-length 4096
+  "Longest OSC 7501 sequence kept while waiting for its end.")
+
+(defconst ai-code-backends-infra--program-status-id-regexp
+  "\\`[A-Za-z0-9_.+-]\\{1,32\\}\\(?:/[A-Za-z0-9_.+-]\\{1,32\\}\\)\\{0,7\\}\\'"
+  "Valid OSC 7501 record id.")
+
+(defvar-local ai-code-backends-infra--program-status-pending ""
+  "Output kept from the last chunk because it may start an OSC 7501 sequence.")
+
+(defvar-local ai-code-backends-infra--program-status-records nil
+  "OSC 7501 records the program reported, most recent first.
+Each entry is (ID . STATE), ID being \"\" for the root record.")
+
+(defun ai-code-backends-infra--program-status-parse (body)
+  "Return the report in OSC 7501 BODY as (ID . STATE), or nil.
+STATE is `clear' or a program state.  A report with an unknown state or
+an invalid id is ignored, as the protocol requires."
+  (let (state id)
+    (dolist (pair (split-string body ":"))
+      (when (string-match "\\`[ \t]*\\([a-z]+\\)[ \t]*=[ \t]*\\(.*?\\)[ \t]*\\'" pair)
+        (pcase (match-string 1 pair)
+          ("state" (setq state (match-string 2 pair)))
+          ("id" (setq id (match-string 2 pair))))))
+    (when (and (member state '("idle" "working" "done" "blocked" "error" "clear"))
+               (or (null id)
+                   (string-match-p ai-code-backends-infra--program-status-id-regexp
+                                   id)))
+      (cons (or id "") (intern state)))))
+
+(defun ai-code-backends-infra--program-status-apply (id state)
+  "Apply the OSC 7501 report of STATE for record ID to the current session.
+`clear' removes the record and the records below it; for the root record
+that is every record."
+  (let ((records (cl-remove-if
+                  (lambda (entry)
+                    (or (string= (car entry) id)
+                        (and (eq state 'clear)
+                             (or (string= id "")
+                                 (string-prefix-p (concat id "/") (car entry))))))
+                  ai-code-backends-infra--program-status-records)))
+    (setq ai-code-backends-infra--program-status-records
+          (if (eq state 'clear) records (cons (cons id state) records)))))
+
+(defun ai-code-backends-infra--program-status-state ()
+  "Return the program state the current session shows, or nil.
+A blocked or failed record wins, as the user must act on it; otherwise
+the root record counts."
+  (let ((records ai-code-backends-infra--program-status-records))
+    (cdr (or (cl-find-if (lambda (entry) (memq (cdr entry) '(blocked error)))
+                         records)
+             (assoc "" records)))))
+
+(defun ai-code-backends-infra--program-status-pending-start (output)
+  "Return where OUTPUT ends with an unfinished OSC 7501 prefix, or nil."
+  (let ((prefix ai-code-backends-infra--program-status-prefix)
+        (output-length (length output)))
+    (cl-loop for size from (min (1- (length prefix)) output-length) downto 1
+             when (string-suffix-p (substring prefix 0 size) output)
+             return (- output-length size))))
+
+(defun ai-code-backends-infra--note-program-status-output (process output)
+  "Read OSC 7501 program status from OUTPUT of PROCESS.
+For terminals that ignore OSC 7501.  The program's support query gets a
+reply, so programs that report only to a supporting terminal, such as
+Claude Code, do so.  Call this before the terminal reads OUTPUT, so the
+reply goes out before the terminal answers the device attributes request
+that follows the query.  Each change of the reported state updates the
+session's attention and response completion, even within one chunk, so
+a short turn reported as working then done still completes."
+  (let ((output (concat ai-code-backends-infra--program-status-pending output))
+        (shown (ai-code-backends-infra--program-status-state))
+        (start 0)
+        pending)
+    (while (and (not pending)
+                (setq start (string-search
+                             ai-code-backends-infra--program-status-prefix
+                             output start)))
+      (let* ((body-start (+ start (length ai-code-backends-infra--program-status-prefix)))
+             (end (string-match "[\a\e]" output body-start)))
+        (cond
+         ((null end) (setq pending (substring output start)))
+         ((and (eq (aref output end) ?\e) (= (1+ end) (length output)))
+          (setq pending (substring output start)))
+         ((or (eq (aref output end) ?\a) (eq (aref output (1+ end)) ?\\))
+          (let ((body (substring output body-start end)))
+            (if (string-prefix-p "?" body)
+                (when (process-live-p process)
+                  (process-send-string
+                   process ai-code-backends-infra--program-status-reply))
+              (when-let* ((report (ai-code-backends-infra--program-status-parse body)))
+                (ai-code-backends-infra--program-status-apply
+                 (car report) (cdr report))
+                (let ((state (ai-code-backends-infra--program-status-state)))
+                  (unless (eq state shown)
+                    (setq shown state)
+                    (ai-code-session-attention-note-program-state
+                     (current-buffer) state)
+                    (ai-code-backends-infra-note-busy-state
+                     (current-buffer) (eq state 'working)))))))
+          (setq start (if (eq (aref output end) ?\a) (1+ end) (+ end 2))))
+         ;; Another escape sequence cuts this one short.
+         (t (setq start end)))))
+    (setq ai-code-backends-infra--program-status-pending
+          (cond
+           ((null pending)
+            (if-let* ((tail (ai-code-backends-infra--program-status-pending-start
+                             output)))
+                (substring output tail)
+              ""))
+           ((> (length pending) ai-code-backends-infra--program-status-max-length) "")
+           (t pending)))))
 
 (defun ai-code-backends-infra--schedule-idle-check ()
   "Schedule a check for response completion after idle period.
@@ -414,12 +573,15 @@ The timer is reset only after meaningful output is observed."
         (>= (- (float-time) last) ai-code-backends-infra-idle-delay))))
 
 (defun ai-code-backends-infra--note-meaningful-output ()
-  "Record meaningful output and schedule idle tracking."
-  (setq ai-code-backends-infra--response-seen nil
-        ai-code-backends-infra--last-meaningful-output-time (float-time))
-  (ai-code-session-attention-clear (current-buffer) 'done)
-  (ai-code-session-attention-set-working (current-buffer) t)
-  (ai-code-backends-infra--schedule-idle-check))
+  "Record meaningful output and schedule idle tracking.
+Do nothing once the session reports its own busy state; see
+`ai-code-backends-infra-note-busy-state'."
+  (unless ai-code-backends-infra--busy-signal
+    (setq ai-code-backends-infra--response-seen nil
+          ai-code-backends-infra--last-meaningful-output-time (float-time))
+    (ai-code-session-attention-clear (current-buffer) 'done)
+    (ai-code-session-attention-set-working (current-buffer) t)
+    (ai-code-backends-infra--schedule-idle-check)))
 
 (defun ai-code-backends-infra--live-input-binding (command)
   "Return COMMAND unless the session terminal is in navigation mode.

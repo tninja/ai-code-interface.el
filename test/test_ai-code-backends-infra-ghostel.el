@@ -11,6 +11,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'ai-code-backends-infra-ghostel)
+(require 'ai-code-session-attention)
 
 (defvar ghostel-command-finish-functions)
 (defvar ghostel-command-start-functions)
@@ -1554,6 +1555,7 @@ text passed to linkification."
     (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
     (let (calls)
       (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-backends-infra-note-busy-state) #'ignore)
                 ((symbol-function 'ai-code-session-attention-set-working) #'ignore)
                 ((symbol-function 'ai-code-session-attention-resolve-waiting) #'ignore)
                 ((symbol-function 'ai-code-session-attention-mark)
@@ -1572,6 +1574,7 @@ text passed to linkification."
     (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
     (let (resolved)
       (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-backends-infra-note-busy-state) #'ignore)
                 ((symbol-function 'ai-code-session-attention-set-working) #'ignore)
                 ((symbol-function 'ai-code-session-attention-mark) #'ignore)
                 ((symbol-function 'ai-code-session-attention-clear) #'ignore)
@@ -1594,6 +1597,7 @@ text passed to linkification."
     (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
     (let (calls)
       (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-backends-infra-note-busy-state) #'ignore)
                 ((symbol-function 'ai-code-session-attention-mark) #'ignore)
                 ((symbol-function 'ai-code-session-attention-clear) #'ignore)
                 ((symbol-function 'ai-code-session-attention-resolve-waiting) #'ignore)
@@ -1603,6 +1607,32 @@ text passed to linkification."
           (setq-local ghostel-program-status (list (list "" :state state)))
           (ai-code-backends-infra-ghostel--program-status "" nil nil)))
       (should (equal (nreverse calls) '(nil nil t nil nil))))))
+
+(ert-deftest test-ai-code-backends-infra-ghostel-program-status-reports-busy-state ()
+  "Working is busy; any other state or a cleared record is idle.
+A cleared root record is how Ghostel maps OSC 9;4 remove, which Claude
+Code sends at the end of a turn."
+  (with-temp-buffer
+    (setq-local ai-code-backends-infra--session-terminal-backend 'ghostel)
+    (let (calls)
+      (cl-letf (((symbol-function 'ai-code-session-update-metadata) #'ignore)
+                ((symbol-function 'ai-code-session-attention-set-working) #'ignore)
+                ((symbol-function 'ai-code-session-attention-mark) #'ignore)
+                ((symbol-function 'ai-code-session-attention-clear) #'ignore)
+                ((symbol-function 'ai-code-session-attention-resolve-waiting) #'ignore)
+                ((symbol-function 'ai-code-backends-infra-note-busy-state)
+                 (lambda (buffer busy)
+                   (should (eq buffer (current-buffer)))
+                   (push (if busy 'busy 'idle) calls))))
+        (dolist (records '((("" :state working)) (("" :state blocked))
+                           (("" :state error)) (("" :state done))
+                           (("" :state idle)) nil))
+          (setq-local ghostel-program-status records)
+          (push (or (plist-get (cdar records) :state) 'cleared) calls)
+          (ai-code-backends-infra-ghostel--program-status "" nil nil)))
+      (should (equal (nreverse calls)
+                     '(working busy blocked idle error idle done idle
+                               idle idle cleared idle))))))
 
 (ert-deftest test-ai-code-backends-infra-ghostel-program-status-hook-preserves-handlers ()
   "New Ghostel status hooks should coexist with its UI and notification hooks."

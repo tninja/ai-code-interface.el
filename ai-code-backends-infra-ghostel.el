@@ -31,18 +31,14 @@ enabled by default because it widens the terminal's local resource access."
 
 (declare-function ai-code-backends-infra--configure-session-input-shortcuts
                   "ai-code-backends-infra" ())
-(declare-function ai-code-session-attention-mark
+(declare-function ai-code-session-attention-note-program-state
                   "ai-code-session-attention" (buffer state))
-(declare-function ai-code-session-attention-clear
-                  "ai-code-session-attention" (buffer &optional state))
-(declare-function ai-code-session-attention-set-working
-                  "ai-code-session-attention" (buffer working))
-(declare-function ai-code-session-attention-resolve-waiting
-                  "ai-code-session-attention" (buffer))
 (declare-function ai-code-backends-infra--install-navigation-cursor-sync
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-meaningful-output
                   "ai-code-backends-infra" ())
+(declare-function ai-code-backends-infra-note-busy-state
+                  "ai-code-backends-infra" (buffer busy))
 (declare-function ai-code-backends-infra--output-meaningful-p
                   "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--set-session-directory
@@ -365,6 +361,11 @@ EXIT-STATUS is the status reported by Ghostel, or nil when unavailable."
     ((or 'set 'indeterminate) 'running)
     (_ 'running)))
 
+(defun ai-code-backends-infra-ghostel--note-busy (busy)
+  "Report the current session as BUSY or idle to AI Code infra."
+  (when (fboundp 'ai-code-backends-infra-note-busy-state)
+    (ai-code-backends-infra-note-busy-state (current-buffer) busy)))
+
 (defun ai-code-backends-infra-ghostel--progress (state progress)
   "Record a Ghostel OSC 9;4 progress report and delegate to Ghostel.
 STATE and PROGRESS use the signature of `ghostel-progress-function'."
@@ -410,17 +411,12 @@ Leave presentation and notifications to Ghostel's existing handlers."
                                ('blocked 'paused)
                                ('error 'error)
                                (_ 'idle))))
-      (when (fboundp 'ai-code-session-attention-mark)
-        (ai-code-session-attention-set-working (current-buffer)
-                                               (eq state 'working))
-        (pcase state
-          ((or 'blocked 'error)
-           (ai-code-session-attention-mark (current-buffer) 'waiting))
-          ('working
-           (ai-code-session-attention-clear (current-buffer) 'waiting))
-          ;; done, idle, or a cleared record: the question is over, even
-          ;; though the agent never went back to working.
-          (_ (ai-code-session-attention-resolve-waiting (current-buffer))))))))
+      (when (fboundp 'ai-code-session-attention-note-program-state)
+        (ai-code-session-attention-note-program-state (current-buffer) state))
+      ;; The program reports when it works, so its repaints are not
+      ;; responses.  Leaving `working' for any state needs the user, a
+      ;; blocked one too; `waiting' above still wins over `done'.
+      (ai-code-backends-infra-ghostel--note-busy (eq state 'working)))))
 
 (defun ai-code-backends-infra-ghostel--install-lifecycle-hooks ()
   "Install Ghostel lifecycle hooks for the current AI Code session."
