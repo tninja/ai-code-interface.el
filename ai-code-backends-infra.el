@@ -155,6 +155,12 @@ being sent for the response completion.")
 (defvar-local ai-code-backends-infra--last-meaningful-output-time nil
   "Float timestamp of the most recent meaningful output.")
 
+(defvar-local ai-code-backends-infra--busy-signal nil
+  "Busy state the terminal reported for the session, or nil.
+nil means no report has arrived, so response completion falls back to
+output idleness.  Otherwise it is `busy' or `idle', as last reported
+through `ai-code-backends-infra-note-busy-state'.")
+
 (defvar-local ai-code-backends-infra--session-directory nil
   "Normalized working directory associated with the current session buffer.")
 
@@ -368,33 +374,65 @@ the current buffer is an AI session buffer, apply these transformations:
   "Return non-nil when BUFFER is visible in any live window."
   (and (get-buffer-window-list buffer nil t) t))
 
+(defun ai-code-backends-infra--response-complete (buffer)
+  "Handle a completed response in BUFFER.
+A visible BUFFER only marks the response as seen.  A hidden one is marked
+`done' and notifies once per response."
+  (with-current-buffer buffer
+    (if (ai-code-backends-infra--buffer-user-visible-p buffer)
+        (setq ai-code-backends-infra--response-seen t)
+      (when (not ai-code-backends-infra--response-seen)
+        (setq ai-code-backends-infra--response-seen t)
+        (ai-code-session-attention-mark buffer 'done)
+        (when (require 'ai-code-notifications nil t)
+          (when (fboundp 'ai-code-notifications-response-ready)
+            (let ((buffer-name (buffer-name buffer)))
+              ;; Extract backend name from buffer name format: *<backend>[<dir>]*
+              ;; Example: "*codex[my-project]*" extracts "codex"
+              ;; Regex breakdown:
+              ;;   \\*       - matches literal asterisk
+              ;;   \\(       - start capture group 1
+              ;;   [^[]+     - one or more chars that are not '['
+              ;;   \\)       - end capture group 1 (this is the backend name)
+              ;;   \\[       - matches literal '['
+              (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
+                (let ((backend-name (match-string 1 buffer-name)))
+                  (ai-code-notifications-response-ready backend-name))))))))))
+
 (defun ai-code-backends-infra--check-response-complete (buffer)
   "Check if AI response is complete in BUFFER and notify if enabled."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (if (ai-code-backends-infra--idle-delay-elapsed-p)
-          (let ((visible (ai-code-backends-infra--buffer-user-visible-p buffer)))
+          (progn
             (ai-code-session-attention-set-working buffer nil)
-            (if visible
-                (setq ai-code-backends-infra--response-seen t)
-              (when (not ai-code-backends-infra--response-seen)
-                (setq ai-code-backends-infra--response-seen t)
-                (ai-code-session-attention-mark buffer 'done)
-                (when (require 'ai-code-notifications nil t)
-                  (when (fboundp 'ai-code-notifications-response-ready)
-                    (let ((buffer-name (buffer-name buffer)))
-                      ;; Extract backend name from buffer name format: *<backend>[<dir>]*
-                      ;; Example: "*codex[my-project]*" extracts "codex"
-                      ;; Regex breakdown:
-                      ;;   \\*       - matches literal asterisk
-                      ;;   \\(       - start capture group 1
-                      ;;   [^[]+     - one or more chars that are not '['
-                      ;;   \\)       - end capture group 1 (this is the backend name)
-                      ;;   \\[       - matches literal '['
-                      (when (string-match "\\*\\([^[]+\\)\\[" buffer-name)
-                        (let ((backend-name (match-string 1 buffer-name)))
-                          (ai-code-notifications-response-ready backend-name)))))))))
+            (ai-code-backends-infra--response-complete buffer))
         (ai-code-backends-infra--schedule-idle-check)))))
+
+(defun ai-code-backends-infra-note-busy-state (buffer busy)
+  "Record that the session in BUFFER reported itself BUSY or idle.
+Terminal adapters call this when the program reports its own state, for
+example through OSC 9;4 progress or OSC 7501 program status.  From the
+first report on, response completion follows these reports and output
+idleness no longer counts: a repaint, such as the one after a focus
+event, is not a response.  A change from busy to idle completes the
+response; an idle report without a busy one before it does nothing."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when ai-code-backends-infra--idle-timer
+        (cancel-timer ai-code-backends-infra--idle-timer)
+        (setq ai-code-backends-infra--idle-timer nil))
+      (if busy
+          (progn
+            (setq ai-code-backends-infra--busy-signal 'busy
+                  ai-code-backends-infra--response-seen nil)
+            (ai-code-session-attention-clear buffer 'done)
+            (ai-code-session-attention-set-working buffer t))
+        (let ((was-busy (eq ai-code-backends-infra--busy-signal 'busy)))
+          (setq ai-code-backends-infra--busy-signal 'idle)
+          (ai-code-session-attention-set-working buffer nil)
+          (when was-busy
+            (ai-code-backends-infra--response-complete buffer)))))))
 
 (defun ai-code-backends-infra--schedule-idle-check ()
   "Schedule a check for response completion after idle period.
@@ -414,12 +452,15 @@ The timer is reset only after meaningful output is observed."
         (>= (- (float-time) last) ai-code-backends-infra-idle-delay))))
 
 (defun ai-code-backends-infra--note-meaningful-output ()
-  "Record meaningful output and schedule idle tracking."
-  (setq ai-code-backends-infra--response-seen nil
-        ai-code-backends-infra--last-meaningful-output-time (float-time))
-  (ai-code-session-attention-clear (current-buffer) 'done)
-  (ai-code-session-attention-set-working (current-buffer) t)
-  (ai-code-backends-infra--schedule-idle-check))
+  "Record meaningful output and schedule idle tracking.
+Do nothing once the session reports its own busy state; see
+`ai-code-backends-infra-note-busy-state'."
+  (unless ai-code-backends-infra--busy-signal
+    (setq ai-code-backends-infra--response-seen nil
+          ai-code-backends-infra--last-meaningful-output-time (float-time))
+    (ai-code-session-attention-clear (current-buffer) 'done)
+    (ai-code-session-attention-set-working (current-buffer) t)
+    (ai-code-backends-infra--schedule-idle-check)))
 
 (defun ai-code-backends-infra--live-input-binding (command)
   "Return COMMAND unless the session terminal is in navigation mode.

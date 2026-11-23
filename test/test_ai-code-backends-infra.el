@@ -711,6 +711,95 @@ The prefix argument should also force instance-name prompting."
         (ai-code-backends-infra--check-response-complete (current-buffer))
         (should (= notification-count 1))))))
 
+(defmacro test-ai-code-backends-infra--with-busy-signal-session (visible &rest body)
+  "Run BODY in a temporary session buffer shown when VISIBLE is non-nil.
+Bind `notifications' to the list of notified backend names and `marked'
+to the attention states set, both most recent first."
+  (declare (indent 1))
+  `(let ((notifications nil)
+         (marked nil))
+     (cl-letf (((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+                (lambda (_buffer) ,visible))
+               ((symbol-function 'ai-code-notifications-response-ready)
+                (lambda (&optional backend) (push backend notifications)))
+               ((symbol-function 'ai-code-session-attention-mark)
+                (lambda (_buffer state) (push state marked))))
+       (with-temp-buffer
+         (rename-buffer "*testbackend[test-dir]*" t)
+         ,@body))))
+
+(ert-deftest test-ai-code-backends-infra-busy-signal-ignores-repaint-output ()
+  "Once a session reports its busy state, a repaint is not a response.
+Regression test: a focus event made Claude Code repaint a hidden Ghostel
+session, and the idle timer then reported a finished response."
+  (test-ai-code-backends-infra--with-busy-signal-session nil
+    (let ((ai-code-backends-infra-idle-delay 0.05))
+      (ai-code-backends-infra-note-busy-state (current-buffer) t)
+      (ai-code-backends-infra-note-busy-state (current-buffer) nil)
+      (setq notifications nil marked nil)
+      (ai-code-backends-infra--note-meaningful-output)
+      (should-not ai-code-backends-infra--idle-timer)
+      (sleep-for 0.1)
+      (ai-code-backends-infra--check-response-complete (current-buffer))
+      (should-not notifications)
+      (should-not marked))))
+
+(ert-deftest test-ai-code-backends-infra-busy-signal-idle-notifies-once ()
+  "A hidden session going from busy to idle notifies once."
+  (test-ai-code-backends-infra--with-busy-signal-session nil
+    (ai-code-backends-infra-note-busy-state (current-buffer) t)
+    (should-not notifications)
+    (ai-code-backends-infra-note-busy-state (current-buffer) nil)
+    (should (equal notifications '("testbackend")))
+    (should (equal marked '(done)))
+    (ai-code-backends-infra-note-busy-state (current-buffer) nil)
+    (should (equal notifications '("testbackend")))
+    (ai-code-backends-infra-note-busy-state (current-buffer) t)
+    (ai-code-backends-infra-note-busy-state (current-buffer) nil)
+    (should (equal notifications '("testbackend" "testbackend")))))
+
+(ert-deftest test-ai-code-backends-infra-busy-signal-idle-visible-is-seen ()
+  "A visible session going from busy to idle is seen, not notified."
+  (test-ai-code-backends-infra--with-busy-signal-session t
+    (ai-code-backends-infra-note-busy-state (current-buffer) t)
+    (should-not ai-code-backends-infra--response-seen)
+    (ai-code-backends-infra-note-busy-state (current-buffer) nil)
+    (should ai-code-backends-infra--response-seen)
+    (should-not notifications)
+    (should-not marked)))
+
+(ert-deftest test-ai-code-backends-infra-busy-signal-idle-without-busy ()
+  "A first idle report completes nothing, but output no longer counts.
+Claude Code reports idle at startup; its startup screen is no response."
+  (test-ai-code-backends-infra--with-busy-signal-session nil
+    (let ((ai-code-backends-infra-idle-delay 60))
+      (ai-code-backends-infra--note-meaningful-output)
+      (let ((timer ai-code-backends-infra--idle-timer))
+        (should (timerp timer))
+        (ai-code-backends-infra-note-busy-state (current-buffer) nil)
+        (should-not ai-code-backends-infra--idle-timer)
+        (should-not (memq timer timer-list)))
+      (ai-code-backends-infra--note-meaningful-output)
+      (should-not ai-code-backends-infra--idle-timer)
+      (should-not notifications)
+      (should-not marked)
+      (should (eq ai-code-backends-infra--busy-signal 'idle)))))
+
+(ert-deftest test-ai-code-backends-infra-busy-signal-cancels-idle-timer ()
+  "A busy report replaces a pending idle check and marks the session working."
+  (let (working)
+    (cl-letf (((symbol-function 'ai-code-session-attention-set-working)
+               (lambda (_buffer value) (push value working))))
+      (with-temp-buffer
+        (let ((ai-code-backends-infra-idle-delay 60))
+          (ai-code-backends-infra--note-meaningful-output)
+          (let ((timer ai-code-backends-infra--idle-timer))
+            (should (timerp timer))
+            (ai-code-backends-infra-note-busy-state (current-buffer) t)
+            (should-not ai-code-backends-infra--idle-timer)
+            (should-not (memq timer timer-list))
+            (should (equal working '(t t)))))))))
+
 (ert-deftest test-ai-code-backends-infra-response-hidden-marks-attention-done ()
   "A response that completes while hidden marks the session as done."
   (let (marked)
