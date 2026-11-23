@@ -60,6 +60,30 @@
     (should (equal (ai-code-pi--startup-switches '("--tui-modes"))
                    '("--tui-modes" "--tui-mode" "regular")))))
 
+(ert-deftest ai-code-test-pi-startup-switches-stay-model-and-trust-neutral ()
+  "Default startup switches must not auto-inject Gemini or trust flags."
+  (let ((process-environment (cons "GEMINI_API_KEY=test-key"
+                                   process-environment))
+        (ai-code-pi-tui-mode 'regular)
+        (ai-code-pi-project-trust nil))
+    (should (equal (ai-code-pi--startup-switches nil)
+                   '("--tui-mode" "regular")))))
+
+(ert-deftest ai-code-test-pi-startup-switches-project-trust-and-precedence ()
+  "Project trust option should append flags unless switches already set trust."
+  (let ((ai-code-pi-tui-mode 'regular))
+    (let ((ai-code-pi-project-trust 'approve))
+      (should (equal (ai-code-pi--startup-switches '("--offline"))
+                     '("--offline" "--tui-mode" "regular" "--approve")))
+      (dolist (explicit '("-a" "--approve" "-na" "--no-approve"))
+        (should (equal (ai-code-pi--startup-switches (list explicit))
+                       (list explicit "--tui-mode" "regular")))))
+    (let ((ai-code-pi-project-trust 'no-approve))
+      (should (equal (ai-code-pi--startup-switches nil)
+                     '("--tui-mode" "regular" "--no-approve"))))
+    (let ((ai-code-pi-project-trust 'invalid))
+      (should-error (ai-code-pi--startup-switches nil)))))
+
 (ert-deftest ai-code-test-pi-resume-passes-tui-mode-after-resume ()
   "Pi resume should keep --resume and still apply the TUI mode."
   (let (captured-options)
@@ -133,6 +157,206 @@
         (should (equal (funcall prepare "/tmp/" '("pi"))
                        '(:argv ("pi" "--extension" "x.js"))))
         (should (equal captured-call '(pi "/tmp/" ("pi"))))))))
+
+(ert-deftest ai-code-test-pi-send-command-respects-busy-policy-and-follow-up ()
+  "Send commands should use Return for steer and Alt+Enter for followup."
+  ;; Loading `ai-code-pi' must not intern bare `follow-up' into `obarray',
+  ;; which would make `ai-code-session-link' linkify English prose "follow-up".
+  (should-not (intern-soft "follow-up"))
+  (let ((session-buffer (generate-new-buffer " *pi[test-send]*"))
+        sent-events
+        touched-buffers)
+    (unwind-protect
+        (with-temp-buffer
+          (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+                     (lambda (&optional _prompt) "/tmp/proj/"))
+                    ((symbol-function 'ai-code-backends-infra--resolve-session-buffer)
+                     (lambda (&rest _args) session-buffer))
+                    ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                     #'ignore)
+                    ((symbol-function 'ai-code-mcp-agent-refresh-source-context)
+                     #'ignore)
+                    ((symbol-function 'ai-code-mcp-agent-touch-session)
+                     (lambda (buf) (push buf touched-buffers)))
+                    ((symbol-function 'ai-code-session-note-prompt)
+                     #'ignore)
+                    ((symbol-function 'sit-for)
+                     #'ignore)
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (str &optional _paste)
+                       (push (cons 'string str) sent-events)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda ()
+                       (push '(return) sent-events))))
+            (let ((ai-code-pi-send-while-busy 'steer)
+                  (ai-code-pi-follow-up-sequence "\e[13;3u"))
+              (ai-code-pi-send-command "fix bug")
+              (should (equal (nreverse sent-events)
+                             '((string . "fix bug") (return))))
+              (setq sent-events nil
+                    touched-buffers nil)
+              (ai-code-pi-send-follow-up "queued item")
+              (should (equal (nreverse sent-events)
+                             '((string . "queued item")
+                               (string . "\e[13;3u"))))
+              (should (equal touched-buffers (list session-buffer))))
+            (setq sent-events nil
+                  touched-buffers nil)
+            (let ((ai-code-pi-send-while-busy 'followup)
+                  (ai-code-pi-follow-up-sequence "\e[13;3u"))
+              (ai-code-pi-send-command "next step")
+              (should (equal (nreverse sent-events)
+                             '((string . "next step")
+                               (string . "\e[13;3u"))))
+              (should (equal touched-buffers (list session-buffer))))
+            (let ((ai-code-pi-send-while-busy 'bogus))
+              (should-error (ai-code-pi-send-command "bad")
+                            :type 'user-error))))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer)))))
+
+(ert-deftest ai-code-test-pi-post-start-chains-mcp-and-binds-follow-up-key ()
+  "Pi startup should chain MCP post-start, bind M-RET, and wire viewport submit."
+  (let ((session-buffer (generate-new-buffer " *pi[test-post-start]*"))
+        captured-post-start
+        mcp-post-start-args
+        sent-events)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'ai-code-backends-infra--resolve-start-command)
+                     (lambda (program switches _arg _label)
+                       (list :argv (cons program switches))))
+                    ((symbol-function 'ai-code-backends-infra--session-working-directory)
+                     (lambda (&optional _prompt) "/tmp/proj/"))
+                    ((symbol-function 'ai-code-mcp-agent-prepare-launch)
+                     (lambda (_backend _dir argv)
+                       (list :argv argv
+                             :post-start-fn
+                             (lambda (buf proc inst)
+                               (setq mcp-post-start-args
+                                     (list buf proc inst))))))
+                    ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
+                     (lambda (&rest args)
+                       (setq captured-post-start (nth 11 args))))
+                    ((symbol-function 'ai-code-mcp-agent-touch-session)
+                     #'ignore)
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (str &optional _paste)
+                       (push (cons 'string str) sent-events)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda ()
+                       (push '(return) sent-events))))
+            (ai-code-pi-start)
+            (should (functionp captured-post-start))
+            (ai-code-backends-infra--configure-session-buffer
+             session-buffer #'ai-code-pi-send-escape "\e[13;2u")
+            (funcall captured-post-start session-buffer 'fake-proc "main")
+            (should (equal mcp-post-start-args
+                           (list session-buffer 'fake-proc "main")))
+            (with-current-buffer session-buffer
+              (should (eq (lookup-key (ai-code-backends-infra--session-keymap)
+                                      (kbd "M-<return>"))
+                          #'ai-code-pi-terminal-send-follow-up))
+              (let ((ai-code-pi-send-while-busy 'steer))
+                (funcall ai-code-editor-viewport--submit-function)
+                (should (equal sent-events '((return)))))
+              (setq sent-events nil)
+              (let ((ai-code-pi-send-while-busy 'followup)
+                    (ai-code-pi-follow-up-sequence "\e[13;3u"))
+                (funcall ai-code-editor-viewport--submit-function)
+                (should (equal sent-events '((string . "\e[13;3u"))))))))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer)))))
+
+(ert-deftest ai-code-test-pi-compose-sends-ctrl-g-and-refreshes-context ()
+  "Compose command should send Ctrl+G, refresh source context, and fail cleanly."
+  (let ((session-buffer (generate-new-buffer "*pi[proj]*"))
+        refreshed
+        touched
+        sent-in-buffer)
+    (unwind-protect
+        (progn
+          (with-current-buffer session-buffer
+            (setq-local ai-code-backends-infra--session-prefix "pi"))
+          (with-temp-buffer
+            (let ((source-buffer (current-buffer))
+                  (ai-code-pi-compose-sequence "\x07"))
+              (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+                         (lambda (&optional _prompt) "/tmp/proj/"))
+                        ((symbol-function 'ai-code-backends-infra--resolve-session-buffer)
+                         (lambda (_buf-name missing-msg &rest _rest)
+                           (or session-buffer (user-error "%s" missing-msg))))
+                        ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                         #'ignore)
+                        ((symbol-function 'ai-code-mcp-agent-refresh-source-context)
+                         (lambda (agent-buf src-buf)
+                           (push (list agent-buf src-buf) refreshed)))
+                        ((symbol-function 'ai-code-mcp-agent-touch-session)
+                         (lambda (buf) (push buf touched)))
+                        ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                         (lambda (str &optional _paste)
+                           (push (list (current-buffer) str) sent-in-buffer))))
+                (ai-code-pi-compose)
+                (should (equal refreshed
+                               (list (list session-buffer source-buffer))))
+                (should (equal touched (list session-buffer)))
+                (should (equal sent-in-buffer
+                               (list (list session-buffer "\x07"))))
+                ;; Invoking directly inside the Pi session buffer should not
+                ;; overwrite source context with the terminal buffer itself.
+                (setq refreshed nil
+                      touched nil
+                      sent-in-buffer nil)
+                (with-current-buffer session-buffer
+                  (ai-code-pi-compose))
+                (should-not refreshed)
+                (should (equal touched (list session-buffer)))
+                (should (equal sent-in-buffer
+                               (list (list session-buffer "\x07"))))
+                ;; Missing session should signal user-error.
+                (setq session-buffer nil)
+                (should-error (ai-code-pi-compose) :type 'user-error)))))
+      (when (and session-buffer (buffer-live-p session-buffer))
+        (kill-buffer session-buffer)))))
+
+(ert-deftest ai-code-test-pi-slash-command-normalizes-and-uses-standard-return ()
+  "Slash commands should prefix `/', reject blanks, and always use Return."
+  (let ((session-buffer (generate-new-buffer " *pi[test-slash]*"))
+        sent-events)
+    (unwind-protect
+        (with-temp-buffer
+          (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+                     (lambda (&optional _prompt) "/tmp/proj/"))
+                    ((symbol-function 'ai-code-backends-infra--resolve-session-buffer)
+                     (lambda (&rest _args) session-buffer))
+                    ((symbol-function 'ai-code-backends-infra--remember-session-buffer)
+                     #'ignore)
+                    ((symbol-function 'ai-code-mcp-agent-refresh-source-context)
+                     #'ignore)
+                    ((symbol-function 'ai-code-session-note-prompt)
+                     #'ignore)
+                    ((symbol-function 'sit-for)
+                     #'ignore)
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-string)
+                     (lambda (str &optional _paste)
+                       (push (cons 'string str) sent-events)))
+                    ((symbol-function 'ai-code-backends-infra--terminal-send-return)
+                     (lambda ()
+                       (push '(return) sent-events))))
+            (let ((ai-code-pi-send-while-busy 'followup))
+              (ai-code-pi-slash-command "model")
+              (should (equal (nreverse sent-events)
+                             '((string . "/model") (return))))
+              (setq sent-events nil)
+              (ai-code-pi-slash-command "  /compact focus  ")
+              (should (equal (nreverse sent-events)
+                             '((string . "/compact focus") (return))))
+              (setq sent-events nil)
+              (should-error (ai-code-pi-slash-command "   ")
+                            :type 'user-error)
+              (should-not sent-events))))
+      (when (buffer-live-p session-buffer)
+        (kill-buffer session-buffer)))))
 
 (provide 'test_ai-code-pi)
 

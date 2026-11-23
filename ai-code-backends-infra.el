@@ -1749,6 +1749,16 @@ PREFIX, COMMAND, and WORKING-DIR identify the failed launch."
         (format "Failed to clean up CLI launch resources: %s"
                 (error-message-string err)))))))
 
+(defun ai-code-backends-infra--compose-post-start-fns (first second)
+  "Return a post-start function calling FIRST then SECOND when non-nil."
+  (cond
+   ((and first second)
+    (lambda (buffer process instance-name)
+      (funcall first buffer process instance-name)
+      (funcall second buffer process instance-name)))
+   (first first)
+   (t second)))
+
 (defun ai-code-backends-infra--start-cli-session (options arg)
   "Start a generic CLI session described by OPTIONS and prefix ARG.
 When ARG is non-nil, prompt for CLI args, working directory, and
@@ -1764,6 +1774,8 @@ session buffer.
 :env-vars is an optional list of environment variable strings.
 :multiline-input-sequence is an optional terminal sequence for
 multiline input.
+:post-start-fn is an optional function called with (BUFFER PROCESS
+INSTANCE-NAME) after session creation.
 :prepare-launch is an optional function called with (WORKING-DIR ARGV).
 When :prepare-launch is present, it may return :argv, :env-vars,
 :cleanup-fn, and :post-start-fn entries to customize session creation.
@@ -1789,7 +1801,10 @@ A legacy :command entry is normalized to argv for compatibility."
                argv)))
          (launch-env-vars (plist-get launch :env-vars))
          (cleanup-fn (plist-get launch :cleanup-fn))
-         (post-start-fn (plist-get launch :post-start-fn)))
+         (post-start-fn
+          (ai-code-backends-infra--compose-post-start-fns
+           (plist-get launch :post-start-fn)
+           (plist-get options :post-start-fn))))
     (let ((ai-code-backends-infra--launch-program
            (plist-get options :program)))
       (ai-code-backends-infra--toggle-or-create-session
@@ -2047,6 +2062,9 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
           (select-window window))
       (ai-code-backends-infra--display-buffer-in-side-window buffer))))
 
+(defvar ai-code-backends-infra--submit-return-function nil
+  "Optional function called instead of Return when submitting a prompt.")
+
 (defun ai-code-backends-infra--submit-prompt (buffer prompt &optional source-buffer)
   "Submit PROMPT to the already chosen terminal BUFFER.
 Refresh MCP context from SOURCE-BUFFER, defaulting to the current buffer,
@@ -2066,7 +2084,8 @@ Return result.  This does not select a target or change window display."
           (ai-code-backends-infra--terminal-send-string prompt))
         ;; Shorter delays can lose submissions in some CLI backends.
         (sit-for 0.5)
-        (ai-code-backends-infra--terminal-send-return))
+        (funcall (or ai-code-backends-infra--submit-return-function
+                     #'ai-code-backends-infra--terminal-send-return)))
     (ai-code-session-note-prompt buffer prompt)
     (setq ai-code-backends-infra--last-accessed-buffer buffer)))
 
