@@ -904,13 +904,44 @@ BEL and ST both end a report; a repeated state is noted once."
     (should-not states)))
 
 (ert-deftest test-ai-code-backends-infra-program-status-caps-records ()
-  "Retain at most `ai-code-backends-infra--program-status-max-records' entries."
+  "Retain at most `ai-code-backends-infra--program-status-max-records' entries while preserving root."
   (test-ai-code-backends-infra--with-program-status-session
     (let ((ai-code-backends-infra--program-status-max-records 4))
       (dotimes (i 6)
         (funcall feed (format "\e]7501;state=working:id=task-%d\a" i)))
       (should (equal (mapcar #'car ai-code-backends-infra--program-status-records)
-                     '("task-5" "task-4" "task-3" "task-2"))))))
+                     '("task-5" "task-4" "task-3" "task-2")))))
+  ;; Evicting child records must not drop an active root record or flip tab-bar badge / notifications.
+  (let ((ai-code-session--sessions (make-hash-table :test 'equal))
+        (ai-code-backends-infra--program-status-max-records 4)
+        (notifications nil)
+        (buffer (get-buffer-create "*claude[test-root-cap]*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'process-live-p) (lambda (_process) t))
+                  ((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+                   (lambda (_buffer) nil))
+                  ((symbol-function 'ai-code-notifications-response-ready)
+                   (lambda (&optional backend) (push backend notifications))))
+          (let ((session (ai-code-session-register
+                          :buffer buffer :backend 'claude :repo-root "/tmp/proj"
+                          :metadata '(:status "running"))))
+            (with-current-buffer buffer
+              (ai-code-backends-infra--note-program-status-output
+               'fake-process "\e]7501;state=working\a")
+              (should (eq (ai-code-session-attention--display-state session) 'working))
+              (dotimes (i 6)
+                (ai-code-backends-infra--note-program-status-output
+                 'fake-process (format "\e]7501;state=working:id=task-%d\a" i)))
+              (should (equal (mapcar #'car ai-code-backends-infra--program-status-records)
+                             '("task-5" "task-4" "task-3" "")))
+              (should (eq (ai-code-session-attention--display-state session) 'working))
+              (should-not notifications)
+              (ai-code-backends-infra--note-program-status-output
+               'fake-process "\e]7501;state=done\a")
+              (should (eq (ai-code-session-attention--display-state session) 'done))
+              (should (equal notifications '("claude"))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-vterm-notification-tracker-reads-program-status ()
   "Vterm session output is read for OSC 7501 before vterm renders it."

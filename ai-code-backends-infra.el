@@ -497,9 +497,10 @@ an invalid id is ignored, as the protocol requires."
   "Apply the OSC 7501 report of STATE for record ID to the current session.
 `clear' removes the record and the records below it; for the root record
 that is every record.  Retain at most
-`ai-code-backends-infra--program-status-max-records' records, dropping
-the least recently updated entries first."
-  (let* ((records (cl-remove-if
+`ai-code-backends-infra--program-status-max-records' records, preserving
+the root record while dropping the least recently updated child entries."
+  (let* ((max-records ai-code-backends-infra--program-status-max-records)
+         (records (cl-remove-if
                    (lambda (entry)
                      (or (string= (car entry) id)
                          (and (eq state 'clear)
@@ -508,8 +509,13 @@ the least recently updated entries first."
                    ai-code-backends-infra--program-status-records))
          (updated (if (eq state 'clear) records (cons (cons id state) records))))
     (setq ai-code-backends-infra--program-status-records
-          (if (> (length updated) ai-code-backends-infra--program-status-max-records)
-              (seq-take updated ai-code-backends-infra--program-status-max-records)
+          (if (> (length updated) max-records)
+              (let ((kept (seq-take updated max-records))
+                    (root (assoc "" updated)))
+                (if (or (null root) (assoc "" kept))
+                    kept
+                  (append (seq-take updated (max 0 (1- max-records)))
+                          (list root))))
             updated))))
 
 (defun ai-code-backends-infra--program-status-state ()
