@@ -867,6 +867,8 @@ BEL and ST both end a report; a repeated state is noted once."
     (funcall feed "\e]7501;")
     (funcall feed "?\a")
     (should (equal replies '("\e]7501;?\e\\" "\e]7501;?\e\\")))
+    (funcall feed "\e]7501;?:states=idle,working,done,blocked,error\e\\")
+    (should (equal replies '("\e]7501;?\e\\" "\e]7501;?\e\\")))
     (should-not states)))
 
 (ert-deftest test-ai-code-backends-infra-program-status-blocked-child-wins ()
@@ -884,15 +886,62 @@ BEL and ST both end a report; a repeated state is noted once."
     (should-not ai-code-backends-infra--program-status-records)))
 
 (ert-deftest test-ai-code-backends-infra-program-status-ignores-invalid ()
-  "Unknown states, invalid ids and cut-off sequences change nothing."
+  "Unknown states, invalid ids, oversized reports and cut-off sequences change nothing."
   (test-ai-code-backends-infra--with-program-status-session
     (funcall feed "\e]7501;state=thinking\a")
     (funcall feed "\e]7501;state=working:id=bad id\a")
+    (funcall feed "\e]7501;state=working:id=bad\nid\a")
+    (funcall feed (concat "\e]7501;state=working:id="
+                          (mapconcat (lambda (_) (make-string 32 ?a))
+                                     (number-sequence 1 5) "/")
+                          "\a"))
     (funcall feed "\e]7501;state=working\e[0m\a")
+    (funcall feed (concat "\e]7501;state=working:msg=" (make-string 5000 ?A) "\a"))
     (should-not states)
+    (should-not ai-code-backends-infra--program-status-records)
     (funcall feed (concat "\e]7501;msg=" (make-string 5000 ?A)))
     (should (equal ai-code-backends-infra--program-status-pending ""))
     (should-not states)))
+
+(ert-deftest test-ai-code-backends-infra-program-status-caps-records ()
+  "Retain at most `ai-code-backends-infra--program-status-max-records' entries while preserving root."
+  (test-ai-code-backends-infra--with-program-status-session
+    (let ((ai-code-backends-infra--program-status-max-records 4))
+      (dotimes (i 6)
+        (funcall feed (format "\e]7501;state=working:id=task-%d\a" i)))
+      (should (equal (mapcar #'car ai-code-backends-infra--program-status-records)
+                     '("task-5" "task-4" "task-3" "task-2")))))
+  ;; Evicting child records must not drop an active root record or flip tab-bar badge / notifications.
+  (let ((ai-code-session--sessions (make-hash-table :test 'equal))
+        (ai-code-backends-infra--program-status-max-records 4)
+        (notifications nil)
+        (buffer (get-buffer-create "*claude[test-root-cap]*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'process-live-p) (lambda (_process) t))
+                  ((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+                   (lambda (_buffer) nil))
+                  ((symbol-function 'ai-code-notifications-response-ready)
+                   (lambda (&optional backend) (push backend notifications))))
+          (let ((session (ai-code-session-register
+                          :buffer buffer :backend 'claude :repo-root "/tmp/proj"
+                          :metadata '(:status "running"))))
+            (with-current-buffer buffer
+              (ai-code-backends-infra--note-program-status-output
+               'fake-process "\e]7501;state=working\a")
+              (should (eq (ai-code-session-attention--display-state session) 'working))
+              (dotimes (i 6)
+                (ai-code-backends-infra--note-program-status-output
+                 'fake-process (format "\e]7501;state=working:id=task-%d\a" i)))
+              (should (equal (mapcar #'car ai-code-backends-infra--program-status-records)
+                             '("task-5" "task-4" "task-3" "")))
+              (should (eq (ai-code-session-attention--display-state session) 'working))
+              (should-not notifications)
+              (ai-code-backends-infra--note-program-status-output
+               'fake-process "\e]7501;state=done\a")
+              (should (eq (ai-code-session-attention--display-state session) 'done))
+              (should (equal notifications '("claude"))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest test-ai-code-backends-infra-vterm-notification-tracker-reads-program-status ()
   "Vterm session output is read for OSC 7501 before vterm renders it."
@@ -1520,6 +1569,60 @@ BEL and ST both end a report; a repeated state is noted once."
           (should (equal (nreverse events)
                          '((status eat-proc "\e]7501;?\a\e[c")
                            (render "\e]7501;?\a\e[c")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-eat-create-session-resets-program-status-state ()
+  "Reusing an Eat buffer clears stale OSC 7501 and busy state from earlier runs."
+  (let* ((buffer-name "*claude[test-eat-reuse-reset]*")
+         (buffer (get-buffer-create buffer-name))
+         (wrapped-filter nil)
+         (notifications nil)
+         (attention-calls nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'eat-mode) #'ignore)
+                  ((symbol-function 'eat-exec) #'ignore)
+                  ((symbol-function 'get-buffer-process)
+                   (lambda (_buffer) 'eat-proc))
+                  ((symbol-function 'process-live-p) (lambda (_process) t))
+                  ((symbol-function 'process-filter)
+                   (lambda (_process) #'ignore))
+                  ((symbol-function 'set-process-filter)
+                   (lambda (_process filter) (setq wrapped-filter filter)))
+                  ((symbol-function 'ai-code-backends-infra--buffer-user-visible-p)
+                   (lambda (_buffer) nil))
+                  ((symbol-function 'ai-code-notifications-response-ready)
+                   (lambda (&optional backend) (push backend notifications)))
+                  ((symbol-function 'ai-code-session-attention-note-program-state)
+                   (lambda (_buffer state) (push state attention-calls)))
+                  ((symbol-function 'ai-code-session-link--linkify-recent-output)
+                   #'ignore))
+          (with-current-buffer buffer
+            (setq-local major-mode 'eat-mode))
+          (ai-code-backends-infra-eat-create-session
+           buffer-name default-directory '("claude") nil)
+          (funcall wrapped-filter 'eat-proc "\e]7501;state=working\a")
+          (funcall wrapped-filter 'eat-proc "\e]7501;state=blocked:id=tool/1\a")
+          (funcall wrapped-filter 'eat-proc "\e]7501;state=wor")
+          (with-current-buffer buffer
+            ;; Simulate a crash while busy with stale blocked child + pending tail.
+            (setq ai-code-backends-infra--busy-signal 'busy))
+          (setq notifications nil
+                attention-calls nil)
+          ;; Reuse the same Eat buffer for a new process.
+          (ai-code-backends-infra-eat-create-session
+           buffer-name default-directory '("claude") nil)
+          (with-current-buffer buffer
+            (should-not ai-code-backends-infra--busy-signal)
+            (should-not ai-code-backends-infra--program-status-records)
+            (should (equal ai-code-backends-infra--program-status-pending "")))
+          ;; Startup idle does not notify spuriously; working -> done works cleanly.
+          (funcall wrapped-filter 'eat-proc "\e]7501;state=idle\a")
+          (should-not notifications)
+          (funcall wrapped-filter 'eat-proc "\e]7501;state=working\a")
+          (funcall wrapped-filter 'eat-proc "\e]7501;state=done\a")
+          (should (equal (nreverse attention-calls) '(idle working done)))
+          (should (equal notifications '("claude"))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

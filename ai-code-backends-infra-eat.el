@@ -26,6 +26,8 @@ a more stable viewing experience when working with multiple windows."
                   "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--note-program-status-output
                   "ai-code-backends-infra" (process output))
+(declare-function ai-code-backends-infra--reset-program-status-state
+                  "ai-code-backends-infra" ())
 (declare-function ai-code-backends-infra--output-meaningful-p
                   "ai-code-backends-infra" (output))
 (declare-function ai-code-backends-infra--set-session-directory
@@ -143,6 +145,7 @@ ENV-VARS are extra environment variables for the terminal process."
       (setq-local default-directory working-dir)
       (setq-local ai-code-backends-infra--session-terminal-backend 'eat)
       (unless (derived-mode-p 'eat-mode) (eat-mode))
+      (ai-code-backends-infra--reset-program-status-state)
       (when ai-code-backends-infra-eat-preserve-position
         (setq-local eat--synchronize-scroll-function
                     #'ai-code-backends-infra--eat-terminal-position-keeper))
