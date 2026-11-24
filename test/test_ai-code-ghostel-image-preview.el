@@ -1187,5 +1187,180 @@ pull point back into the old view, undoing the jump."
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest test-ai-code-ghostel-image-preview--nonidentical-rebuild-on-blank-row-keeps-position ()
+  "A non-identical rebuild when starting on a blank row must not jump to top."
+  (let ((buffer (generate-new-buffer " *ghostel blank row rebuild test*"))
+        saved-start)
+    (unwind-protect
+        (save-window-excursion
+          (set-window-buffer (selected-window) buffer)
+          (with-current-buffer buffer
+            (insert "\nWarning: status\n\n")
+            (dotimes (index 250)
+              (insert (if (zerop (% index 5))
+                          "    \n"
+                        (format "terminal row %03d\n" index))))
+            (goto-char (point-min))
+            (forward-line 153)
+            (setq saved-start (point)))
+          (set-window-start (selected-window) saved-start)
+          (set-window-point (selected-window) saved-start)
+          (cl-letf (((symbol-function
+                      'ai-code-ghostel-image-preview--window-pixel-anchor-state)
+                     (lambda (_window) 'preserve)))
+            (ai-code-ghostel-image-preview--call-atomic
+             buffer
+             (lambda ()
+               (with-current-buffer buffer
+                 (let ((old (buffer-string)))
+                   (erase-buffer)
+                   (insert "\nWarning: status\nextra line\n\n"
+                           (substring old 17)))))))
+          (let ((expected
+                 (with-current-buffer buffer
+                   (goto-char (min saved-start (point-max)))
+                   (line-beginning-position))))
+            (should (> (window-start (selected-window)) (point-min)))
+            (should (= (window-start (selected-window)) expected))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--nonidentical-rebuild-tracks-shifted-row ()
+  "A non-identical rebuild should follow a shifted non-blank row near start."
+  (let ((buffer (generate-new-buffer " *ghostel shifted rebuild test*"))
+        target-start)
+    (unwind-protect
+        (save-window-excursion
+          (set-window-buffer (selected-window) buffer)
+          (with-current-buffer buffer
+            (insert "=== Section ===\n")
+            (dotimes (index 300)
+              (insert (if (= index 150)
+                          "=== Section ===\n"
+                        (format "terminal row %03d\n" index))))
+            (goto-char (point-min))
+            (forward-line 151)
+            (setq target-start (point)))
+          (set-window-start (selected-window) target-start)
+          (set-window-point (selected-window) target-start)
+          (cl-letf (((symbol-function
+                      'ai-code-ghostel-image-preview--window-pixel-anchor-state)
+                     (lambda (_window) 'preserve)))
+            (ai-code-ghostel-image-preview--call-atomic
+             buffer
+             (lambda ()
+               (with-current-buffer buffer
+                 (let ((old (buffer-string)))
+                   (erase-buffer)
+                   (insert "=== Section ===\n")
+                   (dotimes (extra 12)
+                     (insert (format "inserted above %02d\n" extra)))
+                   (insert (substring old 16)))))))
+          (let ((shifted-section
+                 (with-current-buffer buffer
+                   (goto-char (point-min))
+                   (forward-line 1)
+                   (search-forward "=== Section ===")
+                   (line-beginning-position))))
+            (should (> (window-start (selected-window)) 1000))
+            (should (= (window-start (selected-window)) shifted-section))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--shrunk-rebuild-anchors-instead-of-jumping-top ()
+  "A rebuild shrinking below saved start should anchor near bottom, not top."
+  (let ((buffer (generate-new-buffer " *ghostel shrunk rebuild test*"))
+        saved-start anchored)
+    (unwind-protect
+        (save-window-excursion
+          (set-window-buffer (selected-window) buffer)
+          (with-current-buffer buffer
+            (insert "\n")
+            (dotimes (index 300)
+              (insert (if (= index 280)
+                          "\n"
+                        (format "terminal row %03d\n" index))))
+            (goto-char (point-min))
+            (forward-line 281)
+            (setq saved-start (point)))
+          (set-window-start (selected-window) saved-start)
+          (set-window-point (selected-window) saved-start)
+          (cl-letf (((symbol-function
+                      'ai-code-ghostel-image-preview--window-pixel-anchor-state)
+                     (lambda (_window) 'preserve))
+                    ((symbol-function
+                      'ai-code-ghostel-image-preview--anchor-window)
+                     (lambda (window)
+                       (setq anchored t)
+                       (with-current-buffer (window-buffer window)
+                         (goto-char (point-max))
+                         (forward-line -20)
+                         (set-window-start window (point))))))
+            (ai-code-ghostel-image-preview--call-atomic
+             buffer
+             (lambda ()
+               (with-current-buffer buffer
+                 (erase-buffer)
+                 (insert "\n")
+                 (dotimes (index 180)
+                   (insert (format "shrunk row %03d\n" index)))))))
+          (should anchored)
+          (should (> (window-start (selected-window)) (point-min)))
+          (should (< (window-start (selected-window))
+                     (with-current-buffer buffer (point-max)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-ghostel-image-preview--rebuild-keeps-preserved-window-point-in-view ()
+  "Wrapped redraws must keep `window-point' in view when rebuilding scrollback."
+  (dolist (collapsed-target '(min max))
+    (let ((buffer (generate-new-buffer " *ghostel preserved point test*"))
+          start point-offset)
+      (unwind-protect
+          (save-window-excursion
+            (set-window-buffer (selected-window) buffer)
+            (with-current-buffer buffer
+              (insert "\n")
+              (dotimes (index 300)
+                (insert (format "terminal row %03d\n" index)))
+              (setq-local ai-code-ghostel-image-preview-mode t)
+              (goto-char (point-min))
+              (forward-line 151)
+              (setq start (point)
+                    point-offset 22))
+            (set-window-start (selected-window) start)
+            (set-window-point (selected-window) (+ start point-offset))
+            (cl-letf (((symbol-function
+                        'ai-code-ghostel-image-preview--window-pixel-anchor-state)
+                       (lambda (_window) 'preserve))
+                      ((symbol-function
+                        'ai-code-ghostel-image-preview--preview-layout-changed-p)
+                       (lambda (_state) nil))
+                      ((symbol-function
+                        'ai-code-ghostel-image-preview--refresh-render-region)
+                       #'ignore))
+              (ai-code-ghostel-image-preview--redraw-now-around
+               (lambda (target &rest _args)
+                 (with-current-buffer target
+                   (let ((old (buffer-string)))
+                     (erase-buffer)
+                     (insert "\ninserted line\n" (substring old 1)))
+                   (set-window-point (selected-window)
+                                     (if (eq collapsed-target 'min)
+                                         (point-min)
+                                       (point-max)))))
+               buffer))
+            (let ((expected-start
+                   (with-current-buffer buffer
+                     (save-excursion
+                       (goto-char (point-min))
+                       (search-forward "terminal row 150")
+                       (line-beginning-position)))))
+              (should (= (window-start (selected-window)) expected-start))
+              (should (= (window-point (selected-window))
+                         (+ expected-start point-offset)))))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
 (provide 'test-ai-code-ghostel-image-preview)
 ;;; test_ai-code-ghostel-image-preview.el ends here
