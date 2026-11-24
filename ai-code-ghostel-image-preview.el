@@ -115,6 +115,9 @@ ordinary pixel-scroll command."
 (defconst ai-code-ghostel-image-preview--start-row-text-limit 200
   "Maximum characters compared to recognize a window's first row.")
 
+(defconst ai-code-ghostel-image-preview--start-row-search-radius 4096
+  "Maximum character distance searched around a saved start after a rebuild.")
+
 (defvar-local ai-code-ghostel-image-preview--captured-sources nil
   "Recent temporary image source plists captured from process output.")
 
@@ -707,21 +710,83 @@ treating it as following would snap it to the bottom on every redraw."
        (string= (ai-code-ghostel-image-preview--start-row-text position)
                 text)))
 
+(defun ai-code-ghostel-image-preview--blank-row-text-p (text)
+  "Return non-nil when row TEXT is empty or whitespace-only."
+  (and (stringp text)
+       (string-match-p "\\`[ \t\r\n]*\\'" text)))
+
+(defun ai-code-ghostel-image-preview--find-nearby-start-row (position text)
+  "Find the row nearest POSITION within search radius whose start reads TEXT."
+  (let ((low (max (point-min)
+                  (- position
+                     ai-code-ghostel-image-preview--start-row-search-radius)))
+        (high (min (point-max)
+                   (+ position
+                      ai-code-ghostel-image-preview--start-row-search-radius)))
+        best
+        best-distance)
+    (save-excursion
+      (goto-char low)
+      (beginning-of-line)
+      (while (and (< (point) (point-max))
+                  (<= (point) high))
+        (let ((candidate (point)))
+          (when (ai-code-ghostel-image-preview--start-row-at-p candidate text)
+            (let ((distance (abs (- candidate position))))
+              (when (or (null best-distance) (< distance best-distance))
+                (setq best candidate
+                      best-distance distance)))))
+        (forward-line 1)))
+    best))
+
+(defun ai-code-ghostel-image-preview--state-rebuilt-p (state)
+  "Return non-nil when markers in STATE collapsed to `point-min' on rebuild."
+  (let ((start-marker (marker-position (plist-get state :start)))
+        (start-pos (plist-get state :start-position))
+        (point-marker (marker-position (plist-get state :point)))
+        (point-pos (plist-get state :point-position)))
+    (or (and (integerp start-pos)
+             (> start-pos (point-min))
+             (eql start-marker (point-min)))
+        (and (integerp point-pos)
+             (> point-pos (point-min))
+             (eql point-marker (point-min))))))
+
 (defun ai-code-ghostel-image-preview--saved-window-start (state)
   "Return the window start saved in STATE, in the current buffer.
 The start marker follows edits before it, such as evicted scrollback.
 Ghostel's renderer instead erases and rebuilds the whole buffer on a
 scrollback clear, resize, or screen switch, which collapses the marker to
-`point-min'.  When the marker no longer starts on the saved row, prefer
-the saved position, which still does after an identical rebuild."
+`point-min'.  When the marker collapsed, prefer `position' on an identical
+rebuild, search a bounded neighborhood around `position' for a shifted
+non-blank row, and never match blank separator rows against `point-min'."
   (let ((marker (marker-position (plist-get state :start)))
         (position (plist-get state :start-position))
         (text (plist-get state :start-text)))
     (cond
      ((or (null marker) (eql marker position)) marker)
+     ((and (> marker (point-min))
+           (ai-code-ghostel-image-preview--start-row-at-p marker text))
+      marker)
      ((ai-code-ghostel-image-preview--start-row-at-p position text) position)
-     ((ai-code-ghostel-image-preview--start-row-at-p marker text) marker)
-     (t (min position (point-max))))))
+     ((and (not (ai-code-ghostel-image-preview--blank-row-text-p text))
+           (ai-code-ghostel-image-preview--find-nearby-start-row
+            position text)))
+     (t
+      (save-excursion
+        (goto-char (min position (point-max)))
+        (line-beginning-position))))))
+
+(defun ai-code-ghostel-image-preview--saved-window-point (state window)
+  "Return the window point to restore for STATE in WINDOW."
+  (let ((marker-pos (marker-position (plist-get state :point))))
+    (if (or (eq (plist-get state :intent) 'following)
+            (not (ai-code-ghostel-image-preview--state-rebuilt-p state)))
+        marker-pos
+      (let ((offset (max 0 (or (plist-get state :point-offset) 0))))
+        (min (point-max)
+             (max (point-min)
+                  (+ (window-start window) offset)))))))
 
 (defun ai-code-ghostel-image-preview--capture-window-state (window)
   "Capture semantic and pixel state for WINDOW."
@@ -733,12 +798,15 @@ the saved position, which still does after an identical rebuild."
            'following)
           (t
            (ai-code-ghostel-image-preview--window-pixel-anchor-state window))))
-        (start (window-start window)))
+        (start (window-start window))
+        (point (window-point window)))
     (list :window window
           :start (copy-marker start)
           :start-position start
           :start-text (ai-code-ghostel-image-preview--start-row-text start)
-          :point (copy-marker (window-point window))
+          :point (copy-marker point)
+          :point-position point
+          :point-offset (- point start)
           :vscroll (window-vscroll window t)
           ;; Only following windows use this extent check.  Avoid traversing
           ;; a large scrollback tail for a window the user asked us to freeze.
@@ -815,17 +883,23 @@ LAYOUT-CHANGED is non-nil when preview geometry changed semantically."
            ;; different pixel offset and create the visible 2-3px shimmer.
            (ai-code-ghostel-image-preview--restore-exact-window-state state)))
         (_
-         (ai-code-ghostel-image-preview--restore-exact-window-state state)))
+         (if (and (ai-code-ghostel-image-preview--state-rebuilt-p state)
+                  (> (plist-get state :start-position) (point-max)))
+             (ai-code-ghostel-image-preview--anchor-window window)
+           (ai-code-ghostel-image-preview--restore-exact-window-state state))))
       ;; Set the point after geometry restoration because the pixel-anchor
       ;; fallback temporarily moves point while calculating WINDOW's start.
-      (when-let* ((point (marker-position (plist-get state :point))))
+      (when-let* ((point
+                   (ai-code-ghostel-image-preview--saved-window-point
+                    state window)))
         (set-window-point window point)))))
 
 (defun ai-code-ghostel-image-preview--capture-final-window-points (states)
-  "Retarget window point markers in STATES to their current positions."
+  "Retarget window point markers in following STATES to current positions."
   (dolist (state states)
     (let ((window (plist-get state :window)))
-      (when (and (window-live-p window)
+      (when (and (eq (plist-get state :intent) 'following)
+                 (window-live-p window)
                  (eq (window-buffer window) (current-buffer)))
         (when-let* ((marker (plist-get state :point))
                     ((markerp marker)))
