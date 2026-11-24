@@ -158,6 +158,26 @@
                        '(:argv ("pi" "--extension" "x.js"))))
         (should (equal captured-call '(pi "/tmp/" ("pi"))))))))
 
+(ert-deftest ai-code-test-pi-default-follow-up-sequence-matches-pi-platform-keys ()
+  "Follow-up should use Ctrl+Q where Pi uses Windows keybindings."
+  (let ((process-environment
+         (cl-remove-if (lambda (entry)
+                         (string-match-p "\\`WSL_\\(?:DISTRO_NAME\\|INTEROP\\)="
+                                         entry))
+                       process-environment)))
+    (should (equal (ai-code-pi--default-follow-up-sequence 'darwin)
+                   "\e[13;3u"))
+    (should (equal (ai-code-pi--default-follow-up-sequence 'gnu/linux)
+                   "\e[13;3u"))
+    (should (equal (ai-code-pi--default-follow-up-sequence 'windows-nt)
+                   "\x11"))
+    (dolist (var '("WSL_DISTRO_NAME" "WSL_INTEROP"))
+      (let ((process-environment (cons (concat var "=x") process-environment)))
+        (should (equal (ai-code-pi--default-follow-up-sequence 'gnu/linux)
+                       "\x11"))
+        (should (equal (ai-code-pi--default-follow-up-sequence 'darwin)
+                       "\e[13;3u"))))))
+
 (ert-deftest ai-code-test-pi-send-command-respects-busy-policy-and-follow-up ()
   "Send commands should use Return for steer and Alt+Enter for followup."
   ;; Loading `ai-code-pi' must not intern bare `follow-up' into `obarray',

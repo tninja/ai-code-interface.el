@@ -62,10 +62,22 @@ prompt.  `approve' passes `--approve' and `no-approve' passes
                         no-approve))
   :group 'ai-code-pi)
 
-(defcustom ai-code-pi-follow-up-sequence "\e[13;3u"
-  "Terminal sequence Pi recognizes as Alt+Enter to submit or queue a follow-up.
-In Pi, Alt+Enter submits immediately when idle and queues a follow-up when
-streaming or compacting."
+(defun ai-code-pi--default-follow-up-sequence (&optional platform)
+  "Return Pi's default follow-up key sequence for PLATFORM.
+PLATFORM defaults to `system-type'.  Pi binds follow-up to Ctrl+Q on
+Windows and WSL, and to Alt+Enter elsewhere."
+  (let ((platform (or platform system-type)))
+    (if (or (eq platform 'windows-nt)
+            (and (eq platform 'gnu/linux)
+                 (or (getenv "WSL_DISTRO_NAME") (getenv "WSL_INTEROP"))))
+        "\x11"
+      "\e[13;3u")))
+
+(defcustom ai-code-pi-follow-up-sequence (ai-code-pi--default-follow-up-sequence)
+  "Terminal sequence Pi recognizes as its follow-up key.
+Pi binds follow-up to Alt+Enter, or Ctrl+Q on Windows and WSL; it submits
+immediately when idle and queues a follow-up when streaming or compacting.
+Update this if you rebind `app.message.followUp' in Pi's keybindings."
   :type 'string
   :group 'ai-code-pi)
 
