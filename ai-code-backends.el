@@ -376,6 +376,19 @@ so the CLI itself handles the installation details."
      :upgrade nil
      :install-skills nil
      :cli     "grok")
+    (goose
+     :label "Goose CLI"
+     :require ai-code-goose-cli
+     :start   ai-code-goose-cli
+     :switch  ai-code-goose-cli-switch-to-buffer
+     :send    ai-code-goose-cli-send-command
+     :resume  ai-code-goose-cli-resume
+     :config  "~/.config/goose/config.yaml"
+     :agent-file "AGENTS.md"
+     :install "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash"
+     :upgrade "goose update"
+     :install-skills nil
+     :cli     "goose")
     (cursor
      :label "Cursor CLI"
      :require ai-code-cursor-cli
