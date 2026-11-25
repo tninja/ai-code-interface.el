@@ -208,6 +208,7 @@ Each backend requires the corresponding CLI to be installed and available on PAT
 - Opencode: `opencode`
 - Kilo: `kilo`
 - Grok CLI: `grok`
+- Goose CLI: `goose`
 - Cursor CLI: `cursor`
 - Kiro CLI: `kiro`
 - CodeBuddy Code CLI: `codebuddy`

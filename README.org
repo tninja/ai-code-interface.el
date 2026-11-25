@@ -32,7 +32,7 @@ Native coding CLIs keep ownership of their own interaction model, tool execution
 
 Structured external backends such as agent-shell/ACP can provide deeper lifecycle and UI integration when available, without making those semantics a requirement for every backend. This keeps the common workflow portable while allowing each backend to use its native strengths.
 
-*Supported AI coding CLIs:* Claude Code, OpenAI Codex, Antigravity CLI, Pi Agent, GitHub Copilot CLI, Cursor CLI, Opencode, Aider, Grok CLI, Kiro CLI, Kilo, Muse Code, CodeBuddy Code, Gemini CLI, and Open Interpreter, plus external backends such as agent-shell (ACP), ECA, claude-code-ide.el, and claude-code.el.
+*Supported AI coding CLIs:* Claude Code, OpenAI Codex, Antigravity CLI, Pi Agent, GitHub Copilot CLI, Cursor CLI, Opencode, Aider, Grok CLI, Goose CLI, Kiro CLI, Kilo, Muse Code, CodeBuddy Code, Gemini CLI, and Open Interpreter, plus external backends such as agent-shell (ACP), ECA, claude-code-ide.el, and claude-code.el.
 
 See [[https://github.com/tninja/ai-code-interface.el/tree/main#ai-coding-cli-backend][AI coding CLI backend]] for the full backend list and configuration details.
 
@@ -87,7 +87,7 @@ Enable installation of packages from MELPA by adding an entry to package-archive
   (use-package ai-code
     ;; :straight (:host github :repo "tninja/ai-code-interface.el") ;; if you want to use straight to install, no need to have MELPA setting above
     :config
-    ;; use codex as backend, other options are 'pi, 'claude-code, 'gemini, 'github-copilot-cli, 'open-interpreter, 'opencode, 'kilo, 'grok, 'cursor, 'kiro, 'codebuddy, 'aider, 'eca, 'agent-shell, 'claude-code-ide, 'claude-code-el
+    ;; use codex as backend, other options are 'pi, 'claude-code, 'gemini, 'github-copilot-cli, 'open-interpreter, 'opencode, 'kilo, 'grok, 'goose, 'cursor, 'kiro, 'codebuddy, 'aider, 'eca, 'agent-shell, 'claude-code-ide, 'claude-code-el
     (ai-code-set-backend 'codex)
     ;; Optional: default menu stays unchanged; use a narrower 2-column layout on smaller frames
     ;; (setq ai-code-menu-layout 'two-columns)
@@ -750,6 +750,7 @@ with =C-c a H=. Use its references to revisit the original evidence.
    - [[https://github.com/google-gemini/gemini-cli][Gemini CLI]] (`[[./ai-code-gemini-cli.el][ai-code-gemini-cli.el]]`)
    - [[https://kilo.ai/][Kilo]] (`[[./ai-code-kilo.el][ai-code-kilo.el]]`)
    - [[https://grokcli.io/][Grok CLI]] (`[[./ai-code-grok-cli.el][ai-code-grok-cli.el]]`)
+   - [[https://github.com/aaif-goose/goose][Goose CLI]] (`[[./ai-code-goose-cli.el][ai-code-goose-cli.el]]`)
    - [[https://docs.cursor.com/en/cli][Cursor CLI]] (`[[./ai-code-cursor-cli.el][ai-code-cursor-cli.el]]`)
    - [[https://github.com/openinterpreter/openinterpreter][Open Interpreter CLI]] (`[[./ai-code-open-interpreter-cli.el][ai-code-open-interpreter-cli.el]]`)
    - [[https://kiro.dev/cli/][Kiro CLI]] (`[[./ai-code-kiro-cli.el][ai-code-kiro-cli.el]]`)
@@ -799,6 +800,21 @@ with =C-c a H=. Use its references to revisit the original evidence.
      point at a different binary or pass additional flags (for example,
      selecting a profile). After that, select the backend through
      `ai-code-select-backend` or bind a helper in your config.
+
+**** Goose CLI setup
+     Install [[https://goose-docs.ai/docs/getting-started/installation/][Goose CLI]], ensure =goose= is on Emacs's PATH, and run
+     =goose configure= in a terminal to configure a model provider.
+     Select =goose= with =ai-code-select-backend= or =(ai-code-set-backend 'goose)=.
+     Customize =ai-code-goose-cli-program= and =ai-code-goose-cli-program-switches=
+     (options after =goose session=) as needed.  Resume uses =goose session --resume=
+     to resume the latest session; with a prefix argument, supply =--session-id=
+     followed by the ID or =--name= followed by the session name to choose explicitly.
+     Shift+Enter and Ctrl+Enter insert a newline (Ctrl+J by default);
+     customize =ai-code-goose-cli-multiline-input-sequence= if you change
+     Goose's =GOOSE_CLI_NEWLINE_KEY=.  Multiline prompts use bracketed paste
+     by default; if you customized =ai-code-backends-infra-use-paste-backends=,
+     include ="goose"= in that list.
+     See the [[https://goose-docs.ai/docs/guides/goose-cli-commands/][Goose CLI command reference]].
 
 **** CodeBuddy Code CLI setup
      Install CodeBuddy Code CLI via npm: =npm install -g @tencent-ai/codebuddy-code=, or via Homebrew: =brew install Tencent-CodeBuddy/tap/codebuddy-code=.
