@@ -2250,6 +2250,7 @@ Call this when completely disabling ai-code-behaviors."
     (cursor . "cursor")
     (aider . "aider")
     (grok . "grok")
+    (goose . "goose")
     (kiro . "kiro")
     (codebuddy . "codebuddy"))
   "Map CLI backend names to their session buffer prefixes.
