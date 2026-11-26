@@ -422,7 +422,7 @@ Auto-wiring is currently enabled for =claude-code=, =codex=, =github-copilot-cli
 
 Pi sessions load a per-launch temporary extension (=--extension=) that calls =pi.registerMcpServer= with the session token read from the child process environment. Each Pi instance gets its own token, session, and extension file, so several Pi sessions can use the Emacs tools independently. This requires a Pi build with built-in MCP support.
 
-Antigravity does not expand environment variables in MCP headers, so AI Code temporarily writes the session token to =.agents/mcp_config.json= with private permissions. Existing JSON configuration is merged and restored byte for byte when the last Antigravity session exits. If the file changes outside AI Code while a session is active, cleanup leaves the edited file untouched rather than overwriting it.
+Antigravity does not expand environment variables in MCP headers, so each Antigravity launch creates a private per-session temporary directory containing =.agents/mcp_config.json= (mode =0700=/=0600=) and passes it via =--add-dir=. Project workspaces stay untouched, multiple concurrent Antigravity sessions stay isolated with independent tokens and contexts, and temporary directories are removed on session exit or Emacs shutdown.
 
 If you disabled it before, enable it again with:
 
@@ -833,9 +833,9 @@ with =C-c a H=. Use its references to revisit the original evidence.
      point at a different binary or pass additional flags. After that, select the backend through
      `ai-code-select-backend` or bind a helper in your config.
      The resume command adds =--continue= automatically.
-     Emacs MCP tools are wired automatically through a temporary workspace
-     =.agents/mcp_config.json= entry when this backend is enabled in
-     =ai-code-mcp-agent-enabled-backends=.
+     Emacs MCP tools are wired automatically through a private per-session
+     temporary config directory passed via =--add-dir= when this backend is
+     enabled in =ai-code-mcp-agent-enabled-backends=.
 
 **** Muse Code setup
      Install Muse Code on macOS or Linux with:

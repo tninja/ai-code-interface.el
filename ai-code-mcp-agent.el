@@ -48,11 +48,11 @@ agent launch renews access."
 
 (defconst ai-code-mcp-agent--antigravity-config-relative-path
   ".agents/mcp_config.json"
-  "Workspace-relative path used by Antigravity for MCP configuration.")
+  "Relative path inside an Antigravity `--add-dir' config directory.")
 
-(defvar ai-code-mcp-agent--antigravity-config-states
+(defvar ai-code-mcp-agent--active-cleanups
   (make-hash-table :test 'equal)
-  "Active Antigravity MCP config leases keyed by absolute config path.")
+  "Hash table mapping active MCP session ids to their cleanup functions.")
 
 (defvar-local ai-code-mcp-agent--backend nil
   "Backend symbol attached to the current agent buffer.")
@@ -91,11 +91,11 @@ agent launch renews access."
    (format "Server URL: %s\n" (plist-get status :server-url))))
 
 (defun ai-code-mcp-agent-prepare-launch (backend working-dir argv)
-  "Return MCP launch metadata for BACKEND, WORKING-DIR, and ARGV."
-  (when (memq backend ai-code-mcp-agent-enabled-backends)
-    (let* ((backend-state
-            (ai-code-mcp-agent--prepare-backend-state backend working-dir))
-           (server-was-live (ai-code-mcp-http-server-live-p))
+  "Return MCP launch metadata for BACKEND, WORKING-DIR, and ARGV.
+Skip local MCP injection when BACKEND is disabled or WORKING-DIR is remote."
+  (when (and (memq backend ai-code-mcp-agent-enabled-backends)
+             (not (and (stringp working-dir) (file-remote-p working-dir))))
+    (let* ((server-was-live (ai-code-mcp-http-server-live-p))
            (session-id (ai-code-mcp-agent--make-session-id backend))
            (token (ai-code-mcp--random-secret))
            launch-metadata)
@@ -108,37 +108,37 @@ agent launch renews access."
                     (ai-code-mcp-agent--inject-argv
                      backend argv url
                      ai-code-mcp-agent--token-environment-variable
-                     token backend-state session-id))
+                     token))
               (ai-code-mcp-register-session
                session-id working-dir (current-buffer)
                (list :backend backend
                      :state 'pending
                      :tool-profile ai-code-mcp-default-tool-profile
                      :token token
-                     :modern-protocol-enabled
-                     (not (eq backend 'antigravity))
                      :token-lifetime-seconds
                      ai-code-mcp-agent-token-lifetime-seconds
                      :expires-at
                      (time-add (current-time)
                                (seconds-to-time
                                 ai-code-mcp-agent-token-lifetime-seconds))))
-              (list :argv (plist-get launch-metadata :argv)
-                    :env-vars
-                    (list (format "%s=%s"
-                                  ai-code-mcp-agent--token-environment-variable
-                                  token))
-                    :mcp-session-id session-id
-                    :mcp-server-url url
-                    :cleanup-fn
-                    (ai-code-mcp-agent--make-cleanup-function
-                     session-id
-                     (plist-get launch-metadata :runtime-files)
-                     (plist-get launch-metadata :runtime-cleanup-functions))
-                    :post-start-fn
-                    (lambda (buffer _process _instance-name)
-                      (ai-code-mcp-agent--record-buffer-session
-                       buffer backend session-id url)))))
+              (let ((cleanup-fn
+                     (ai-code-mcp-agent--make-cleanup-function
+                      session-id
+                      (plist-get launch-metadata :runtime-files)
+                      (plist-get launch-metadata :runtime-cleanup-functions))))
+                (puthash session-id cleanup-fn ai-code-mcp-agent--active-cleanups)
+                (list :argv (plist-get launch-metadata :argv)
+                      :env-vars
+                      (list (format "%s=%s"
+                                    ai-code-mcp-agent--token-environment-variable
+                                    token))
+                      :mcp-session-id session-id
+                      :mcp-server-url url
+                      :cleanup-fn cleanup-fn
+                      :post-start-fn
+                      (lambda (buffer _process _instance-name)
+                        (ai-code-mcp-agent--record-buffer-session
+                         buffer backend session-id url))))))
         (error
          (ai-code-mcp-agent--discard-failed-launch
           session-id launch-metadata server-was-live)
@@ -180,7 +180,28 @@ resource cleanup is retried; session unregistration occurs at most once."
         (ai-code-mcp-unregister-session session-id)
         (setq unregistered t)
         (when (zerop (ai-code-mcp-session-count))
-          (ai-code-mcp-http-server-stop))))))
+          (ai-code-mcp-http-server-stop)))
+      (when (and unregistered
+                 (null remaining-files)
+                 (null remaining-cleanups))
+        (remhash session-id ai-code-mcp-agent--active-cleanups)))))
+
+(defun ai-code-mcp-agent--cleanup-all-sessions ()
+  "Clean up all active MCP sessions and their temporary runtime resources."
+  (let (cleanups)
+    (maphash (lambda (_session-id cleanup-fn)
+               (push cleanup-fn cleanups))
+             ai-code-mcp-agent--active-cleanups)
+    (dolist (cleanup-fn cleanups)
+      (condition-case err
+          (funcall cleanup-fn)
+        (error
+         (display-warning
+          'ai-code-mcp-agent
+          (format "Failed to clean up MCP session on exit: %s"
+                  (error-message-string err))))))))
+
+(add-hook 'kill-emacs-hook #'ai-code-mcp-agent--cleanup-all-sessions)
 
 (defun ai-code-mcp-agent--make-session-id (backend)
   "Create a fresh session id for BACKEND."
@@ -233,11 +254,11 @@ The bearer token selects the registered agent session."
         (ai-code-mcp-update-source-context session-id source-buffer)))))
 
 (defun ai-code-mcp-agent--inject-argv
-    (backend argv url token-env-var &optional token backend-state session-id)
+    (backend argv url token-env-var &optional token)
   "Return MCP launch metadata for BACKEND and ARGV.
 URL identifies the server and TOKEN-ENV-VAR names its secret environment
-variable.  TOKEN, BACKEND-STATE, and SESSION-ID support backends that require a
-workspace config file instead of environment substitution."
+variable.  TOKEN supports backends that cannot expand environment variables in
+MCP headers and instead receive a private per-session config directory."
   (pcase backend
     ((or 'codex 'open-interpreter)
      (let ((config-override
@@ -260,104 +281,25 @@ workspace config file instead of environment substitution."
        (list :argv (append argv (list "--extension" extension-file))
              :runtime-files (list extension-file))))
     ('antigravity
-     (list
-      :argv argv
-      :runtime-cleanup-functions
-      (list (ai-code-mcp-agent--install-antigravity-config
-             backend-state session-id url token))))
+     (let ((config-dir (ai-code-mcp-agent--antigravity-config-dir url token)))
+       (list
+        :argv (append argv (list "--add-dir" config-dir))
+        :runtime-cleanup-functions
+        (list (lambda ()
+                (when (file-directory-p config-dir)
+                  (delete-directory config-dir t)))))))
     (_ (list :argv argv))))
 
-(defun ai-code-mcp-agent--prepare-backend-state (backend working-dir)
-  "Validate and return pre-launch state for BACKEND in WORKING-DIR."
-  (when (eq backend 'antigravity)
-    (ai-code-mcp-agent--prepare-antigravity-config working-dir)))
-
-(defun ai-code-mcp-agent--prepare-antigravity-config (working-dir)
-  "Return validated Antigravity config state for WORKING-DIR."
-  (unless (and (stringp working-dir) (file-directory-p working-dir))
-    (error "Antigravity MCP working directory does not exist: %s" working-dir))
-  (let* ((project-directory (file-name-as-directory
-                             (file-truename working-dir)))
-         (path (expand-file-name
-                ai-code-mcp-agent--antigravity-config-relative-path
-                project-directory))
-         (directory (file-name-directory path))
-         (active-state
-          (gethash path ai-code-mcp-agent--antigravity-config-states)))
-    (when (file-symlink-p directory)
-      (error "Refusing to write Antigravity MCP config through symlink: %s"
-             directory))
-    (when (and (file-exists-p directory)
-               (not (file-directory-p directory)))
-      (error "Antigravity MCP config parent is not a directory: %s" directory))
-    (when (file-symlink-p path)
-      (error "Refusing to replace symlinked Antigravity MCP config: %s" path))
-    (if active-state
-        (progn
-          (unless (and (file-regular-p path)
-                       (equal (ai-code-mcp-agent--file-contents path)
-                              (plist-get active-state :written-content)))
-            (error "Antigravity MCP config changed during an active session: %s"
-                   path))
-          active-state)
-      (let* ((original-exists-p (file-exists-p path))
-             (original-content
-              (when original-exists-p
-                (unless (file-regular-p path)
-                  (error "Antigravity MCP config is not a regular file: %s" path))
-                (ai-code-mcp-agent--file-contents path))))
-        (when original-exists-p
-          (ai-code-mcp-agent--parse-antigravity-config original-content path))
-        (list :path path
-              :directory directory
-              :directory-created-p nil
-              :original-exists-p original-exists-p
-              :original-content original-content
-              :original-mode (and original-exists-p (file-modes path))
-              :leases nil
-              :written-content nil)))))
-
-(defun ai-code-mcp-agent--file-contents (path)
-  "Return the literal contents of PATH."
-  (with-temp-buffer
-    (insert-file-contents-literally path)
-    (buffer-string)))
-
-(defun ai-code-mcp-agent--parse-antigravity-config (content path)
-  "Parse Antigravity config CONTENT from PATH as a JSON object."
-  (let* ((config
-          (json-parse-string content
-                             :object-type 'hash-table
-                             :array-type 'array
-                             :null-object :null
-                             :false-object :json-false))
-         (missing (make-symbol "missing"))
-         (servers (and (hash-table-p config)
-                       (gethash "mcpServers" config missing))))
-    (unless (hash-table-p config)
-      (error "Antigravity MCP config must contain a JSON object: %s" path))
-    (unless (or (eq servers missing) (hash-table-p servers))
-      (error "Antigravity mcpServers must contain a JSON object: %s" path))
-    config))
-
-(defun ai-code-mcp-agent--antigravity-config-content (state url token)
-  "Return merged Antigravity config for STATE using URL and TOKEN."
-  (let* ((path (plist-get state :path))
-         (config
-          (if (plist-get state :original-exists-p)
-              (ai-code-mcp-agent--parse-antigravity-config
-               (plist-get state :original-content) path)
-            (make-hash-table :test 'equal)))
-         (servers (gethash "mcpServers" config)))
-    (setq servers (if (hash-table-p servers)
-                      (copy-hash-table servers)
-                    (make-hash-table :test 'equal)))
-    (let ((server (make-hash-table :test 'equal))
-          (headers (make-hash-table :test 'equal)))
-      (puthash "Authorization" (concat "Bearer " token) headers)
-      (puthash "serverUrl" url server)
-      (puthash "headers" headers server)
-      (puthash ai-code-mcp-agent--server-name server servers))
+(defun ai-code-mcp-agent--antigravity-config-json (url token)
+  "Return an Antigravity MCP config JSON string for URL and TOKEN."
+  (let ((config (make-hash-table :test 'equal))
+        (servers (make-hash-table :test 'equal))
+        (server (make-hash-table :test 'equal))
+        (headers (make-hash-table :test 'equal)))
+    (puthash "Authorization" (concat "Bearer " token) headers)
+    (puthash "serverUrl" url server)
+    (puthash "headers" headers server)
+    (puthash ai-code-mcp-agent--server-name server servers)
     (puthash "mcpServers" servers config)
     (concat (json-serialize config
                             :null-object :null
@@ -379,82 +321,28 @@ workspace config file instead of environment substitution."
       (when (and temp-file (file-exists-p temp-file))
         (delete-file temp-file)))))
 
-(defun ai-code-mcp-agent--install-antigravity-config
-    (state session-id url token)
-  "Install an Antigravity config lease in STATE for SESSION-ID, URL, and TOKEN."
-  (let* ((path (plist-get state :path))
-         (directory (plist-get state :directory))
-         (created-directory (not (file-directory-p directory)))
-         (content (ai-code-mcp-agent--antigravity-config-content state url token)))
+(defun ai-code-mcp-agent--antigravity-config-dir (url token)
+  "Create a private temporary Antigravity config directory for URL and TOKEN.
+Return the directory path to pass via `--add-dir'.  Each launch gets its own
+directory so concurrent Antigravity instances stay isolated and never touch the
+workspace's `.agents/mcp_config.json'."
+  (let* ((config-dir (make-temp-file "ai-code-mcp-antigravity-" t))
+         (config-path (expand-file-name
+                       ai-code-mcp-agent--antigravity-config-relative-path
+                       config-dir))
+         (agents-dir (file-name-directory config-path))
+         (content (ai-code-mcp-agent--antigravity-config-json url token)))
     (condition-case err
         (progn
-          (when created-directory
-            (make-directory directory t))
-          (ai-code-mcp-agent--write-private-file path content)
-          (setq state
-                (plist-put state :directory-created-p
-                           (or created-directory
-                               (plist-get state :directory-created-p))))
-          (setq state
-                (plist-put state :leases
-                           (cons (cons session-id content)
-                                 (plist-get state :leases))))
-          (setq state (plist-put state :written-content content))
-          (puthash path state ai-code-mcp-agent--antigravity-config-states)
-          (lambda ()
-            (ai-code-mcp-agent--release-antigravity-config path session-id)))
+          (set-file-modes config-dir #o700)
+          (make-directory agents-dir t)
+          (set-file-modes agents-dir #o700)
+          (ai-code-mcp-agent--write-private-file config-path content #o600)
+          config-dir)
       (error
-       (when (and created-directory
-                  (file-directory-p directory)
-                  (null (directory-files
-                         directory nil directory-files-no-dot-files-regexp)))
-         (delete-directory directory))
+       (when (file-directory-p config-dir)
+         (ignore-errors (delete-directory config-dir t)))
        (signal (car err) (cdr err))))))
-
-(defun ai-code-mcp-agent--release-antigravity-config (path session-id)
-  "Release SESSION-ID's Antigravity config lease at PATH."
-  (when-let* ((state
-               (gethash path ai-code-mcp-agent--antigravity-config-states))
-              (lease (assoc session-id (plist-get state :leases))))
-    (let* ((remaining (delq lease (copy-sequence (plist-get state :leases))))
-           (owned-p
-            (and (not (file-symlink-p path))
-                 (file-regular-p path)
-                 (equal (ai-code-mcp-agent--file-contents path)
-                        (plist-get state :written-content)))))
-      (if (not owned-p)
-          (display-warning
-           'ai-code-mcp-agent
-           (format
-            "Antigravity MCP config changed externally; leaving it untouched: %s"
-            path))
-        (if remaining
-            (let ((content (cdar remaining)))
-              (unless (equal content (plist-get state :written-content))
-                (ai-code-mcp-agent--write-private-file path content))
-              (setq state (plist-put state :written-content content)))
-          (if (plist-get state :original-exists-p)
-              (ai-code-mcp-agent--write-private-file
-               path
-               (plist-get state :original-content)
-               (plist-get state :original-mode))
-            (delete-file path))))
-      (if remaining
-          (progn
-            (setq state (plist-put state :leases remaining))
-            (puthash path state ai-code-mcp-agent--antigravity-config-states))
-        (remhash path ai-code-mcp-agent--antigravity-config-states)
-        (ai-code-mcp-agent--remove-created-config-directory state)))))
-
-(defun ai-code-mcp-agent--remove-created-config-directory (state)
-  "Remove STATE's package-created config directory when it is still empty."
-  (let ((directory (plist-get state :directory)))
-    (when (and (plist-get state :directory-created-p)
-               (file-directory-p directory)
-               (not (file-symlink-p directory))
-               (null (directory-files
-                      directory nil directory-files-no-dot-files-regexp)))
-      (delete-directory directory))))
 
 (defun ai-code-mcp-agent--discard-failed-launch
     (session-id launch-metadata server-was-live)
