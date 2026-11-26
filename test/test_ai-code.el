@@ -484,7 +484,8 @@
 
 (ert-deftest ai-code-test-menu-other-tools-removes-session-checkpoint-entry ()
   "Test that session checkpoint no longer owns a dedicated Other Tools key."
-  (should-error (transient-get-suffix 'ai-code--menu-other-tools "P")
+  (should-error (transient-get-suffix 'ai-code--menu-other-tools
+                                      'ai-code-session-checkpoint)
                 :type 'error))
 
 (ert-deftest ai-code-test-handoff-or-checkpoint-dispatches-to-handoff-in-org-buffer ()
@@ -947,8 +948,8 @@ An unrelated visible session from another project must not hijack the send."
                     :type 'user-error))))
 
 (ert-deftest ai-code-test-menu-includes-migrate-agent-integrations ()
-  "AI CLI session menu exposes migration from another agent."
-  (let ((suffix (transient-get-suffix 'ai-code--menu-ai-cli-session "P")))
+  "Other Tools menu exposes migration from another agent."
+  (let ((suffix (transient-get-suffix 'ai-code--menu-other-tools "P")))
     (should suffix)
     (should (eq (plist-get (cdr suffix) :command)
                 'ai-code-migrate-agent-integrations))))

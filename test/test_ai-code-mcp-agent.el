@@ -327,17 +327,20 @@
       (when (buffer-live-p source-buffer)
         (kill-buffer source-buffer)))))
 
-(ert-deftest ai-code-test-mcp-agent-antigravity-writes-private-workspace-config ()
-  "Antigravity should receive a private workspace config with its bearer token."
+(defun ai-code-test-mcp-agent--antigravity-add-dir (launch)
+  "Return the Antigravity `--add-dir' path from LAUNCH argv."
+  (cadr (member "--add-dir" (plist-get launch :argv))))
+
+(ert-deftest ai-code-test-mcp-agent-antigravity-writes-private-temp-add-dir-config ()
+  "Antigravity should use a private temp `--add-dir' without touching workspace."
   (let* ((ai-code-mcp-agent-enabled-backends '(antigravity))
-         (ai-code-mcp-agent--antigravity-config-states
-          (make-hash-table :test 'equal))
+         (ai-code-mcp-agent--active-cleanups (make-hash-table :test 'equal))
          (ai-code-mcp--sessions (make-hash-table :test 'equal))
-         (working-dir (make-temp-file "ai-code-mcp-antigravity-" t))
-         (config-file
-          (expand-file-name ".agents/mcp_config.json" working-dir))
+         (working-dir (make-temp-file "ai-code-mcp-antigravity-ws-" t))
+         (workspace-agents (expand-file-name ".agents" working-dir))
          (secret (make-string 64 ?b))
-         launch)
+         launch
+         config-dir)
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -350,14 +353,23 @@
           (setq launch
                 (ai-code-mcp-agent-prepare-launch
                  'antigravity working-dir '("agy" "--continue")))
-          (should (equal '("agy" "--continue")
+          (setq config-dir (ai-code-test-mcp-agent--antigravity-add-dir launch))
+          (should (stringp config-dir))
+          (should (equal (list "agy" "--continue" "--add-dir" config-dir)
                          (plist-get launch :argv)))
-          (should (file-exists-p config-file))
-          (should (zerop (logand (file-modes config-file) #o077)))
-          (let* ((config (ai-code-test-mcp-agent--json-file config-file))
+          (should-not (file-exists-p workspace-agents))
+          (should (file-directory-p config-dir))
+          (should (zerop (logand (file-modes config-dir) #o077)))
+          (let* ((agents-dir (expand-file-name ".agents" config-dir))
+                 (config-file (expand-file-name "mcp_config.json" agents-dir))
+                 (config (ai-code-test-mcp-agent--json-file config-file))
                  (server (alist-get
                           'emacs_tools
                           (alist-get 'mcpServers config))))
+            (should (file-directory-p agents-dir))
+            (should (zerop (logand (file-modes agents-dir) #o077)))
+            (should (file-regular-p config-file))
+            (should (zerop (logand (file-modes config-file) #o077)))
             (should (equal "http://127.0.0.1:8765/mcp"
                            (alist-get 'serverUrl server)))
             (should (equal (concat "Bearer " secret)
@@ -370,123 +382,39 @@
           (let ((context
                  (ai-code-mcp-get-session-context
                   (plist-get launch :mcp-session-id))))
-            (should (plist-member context :modern-protocol-enabled))
-            (should-not (plist-get context :modern-protocol-enabled)))
+            (should (ai-code-mcp-http-server--modern-protocol-enabled-p
+                     context)))
+          (funcall (plist-get launch :cleanup-fn))
           (funcall (plist-get launch :cleanup-fn))
           (setq launch nil)
-          (should-not (file-exists-p config-file)))
+          (should-not (file-exists-p config-dir))
+          (should (zerop (hash-table-count ai-code-mcp-agent--active-cleanups))))
       (when-let ((cleanup-fn (plist-get launch :cleanup-fn)))
         (funcall cleanup-fn))
+      (when (and config-dir (file-directory-p config-dir))
+        (delete-directory config-dir t))
       (delete-directory working-dir t))))
 
-(ert-deftest ai-code-test-mcp-agent-antigravity-restores-existing-config ()
-  "Antigravity cleanup should restore an existing MCP config byte for byte."
+(ert-deftest ai-code-test-mcp-agent-antigravity-multiple-instances-are-independent ()
+  "Concurrent Antigravity launches should get isolated dirs, tokens, and sessions."
   (let* ((ai-code-mcp-agent-enabled-backends '(antigravity))
-         (ai-code-mcp-agent--antigravity-config-states
-          (make-hash-table :test 'equal))
+         (ai-code-mcp-agent--active-cleanups (make-hash-table :test 'equal))
          (ai-code-mcp--sessions (make-hash-table :test 'equal))
-         (working-dir (make-temp-file "ai-code-mcp-antigravity-existing-" t))
-         (config-dir (expand-file-name ".agents" working-dir))
-         (config-file (expand-file-name "mcp_config.json" config-dir))
-         (original
-          (concat
-           "{\n"
-           "  \"mcpServers\": {\n"
-           "    \"user_server\": {\"command\": \"keep-me\"},\n"
-           "    \"emacs_tools\": {\"serverUrl\": \"https://original.invalid\"}\n"
-           "  },\n"
-           "  \"keep\": true\n"
-           "}\n"))
-         launch)
-    (make-directory config-dir)
-    (with-temp-file config-file
-      (insert original))
-    (set-file-modes config-file #o640)
-    (unwind-protect
-        (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
-                  ((symbol-function 'ai-code-mcp-http-server-ensure)
-                   (lambda () 8765))
-                  ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore)
-                  ((symbol-function 'ai-code-mcp--random-secret)
-                   (lambda () (make-string 64 ?c)))
-                  ((symbol-function 'ai-code-mcp-agent--make-session-id)
-                   (lambda (_backend) "antigravity-existing-session")))
-          (setq launch
-                (ai-code-mcp-agent-prepare-launch
-                 'antigravity working-dir '("agy")))
-          (let* ((config (ai-code-test-mcp-agent--json-file config-file))
-                 (servers (alist-get 'mcpServers config)))
-            (should (equal "keep-me"
-                           (alist-get 'command
-                                      (alist-get 'user_server servers))))
-            (should (equal t (alist-get 'keep config)))
-            (should (equal
-                     (concat "Bearer " (make-string 64 ?c))
-                     (alist-get
-                      'Authorization
-                      (alist-get 'headers
-                                 (alist-get 'emacs_tools servers))))))
-          (funcall (plist-get launch :cleanup-fn))
-          (setq launch nil)
-          (should (equal original
-                         (ai-code-test-mcp-agent--file-contents config-file)))
-          (should (= #o640 (logand (file-modes config-file) #o777))))
-      (when-let ((cleanup-fn (plist-get launch :cleanup-fn)))
-        (funcall cleanup-fn))
-      (delete-directory working-dir t))))
-
-(ert-deftest ai-code-test-mcp-agent-antigravity-rejects-invalid-config ()
-  "Antigravity preparation should reject invalid JSON without side effects."
-  (let* ((ai-code-mcp-agent-enabled-backends '(antigravity))
-         (ai-code-mcp-agent--antigravity-config-states
-          (make-hash-table :test 'equal))
-         (ai-code-mcp--sessions (make-hash-table :test 'equal))
-         (working-dir (make-temp-file "ai-code-mcp-antigravity-invalid-" t))
-         (config-dir (expand-file-name ".agents" working-dir))
-         (config-file (expand-file-name "mcp_config.json" config-dir))
-         (server-start-count 0)
-         launch
-         outcome)
-    (make-directory config-dir)
-    (with-temp-file config-file
-      (insert "{not-json\n"))
-    (unwind-protect
-        (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
-                  ((symbol-function 'ai-code-mcp-http-server-ensure)
-                   (lambda ()
-                     (cl-incf server-start-count)
-                     8765))
-                  ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore))
-          (setq outcome
-                (condition-case err
-                    (progn
-                      (setq launch
-                            (ai-code-mcp-agent-prepare-launch
-                             'antigravity working-dir '("agy")))
-                      :unexpected-success)
-                  (error err)))
-          (should (eq 'json-parse-error (car outcome)))
-          (should (zerop server-start-count))
-          (should (zerop (hash-table-count ai-code-mcp--sessions)))
-          (should (equal "{not-json\n"
-                         (ai-code-test-mcp-agent--file-contents config-file))))
-      (when-let ((cleanup-fn (plist-get launch :cleanup-fn)))
-        (funcall cleanup-fn))
-      (delete-directory working-dir t))))
-
-(ert-deftest ai-code-test-mcp-agent-antigravity-coordinates-config-leases ()
-  "Concurrent Antigravity launches should restore config after the last lease."
-  (let* ((ai-code-mcp-agent-enabled-backends '(antigravity))
-         (ai-code-mcp-agent--antigravity-config-states
-          (make-hash-table :test 'equal))
-         (ai-code-mcp--sessions (make-hash-table :test 'equal))
-         (working-dir (make-temp-file "ai-code-mcp-antigravity-leases-" t))
-         (config-file
-          (expand-file-name ".agents/mcp_config.json" working-dir))
+         (working-dir (make-temp-file "ai-code-mcp-antigravity-multi-" t))
+         (workspace-config-dir (expand-file-name ".agents" working-dir))
+         (workspace-config-file
+          (expand-file-name "mcp_config.json" workspace-config-dir))
+         (original-workspace-config
+          "{\"mcpServers\":{\"user_server\":{\"command\":\"keep-me\"}}}\n")
+         (source-a (generate-new-buffer " *ai-code-agy-source-a*"))
+         (source-b (generate-new-buffer " *ai-code-agy-source-b*"))
          (session-ids '("antigravity-session-1" "antigravity-session-2"))
          (secrets (list (make-string 64 ?d) (make-string 64 ?e)))
          first-launch
          second-launch)
+    (make-directory workspace-config-dir t)
+    (with-temp-file workspace-config-file
+      (insert original-workspace-config))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
@@ -497,40 +425,68 @@
                   ((symbol-function 'ai-code-mcp-agent--make-session-id)
                    (lambda (_backend) (pop session-ids))))
           (setq first-launch
-                (ai-code-mcp-agent-prepare-launch
-                 'antigravity working-dir '("agy")))
+                (with-current-buffer source-a
+                  (ai-code-mcp-agent-prepare-launch
+                   'antigravity working-dir '("agy"))))
           (setq second-launch
-                (ai-code-mcp-agent-prepare-launch
-                 'antigravity working-dir '("agy")))
-          (should (string-match-p
-                   (regexp-quote (concat "Bearer " (make-string 64 ?e)))
-                   (ai-code-test-mcp-agent--file-contents config-file)))
-          (funcall (plist-get first-launch :cleanup-fn))
-          (setq first-launch nil)
-          (should (file-exists-p config-file))
-          (should (string-match-p
-                   (regexp-quote (concat "Bearer " (make-string 64 ?e)))
-                   (ai-code-test-mcp-agent--file-contents config-file)))
-          (funcall (plist-get second-launch :cleanup-fn))
-          (setq second-launch nil)
-          (should-not (file-exists-p config-file)))
+                (with-current-buffer source-b
+                  (ai-code-mcp-agent-prepare-launch
+                   'antigravity working-dir '("agy"))))
+          (let* ((dir-1 (ai-code-test-mcp-agent--antigravity-add-dir first-launch))
+                 (dir-2 (ai-code-test-mcp-agent--antigravity-add-dir second-launch))
+                 (cfg-1 (expand-file-name ".agents/mcp_config.json" dir-1))
+                 (cfg-2 (expand-file-name ".agents/mcp_config.json" dir-2)))
+            (should-not (equal dir-1 dir-2))
+            (should (equal original-workspace-config
+                           (ai-code-test-mcp-agent--file-contents
+                            workspace-config-file)))
+            (should (string-match-p
+                     (regexp-quote (concat "Bearer " (make-string 64 ?d)))
+                     (ai-code-test-mcp-agent--file-contents cfg-1)))
+            (should (string-match-p
+                     (regexp-quote (concat "Bearer " (make-string 64 ?e)))
+                     (ai-code-test-mcp-agent--file-contents cfg-2)))
+            (should (eq source-a
+                        (plist-get (ai-code-mcp-get-session-context
+                                    "antigravity-session-1")
+                                   :source-buffer)))
+            (should (eq source-b
+                        (plist-get (ai-code-mcp-get-session-context
+                                    "antigravity-session-2")
+                                   :source-buffer)))
+            ;; Closing instance 1 must leave instance 2 intact.
+            (funcall (plist-get first-launch :cleanup-fn))
+            (setq first-launch nil)
+            (should-not (file-exists-p dir-1))
+            (should-not (ai-code-mcp-get-session-context "antigravity-session-1"))
+            (should (file-exists-p cfg-2))
+            (should (ai-code-mcp-get-session-context "antigravity-session-2"))
+            (funcall (plist-get second-launch :cleanup-fn))
+            (setq second-launch nil)
+            (should-not (file-exists-p dir-2))
+            (should-not (ai-code-mcp-get-session-context "antigravity-session-2"))
+            (should (equal original-workspace-config
+                           (ai-code-test-mcp-agent--file-contents
+                            workspace-config-file)))))
       (when-let ((cleanup-fn (plist-get first-launch :cleanup-fn)))
         (funcall cleanup-fn))
       (when-let ((cleanup-fn (plist-get second-launch :cleanup-fn)))
         (funcall cleanup-fn))
+      (dolist (buf (list source-a source-b))
+        (when (buffer-live-p buf)
+          (kill-buffer buf)))
       (delete-directory working-dir t))))
 
 (ert-deftest ai-code-test-mcp-agent-antigravity-rolls-back-failed-registration ()
-  "A failed Antigravity registration should remove config and stop its server."
+  "A failed Antigravity registration should remove its temp dir and stop server."
   (let* ((ai-code-mcp-agent-enabled-backends '(antigravity))
-         (ai-code-mcp-agent--antigravity-config-states
-          (make-hash-table :test 'equal))
+         (ai-code-mcp-agent--active-cleanups (make-hash-table :test 'equal))
          (ai-code-mcp--sessions (make-hash-table :test 'equal))
          (ai-code-mcp-http-server--server nil)
          (ai-code-mcp-http-server--port nil)
          (working-dir (make-temp-file "ai-code-mcp-antigravity-rollback-" t))
-         (config-file
-          (expand-file-name ".agents/mcp_config.json" working-dir))
+         (real-config-dir-fn (symbol-function 'ai-code-mcp-agent--antigravity-config-dir))
+         (created-dir nil)
          (stop-count 0))
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
@@ -538,81 +494,68 @@
                    (lambda () 8765))
                   ((symbol-function 'ai-code-mcp-http-server-stop)
                    (lambda () (cl-incf stop-count)))
+                  ((symbol-function 'ai-code-mcp-agent--antigravity-config-dir)
+                   (lambda (url token)
+                     (setq created-dir (funcall real-config-dir-fn url token))))
                   ((symbol-function 'ai-code-mcp-register-session)
                    (lambda (&rest _args) (error "Registration failed"))))
           (should-error
            (ai-code-mcp-agent-prepare-launch
             'antigravity working-dir '("agy"))
            :type 'error)
-          (should-not (file-exists-p config-file))
-          (should (zerop
-                   (hash-table-count
-                    ai-code-mcp-agent--antigravity-config-states)))
+          (should (stringp created-dir))
+          (should-not (file-exists-p created-dir))
+          (should (zerop (hash-table-count ai-code-mcp-agent--active-cleanups)))
           (should (= 1 stop-count)))
+      (when (and created-dir (file-directory-p created-dir))
+        (delete-directory created-dir t))
       (delete-directory working-dir t))))
 
-(ert-deftest ai-code-test-mcp-agent-antigravity-preserves-external-edit ()
-  "Cleanup should not overwrite an Antigravity config changed by the user."
+(ert-deftest ai-code-test-mcp-agent-kill-emacs-hook-cleans-active-sessions ()
+  "The `kill-emacs-hook' handler should clean up active Antigravity temp dirs."
+  (should (memq #'ai-code-mcp-agent--cleanup-all-sessions kill-emacs-hook))
   (let* ((ai-code-mcp-agent-enabled-backends '(antigravity))
-         (ai-code-mcp-agent--antigravity-config-states
-          (make-hash-table :test 'equal))
+         (ai-code-mcp-agent--active-cleanups (make-hash-table :test 'equal))
          (ai-code-mcp--sessions (make-hash-table :test 'equal))
-         (working-dir (make-temp-file "ai-code-mcp-antigravity-edit-" t))
-         (config-file
-          (expand-file-name ".agents/mcp_config.json" working-dir))
-         (user-content "{\"mcpServers\":{},\"userEdit\":true}\n")
-         launch)
+         (working-dir (make-temp-file "ai-code-mcp-antigravity-exit-" t))
+         launch
+         config-dir)
     (unwind-protect
         (cl-letf (((symbol-function 'ai-code-mcp-builtins-setup) #'ignore)
                   ((symbol-function 'ai-code-mcp-http-server-ensure)
                    (lambda () 8765))
-                  ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore)
-                  ((symbol-function 'display-warning) #'ignore))
+                  ((symbol-function 'ai-code-mcp-http-server-stop) #'ignore))
           (setq launch
                 (ai-code-mcp-agent-prepare-launch
                  'antigravity working-dir '("agy")))
-          (with-temp-file config-file
-            (insert user-content))
-          (funcall (plist-get launch :cleanup-fn))
-          (setq launch nil)
-          (should (equal user-content
-                         (ai-code-test-mcp-agent--file-contents config-file))))
-      (when-let ((cleanup-fn (plist-get launch :cleanup-fn)))
-        (funcall cleanup-fn))
+          (setq config-dir (ai-code-test-mcp-agent--antigravity-add-dir launch))
+          (should (file-directory-p config-dir))
+          (should (= 1 (hash-table-count ai-code-mcp-agent--active-cleanups)))
+          (ai-code-mcp-agent--cleanup-all-sessions)
+          (should-not (file-exists-p config-dir))
+          (should (zerop (ai-code-mcp-session-count)))
+          (should (zerop (hash-table-count ai-code-mcp-agent--active-cleanups))))
+      (when (and config-dir (file-directory-p config-dir))
+        (delete-directory config-dir t))
       (delete-directory working-dir t))))
 
-(ert-deftest ai-code-test-mcp-agent-antigravity-preserves-json-values ()
-  "Merging the Antigravity server should preserve unrelated JSON values."
-  (dolist (original
-           '("{\"mcpServers\":{},\"preserve\":[1,false,null,{\"nested\":\"x\"}]}"
-             "{\"empty\":{},\"text\":\"quoted \\\"// value\\\"\"}"))
-    (let* ((state (list :path "/tmp/mcp_config.json"
-                        :original-exists-p t
-                        :original-content original))
-           (before
-            (ai-code-mcp-agent--parse-antigravity-config
-             original (plist-get state :path)))
-           (after
-            (ai-code-mcp-agent--parse-antigravity-config
-             (ai-code-mcp-agent--antigravity-config-content
-              state "http://127.0.0.1:8765/mcp" "test-token")
-             (plist-get state :path)))
-           (missing (make-symbol "missing")))
-      (dolist (key '("preserve" "empty" "text"))
-        (let ((expected (gethash key before missing)))
-          (unless (eq expected missing)
-            (should
-             (equal
-              (json-serialize expected
-                              :null-object :null
-                              :false-object :json-false)
-              (json-serialize (gethash key after missing)
-                              :null-object :null
-                              :false-object :json-false))))))
-      (should
-       (hash-table-p
-        (gethash ai-code-mcp-agent--server-name
-                 (gethash "mcpServers" after)))))))
+(ert-deftest ai-code-test-mcp-agent-skips-remote-working-directory ()
+  "Preparing MCP launch in a remote TRAMP directory should skip injection."
+  (let ((ai-code-mcp-agent-enabled-backends '(antigravity))
+        (ai-code-mcp--sessions (make-hash-table :test 'equal))
+        (ensure-called nil))
+    (cl-letf (((symbol-function 'file-remote-p)
+               (lambda (path &rest _args)
+                 (string-prefix-p "/ssh:" path)))
+              ((symbol-function 'ai-code-mcp-http-server-ensure)
+               (lambda ()
+                 (setq ensure-called t)
+                 8765)))
+      (should-not
+       (ai-code-mcp-agent-prepare-launch
+        'antigravity "/ssh:example:/repo/" '("agy")))
+      (should-not ensure-called)
+      (should (zerop (ai-code-mcp-session-count))))))
 
 (ert-deftest ai-code-test-mcp-agent-show-buffer-status-displays-help-buffer ()
   "The interactive MCP status command should display current buffer status."

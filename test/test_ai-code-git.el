@@ -20,7 +20,7 @@
 (ert-deftest ai-code-test-ai-code-git-does-not-eagerly-load-github-module ()
   "Loading `ai-code-git' should not eagerly load `ai-code-github'."
   (let ((git-library (locate-library "ai-code-git.el"))
-        (github-library (locate-library "ai-code-github")))
+        (github-library (locate-library "ai-code-github.el")))
     (unwind-protect
         (progn
           ;; Isolate the load behavior under test instead of relying on

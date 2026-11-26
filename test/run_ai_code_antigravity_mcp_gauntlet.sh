@@ -56,7 +56,7 @@ run_focused_tests() {
     -l "$source_dir/test_ai-code-mcp-agent.el" \
     -l "$source_dir/test_ai-code-mcp-http-server.el" \
     --eval '(ert-run-tests-batch-and-exit
-             "\\`\\(ai-code-test-antigravity-cli-start\\|ai-code-test-mcp-agent-\\(antigravity\\|enables-antigravity\\)\\|ai-code-test-mcp-http-server-scopes-modern-protocol-opt-out\\|test-ai-code-backends-infra-create-new-session-cleans-\\)")'
+             "\\`\\(ai-code-test-antigravity-cli-start\\|ai-code-test-mcp-agent-\\(antigravity\\|enables-antigravity\\|kill-emacs-hook\\|skips-remote\\)\\|ai-code-test-mcp-http-server-scopes-modern-protocol-opt-out\\|test-ai-code-backends-infra-\\(create-new-session-cleans-\\|start-cli-session-\\(skips\\|runs\\)-prepare-launch\\)\\)")'
 }
 
 run_byte_compile_gate() {
@@ -107,74 +107,110 @@ run_checkdoc_gate() {
 }
 
 run_real_agy_probe() {
-  local agents_before
-  local agents_after
   local probe_output
 
-  agents_before=$(git status --porcelain=v1 --untracked-files=all -- .agents)
-  probe_output=$(emacs -Q --batch -L . -l test/test_00-bootstrap.el \
+  probe_output=$(emacs -Q --batch --eval '(setq load-prefer-newer t)' -L . -l test/test_00-bootstrap.el \
     -l ai-code-mcp-agent \
-    --eval "(let* ((ai-code-mcp-agent-enabled-backends '(antigravity))
-                    (ai-code-mcp-agent--antigravity-config-states
+    --eval "(let* ((tmp-ws (make-temp-file \"ai-code-agy-gauntlet-ws-\" t))
+                    (ai-code-mcp-agent-enabled-backends '(antigravity))
+                    (ai-code-mcp-agent--active-cleanups
                      (make-hash-table :test 'equal))
                     (ai-code-mcp--sessions (make-hash-table :test 'equal))
                     (ai-code-mcp-http-server-port nil)
                     (ai-code-mcp-http-server--server nil)
                     (ai-code-mcp-http-server--port nil)
-                    (output (generate-new-buffer
-                             \" *ai-code-agy-gauntlet-probe*\"))
-                    launch process session-id context sent)
+                    (output1 (generate-new-buffer
+                              \" *ai-code-agy-gauntlet-probe-1*\"))
+                    (output2 (generate-new-buffer
+                              \" *ai-code-agy-gauntlet-probe-2*\"))
+                    (seen (make-hash-table :test 'equal))
+                    (orig-dispatch (symbol-function 'ai-code-mcp-dispatch))
+                    launch1 launch2 proc1 proc2 sid1 sid2 dir1 dir2 sent)
                (unwind-protect
-                   (progn
-                     (setq launch
-                           (ai-code-mcp-agent-prepare-launch
-                            'antigravity default-directory '(\"agy\")))
-                     (setq session-id (plist-get launch :mcp-session-id))
-                     (setq process
-                           (make-process
-                            :name \"ai-code-agy-gauntlet-probe\"
-                            :buffer output
-                            :command '(\"agy\")
-                            :connection-type 'pty
-                            :noquery t))
-                     (let ((started (float-time))
-                           (deadline (+ (float-time) 20.0)))
-                       (while (and
-                               (process-live-p process)
-                               (< (float-time) deadline)
-                               (eq 'pending
-                                   (plist-get
-                                    (ai-code-mcp-get-session-context session-id)
-                                    :state)))
-                         (accept-process-output nil 0.1)
-                         (when (and (not sent)
-                                    (> (- (float-time) started) 3.0))
-                           (process-send-string process \"/mcp\\r\")
-                           (setq sent t))))
-                     (setq context
-                           (ai-code-mcp-get-session-context session-id))
-                     (princ
-                      (format \"state=%s protocol=%s client=%s\\n\"
-                              (plist-get context :state)
-                              (or (plist-get context :protocol-version)
-                                  \"none\")
-                              (or (alist-get
-                                   'name (plist-get context :client-info))
-                                  \"none\"))))
-                 (when (process-live-p process)
-                   (delete-process process))
-                 (when-let ((release (plist-get launch :cleanup-fn)))
-                   (funcall release))
-                 (when (buffer-live-p output)
-                   (kill-buffer output))))")
+                   (cl-letf (((symbol-function 'ai-code-mcp-dispatch)
+                              (lambda (method &optional params)
+                                (let ((key (cons ai-code-mcp--current-session-id method)))
+                                  (puthash key
+                                           (or ai-code-mcp--current-protocol-version
+                                               (plist-get (ai-code-mcp-get-session-context)
+                                                          :protocol-version))
+                                           seen))
+                                (funcall orig-dispatch method params))))
+                     (call-process \"git\" nil nil nil \"-C\" tmp-ws \"init\" \"-q\")
+                     (let* ((default-directory (file-name-as-directory tmp-ws))
+                            (settings (format \"{\\\"trustedWorkspaces\\\":[\\\"%s\\\"]}\" tmp-ws)))
+                       (setq launch1
+                             (ai-code-mcp-agent-prepare-launch
+                              'antigravity tmp-ws (list \"agy\" \"--settings\" settings))
+                             launch2
+                             (ai-code-mcp-agent-prepare-launch
+                              'antigravity tmp-ws (list \"agy\" \"--settings\" settings)))
+                       (setq sid1 (plist-get launch1 :mcp-session-id)
+                             sid2 (plist-get launch2 :mcp-session-id)
+                             dir1 (cadr (member \"--add-dir\" (plist-get launch1 :argv)))
+                             dir2 (cadr (member \"--add-dir\" (plist-get launch2 :argv))))
+                       (funcall (plist-get launch1 :post-start-fn) output1 nil \"i1\")
+                       (funcall (plist-get launch2 :post-start-fn) output2 nil \"i2\")
+                       (setq proc1
+                             (make-process
+                              :name \"ai-code-agy-gauntlet-probe-1\"
+                              :buffer output1
+                              :command (plist-get launch1 :argv)
+                              :connection-type 'pty
+                              :noquery t)
+                             proc2
+                             (make-process
+                              :name \"ai-code-agy-gauntlet-probe-2\"
+                              :buffer output2
+                              :command (plist-get launch2 :argv)
+                              :connection-type 'pty
+                              :noquery t))
+                       (let ((started (float-time))
+                             (deadline (+ (float-time) 20.0)))
+                         (while (and
+                                 (or (process-live-p proc1) (process-live-p proc2))
+                                 (< (float-time) deadline)
+                                 (not (and (gethash (cons sid1 \"tools/list\") seen)
+                                           (gethash (cons sid2 \"tools/list\") seen))))
+                           (accept-process-output nil 0.1)
+                           (when (and (not sent)
+                                      (> (- (float-time) started) 3.0))
+                             (dolist (p (list proc1 proc2))
+                               (when (process-live-p p)
+                                 (process-send-string p \"/mcp\\r\")))
+                             (setq sent t))))
+                       (dolist (pair (list (cons \"1\" sid1) (cons \"2\" sid2)))
+                         (let* ((sid (cdr pair))
+                                (context (ai-code-mcp-get-session-context sid)))
+                           (princ
+                            (format \"instance=%s state=%s discover=%s tools_list=%s\\n\"
+                                    (car pair)
+                                    (plist-get context :state)
+                                    (or (gethash (cons sid \"server/discover\") seen) \"none\")
+                                    (or (gethash (cons sid \"tools/list\") seen) \"none\")))))
+                       (princ (format \"ws_agents_exists=%s\\n\"
+                                      (file-exists-p
+                                       (expand-file-name \".agents\" tmp-ws))))))
+                 (dolist (p (list proc1 proc2))
+                   (when (and p (process-live-p p))
+                     (delete-process p)))
+                 (dolist (l (list launch1 launch2))
+                   (when-let ((release (plist-get l :cleanup-fn)))
+                     (funcall release)))
+                 (dolist (b (list output1 output2))
+                   (when (buffer-live-p b)
+                     (kill-buffer b)))
+                 (princ (format \"temp_dirs_cleaned=%s\\n\"
+                                (and (not (file-exists-p dir1))
+                                     (not (file-exists-p dir2)))))
+                 (when (file-directory-p tmp-ws)
+                   (delete-directory tmp-ws t)))))")
   printf '%s\n' "$probe_output"
-  if [[ "$probe_output" != *"state=ready protocol=2025-11-25 client=antigravity-client"* ]]; then
-    echo "Antigravity did not complete the legacy MCP handshake" >&2
-    return 1
-  fi
-  agents_after=$(git status --porcelain=v1 --untracked-files=all -- .agents)
-  if [[ "$agents_before" != "$agents_after" ]]; then
-    echo "Antigravity probe changed workspace .agents state" >&2
+  if [[ "$probe_output" != *"instance=1 state=ready discover=2026-07-28 tools_list=2026-07-28"* ]] || \
+     [[ "$probe_output" != *"instance=2 state=ready discover=2026-07-28 tools_list=2026-07-28"* ]] || \
+     [[ "$probe_output" != *"ws_agents_exists=nil"* ]] || \
+     [[ "$probe_output" != *"temp_dirs_cleaned=t"* ]]; then
+    echo "Concurrent Antigravity instances did not complete isolated modern MCP handshakes" >&2
     return 1
   fi
 }
@@ -213,7 +249,7 @@ copy_task_files "$task_tmp_dir"
 
 run_focused_tests "$task_tmp_dir"
 
-emacs -Q --batch -L . -l ert \
+emacs -Q --batch --eval '(setq load-prefer-newer t)' -L . -l ert \
   --eval "(mapc #'load-file (file-expand-wildcards \"test/test_*.el\"))" \
   -f ert-run-tests-batch-and-exit
 
@@ -224,13 +260,13 @@ run_real_agy_probe
 
 run_mutant "remove Antigravity from the default MCP backends" \
   "ai-code-mcp-agent.el" \
-  's/\Qclaude-code antigravity)\E/claude-code)/'
+  's/\Qclaude-code antigravity pi)\E/claude-code pi)/'
 run_mutant "omit the Bearer authorization scheme" \
   "ai-code-mcp-agent.el" \
   's/\Q(concat "Bearer " token)\E/token/'
-run_mutant "discard the existing Antigravity JSON object" \
+run_mutant "omit the --add-dir flag for Antigravity" \
   "ai-code-mcp-agent.el" \
-  's/\Q(if (plist-get state :original-exists-p)\E/(if nil/'
+  's/\Q(append argv (list "--add-dir" config-dir))\E/argv/'
 run_mutant "ignore the session modern-protocol opt-out" \
   "ai-code-mcp-http-server.el" \
   's/\Q(not (ai-code-mcp-http-server--modern-protocol-enabled-p context))\E/nil/'

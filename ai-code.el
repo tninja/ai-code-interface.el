@@ -34,6 +34,7 @@
 ;;   - GitHub Copilot CLI
 ;;   - Kilo
 ;;   - Grok CLI
+;;   - Goose CLI
 ;;   - Cursor CLI
 ;;   - Kiro CLI
 ;;   - Open Interpreter CLI (Codex-compatible)
@@ -65,7 +66,7 @@
 ;;
 ;; (use-package ai-code
 ;;   :config
-;;   ;; use codex as backend, other options are 'pi, 'gemini, 'github-copilot-cli, 'open-interpreter, 'opencode, 'kilo, 'grok, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro, 'codebuddy, 'aider, 'agent-shell, 'eca
+;;   ;; use codex as backend, other options are 'pi, 'gemini, 'github-copilot-cli, 'open-interpreter, 'opencode, 'kilo, 'grok, 'goose, 'claude-code-ide, 'claude-code-el, 'claude-code, 'cursor, 'kiro, 'codebuddy, 'aider, 'agent-shell, 'eca
 ;;   (ai-code-set-backend 'codex) ;; set your preferred backend
 ;;   ;; Optional: use a narrower transient menu on smaller frames
 ;;   ;; (setq ai-code-menu-layout 'two-columns)
@@ -703,7 +704,6 @@ directly modify agent configurations."
   ("S" "(Un)Install skills for backend" ai-code-install-backend-skills)
   ("g" "Open backend config (eg. add mcp)" ai-code-open-backend-config)
   ("G" "Open backend repo agent file" ai-code-open-backend-agent-file)
-  ("P" "Migrate MCPs/plugins from agent" ai-code-migrate-agent-integrations)
   ("l" ai-code-select-terminal :description ai-code--select-terminal-description))
 
 (transient-define-group ai-code--menu-actions-with-context
@@ -770,6 +770,7 @@ directly modify agent configurations."
   ("p" "Open prompt history file" ai-code-open-prompt-file)
   ("+" "Create file or dir with AI" ai-code-create-file-or-dir)
   ("." "Init projectile and gtags" ai-code-init-project)
+  ("P" "Migrate MCPs/plugins from agent" ai-code-migrate-agent-integrations)
   ;; ("m" "Debug python MCP server" ai-code-debug-mcp)
   ;; ("N" "Toggle notifications" ai-code-notifications-toggle)
   ;; DONE: Add a menu item here: Given a new customized variable, which suppose to be a list of strings, by default it is nil. User can choose one from it, probably with complet-reading, and it will be sent to AI session with ai-code--insert-prompt. This is useful for user to quickly send some pre-defined prompt templates or instructions to AI, like a shortcut.

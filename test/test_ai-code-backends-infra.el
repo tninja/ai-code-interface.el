@@ -318,12 +318,14 @@ the platform makes the literal path a symlink, such as /tmp on macOS."
     (should (eq (nth 3 seen) t))))
 
 (ert-deftest test-ai-code-backends-infra-start-cli-session-forwards-options ()
-  "Generic CLI startup should resolve and forward backend options."
+  "Generic CLI startup should forward backend options and defer prepare-launch."
   (let ((process-table (make-hash-table :test 'equal))
         (escape-fn (lambda () nil))
         (cleanup-fn (lambda () nil))
         (post-start-fn (lambda (_buffer _process _instance) nil))
-        captured)
+        (prepare-calls 0)
+        captured
+        captured-preparer)
     (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
                (lambda (&optional _prompt-p) "/project/"))
               ((symbol-function 'ai-code-backends-infra--resolve-start-command)
@@ -336,7 +338,8 @@ the platform makes the literal path a symlink, such as /tmp on macOS."
                    :argv ("codex" "--quiet"))))
               ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
                (lambda (&rest args)
-                 (setq captured args))))
+                 (setq captured args
+                       captured-preparer ai-code-backends-infra--launch-preparer))))
       (ai-code-backends-infra--start-cli-session
        (list :program "codex"
              :switches '("--quiet")
@@ -348,6 +351,7 @@ the platform makes the literal path a symlink, such as /tmp on macOS."
              :escape-function escape-fn
              :prepare-launch
              (lambda (working-dir argv)
+               (cl-incf prepare-calls)
                (should (equal working-dir "/project/"))
                (should (equal argv '("codex" "--quiet")))
                (list :argv '("codex" "--quiet" "--mcp")
@@ -355,20 +359,165 @@ the platform makes the literal path a symlink, such as /tmp on macOS."
                      :cleanup-fn cleanup-fn
                      :post-start-fn post-start-fn)))
        'prefix-arg))
+    (should (zerop prepare-calls))
+    (should (functionp captured-preparer))
     (should (equal captured
                    (list "/project/"
                          nil
                          process-table
-                         '("codex" "--quiet" "--mcp")
+                         '("codex" "--quiet")
                          escape-fn
-                         cleanup-fn
+                         nil
                          nil
                          "codex"
                          'prefix-arg
-                         '("AI_CODE_MCP_BEARER_TOKEN=secret"
-                           "TERM_PROGRAM=vscode")
+                         '("TERM_PROGRAM=vscode")
                          "\r\n"
-                         post-start-fn)))))
+                         nil)))
+    (let ((prepared
+           (let ((ai-code-backends-infra--launch-preparer captured-preparer))
+             (ai-code-backends-infra--prepare-new-session-launch
+              "/project/"
+              '("codex" "--quiet")
+              '("TERM_PROGRAM=vscode")
+              nil
+              nil
+              (current-buffer)))))
+      (should (= 1 prepare-calls))
+      (should (equal (plist-get prepared :command) '("codex" "--quiet" "--mcp")))
+      (should (equal (plist-get prepared :env-vars)
+                     '("AI_CODE_MCP_BEARER_TOKEN=secret" "TERM_PROGRAM=vscode")))
+      (should (eq (plist-get prepared :cleanup-fn) cleanup-fn))
+      (should (eq (plist-get prepared :post-start-fn) post-start-fn)))))
+
+(ert-deftest test-ai-code-backends-infra-start-cli-session-skips-prepare-launch-on-reuse ()
+  "Reusing a live session should not invoke `:prepare-launch'."
+  (let* ((working-dir "/tmp/ai-code-reuse-skip-prepare/")
+         (buffer-name "*antigravity[ai-code-reuse-skip-prepare]*")
+         (buffer (get-buffer-create buffer-name))
+         (process-table (make-hash-table :test 'equal))
+         (process 'existing-process)
+         (prepare-calls 0)
+         (reused nil))
+    (unwind-protect
+        (progn
+          (puthash (cons (test-ai-code-backends-infra--session-dir working-dir)
+                         "default")
+                   process process-table)
+          (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+                     (lambda (&optional _prompt-p) working-dir))
+                    ((symbol-function 'ai-code-backends-infra--resolve-start-command)
+                     (lambda (&rest _args) '(:argv ("agy"))))
+                    ((symbol-function 'ai-code-backends-infra--resolve-session-target)
+                     (lambda (&rest _args)
+                       (list :instance-name "default"
+                             :buffer-name buffer-name
+                             :session-key
+                             (cons (test-ai-code-backends-infra--session-dir working-dir)
+                                   "default"))))
+                    ((symbol-function 'process-live-p)
+                     (lambda (candidate) (eq candidate process)))
+                    ((symbol-function 'ai-code-backends-infra--reuse-existing-session)
+                     (lambda (&rest _args) (setq reused t))))
+            (ai-code-backends-infra--start-cli-session
+             (list :program "agy"
+                   :label "Antigravity"
+                   :process-table process-table
+                   :session-prefix "antigravity"
+                   :prepare-launch
+                   (lambda (_dir _argv)
+                     (cl-incf prepare-calls)
+                     '(:argv ("agy" "--add-dir" "/tmp/unused"))))
+             nil))
+          (should reused)
+          (should (zerop prepare-calls)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest test-ai-code-backends-infra-start-cli-session-runs-prepare-launch-on-create ()
+  "Creating a new session should invoke `:prepare-launch' and pass its metadata."
+  (let* ((working-dir "/tmp/ai-code-create-prepare/")
+         (process-table (make-hash-table :test 'equal))
+         (cleanup-fn (lambda () nil))
+         (post-start-fn (lambda (_buffer _process _instance) nil))
+         (prepare-calls 0)
+         captured)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda (&optional _prompt-p) working-dir))
+              ((symbol-function 'ai-code-backends-infra--resolve-start-command)
+               (lambda (&rest _args) '(:argv ("agy"))))
+              ((symbol-function 'ai-code-backends-infra--resolve-session-target)
+               (lambda (&rest _args)
+                 (list :instance-name "default"
+                       :buffer-name "*antigravity[ai-code-create-prepare]*"
+                       :session-key
+                       (cons (test-ai-code-backends-infra--session-dir working-dir)
+                             "default"))))
+              ((symbol-function 'ai-code-backends-infra--create-new-session)
+               (lambda (&rest args)
+                 (setq captured args))))
+      (ai-code-backends-infra--start-cli-session
+       (list :program "agy"
+             :label "Antigravity"
+             :process-table process-table
+             :session-prefix "antigravity"
+             :env-vars '("EXTRA=1")
+             :prepare-launch
+             (lambda (dir argv)
+               (cl-incf prepare-calls)
+               (should (equal dir working-dir))
+               (should (equal argv '("agy")))
+               (list :argv '("agy" "--add-dir" "/tmp/agy-cfg")
+                     :env-vars '("AI_CODE_MCP_BEARER_TOKEN=secret")
+                     :cleanup-fn cleanup-fn
+                     :post-start-fn post-start-fn)))
+       nil))
+    (should (= 1 prepare-calls))
+    (should (equal (nth 2 captured) '("agy" "--add-dir" "/tmp/agy-cfg")))
+    (should (equal (nth 3 captured) '("AI_CODE_MCP_BEARER_TOKEN=secret" "EXTRA=1")))
+    (should (eq (nth 9 captured) cleanup-fn))
+    (should (eq (nth 11 captured) post-start-fn))))
+
+(ert-deftest test-ai-code-backends-infra-start-cli-session-composes-post-start-fns ()
+  "Deferred launch preparation should run its post-start hook before options."
+  (let* ((working-dir "/tmp/ai-code-compose-post-start/")
+         (process-table (make-hash-table :test 'equal))
+         (call-order nil)
+         captured-post-start)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda (&optional _prompt-p) working-dir))
+              ((symbol-function 'ai-code-backends-infra--resolve-start-command)
+               (lambda (&rest _args) '(:argv ("pi"))))
+              ((symbol-function 'ai-code-backends-infra--resolve-session-target)
+               (lambda (&rest _args)
+                 (list :instance-name "default"
+                       :buffer-name "*pi[ai-code-compose-post-start]*"
+                       :session-key
+                       (cons (test-ai-code-backends-infra--session-dir working-dir)
+                             "default"))))
+              ((symbol-function 'ai-code-backends-infra--create-new-session)
+               (lambda (&rest args)
+                 (setq captured-post-start (nth 11 args)))))
+      (ai-code-backends-infra--start-cli-session
+       (list :program "pi"
+             :label "Pi"
+             :process-table process-table
+             :session-prefix "pi"
+             :post-start-fn
+             (lambda (buffer process instance)
+               (push (list 'options buffer process instance) call-order))
+             :prepare-launch
+             (lambda (_dir argv)
+               (list :argv argv
+                     :post-start-fn
+                     (lambda (buffer process instance)
+                       (push (list 'launch buffer process instance) call-order)))))
+       nil))
+    (should (functionp captured-post-start))
+    (funcall captured-post-start 'buf 'proc "default")
+    (should (equal (nreverse call-order)
+                   '((launch buf proc "default")
+                     (options buf proc "default"))))))
 
 (ert-deftest test-ai-code-backends-infra-start-cli-session-prompts-dir-after-args ()
   "Working directory prompting should happen after CLI args prompting.

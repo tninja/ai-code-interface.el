@@ -557,6 +557,7 @@
   (should (assoc 'kilo ai-code--backend-session-prefixes))
   (should (assoc 'claude-code ai-code--backend-session-prefixes))
   (should (assoc 'pi ai-code--backend-session-prefixes))
+  (should (assoc 'goose ai-code--backend-session-prefixes))
   (should-not (assoc 'eca ai-code--backend-session-prefixes)))
 
 (ert-deftest ai-code-test-get-session-prefix ()
@@ -565,7 +566,24 @@
   (should (equal "kilo" (alist-get 'kilo ai-code--backend-session-prefixes)))
   (should (equal "claude" (alist-get 'claude-code ai-code--backend-session-prefixes)))
   (should (equal "pi" (alist-get 'pi ai-code--backend-session-prefixes)))
+  (should (equal "goose" (alist-get 'goose ai-code--backend-session-prefixes)))
   (should-not (alist-get 'eca ai-code--backend-session-prefixes)))
+
+(ert-deftest ai-code-test-session-exists-p-detects-goose-session ()
+  "Ensure `ai-code--session-exists-p' detects a Goose session buffer."
+  (let ((ai-code-selected-backend 'goose)
+        (found-prefix nil)
+        (found-dir nil))
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda () "/tmp/project/"))
+              ((symbol-function 'ai-code-backends-infra--find-session-buffers)
+               (lambda (prefix directory)
+                 (setq found-prefix prefix
+                       found-dir directory)
+                 (list (current-buffer)))))
+      (should (ai-code--session-exists-p))
+      (should (equal found-prefix "goose"))
+      (should (equal found-dir "/tmp/project/")))))
 
 (ert-deftest ai-code-test-command-preset-map ()
   "Test that command-preset-map has expected commands."

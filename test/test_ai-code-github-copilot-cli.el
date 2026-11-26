@@ -125,22 +125,22 @@
                   ((symbol-function 'ai-code-mcp-unregister-session)
                    (lambda (session-id)
                      (setq unregistered session-id)))
-                  ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
-                   (lambda (&rest args)
-                     (cl-destructuring-bind
-                         (_working-dir _buffer-name _process-table command
-                                       &optional _escape-fn cleanup-fn
-                                       _instance-name _prefix _force-prompt
-                                       env-vars multiline-input-sequence
-                                       post-start-fn)
-                         args
-                       (setq captured-command command)
-                       (setq captured-cleanup-fn cleanup-fn)
-                       (setq captured-post-start-fn post-start-fn)
-                       (setq captured-env-vars env-vars)
-                       (setq captured-sequence multiline-input-sequence))
+                  ((symbol-function 'ai-code-backends-infra--create-new-session)
+                   (lambda (_buffer-name _working-dir command env-vars
+                                         _session-key _process-table
+                                         _resolved-instance _prefix
+                                         _escape-fn cleanup-fn
+                                         multiline-input-sequence
+                                         post-start-fn
+                                         &rest _rest)
+                     (setq captured-command command)
+                     (setq captured-cleanup-fn cleanup-fn)
+                     (setq captured-post-start-fn post-start-fn)
+                     (setq captured-env-vars env-vars)
+                     (setq captured-sequence multiline-input-sequence)
                      nil)))
-          (let ((ai-code-github-copilot-cli-extra-env-vars '("TERM_PROGRAM=vscode"))
+          (let ((ai-code-github-copilot-cli--processes (make-hash-table :test 'equal))
+                (ai-code-github-copilot-cli-extra-env-vars '("TERM_PROGRAM=vscode"))
                 (ai-code-github-copilot-cli-multiline-input-sequence "\\\r\n"))
             (ai-code-github-copilot-cli)
             (should builtins-called)

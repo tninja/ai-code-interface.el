@@ -202,21 +202,21 @@
                   ((symbol-function 'ai-code-mcp-unregister-session)
                    (lambda (session-id)
                      (setq unregistered session-id)))
-                  ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
-                   (lambda (&rest args)
-                     (cl-destructuring-bind
-                         (_working-dir _buffer-name _process-table command
-                                       &optional _escape-fn cleanup-fn
-                                       _instance-name _prefix _force-prompt
-                                       env-vars _multiline-input-sequence
-                                       post-start-fn)
-                         args
-                       (setq captured-command command)
-                       (setq captured-cleanup-fn cleanup-fn)
-                       (setq captured-post-start-fn post-start-fn)
-                       (setq captured-env-vars env-vars))
+                  ((symbol-function 'ai-code-backends-infra--create-new-session)
+                   (lambda (_buffer-name _working-dir command env-vars
+                                         _session-key _process-table
+                                         _resolved-instance _prefix
+                                         _escape-fn cleanup-fn
+                                         _multiline-input-sequence
+                                         post-start-fn
+                                         &rest _rest)
+                     (setq captured-command command)
+                     (setq captured-cleanup-fn cleanup-fn)
+                     (setq captured-post-start-fn post-start-fn)
+                     (setq captured-env-vars env-vars)
                      nil)))
-          (ai-code-codex-cli)
+          (let ((ai-code-codex-cli--processes (make-hash-table :test 'equal)))
+            (ai-code-codex-cli))
           (should builtins-called)
           (should ensure-called)
           (let ((config-args (member "-c" captured-command)))

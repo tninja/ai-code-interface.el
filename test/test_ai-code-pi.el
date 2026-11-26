@@ -255,9 +255,16 @@
                              (lambda (buf proc inst)
                                (setq mcp-post-start-args
                                      (list buf proc inst))))))
-                    ((symbol-function 'ai-code-backends-infra--toggle-or-create-session)
-                     (lambda (&rest args)
-                       (setq captured-post-start (nth 11 args))))
+                    ((symbol-function 'ai-code-backends-infra--create-new-session)
+                     (lambda (_buffer-name _working-dir _command _env-vars
+                                           _session-key _process-table
+                                           _resolved-instance _prefix
+                                           _escape-fn _cleanup-fn
+                                           _multiline-input-sequence
+                                           post-start-fn
+                                           &rest _rest)
+                       (setq captured-post-start post-start-fn)
+                       nil))
                     ((symbol-function 'ai-code-mcp-agent-touch-session)
                      #'ignore)
                     ((symbol-function 'ai-code-backends-infra--terminal-send-string)
@@ -266,7 +273,8 @@
                     ((symbol-function 'ai-code-backends-infra--terminal-send-return)
                      (lambda ()
                        (push '(return) sent-events))))
-            (ai-code-pi-start)
+            (let ((ai-code-pi--processes (make-hash-table :test 'equal)))
+              (ai-code-pi-start))
             (should (functionp captured-post-start))
             (ai-code-backends-infra--configure-session-buffer
              session-buffer #'ai-code-pi-send-escape "\e[13;2u")
