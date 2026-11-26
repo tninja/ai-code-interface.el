@@ -1827,6 +1827,8 @@ session buffer.
 :env-vars is an optional list of environment variable strings.
 :multiline-input-sequence is an optional terminal sequence for
 multiline input.
+:post-start-fn is an optional function called with (BUFFER PROCESS
+INSTANCE-NAME) after session creation.
 :prepare-launch is an optional function called with (WORKING-DIR ARGV)
 only when a new session is being created.
 When :prepare-launch is present, it may return :argv, :env-vars,
@@ -1860,7 +1862,7 @@ A legacy :command entry is normalized to argv for compatibility."
        arg
        (plist-get options :env-vars)
        (plist-get options :multiline-input-sequence)
-       nil))))
+       (plist-get options :post-start-fn)))))
 
 (defun ai-code-backends-infra--last-accessed-session-buffer (session-prefix)
   "Return the last accessed buffer when it belongs to SESSION-PREFIX."
@@ -2108,6 +2110,9 @@ When PREFIX and WORKING-DIR are provided, select from multiple sessions."
           (select-window window))
       (ai-code-backends-infra--display-buffer-in-side-window buffer))))
 
+(defvar ai-code-backends-infra--submit-return-function nil
+  "Optional function called instead of Return when submitting a prompt.")
+
 (defun ai-code-backends-infra--submit-prompt (buffer prompt &optional source-buffer)
   "Submit PROMPT to the already chosen terminal BUFFER.
 Refresh MCP context from SOURCE-BUFFER, defaulting to the current buffer,
@@ -2127,7 +2132,8 @@ Return result.  This does not select a target or change window display."
           (ai-code-backends-infra--terminal-send-string prompt))
         ;; Shorter delays can lose submissions in some CLI backends.
         (sit-for 0.5)
-        (ai-code-backends-infra--terminal-send-return))
+        (funcall (or ai-code-backends-infra--submit-return-function
+                     #'ai-code-backends-infra--terminal-send-return)))
     (ai-code-session-note-prompt buffer prompt)
     (setq ai-code-backends-infra--last-accessed-buffer buffer)))
 

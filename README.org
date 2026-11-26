@@ -420,7 +420,7 @@ Set the backend to =claude-code=, =codex=, =github-copilot-cli=, =pi=, or =antig
 
 Auto-wiring is currently enabled for =claude-code=, =codex=, =github-copilot-cli=, =open-interpreter=, =antigravity=, and =pi=.
 
-Pi sessions load a per-launch temporary extension (=--extension=) that calls =pi.registerMcpServer= with the session token read from the child process environment. Each Pi instance gets its own token, session, and extension file, so several Pi sessions can use the Emacs tools independently. This requires a Pi build with built-in MCP support.
+Pi sessions load a per-launch temporary extension (=--extension=) that calls =pi.registerMcpServer= with the session token read from the child process environment. Each Pi instance gets its own token, session, and extension file, so several Pi sessions can use the Emacs tools independently. By default, =ai-code-mcp-agent-pi-exposure= uses ="codemode"= (which automatically enables Pi's =codemode= script runner for parallel tool batching and keeps large tool schemas out of every turn) while =ai-code-mcp-agent-pi-tool-exposure= keeps =diagnostics_baseline=, =get_diagnostics=, and =get_org_heading_context= directly declared; customize either option if you prefer full ="direct"= exposure. This requires a Pi build with built-in MCP support.
 
 Antigravity does not expand environment variables in MCP headers, so each Antigravity launch creates a private per-session temporary directory containing =.agents/mcp_config.json= (mode =0700=/=0600=) and passes it via =--add-dir=. Project workspaces stay untouched, multiple concurrent Antigravity sessions stay isolated with independent tokens and contexts, and temporary directories are removed on session exit or Emacs shutdown.
 
@@ -790,9 +790,44 @@ with =C-c a H=. Use its references to revisit the original evidence.
      scroll, search, and number it; Pi's default fullscreen mode draws on the
      alternate screen, leaving only the visible rows in the session buffer.
      Customize =ai-code-pi-tui-mode= to =fullscreen=, or to =nil= to keep Pi's
-     own setting.  In Pi session buffers, Shift+Enter and
-     Ctrl+Enter insert a newline, and Ctrl+Escape sends Escape to cancel the
-     current operation.
+     own setting.  Customize =ai-code-pi-project-trust= to =approve= or
+     =no-approve= if you want AI Code to pass =--approve= or =--no-approve=
+     instead of using Pi's saved project-trust prompt.
+
+     In Pi session buffers, Shift+Enter and Ctrl+Enter insert a newline,
+     Alt+Enter (=M-<return>=) submits immediately when idle or queues a
+     follow-up while Pi is busy, and Ctrl+Escape sends Escape to cancel the
+     current operation.  From any project buffer or Pi session, run
+     =M-x ai-code-pi-compose= to open Pi's external editor in an Emacs
+     viewport (=ai-code-editor-viewport=) without =C-g= conflicting with
+     =keyboard-quit= (leave =externalEditor= unset in
+     =~/.pi/agent/settings.json= so Pi uses AI Code's =VISUAL=/=EDITOR=
+     bridge).  Use =M-x ai-code-pi-send-follow-up= to queue a follow-up from
+     Emacs (or customize =ai-code-pi-send-while-busy= to =followup= to make
+     =ai-code-pi-send-command= queue follow-ups instead of steering), and
+     =M-x ai-code-pi-slash-command= to send slash commands such as =/model=,
+     =/thinking=, =/tree=, or =/compact=.
+
+     *Recommended manual Gemini setup for Pi:* AI Code never overrides your Pi
+     model or credentials automatically.  To use Gemini with Pi, export
+     =GEMINI_API_KEY= (Google AI Studio) or configure Vertex AI
+     (=GOOGLE_CLOUD_PROJECT=, =GOOGLE_CLOUD_LOCATION=, and Application Default
+     Credentials), and optionally configure =~/.pi/agent/settings.json= so
+     =Ctrl+P= cycles cleanly between Pro and Flash with Vertex-safe thinking
+     levels (avoiding =minimal= on Vertex endpoints):
+
+     #+begin_src json
+     {
+       "defaultProvider": "google",
+       "defaultModel": "gemini-3.1-pro-preview-customtools",
+       "defaultThinkingLevel": "high",
+       "enabledModels": [
+         "google/gemini-3.1-pro-preview-customtools:high",
+         "google/gemini-3-flash-preview:medium",
+         "google/gemini-2.5-pro:high"
+       ]
+     }
+     #+end_src
 
 **** Grok CLI setup
      Install [[https://grokcli.io/][grok-cli]] and ensure the `grok` executable is on your PATH.

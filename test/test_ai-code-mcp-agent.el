@@ -813,15 +813,52 @@
   (should (memq 'pi (default-value 'ai-code-mcp-agent-enabled-backends))))
 
 (ert-deftest ai-code-test-mcp-agent-pi-extension-source-reads-token-from-env ()
-  "Pi extension should read the token from the environment, not embed it."
+  "Pi extension should read token from env and expose codemode plus anchors."
   (let ((source (ai-code-mcp-agent--pi-extension-source
                  "http://127.0.0.1:8765/mcp" "AI_CODE_MCP_BEARER_TOKEN")))
     (should (string-match-p "registerMcpServer(\"emacs_tools\"" source))
     (should (string-match-p "url: \"http://127.0.0.1:8765/mcp\"" source))
     (should (string-match-p
              "process.env\\[\"AI_CODE_MCP_BEARER_TOKEN\"\\]" source))
-    (should (string-match-p "exposure: \"direct\"" source))
+    (should (string-match-p "exposure: \"codemode\"" source))
+    (should (string-match-p "\"diagnostics_baseline\" *: *\"direct\"" source))
+    (should (string-match-p "\"get_diagnostics\" *: *\"direct\"" source))
+    (should (string-match-p "\"get_org_heading_context\" *: *\"direct\"" source))
     (should (string-match-p "typeof pi.registerMcpServer" source))))
+
+(ert-deftest ai-code-test-mcp-agent-pi-extension-source-respects-custom-exposure ()
+  "Pi extension should honor custom exposure and omit empty toolExposure."
+  (let* ((ai-code-mcp-agent-pi-exposure "direct")
+         (ai-code-mcp-agent-pi-tool-exposure nil)
+         (source (ai-code-mcp-agent--pi-extension-source
+                  "http://127.0.0.1:8765/mcp" "AI_CODE_MCP_BEARER_TOKEN")))
+    (should (string-match-p "exposure: \"direct\"" source))
+    (should-not (string-match-p "toolExposure" source))))
+
+(ert-deftest ai-code-test-mcp-agent-pi-extension-source-rejects-invalid-exposure ()
+  "Pi extension should fail closed on invalid exposures and serialize valid ones."
+  (dolist (valid '("codemode" "deferred" "direct" "hidden"))
+    (let* ((ai-code-mcp-agent-pi-exposure valid)
+           (ai-code-mcp-agent-pi-tool-exposure
+            (list (cons "get_*" valid)
+                  (cons "buffer_query" "codemode")))
+           (source (ai-code-mcp-agent--pi-extension-source
+                    "http://127.0.0.1:8765/mcp" "AI_CODE_MCP_BEARER_TOKEN")))
+      (should (string-match-p (format "exposure: %S" valid) source))
+      (should (string-match-p (format "\"get_\\*\" *: *%S" valid) source))
+      (should (string-match-p "\"buffer_query\" *: *\"codemode\"" source))))
+  (let ((ai-code-mcp-agent-pi-exposure "bogus"))
+    (should-error
+     (ai-code-mcp-agent--pi-extension-source
+      "http://127.0.0.1:8765/mcp" "AI_CODE_MCP_BEARER_TOKEN")))
+  (let ((ai-code-mcp-agent-pi-tool-exposure '(("get_diagnostics" . "bogus"))))
+    (should-error
+     (ai-code-mcp-agent--pi-extension-source
+      "http://127.0.0.1:8765/mcp" "AI_CODE_MCP_BEARER_TOKEN")))
+  (let ((ai-code-mcp-agent-pi-tool-exposure '(("" . "direct"))))
+    (should-error
+     (ai-code-mcp-agent--pi-extension-source
+      "http://127.0.0.1:8765/mcp" "AI_CODE_MCP_BEARER_TOKEN"))))
 
 (ert-deftest ai-code-test-mcp-agent-pi-launch-adds-extension-and-cleans-up ()
   "Pi launch should append a temp extension and remove it on cleanup."

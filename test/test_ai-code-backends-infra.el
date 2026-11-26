@@ -478,6 +478,47 @@ the platform makes the literal path a symlink, such as /tmp on macOS."
     (should (eq (nth 9 captured) cleanup-fn))
     (should (eq (nth 11 captured) post-start-fn))))
 
+(ert-deftest test-ai-code-backends-infra-start-cli-session-composes-post-start-fns ()
+  "Deferred launch preparation should run its post-start hook before options."
+  (let* ((working-dir "/tmp/ai-code-compose-post-start/")
+         (process-table (make-hash-table :test 'equal))
+         (call-order nil)
+         captured-post-start)
+    (cl-letf (((symbol-function 'ai-code-backends-infra--session-working-directory)
+               (lambda (&optional _prompt-p) working-dir))
+              ((symbol-function 'ai-code-backends-infra--resolve-start-command)
+               (lambda (&rest _args) '(:argv ("pi"))))
+              ((symbol-function 'ai-code-backends-infra--resolve-session-target)
+               (lambda (&rest _args)
+                 (list :instance-name "default"
+                       :buffer-name "*pi[ai-code-compose-post-start]*"
+                       :session-key
+                       (cons (test-ai-code-backends-infra--session-dir working-dir)
+                             "default"))))
+              ((symbol-function 'ai-code-backends-infra--create-new-session)
+               (lambda (&rest args)
+                 (setq captured-post-start (nth 11 args)))))
+      (ai-code-backends-infra--start-cli-session
+       (list :program "pi"
+             :label "Pi"
+             :process-table process-table
+             :session-prefix "pi"
+             :post-start-fn
+             (lambda (buffer process instance)
+               (push (list 'options buffer process instance) call-order))
+             :prepare-launch
+             (lambda (_dir argv)
+               (list :argv argv
+                     :post-start-fn
+                     (lambda (buffer process instance)
+                       (push (list 'launch buffer process instance) call-order)))))
+       nil))
+    (should (functionp captured-post-start))
+    (funcall captured-post-start 'buf 'proc "default")
+    (should (equal (nreverse call-order)
+                   '((launch buf proc "default")
+                     (options buf proc "default"))))))
+
 (ert-deftest test-ai-code-backends-infra-start-cli-session-prompts-dir-after-args ()
   "Working directory prompting should happen after CLI args prompting.
 The prefix argument should also force instance-name prompting."
