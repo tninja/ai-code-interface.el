@@ -95,21 +95,22 @@
                    (lambda (session-id)
                      (setq unregistered session-id)))
                   ((symbol-function
-                    'ai-code-backends-infra--toggle-or-create-session)
-                   (lambda (&rest args)
-                     (cl-destructuring-bind
-                         (_working-dir _buffer-name _process-table command
-                                       &optional _escape-fn cleanup-fn
-                                       _instance-name _prefix _force-prompt
-                                       env-vars _multiline-input-sequence
-                                       post-start-fn)
-                         args
-                       (setq captured-command command
-                             captured-cleanup-fn cleanup-fn
-                             captured-env-vars env-vars
-                             captured-post-start-fn post-start-fn))
+                    'ai-code-backends-infra--create-new-session)
+                   (lambda (_buffer-name _working-dir command env-vars
+                                         _session-key _process-table
+                                         _resolved-instance _prefix
+                                         _escape-fn cleanup-fn
+                                         _multiline-input-sequence
+                                         post-start-fn
+                                         &rest _rest)
+                     (setq captured-command command
+                           captured-cleanup-fn cleanup-fn
+                           captured-env-vars env-vars
+                           captured-post-start-fn post-start-fn)
                      nil)))
-          (ai-code-open-interpreter-cli)
+          (let ((ai-code-open-interpreter-cli--processes
+                 (make-hash-table :test 'equal)))
+            (ai-code-open-interpreter-cli))
           (should builtins-called)
           (should ensure-called)
           (should

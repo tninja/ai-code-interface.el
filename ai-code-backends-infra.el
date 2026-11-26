@@ -142,6 +142,12 @@ This is dynamically bound by `ai-code-backends-infra--start-cli-session' so
 terminal-specific startup code can identify the CLI without duplicating the
 backend registry.")
 
+(defvar ai-code-backends-infra--launch-preparer nil
+  "Launch preparation function bound for the session currently starting.
+This is dynamically bound by `ai-code-backends-infra--start-cli-session' so
+`ai-code-backends-infra--toggle-or-create-session' invokes `:prepare-launch'
+only when creating a new session instead of reusing an existing one.")
+
 (defvar ai-code-backends-infra--reflow-advised-handlers nil
   "Resize handlers currently advised with reflow filter.")
 
@@ -1750,6 +1756,62 @@ PREFIX, COMMAND, and WORKING-DIR identify the failed launch."
         (format "Failed to clean up CLI launch resources: %s"
                 (error-message-string err)))))))
 
+(defun ai-code-backends-infra--compose-cleanup-functions (first second)
+  "Return a cleanup function that invokes FIRST and SECOND when non-nil."
+  (cond
+   ((and first second)
+    (lambda ()
+      (unwind-protect
+          (funcall first)
+        (funcall second))))
+   (t (or first second))))
+
+(defun ai-code-backends-infra--compose-post-start-functions (first second)
+  "Return a post-start function that invokes FIRST and SECOND when non-nil."
+  (cond
+   ((and first second)
+    (lambda (buffer process instance-name)
+      (funcall first buffer process instance-name)
+      (funcall second buffer process instance-name)))
+   (t (or first second))))
+
+(defun ai-code-backends-infra--prepare-new-session-launch
+    (working-dir command env-vars cleanup-fn post-start-fn source-buffer)
+  "Apply `ai-code-backends-infra--launch-preparer' for a new session launch.
+WORKING-DIR, COMMAND, ENV-VARS, CLEANUP-FN, POST-START-FN, and SOURCE-BUFFER
+provide the base session parameters.  Return a plist with `:command',
+`:env-vars', `:cleanup-fn', and `:post-start-fn'."
+  (if (not ai-code-backends-infra--launch-preparer)
+      (list :command command
+            :env-vars env-vars
+            :cleanup-fn cleanup-fn
+            :post-start-fn post-start-fn)
+    (let* ((argv (ai-code-backends-infra--command-argv command))
+           (launch
+            (if (buffer-live-p source-buffer)
+                (with-current-buffer source-buffer
+                  (funcall ai-code-backends-infra--launch-preparer
+                           working-dir argv))
+              (funcall ai-code-backends-infra--launch-preparer
+                       working-dir argv)))
+           (prepared-command
+            (if (or (plist-get launch :argv)
+                    (plist-get launch :command))
+                (ai-code-backends-infra--command-argv
+                 (or (plist-get launch :argv)
+                     (plist-get launch :command)))
+              command)))
+      (list :command prepared-command
+            :env-vars (append (plist-get launch :env-vars) env-vars)
+            :cleanup-fn
+            (ai-code-backends-infra--compose-cleanup-functions
+             (plist-get launch :cleanup-fn)
+             cleanup-fn)
+            :post-start-fn
+            (ai-code-backends-infra--compose-post-start-functions
+             (plist-get launch :post-start-fn)
+             post-start-fn)))))
+
 (defun ai-code-backends-infra--start-cli-session (options arg)
   "Start a generic CLI session described by OPTIONS and prefix ARG.
 When ARG is non-nil, prompt for CLI args, working directory, and
@@ -1765,7 +1827,8 @@ session buffer.
 :env-vars is an optional list of environment variable strings.
 :multiline-input-sequence is an optional terminal sequence for
 multiline input.
-:prepare-launch is an optional function called with (WORKING-DIR ARGV).
+:prepare-launch is an optional function called with (WORKING-DIR ARGV)
+only when a new session is being created.
 When :prepare-launch is present, it may return :argv, :env-vars,
 :cleanup-fn, and :post-start-fn entries to customize session creation.
 A legacy :command entry is normalized to argv for compatibility."
@@ -1780,32 +1843,24 @@ A legacy :command entry is normalized to argv for compatibility."
          (argv
           (ai-code-backends-infra--command-argv
            (or (plist-get resolved :argv)
-               (plist-get resolved :command))))
-         (launch (when-let* ((prepare-launch (plist-get options :prepare-launch)))
-                   (funcall prepare-launch working-dir argv)))
-         (launch-argv
-          (ai-code-backends-infra--command-argv
-           (or (plist-get launch :argv)
-               (plist-get launch :command)
-               argv)))
-         (launch-env-vars (plist-get launch :env-vars))
-         (cleanup-fn (plist-get launch :cleanup-fn))
-         (post-start-fn (plist-get launch :post-start-fn)))
+               (plist-get resolved :command)))))
     (let ((ai-code-backends-infra--launch-program
-           (plist-get options :program)))
+           (plist-get options :program))
+          (ai-code-backends-infra--launch-preparer
+           (plist-get options :prepare-launch)))
       (ai-code-backends-infra--toggle-or-create-session
        working-dir
        nil
        (plist-get options :process-table)
-       launch-argv
+       argv
        (plist-get options :escape-function)
-       cleanup-fn
+       nil
        nil
        (plist-get options :session-prefix)
        arg
-       (append launch-env-vars (plist-get options :env-vars))
+       (plist-get options :env-vars)
        (plist-get options :multiline-input-sequence)
-       post-start-fn))))
+       nil))))
 
 (defun ai-code-backends-infra--last-accessed-session-buffer (session-prefix)
   "Return the last accessed buffer when it belongs to SESSION-PREFIX."
@@ -2010,21 +2065,26 @@ session starts successfully."
              source-buffer)
           (when cleanup-fn
             (funcall cleanup-fn)))
-      (ai-code-backends-infra--create-new-session
-       resolved-buffer-name
-       working-dir
-       command
-       env-vars
-       session-key
-       process-table
-       resolved-instance
-       prefix
-       escape-fn
-       cleanup-fn
-       multiline-input-sequence
-       post-start-fn
-       task-file
-       source-buffer))))
+      (let* ((prepared
+              (ai-code-backends-infra--prepare-new-session-launch
+               working-dir command env-vars cleanup-fn post-start-fn
+               source-buffer))
+             (ai-code-backends-infra--launch-preparer nil))
+        (ai-code-backends-infra--create-new-session
+         resolved-buffer-name
+         working-dir
+         (plist-get prepared :command)
+         (plist-get prepared :env-vars)
+         session-key
+         process-table
+         resolved-instance
+         prefix
+         escape-fn
+         (plist-get prepared :cleanup-fn)
+         multiline-input-sequence
+         (plist-get prepared :post-start-fn)
+         task-file
+         source-buffer)))))
 
 (defun ai-code-backends-infra--switch-to-session-buffer (buffer-name missing-message
                                                                     &optional prefix working-dir force-prompt)
