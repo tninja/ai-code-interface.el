@@ -59,12 +59,16 @@ Can be either `vterm', `eat', or `ghostel'."
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-window-width 90
-  "Body width of the side window when opened on left or right."
+  "Body width of the side window when opened on left or right.
+Resizing a managed side window manually, for example by dragging its
+divider, updates this value for the current session."
   :type 'integer
   :group 'ai-code-backends-infra)
 
 (defcustom ai-code-backends-infra-window-height 20
-  "Total height of the side window when opened on top or bottom."
+  "Total height of the side window when opened on top or bottom.
+Resizing a managed side window manually, for example by dragging its
+divider, updates this value for the current session."
   :type 'integer
   :group 'ai-code-backends-infra)
 
@@ -897,7 +901,44 @@ fixed windows.  Return non-nil only when WINDOW actually changes size."
             (window-resize window delta horizontal))
           (not (zerop delta)))
       ;; Preservation belongs to the current buffer and actual pixel size.
-      (window-preserve-size window horizontal t))))
+      (window-preserve-size window horizontal t)
+      (ai-code-backends-infra--record-side-window-size window horizontal))))
+
+(defun ai-code-backends-infra--side-window-layout-snapshot (window horizontal)
+  "Return the frame size and total size of WINDOW along HORIZONTAL."
+  (let ((frame (window-frame window)))
+    (list (frame-width frame)
+          (frame-height frame)
+          (window-total-size window horizontal))))
+
+(defun ai-code-backends-infra--record-side-window-size (window horizontal)
+  "Remember the size WINDOW was given along HORIZONTAL.
+`ai-code-backends-infra--adopt-manual-side-window-size' compares this
+snapshot with the current layout to detect manual resizing."
+  (set-window-parameter
+   window 'ai-code-backends-infra-applied-size
+   (ai-code-backends-infra--side-window-layout-snapshot window horizontal)))
+
+(defun ai-code-backends-infra--adopt-manual-side-window-size (window)
+  "Adopt WINDOW's current size as the target when it was resized manually.
+A manual resize changes WINDOW's total size while the frame keeps its
+size.  Frame resizes and margin changes are layout drift instead, so
+they leave the configured target alone.  Return non-nil when adopted."
+  (let* ((horizontal (memq (window-parameter window 'window-side)
+                           '(left right)))
+         (recorded (window-parameter
+                    window 'ai-code-backends-infra-applied-size))
+         (current (ai-code-backends-infra--side-window-layout-snapshot
+                   window horizontal)))
+    (when (and recorded
+               (equal (butlast recorded) (butlast current))
+               (not (equal (car (last recorded)) (car (last current)))))
+      (if horizontal
+          (setq ai-code-backends-infra-window-width
+                (window-body-width window))
+        (setq ai-code-backends-infra-window-height
+              (window-total-height window)))
+      t)))
 
 (defun ai-code-backends-infra--fit-side-window-size (window)
   "Fit WINDOW to the configured size for its actual side.
@@ -917,12 +958,14 @@ Return non-nil only when WINDOW changes size."
        (ai-code-backends-infra--session-buffer-p (window-buffer window))))
 
 (defun ai-code-backends-infra--restore-side-window-sizes (frame)
-  "Restore managed side windows on FRAME after a layout change."
+  "Restore managed side windows on FRAME after a layout change.
+A window the user resized keeps its new size, which becomes the target."
   (when (frame-live-p frame)
     (ai-code-backends-infra--cancel-side-window-size-restore frame)
     (when ai-code-backends-infra-use-side-window
       (dolist (window (window-list frame 'nomini))
         (when (ai-code-backends-infra--managed-side-window-p window)
+          (ai-code-backends-infra--adopt-manual-side-window-size window)
           (when (ai-code-backends-infra--fit-side-window-size window)
             (ai-code-backends-infra--sync-terminal-dimensions
              (window-buffer window) window)))))))
