@@ -1263,6 +1263,8 @@ BEL and ST both end a report; a repeated state is noted once."
                 ((symbol-function 'window-resizable)
                  (lambda (_window delta &rest _args) delta))
                 ((symbol-function 'window-preserve-size) #'ignore)
+                ((symbol-function 'ai-code-backends-infra--record-side-window-size)
+                 #'ignore)
                 ((symbol-function 'window-resize)
                  (lambda (window delta horizontal &optional _ignore)
                    (setq resize-call (list window delta horizontal)))))

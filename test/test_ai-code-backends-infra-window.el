@@ -171,7 +171,7 @@ Bind `window', `buffer', `other-buffer', and `frame' for BODY."
 (ert-deftest test-ai-code-backends-infra-window-deferred-restore-coalesces ()
   "Layout events should share a timer and restore without selecting a window."
   (test-ai-code-backends-infra-window--with-layout 'right
-    (window-resize window -10 t t)
+    (setq ai-code-backends-infra-window-width 100)
     (let ((selected (selected-window))
           (resize-function (symbol-function 'window-resize))
           (resize-count 0))
@@ -186,7 +186,7 @@ Bind `window', `buffer', `other-buffer', and `frame' for BODY."
                    (cl-incf resize-count)
                    (apply resize-function args))))
         (sleep-for 0.15)
-        (should (= (window-body-width window) 90))
+        (should (= (window-body-width window) 100))
         (should (= resize-count 1))
         (should-not (frame-parameter frame 'ai-code-backends-infra-resize-timer))
         (ai-code-backends-infra--restore-side-window-sizes frame)
@@ -272,6 +272,118 @@ Bind `window', `buffer', `other-buffer', and `frame' for BODY."
             ((symbol-function 'window-list)
              (lambda (&rest _args) (ert-fail "Inspected a dead frame"))))
     (ai-code-backends-infra--restore-side-window-sizes 'deleted-frame)))
+
+;;; Manual resizing
+
+(ert-deftest test-ai-code-backends-infra-window-opening-panel-retains-target ()
+  "Opening a competing panel should retain the user's target size."
+  (dolist (side '(left right top bottom))
+    (dolist (manual '(nil t))
+      (test-ai-code-backends-infra-window--with-layout side
+        (let* ((horizontal (memq side '(left right)))
+               (size-fn (if horizontal
+                            #'window-body-width
+                          #'window-total-height))
+               (expected (- (if horizontal 90 20) (if manual 10 0)))
+               (ai-code-backends-infra-window-side
+                (pcase side
+                  ('left 'right) ('right 'left)
+                  ('top 'bottom) ('bottom 'top))))
+          (unless horizontal
+            (set-frame-height frame 35)
+            (ai-code-backends-infra--restore-side-window-sizes frame))
+          ;; Do not let the deferred restore run before opening the panel.
+          (when manual
+            (window-resize window -10 horizontal t))
+          (let ((other-window
+                 (ai-code-backends-infra--display-buffer-in-side-window
+                  other-buffer)))
+            (run-hook-with-args 'window-size-change-functions frame)
+            (sleep-for 0.15)
+            (should (= (if horizontal
+                           ai-code-backends-infra-window-width
+                         ai-code-backends-infra-window-height)
+                       expected))
+            (set-frame-size frame 300 100)
+            (ai-code-backends-infra--restore-side-window-sizes frame)
+            (should (= (funcall size-fn window) expected))
+            (should (= (funcall size-fn other-window) expected))
+            (test-ai-code-backends-infra-window--assert-preserved window)
+            (test-ai-code-backends-infra-window--assert-preserved
+             other-window)))))))
+
+(ert-deftest test-ai-code-backends-infra-window-manual-resize-opposing-panels ()
+  "Restoring another panel should not overwrite a manual resize."
+  (dolist (side '(left right))
+    (dolist (select-other '(nil t))
+      (test-ai-code-backends-infra-window--with-layout side
+        (let* ((ai-code-backends-infra-window-side
+                (if (eq side 'left) 'right 'left))
+               (other-window
+                (ai-code-backends-infra--display-buffer-in-side-window
+                 other-buffer)))
+          ;; The frame cannot fit both panels at the target width of 90.
+          (should (< (window-body-width other-window) 90))
+          (select-window (if select-other other-window window))
+          ;; Use the same resize operation as mouse divider dragging.
+          (adjust-window-trailing-edge
+           (if (eq side 'left) window (window-main-window frame))
+           (if (eq side 'left) -10 10) t)
+          (should (= (window-body-width window) 80))
+          (run-hook-with-args 'window-size-change-functions frame)
+          (sleep-for 0.15)
+          (should (= (window-body-width window) 80))
+          (should (= ai-code-backends-infra-window-width 80))
+          (test-ai-code-backends-infra-window--assert-preserved window)
+          (set-frame-width frame 300)
+          (ai-code-backends-infra--restore-side-window-sizes frame)
+          (should (= ai-code-backends-infra-window-width 80))
+          (should (= (window-body-width window) 80))
+          (should (= (window-body-width other-window) 80)))))))
+
+(ert-deftest test-ai-code-backends-infra-window-manual-resize-is-adopted ()
+  "A manual resize on any side should become the new target size."
+  (dolist (side '(left right top bottom))
+    (dolist (delta '(-10 5))
+      (test-ai-code-backends-infra-window--with-layout side
+        (let* ((horizontal (memq side '(left right)))
+               (size-fn (if horizontal #'window-body-width #'window-total-height))
+               (expected (+ (if horizontal 90 20) delta)))
+          (window-resize window delta horizontal t)
+          (should (= (funcall size-fn window) expected))
+          (ai-code-backends-infra--restore-side-window-sizes frame)
+          (should (= (funcall size-fn window) expected))
+          (should (= (if horizontal
+                         ai-code-backends-infra-window-width
+                       ai-code-backends-infra-window-height)
+                     expected))
+          (test-ai-code-backends-infra-window--assert-preserved window)
+          ;; Later layout changes keep the user's size, not the old default.
+          (set-frame-size frame 120 45)
+          (set-frame-size frame 200 80)
+          (ai-code-backends-infra--restore-side-window-sizes frame)
+          (should (= (funcall size-fn window) expected)))))))
+
+(ert-deftest test-ai-code-backends-infra-window-manual-resize-survives-deferred-restore ()
+  "The deferred restore triggered by a manual resize should not undo it."
+  (test-ai-code-backends-infra-window--with-layout 'right
+    (window-resize window 10 t t)
+    (run-hook-with-args 'window-size-change-functions frame)
+    (should (timerp (frame-parameter frame 'ai-code-backends-infra-resize-timer)))
+    (sleep-for 0.15)
+    (should (= (window-body-width window) 100))
+    (should (= ai-code-backends-infra-window-width 100))
+    (test-ai-code-backends-infra-window--assert-preserved window)))
+
+(ert-deftest test-ai-code-backends-infra-window-margin-change-is-not-adopted ()
+  "Changing margins alters the body width only and should be repaired."
+  (test-ai-code-backends-infra-window--with-layout 'right
+    (set-window-margins window 2 3)
+    (should (< (window-body-width window) 90))
+    (ai-code-backends-infra--restore-side-window-sizes frame)
+    (should (= (window-body-width window) 90))
+    (should (= ai-code-backends-infra-window-width 90))
+    (test-ai-code-backends-infra-window--assert-preserved window)))
 
 (provide 'test_ai-code-backends-infra-window)
 ;;; test_ai-code-backends-infra-window.el ends here
