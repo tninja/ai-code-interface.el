@@ -846,6 +846,10 @@ buffer is in scroll/copy mode, working around bug #1422."
 
 (defun ai-code-backends-infra--display-buffer-in-side-window (buffer)
   "Display BUFFER in a side window."
+  ;; Settle pending manual changes before displaying BUFFER can resize its
+  ;; neighbors, so those programmatic changes do not become user targets.
+  (when ai-code-backends-infra-use-side-window
+    (ai-code-backends-infra--restore-side-window-sizes (selected-frame)))
   (let ((window
          (if ai-code-backends-infra-use-side-window
              (let* ((side ai-code-backends-infra-window-side)
@@ -871,6 +875,9 @@ buffer is in scroll/copy mode, working around bug #1422."
     ;; being displayed in this window.
     (when (and window (buffer-live-p buffer))
       (ai-code-backends-infra--configure-side-window-size window)
+      (when (and ai-code-backends-infra-use-side-window
+                 (window-live-p window))
+        (ai-code-backends-infra--record-side-window-sizes (window-frame window)))
       (ai-code-backends-infra--sync-terminal-dimensions buffer window)
       (with-current-buffer buffer
         (when (eq ai-code-backends-infra--session-terminal-backend 'ghostel)
@@ -957,15 +964,31 @@ Return non-nil only when WINDOW changes size."
        (memq (window-parameter window 'window-side) '(left right top bottom))
        (ai-code-backends-infra--session-buffer-p (window-buffer window))))
 
+(defun ai-code-backends-infra--record-side-window-sizes (frame)
+  "Record managed panel sizes after a programmatic layout change on FRAME."
+  (dolist (window (window-list frame 'nomini))
+    (when (ai-code-backends-infra--managed-side-window-p window)
+      (ai-code-backends-infra--record-side-window-size
+       window (memq (window-parameter window 'window-side) '(left right))))))
+
 (defun ai-code-backends-infra--restore-side-window-sizes (frame)
   "Restore managed side windows on FRAME after a layout change.
 A window the user resized keeps its new size, which becomes the target."
   (when (frame-live-p frame)
     (ai-code-backends-infra--cancel-side-window-size-restore frame)
     (when ai-code-backends-infra-use-side-window
-      (dolist (window (window-list frame 'nomini))
-        (when (ai-code-backends-infra--managed-side-window-p window)
-          (ai-code-backends-infra--adopt-manual-side-window-size window)
+      (let ((windows (cl-remove-if-not
+                      #'ai-code-backends-infra--managed-side-window-p
+                      (window-list frame 'nomini))))
+        ;; Detect manual changes before fitting any window.  A fit can resize
+        ;; another panel and must not be mistaken for a second manual change.
+        (dolist (window windows)
+          (when (ai-code-backends-infra--adopt-manual-side-window-size window)
+            ;; Protect the user's size before a competing panel can take it.
+            (window-preserve-size
+             window (memq (window-parameter window 'window-side) '(left right))
+             t)))
+        (dolist (window windows)
           (when (ai-code-backends-infra--fit-side-window-size window)
             (ai-code-backends-infra--sync-terminal-dimensions
              (window-buffer window) window)))))))
